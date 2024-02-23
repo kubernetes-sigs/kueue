@@ -1269,7 +1269,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/job-job-ed7d5",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
 				},
 			},
 		},
@@ -1370,7 +1370,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/job-job-ed7d5",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID(strings.Repeat("long-uid", 8))),
 				},
 			},
 		},
@@ -1775,7 +1775,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/job-job-ed7d5",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
 				},
 			},
 		},
@@ -1819,7 +1819,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/job-job-ed7d5",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
 				},
 			},
 		},
@@ -1865,7 +1865,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/job-job-ed7d5",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
 				},
 			},
 		},
@@ -2046,7 +2046,7 @@ func TestReconciler(t *testing.T) {
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
@@ -2066,7 +2066,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
@@ -2090,7 +2090,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "UpdatedWorkload",
-					Message:   "Updated not matching Workload for suspended job: ns/job-job-ed7d5",
+					Message:   "Updated not matching Workload for suspended job: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
 				},
 			},
 		},
@@ -2108,7 +2108,7 @@ func TestReconciler(t *testing.T) {
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
@@ -2145,7 +2145,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "DeletedWorkload",
-					Message:   "Deleted not matching Workload: ns/job-job-ed7d5",
+					Message:   "Deleted not matching Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
 				},
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
@@ -2164,7 +2164,7 @@ func TestReconciler(t *testing.T) {
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue("foo").
 					PodSets(
@@ -2195,7 +2195,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "DeletedWorkload",
-					Message:   "Deleted not matching Workload: ns/job-job-ed7d5",
+					Message:   "Deleted not matching Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
 				},
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,

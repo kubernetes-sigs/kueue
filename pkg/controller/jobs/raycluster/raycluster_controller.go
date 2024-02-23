@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -178,8 +179,8 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
-func GetWorkloadNameForRayCluster(jobName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
+func GetWorkloadNameForRayCluster(jobName string, jobUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }
 
 func isRayCluster(owner *metav1.OwnerReference) bool {

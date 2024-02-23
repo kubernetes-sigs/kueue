@@ -341,6 +341,6 @@ func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, fieldIndexer, gvk)
 }
 
-func GetWorkloadNameForJob(jobName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
+func GetWorkloadNameForJob(jobName string, jobUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }

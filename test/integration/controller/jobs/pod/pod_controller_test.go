@@ -95,9 +95,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 
 		var (
-			ns          *corev1.Namespace
-			lookupKey   types.NamespacedName
-			wlLookupKey types.NamespacedName
+			ns        *corev1.Namespace
+			lookupKey types.NamespacedName
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -107,7 +106,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-			wlLookupKey = types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(podName), Namespace: ns.Name}
 			lookupKey = types.NamespacedName{Name: podName, Namespace: ns.Name}
 		})
 
@@ -140,6 +138,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				ginkgo.By("checking that workload is created for pod with the queue name")
 				createdWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
 				gomega.Eventually(func() error {
 					return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -211,6 +210,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				ginkgo.By("checking that workload is created for pod with the queue name")
 				createdWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
 				gomega.Eventually(func() error {
 					return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -271,6 +271,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 					ginkgo.By("checking that workload is created for pod with the queue name")
 					createdWorkload := &kueue.Workload{}
+					wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
 					gomega.Eventually(func() error {
 						return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -359,6 +360,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement("kueue.x-k8s.io/managed"),
 						"Pod shouldn't have finalizer")
 
+					wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(createdPod.Name, createdPod.UID), Namespace: ns.Name}
 					ginkgo.By(fmt.Sprintf("checking that workload '%s' is not created", wlLookupKey))
 					createdWorkload := &kueue.Workload{}
 
@@ -373,7 +375,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					localQueue     *kueue.LocalQueue
 					testFlavor     *kueue.ResourceFlavor
 					podLookupKey   *types.NamespacedName
-					wlLookupKey    *types.NamespacedName
 					admissionCheck *kueue.AdmissionCheck
 				)
 
@@ -398,7 +399,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Expect(k8sClient.Create(ctx, testFlavor)).Should(gomega.Succeed())
 
 					podLookupKey = &types.NamespacedName{Name: podName, Namespace: ns.Name}
-					wlLookupKey = &types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(podName), Namespace: ns.Name}
 				})
 
 				ginkgo.AfterEach(func() {
@@ -411,15 +411,15 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
 					createdPod := &corev1.Pod{}
 					createdWorkload := &kueue.Workload{}
+					pod := testingpod.MakePod(podName, ns.Name).
+						Queue(localQueue.Name).
+						Request(corev1.ResourceCPU, "5").
+						Annotation("old-ann-key", "old-ann-value").
+						Label("old-label-key", "old-label-value").
+						Obj()
 
 					ginkgo.By("creating the job with pod labels & annotations", func() {
-						job := testingpod.MakePod(podName, ns.Name).
-							Queue(localQueue.Name).
-							Request(corev1.ResourceCPU, "5").
-							Annotation("old-ann-key", "old-ann-value").
-							Label("old-label-key", "old-label-value").
-							Obj()
-						gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+						gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
 					})
 
 					ginkgo.By("fetch the job and verify it is suspended as the checks are not ready", func() {
@@ -431,6 +431,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						)
 					})
 
+					wlLookupKey := &types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
 					ginkgo.By("fetch the created workload", func() {
 						gomega.Eventually(func() error {
 							return k8sClient.Get(ctx, *wlLookupKey, createdWorkload)
@@ -1296,7 +1297,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 
 			ginkgo.By("clearing the workload's admission to stop the job", func() {
 				wl := &kueue.Workload{}
-				wlKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name), Namespace: pod.Namespace}
+				wlKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: pod.Namespace}
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)

@@ -851,7 +851,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	if !p.isGroup {
 		wl.Spec.PodSets = p.PodSets()
 
-		wl.Name = jobframework.GetWorkloadNameForOwnerWithGVK(p.pod.GetName(), p.GVK())
+		wl.Name = jobframework.GetWorkloadNameForOwnerWithGVK(p.pod.GetName(), p.pod.GetUID(), p.GVK())
 		jobUid := string(object.GetUID())
 		if errs := validation.IsValidLabelValue(jobUid); len(errs) == 0 {
 			wl.Labels[controllerconsts.JobUIDLabel] = jobUid
@@ -1089,6 +1089,6 @@ func IsPodOwnerManagedByKueue(p *Pod) bool {
 	return false
 }
 
-func GetWorkloadNameForPod(podName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(podName, gvk)
+func GetWorkloadNameForPod(podName string, podUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(podName, podUID, gvk)
 }

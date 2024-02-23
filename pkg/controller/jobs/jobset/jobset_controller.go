@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -220,6 +221,6 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
-func GetWorkloadNameForJobSet(jobSetName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobSetName, gvk)
+func GetWorkloadNameForJobSet(jobSetName string, jobSetUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobSetName, jobSetUID, gvk)
 }

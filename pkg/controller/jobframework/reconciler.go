@@ -815,7 +815,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
+			Name:       GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()),
 			Namespace:  object.GetNamespace(),
 			Labels:     map[string]string{},
 			Finalizers: []string{kueue.ResourceInUseFinalizerName},

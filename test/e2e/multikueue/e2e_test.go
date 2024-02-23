@@ -196,7 +196,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: managerNs.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
 			ginkgo.By("Waiting to be admitted in worker1", func() {
@@ -268,7 +268,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name), Namespace: managerNs.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
 			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
