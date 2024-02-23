@@ -82,3 +82,17 @@ func CmpNoOrder[E comparable, S ~[]E](a, b S) bool {
 	}
 	return true
 }
+
+// Pick creates a new slice containing only the elements for which keep return true.
+func Pick[E any, S ~[]E](s S, keep func(*E) bool) S {
+	if s == nil {
+		return nil
+	}
+	ret := S{}
+	for i := range s {
+		if keep(&s[i]) {
+			ret = append(ret, s[i])
+		}
+	}
+	return ret
+}

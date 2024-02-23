@@ -102,3 +102,36 @@ func TestToCmpNoOrder(t *testing.T) {
 		})
 	}
 }
+
+func TestPick(t *testing.T) {
+	cases := map[string]struct {
+		testSlice []int
+		want      []int
+	}{
+		"nil input": {
+			testSlice: nil,
+			want:      nil,
+		},
+		"empty input": {
+			testSlice: []int{},
+			want:      []int{},
+		},
+		"no match": {
+			testSlice: []int{1, 3, 5, 7, 9},
+			want:      []int{},
+		},
+		"match": {
+			testSlice: []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
+			want:      []int{2, 4, 6, 8},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := Pick(tc.testSlice, func(i *int) bool { return (*i)%2 == 0 })
+			if diff := cmp.Diff(tc.want, result); diff != "" {
+				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
