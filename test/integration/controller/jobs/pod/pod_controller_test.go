@@ -770,10 +770,19 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(k8sClient.Create(ctx, replacementPod)).Should(gomega.Succeed())
 				replacementPodLookupKey := client.ObjectKeyFromObject(replacementPod)
 
+				ginkgo.By("Failing the replacement", func() {
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, replacementPod)
+				})
+
 				// Workload shouldn't be deleted after replacement pod has been created
 				gomega.Consistently(func() error {
 					return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, replacementPodLookupKey, createdPod)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPodLookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 

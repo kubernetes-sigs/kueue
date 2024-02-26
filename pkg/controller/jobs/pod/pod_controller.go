@@ -708,7 +708,7 @@ func (p *Pod) runnableOrSucceededPods() []corev1.Pod {
 }
 
 // notRunnableandAndNotSucceededPods returns a slice of inactive pods in the group
-func (p *Pod) notRunnableAndNotSucceededPods() []corev1.Pod {
+func (p *Pod) notRunnableNorSucceededPods() []corev1.Pod {
 	return utilslices.Pick(p.list.Items, func(p *corev1.Pod) bool { return !isPodRunnableOrSucceeded(p) })
 }
 
@@ -1035,7 +1035,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 
 	// Cleanup excess pods for each workload pod set (role)
 	activePods := p.runnableOrSucceededPods()
-	inactivePods := p.notRunnableAndNotSucceededPods()
+	inactivePods := p.notRunnableNorSucceededPods()
 
 	for _, ps := range workload.Spec.PodSets {
 		// Find all the active and inactive pods of the role
@@ -1058,8 +1058,6 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 		if err != nil {
 			return nil, nil, err
 		}
-
-		// Cleanup replaced inactive pods
 	}
 
 	jobPodSets, err := p.constructGroupPodSets()

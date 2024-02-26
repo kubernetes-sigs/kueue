@@ -581,7 +581,8 @@ The Pod group will generally only be considered finished if all the Pods finish 
 phase.
 This allows the user to send replacement Pods when a Pod in the group fails or if the group is
 preempted. The replacement Pods can have any name, but they must point to the same pod group.
-Once the replacement Pod is created the old one will be completely removed.
+Once a replacement Pod is created, and Kueue has added it as an owner of the Workload, the
+Failed pod will be deleted.
 
 To declare that a group is failed, a user can execute one of the following actions:
 1. Issue a Delete for the Workload object. The controller would terminate all running Pods and

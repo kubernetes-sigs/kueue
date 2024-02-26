@@ -114,11 +114,11 @@ func TestPick(t *testing.T) {
 		},
 		"empty input": {
 			testSlice: []int{},
-			want:      []int{},
+			want:      nil,
 		},
 		"no match": {
 			testSlice: []int{1, 3, 5, 7, 9},
-			want:      []int{},
+			want:      nil,
 		},
 		"match": {
 			testSlice: []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
