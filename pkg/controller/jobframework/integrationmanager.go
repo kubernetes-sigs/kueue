@@ -130,7 +130,7 @@ func (m *integrationManager) getCallbacksForOwner(ownerRef *metav1.OwnerReferenc
 }
 
 // RegisterIntegration registers a new framework, returns an error when
-// attempting to register multiple frameworks with the same name of if a
+// attempting to register multiple frameworks with the same name or if a
 // mandatory callback is missing.
 func RegisterIntegration(name string, cb IntegrationCallbacks) error {
 	return manager.register(name, cb)
