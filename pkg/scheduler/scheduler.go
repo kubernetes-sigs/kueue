@@ -202,8 +202,9 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 4. Sort entries based on borrowing, priorities (if enabled) and timestamps.
 	sort.Sort(entryOrdering{
-		entries:          entries,
-		workloadOrdering: s.workloadOrdering,
+		enableFairSharing: s.enableFairSharing,
+		entries:           entries,
+		workloadOrdering:  s.workloadOrdering,
 	})
 
 	// 5. Admit entries, ensuring that no more than one workload gets
@@ -315,11 +316,13 @@ type entry struct {
 	// workload.Info holds the workload from the API as well as resource usage
 	// and flavors assigned.
 	workload.Info
-	assignment        flavorassigner.Assignment
-	status            entryStatus
-	inadmissibleMsg   string
-	requeueReason     queue.RequeueReason
-	preemptionTargets []*workload.Info
+	dominantResourceShare int
+	dominantResourceName  corev1.ResourceName
+	assignment            flavorassigner.Assignment
+	status                entryStatus
+	inadmissibleMsg       string
+	requeueReason         queue.RequeueReason
+	preemptionTargets     []*workload.Info
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -354,6 +357,9 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
+			if s.enableFairSharing {
+				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShare(&w)
+			}
 		}
 		entries = append(entries, e)
 	}
@@ -555,8 +561,9 @@ func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload
 }
 
 type entryOrdering struct {
-	entries          []entry
-	workloadOrdering workload.Ordering
+	enableFairSharing bool
+	entries           []entry
+	workloadOrdering  workload.Ordering
 }
 
 func (e entryOrdering) Len() int {
@@ -582,7 +589,12 @@ func (e entryOrdering) Less(i, j int) bool {
 		return !aBorrows
 	}
 
-	// 2. Higher priority first if not disabled.
+	// 2. Fair share, if enabled.
+	if e.enableFairSharing && a.dominantResourceShare != b.dominantResourceShare {
+		return a.dominantResourceShare < b.dominantResourceShare
+	}
+
+	// 3. Higher priority first if not disabled.
 	if features.Enabled(features.PrioritySortingWithinCohort) {
 		p1 := priority.Priority(a.Obj)
 		p2 := priority.Priority(b.Obj)
@@ -591,7 +603,7 @@ func (e entryOrdering) Less(i, j int) bool {
 		}
 	}
 
-	// 3. FIFO.
+	// 4. FIFO.
 	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
