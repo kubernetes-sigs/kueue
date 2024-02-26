@@ -746,8 +746,21 @@ func lastActiveTime(p *corev1.Pod) time.Time {
 func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.EventRecorder, totalCount int, activePods []corev1.Pod, inactivePods []corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	extraInactivePodsCount := min(len(inactivePods), len(inactivePods)+len(activePods)-totalCount)
+	extraActivePodsCount := len(activePods) - totalCount
+
+	if extraActivePodsCount <= 0 && extraInactivePodsCount <= 0 {
+		return nil
+	}
+	// Do not clean up more pods until observing previous operations
+	if !p.satisfiedExcessPods {
+		return errPendingOps
+	}
+
+	var extraPods []corev1.Pod
+
 	// Remove inactive pods that have a replacement
-	if len(inactivePods) > 0 && (len(inactivePods)+len(activePods)) > totalCount {
+	if extraInactivePodsCount > 0 {
 		// Sort inactive pods
 		sort.Slice(activePods, func(i, j int) bool {
 			pi := &activePods[i]
@@ -769,65 +782,37 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.E
 			return iLastActive.Before(jLastActive)
 		})
 
-		extraPods := inactivePods[:min(len(inactivePods), len(inactivePods)+len(activePods)-totalCount)]
-		err := parallelize.Until(ctx, len(extraPods), func(i int) error {
-			pod := extraPods[i]
-			if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {
-				log.V(3).Info("Finalizing excess inactive pod in group", "excessPod", klog.KObj(&pod))
-				if err := c.Update(ctx, &pod); err != nil {
-					return err
-				}
+		extraPods = inactivePods[:extraInactivePodsCount]
+	}
+
+	if extraActivePodsCount > 0 {
+		// Sort active pods by creation timestamp
+		sort.Slice(activePods, func(i, j int) bool {
+			pi := &activePods[i]
+			pj := &activePods[j]
+			iFin := slices.Contains(pi.Finalizers, PodFinalizer)
+			jFin := slices.Contains(pj.Finalizers, PodFinalizer)
+			// Prefer to keep pods that have a finalizer.
+			if iFin != jFin {
+				return iFin
 			}
-			if pod.DeletionTimestamp.IsZero() {
-				log.V(3).Info("Deleting excess inactive pod in group", "excessPod", klog.KObj(&pod))
-				if err := c.Delete(ctx, &pod); err != nil {
-					return err
-				}
-				r.Event(&pod, corev1.EventTypeNormal, ReasonExcessPodDeleted, "Replaced pod deleted")
+			iGated := gateIndex(pi) != gateNotFound
+			jGated := gateIndex(pj) != gateNotFound
+			// Prefer to keep pods that aren't gated.
+			if iGated != jGated {
+				return !iGated
 			}
-			return nil
+			return pi.CreationTimestamp.Before(&pj.CreationTimestamp)
 		})
-		if err != nil {
-			return err
-		}
+
+		// Extract all the latest created extra pods
+		extraActivePods := activePods[len(activePods)-extraActivePodsCount:]
+		extraPodsUIDs := utilslices.Map(extraActivePods, func(p *corev1.Pod) types.UID { return p.UID })
+		p.excessPodExpectations.ExpectUIDs(log, p.key, extraPodsUIDs)
+		extraPods = append(extraPods, extraActivePods...)
 	}
-
-	extraPodsCount := len(activePods) - totalCount
-
-	if extraPodsCount <= 0 {
-		return nil
-	}
-	// Do not clean up more pods until observing previous operations
-	if !p.satisfiedExcessPods {
-		return errPendingOps
-	}
-
-	// Sort active pods by creation timestamp
-	sort.Slice(activePods, func(i, j int) bool {
-		pi := &activePods[i]
-		pj := &activePods[j]
-		iFin := slices.Contains(pi.Finalizers, PodFinalizer)
-		jFin := slices.Contains(pj.Finalizers, PodFinalizer)
-		// Prefer to keep pods that have a finalizer.
-		if iFin != jFin {
-			return iFin
-		}
-		iGated := gateIndex(pi) != gateNotFound
-		jGated := gateIndex(pj) != gateNotFound
-		// Prefer to keep pods that aren't gated.
-		if iGated != jGated {
-			return !iGated
-		}
-		return pi.ObjectMeta.CreationTimestamp.Before(&pj.ObjectMeta.CreationTimestamp)
-	})
-
-	// Extract all the latest created extra pods
-	extraPods := activePods[len(activePods)-extraPodsCount:]
-	extraPodsUIDs := utilslices.Map(extraPods, func(p *corev1.Pod) types.UID { return p.UID })
-	p.excessPodExpectations.ExpectUIDs(log, p.key, extraPodsUIDs)
 
 	// Finalize and delete the active pods created last
-
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
 		if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {
@@ -838,7 +823,7 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.E
 				return err
 			}
 		}
-		if pod.ObjectMeta.DeletionTimestamp.IsZero() {
+		if pod.DeletionTimestamp.IsZero() {
 			log.V(3).Info("Deleting excess pod in group", "excessPod", klog.KObj(&pod))
 			if err := c.Delete(ctx, &pod); err != nil {
 				// We won't observe this cleanup in the event handler.
