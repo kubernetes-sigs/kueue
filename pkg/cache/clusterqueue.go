@@ -19,6 +19,7 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -680,21 +681,30 @@ func (c *ClusterQueue) UsedCohortQuota(fName kueue.ResourceFlavorReference, rNam
 	return cohortUsage
 }
 
-// DominantResourceShare returns a value from 0 to 100 representing the maximum of the ratios
+// DominantResourceShare returns a value from -100 to 100 representing the maximum of the ratios
 // of usage above nominal quota to the lendable resources in the cohort, among all the resources
 // provided by the ClusterQueue.
+// If negative, it means that the usage of the ClusterQueue is below the nominal quota.
 // The function also returns the resource name that yielded this value.
 func (c *ClusterQueue) DominantResourceShare(w *workload.Info) (int, corev1.ResourceName) {
+	return c.dominantResourceShare(w, 1)
+}
+
+func (c *ClusterQueue) DominantResourceShareWithout(w *workload.Info) (int, corev1.ResourceName) {
+	return c.dominantResourceShare(w, -1)
+}
+
+func (c *ClusterQueue) dominantResourceShare(w *workload.Info, m int64) (int, corev1.ResourceName) {
 	if c.Cohort == nil {
 		return 0, ""
 	}
-	var drs int64 = -1
+	var drs int64 = math.MinInt64
 	var dRes corev1.ResourceName
 	wUsage := w.ResourceUsage()
 	for rName, rStats := range c.ResourceStats {
 		var ratio int64
 		if c.Cohort.ResourceStats[rName].Lendable > 0 {
-			ratio = max(rStats.Usage+wUsage[rName]-rStats.Nominal, 0) * 100 /
+			ratio = (rStats.Usage + wUsage[rName]*m - rStats.Nominal) * 100 /
 				c.Cohort.ResourceStats[rName].Lendable
 		}
 		// Use alphabetical order to get a deterministic resource name.

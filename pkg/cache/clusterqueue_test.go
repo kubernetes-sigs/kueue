@@ -674,7 +674,8 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 			},
-			wantDRName: corev1.ResourceCPU, // due to alphabetical order.
+			wantDRName:  corev1.ResourceCPU, // due to alphabetical order.
+			wantDRValue: -10,
 		},
 		"usage above nominal": {
 			cq: ClusterQueue{

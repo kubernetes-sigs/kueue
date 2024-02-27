@@ -1544,6 +1544,62 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "on-demand", "1").Obj(),
 			},
 		},
+		"with fair sharing: preempt workload from CQ with the highest share": {
+			enableFairSharing: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("eng-gamma").
+					Cohort("eng").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50", "0").Obj(),
+					).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("all_spot", "eng-alpha").
+					Request(corev1.ResourceCPU, "100").
+					SimpleReserveQuota("eng-alpha", "spot", now).Obj(),
+				*utiltesting.MakeWorkload("alpha1", "eng-alpha").UID("alpha1").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("alpha2", "eng-alpha").UID("alpha2").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("alpha3", "eng-alpha").UID("alpha3").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("alpha4", "eng-alpha").UID("alpha4").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("gamma1", "eng-gamma").UID("gamma1").
+					Request(corev1.ResourceCPU, "50").
+					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("gamma2", "eng-gamma").UID("gamma2").
+					Request(corev1.ResourceCPU, "10").
+					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("gamma3", "eng-gamma").UID("gamma3").
+					Request(corev1.ResourceCPU, "10").
+					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "30").Obj(),
+			},
+			wantPreempted: sets.New("eng-alpha/alpha1", "eng-gamma/gamma2"),
+			wantLeft: map[string][]string{
+				// Preemptor is not admitted in this cycle.
+				"eng-beta": {"eng-beta/preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/all_spot": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "100").Obj(),
+				"eng-alpha/alpha1":   *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+				"eng-alpha/alpha2":   *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+				"eng-alpha/alpha3":   *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+				"eng-alpha/alpha4":   *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+				"eng-gamma/gamma1":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
+				"eng-gamma/gamma2":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
+				"eng-gamma/gamma3":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
