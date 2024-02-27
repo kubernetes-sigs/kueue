@@ -236,7 +236,7 @@ func (c *Cache) ClusterQueueReadiness(name string) (metav1.ConditionStatus, stri
 	if cq == nil {
 		return metav1.ConditionFalse, "NotFound", "ClusterQueue not found"
 	}
-	if cq != nil && cq.Status == active {
+	if cq.Status == active {
 		return metav1.ConditionTrue, "Ready", "Can admit new workloads"
 	}
 	reason, msg := cq.inactiveReason()
