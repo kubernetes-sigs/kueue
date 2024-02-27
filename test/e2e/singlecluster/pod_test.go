@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -242,7 +241,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						select {
 						case evt, ok := <-eventWatcher.ResultChan():
 							gomega.Expect(ok).To(gomega.BeTrue())
-							event, ok := evt.Object.(*v1.Event)
+							event, ok := evt.Object.(*corev1.Event)
 							gomega.Expect(ok).To(gomega.BeTrue())
 							if event.InvolvedObject.Namespace == ns.Name && event.Reason == "ExcessPodDeleted" {
 								objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
@@ -379,7 +378,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					select {
 					case evt, ok := <-eventWatcher.ResultChan():
 						gomega.Expect(ok).To(gomega.BeTrue())
-						event, ok := evt.Object.(*v1.Event)
+						event, ok := evt.Object.(*corev1.Event)
 						gomega.Expect(ok).To(gomega.BeTrue())
 						if event.InvolvedObject.Namespace == ns.Name && event.Reason == "Stopped" {
 							objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
@@ -399,7 +398,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						if _, found := replacementPods[origKey]; !found {
 							var p corev1.Pod
 							gomega.Expect(k8sClient.Get(ctx, origKey, &p)).To(gomega.Succeed())
-							if p.Status.Phase == v1.PodFailed {
+							if p.Status.Phase == corev1.PodFailed {
 								rep := origPod.DeepCopy()
 								// For replacement pods use args that let it complete fast.
 								rep.Name = "replacement-for-" + rep.Name
@@ -442,7 +441,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						var p corev1.Pod
 						g.Expect(k8sClient.Get(ctx, replKey, &p)).To(gomega.Succeed())
-						g.Expect(p.Status.Phase).To(gomega.Equal(v1.PodSucceeded))
+						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				}
 			})

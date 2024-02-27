@@ -26,7 +26,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -144,7 +143,7 @@ func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 	gomega.Eventually(func() error {
 		lst := corev1.PodList{}
 		err := c.List(ctx, &lst, client.InNamespace(ns.Name))
-		if err != nil && !errors.IsNotFound(err) {
+		if err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("listing Pods with a finalizer in namespace %q: %w", ns.Name, err)
 		}
 
@@ -171,7 +170,7 @@ func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1
 	gomega.Eventually(func() error {
 		lst := kueue.WorkloadList{}
 		err := c.List(ctx, &lst, client.InNamespace(ns.Name))
-		if err != nil && !errors.IsNotFound(err) {
+		if err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("listing Workloads with a finalizer in namespace %q: %w", ns.Name, err)
 		}
 
