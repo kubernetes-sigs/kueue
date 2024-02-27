@@ -1,24 +1,19 @@
 ---
-title: "MultiKueue Admission Check Controller"
-date: 2024-02-08
-weight: 2
+title: "MultiKueue"
+date: 2024-02-26
+weight: 7
 description: >
-  An admission check controller for multi cluster job dispatching.
+  Kueue multi cluster job dispatching.
 ---
 
 {{% alert title="Warning" color="warning" %}}
 _Available in Kueue v0.6.0 and later_
 {{% /alert %}}
 
-MultiKueue is an [admission check](/docs/concepts/admission_check/) controller designed to provide the manager side functionality for multi cluster job dispatching.
-
-You can enable it by setting the `MultiKueue` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-
 {{% alert title="Warning" color="warning" %}}
-MultiKueue is currently an alpha feature and disabled by default.
+MultiKueue is currently an alpha feature and disabled by default. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 {{% /alert %}}
 
-## MultiKueue Overview
 
 A MultiKueue setup is composed of a manager cluster and at least one worker cluster.
 
@@ -53,7 +48,6 @@ For a job to be subject to multi cluster dispatching, you need to assign it to a
   - The manager does a last sync for the objects status.
   - The manager removes the objects from the worker cluster.
 
-
 ## Supported jobs
 
 ### batch/Job
@@ -69,25 +63,9 @@ Known Limitations:
 
 An approach similar to the one described for [`batch/Job`](#batchjob) is taken into account to overcome this. 
 
-## Parameters
+## Submitting Jobs
 
-An AdmissionCheck controlled by `multikueue` should use a `kueue.x-k8s.io/v1alpha1` `MultiKueueConfig` parameters object, details of its structure can be found in [Kueue Alpha API reference section](/docs/reference/kueue-alpha.v1alpha1/#kueue-x-k8s-io-v1alpha1-MultiKueueConfig)
+After the [configuration](/docs/tasks/setup_multikueue), any MultiKueue supported job submitted in the Manager cluster which targets a MultiKueue configured ClusterQueue is subject to multikueue job delegation without any additional job configuration changes.
 
-## Example
-
-### Setup
-
-#### Worker Cluster
-
-When MultiKueue dispatches a workload from the manager cluster to a worker cluster, it expects that the job's namespace and LocalQueue also exist in the worker cluster.
-In other words, you should ensure that the worker cluster configuration mirrors the one of the manager cluster in terms of namespaces and LocalQueues.
-
-#### Manager Cluster
-
-{{< include "/examples/multikueue/multikueue-setup.yaml" "yaml" >}}
-
-For the example provided, having the worker1 cluster kubeconfig stored in a file called `worker1.kubeconfig`, you can create the `worker1-secret` secret by running the following command:
-
-```bash
- kubectl create secret generic worker1-secret -n kueue-system --from-file=kubeconfig=worker1.kubeconfig
-```
+## What’s next? 
+- Learn about [MultiKueue environment setup](/docs/tasks/setup_multikueue/)
