@@ -111,8 +111,6 @@ type ComposableJob interface {
 	FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (match *kueue.Workload, toDelete []*kueue.Workload, err error)
 	// Stop implements the custom stop procedure for ComposableJob
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) ([]client.Object, error)
-	// Ensure all members of the ComposableJob are owning the workload
-	EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error
 }
 
 func QueueName(job GenericJob) string {
