@@ -566,7 +566,7 @@ In the Pod-group reconciler:
 1. If the Pod is not terminated and doesn't have a deletionTimestamp,
    create a Workload for the pod group if one does not exist.
 2. Remove Pod finalizers if:
-  - The Pod is terminated and the Workload is finished, has a deletion timestamp or is finished.
+  - The Pod is terminated and the Workload is finished or has a deletion timestamp.
   - The Pod Failed and a valid replacement pod was created for it.
 3. Build the in-memory Workload. If its podset counters are greater than the stored Workload,
    then evict the Workload.
@@ -582,7 +582,8 @@ phase.
 This allows the user to send replacement Pods when a Pod in the group fails or if the group is
 preempted. The replacement Pods can have any name, but they must point to the same pod group.
 Once a replacement Pod is created, and Kueue has added it as an owner of the Workload, the
-Failed pod will be deleted.
+Failed pod will be finalized. If multiple Pods have Failed, a new Pod is assumed to replace 
+the Pod that failed first. 
 
 To declare that a group is failed, a user can execute one of the following actions:
 1. Issue a Delete for the Workload object. The controller would terminate all running Pods and

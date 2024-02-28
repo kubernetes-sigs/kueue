@@ -1289,6 +1289,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 				*basePodWrapper.
 					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					Group("test-group").
+					GroupTotalCount("3").
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+				*basePodWrapper.
+					Clone().
 					Name("pod3").
 					Label("kueue.x-k8s.io/managed", "true").
 					KueueFinalizer().
@@ -1328,12 +1336,6 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "ExcessPodDeleted",
-					Message:   "Excess pod deleted",
-				},
 				{
 					Key:       types.NamespacedName{Name: "test-group", Namespace: "ns"},
 					EventType: "Normal",
@@ -1387,6 +1389,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 				*basePodWrapper.
 					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					Group("test-group").
+					GroupTotalCount("2").
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+				*basePodWrapper.
+					Clone().
 					Name("pod3").
 					Label("kueue.x-k8s.io/managed", "true").
 					Group("test-group").
@@ -1432,12 +1442,6 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "ExcessPodDeleted",
-					Message:   "Excess pod deleted",
-				},
 				{
 					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
 					EventType: "Normal",
@@ -2915,7 +2919,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"the failed pods are replaced in order": {
+		"the failed pods are finalized in order": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2999,6 +3003,20 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 				*basePodWrapper.
 					Clone().
+					Name("finished-with-error").
+					Label("kueue.x-k8s.io/managed", "true").
+					Group("test-group").
+					GroupTotalCount("4").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
 					Name("finished-with-error2").
 					Label("kueue.x-k8s.io/managed", "true").
 					KueueFinalizer().
@@ -3065,12 +3083,6 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "finished-with-error", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "ExcessPodDeleted",
-					Message:   "Excess pod deleted",
-				},
 				{
 					Key:       types.NamespacedName{Name: "test-group", Namespace: "ns"},
 					EventType: "Normal",
