@@ -48,12 +48,7 @@ func TestLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// temp dir
-	tmpDir, err := os.MkdirTemp("", "temp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	namespaceOverWriteConfig := filepath.Join(tmpDir, "namespace-overwrite.yaml")
 	if err := os.WriteFile(namespaceOverWriteConfig, []byte(`
