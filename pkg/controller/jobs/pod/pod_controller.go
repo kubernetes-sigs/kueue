@@ -795,11 +795,11 @@ func sortActivePods(activePods []corev1.Pod) {
 }
 
 func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.EventRecorder, extraPods []corev1.Pod) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	if len(extraPods) == 0 {
 		return nil
 	}
+
+	log := ctrl.LoggerFrom(ctx)
 
 	// Extract all the latest created extra pods
 	extraPodsUIDs := utilslices.Map(extraPods, func(p *corev1.Pod) types.UID { return p.UID })
@@ -833,21 +833,29 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	return nil
 }
 
-func finalizePods(ctx context.Context, c client.Client, extraPods []corev1.Pod) error {
-	log := ctrl.LoggerFrom(ctx)
-
+func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []corev1.Pod) error {
 	if len(extraPods) == 0 {
 		return nil
 	}
 
-	// Finalize and delete the active pods created last
+	log := ctrl.LoggerFrom(ctx)
+
+	// Extract all the latest created extra pods
+	extraPodsUIDs := utilslices.Map(extraPods, func(p *corev1.Pod) types.UID { return p.UID })
+	p.excessPodExpectations.ExpectUIDs(log, p.key, extraPodsUIDs)
+
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
 		if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {
 			log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
 			if err := c.Update(ctx, &pod); err != nil {
+				// We won't observe this cleanup in the event handler.
+				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
+		} else {
+			// We don't expect an event in this case.
+			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 		}
 		return nil
 	})
@@ -855,7 +863,6 @@ func finalizePods(ctx context.Context, c client.Client, extraPods []corev1.Pod) 
 		return err
 	}
 	return nil
-
 }
 
 func (p *Pod) ensureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error {
@@ -917,7 +924,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		return wl, nil
 	}
 
-	if err := finalizePods(ctx, c, p.notRunnableNorSucceededPods()); err != nil {
+	if err := p.finalizePods(ctx, c, p.notRunnableNorSucceededPods()); err != nil {
 		return nil, err
 	}
 
@@ -1084,7 +1091,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 		return nil, nil, err
 	}
 
-	if err := finalizePods(ctx, c, replacedInactivePods); err != nil {
+	if err := p.finalizePods(ctx, c, replacedInactivePods); err != nil {
 		return nil, nil, err
 	}
 	return workload, []*kueue.Workload{}, nil

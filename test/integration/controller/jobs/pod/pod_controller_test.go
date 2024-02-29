@@ -779,12 +779,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					util.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, replacementPod)
 				})
 
-				// Workload shouldn't be deleted after replacement pod has been created
-				gomega.Consistently(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.UID).To(gomega.Equal(wlUid))
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
-
 				ginkgo.By("Creating a second replacement pod in the group")
 				replacementPod2 := testingpod.MakePod("replacement-test-pod2", ns.Name).
 					Group("test-group").
@@ -800,6 +794,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				gomega.Eventually(func(g gomega.Gomega) []metav1.Condition {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.UID).To(gomega.Equal(wlUid))
 					return createdWorkload.Status.Conditions
 				}, util.Timeout, util.Interval).Should(gomega.ContainElement(
 					gomega.BeComparableTo(
