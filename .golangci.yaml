@@ -18,5 +18,6 @@ linters-settings:
 # Settings for enabling and disabling linters
 linters:
   enable:
+    - ginkgolinter
     - gocritic
     - goimports
