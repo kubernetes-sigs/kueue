@@ -711,7 +711,7 @@ func (p *Pod) runnableOrSucceededPods() []corev1.Pod {
 	return utilslices.Pick(p.list.Items, isPodRunnableOrSucceeded)
 }
 
-// notRunnableandAndNotSucceededPods returns a slice of inactive pods in the group
+// notRunnableNorSucceededPods returns a slice of inactive pods in the group
 func (p *Pod) notRunnableNorSucceededPods() []corev1.Pod {
 	return utilslices.Pick(p.list.Items, func(p *corev1.Pod) bool { return !isPodRunnableOrSucceeded(p) })
 }
@@ -946,13 +946,13 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 
 	// Cleanup extra pods if there's any
-	if excesPodsCount := len(activePods) - groupTotalCount; excesPodsCount > 0 {
+	if excessPodsCount := len(activePods) - groupTotalCount; excessPodsCount > 0 {
 		sortActivePods(activePods)
-		err = p.removeExcessPods(ctx, c, r, activePods[len(activePods)-excesPodsCount:])
+		err = p.removeExcessPods(ctx, c, r, activePods[len(activePods)-excessPodsCount:])
 		if err != nil {
 			return nil, err
 		}
-		p.list.Items = activePods[:len(activePods)-excesPodsCount]
+		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
 	// Construct workload for a pod group
