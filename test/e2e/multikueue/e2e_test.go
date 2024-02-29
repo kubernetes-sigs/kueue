@@ -17,6 +17,8 @@ limitations under the License.
 package mke2e
 
 import (
+	"os/exec"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -337,6 +339,52 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Message: "jobset completed successfully",
 					},
 					cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+			})
+		})
+	})
+	ginkgo.When("The connection to a worker cluster is unreliable", func() {
+		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
+			ginkgo.By("Disconnecting worker1 container from the kind network", func() {
+				cmd := exec.Command("docker", "network", "disconnect", "kind", "kind-worker1-control-plane")
+				output, err := cmd.CombinedOutput()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			})
+
+			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
+
+			ginkgo.By("Waiting for the cluster do become inactive", func() {
+				readClient := &kueuealpha.MultiKueueCluster{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
+					g.Expect(readClient.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						metav1.Condition{
+							Type:   kueuealpha.MultiKueueClusterActive,
+							Status: metav1.ConditionFalse,
+							Reason: "ClientConnectionFailed",
+						},
+						cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message"))))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Reconnecting worker1 container to the kind network", func() {
+				cmd := exec.Command("docker", "network", "connect", "kind", "kind-worker1-control-plane")
+				output, err := cmd.CombinedOutput()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			})
+
+			ginkgo.By("Waiting for the cluster do become active", func() {
+				readClient := &kueuealpha.MultiKueueCluster{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
+					g.Expect(readClient.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						metav1.Condition{
+							Type:    kueuealpha.MultiKueueClusterActive,
+							Status:  metav1.ConditionTrue,
+							Reason:  "Active",
+							Message: "Connected",
+						},
+						cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
