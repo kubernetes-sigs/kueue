@@ -32,12 +32,7 @@ import (
 )
 
 func TestValidateIntegrationsName(t *testing.T) {
-	// temp dir
-	tmpDir, err := os.MkdirTemp("", "temp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	integrationsConfig := filepath.Join(tmpDir, "integrations.yaml")
 	if err := os.WriteFile(integrationsConfig, []byte(`
