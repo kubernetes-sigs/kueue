@@ -215,7 +215,7 @@ build:
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	$(GO_CMD) run ./main.go
+	$(GO_CMD) run cmd/kueue/main.go
 
 # Build the multiplatform container image locally.
 .PHONY: image-local-build
