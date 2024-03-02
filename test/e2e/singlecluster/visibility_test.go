@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -153,7 +152,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 
 			ginkgo.By("Verify there is one pending workload", func() {
-				gomega.Eventually(func() []v1alpha1.PendingWorkload {
+				gomega.Eventually(func() []visibility.PendingWorkload {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return info.Items
@@ -173,7 +172,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 
 			ginkgo.By("Verify there are zero pending workloads, after the second workload is admitted", func() {
-				gomega.Eventually(func() []v1alpha1.PendingWorkload {
+				gomega.Eventually(func() []visibility.PendingWorkload {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return info.Items

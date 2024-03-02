@@ -614,7 +614,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
 			time.Sleep(podsReadyTimeout)
 			util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), ptr.To[int32](2))
-			gomega.Expect(prodWl).NotTo(gomega.BeNil())
 			gomega.Expect(ptr.Deref(prodWl.Spec.Active, true)).Should(gomega.BeTrue())
 		})
 	})
