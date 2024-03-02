@@ -863,7 +863,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				NodeSelector(map[string]string{instanceKey: onDemandFlavor.Name, "foo": "bar"}).
 				Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-			gomega.Expect(len(wl2.Spec.PodSets[0].Template.Spec.NodeSelector)).Should(gomega.Equal(2))
+			gomega.Expect(wl2.Spec.PodSets[0].Template.Spec.NodeSelector).Should(gomega.HaveLen(2))
 			expectAdmission = testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
@@ -1399,7 +1399,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				lookupKey := types.NamespacedName{Name: wl3.Name, Namespace: wl3.Namespace}
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, wl3)).Should(gomega.Succeed())
 				return !workload.HasQuotaReservation(wl3)
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(true))
+			}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 			util.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 2, 0)
 			util.ExpectReservingActiveWorkloadsMetric(strictFIFOClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(strictFIFOClusterQ, 1)

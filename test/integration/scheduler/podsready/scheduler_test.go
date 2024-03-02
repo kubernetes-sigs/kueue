@@ -273,7 +273,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), ptr.To[int32](2))
 			ginkgo.By("the workload exceeded re-queue backoff limit should be deactivated")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				g.Expect(ptr.Deref(prodWl.Spec.Active, true)).Should(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -614,7 +614,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
 			time.Sleep(podsReadyTimeout)
 			util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), ptr.To[int32](2))
-			gomega.Expect(prodWl)
 			gomega.Expect(ptr.Deref(prodWl.Spec.Active, true)).Should(gomega.BeTrue())
 		})
 	})

@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					}
 					var wl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, gKey, &wl)).Should(testing.BeNotFoundError())
-				}, util.Timeout, util.Interval)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -300,7 +300,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					}
 					var wl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, gKey, &wl)).Should(testing.BeNotFoundError())
-				}, util.Timeout, util.Interval)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -316,7 +316,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
-			gomega.Expect(k8sClient.Create(ctx, highPriorityClass))
+			gomega.Expect(k8sClient.Create(ctx, highPriorityClass)).Should(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
 			})

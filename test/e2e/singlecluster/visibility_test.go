@@ -100,13 +100,13 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueueB)).Should(gomega.Succeed())
 
 			highPriorityClass = testing.MakePriorityClass("high").PriorityValue(100).Obj()
-			gomega.Expect(k8sClient.Create(ctx, highPriorityClass))
+			gomega.Expect(k8sClient.Create(ctx, highPriorityClass)).Should(gomega.Succeed())
 
 			midPriorityClass = testing.MakePriorityClass("mid").PriorityValue(75).Obj()
-			gomega.Expect(k8sClient.Create(ctx, midPriorityClass))
+			gomega.Expect(k8sClient.Create(ctx, midPriorityClass)).Should(gomega.Succeed())
 
 			lowPriorityClass = testing.MakePriorityClass("low").PriorityValue(50).Obj()
-			gomega.Expect(k8sClient.Create(ctx, lowPriorityClass))
+			gomega.Expect(k8sClient.Create(ctx, lowPriorityClass)).Should(gomega.Succeed())
 
 			ginkgo.By("Schedule a job that when admitted workload blocks the queue", func() {
 				blockingJob = testingjob.MakeJob("test-job-1", nsA.Name).
@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Verify there are zero pending workloads", func() {
 				info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				gomega.Expect(len(info.Items)).Should(gomega.Equal(0))
+				gomega.Expect(info.Items).Should(gomega.BeEmpty())
 			})
 
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
@@ -152,11 +152,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 
 			ginkgo.By("Verify there is one pending workload", func() {
-				gomega.Eventually(func() int {
+				gomega.Eventually(func() []visibility.PendingWorkload {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return len(info.Items)
-				}, util.Timeout, util.Interval).Should(gomega.Equal(1))
+					return info.Items
+				}, util.Timeout, util.Interval).Should(gomega.HaveLen(1))
 			})
 
 			ginkgo.By("Await for pods to be running", func() {
@@ -172,11 +172,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 
 			ginkgo.By("Verify there are zero pending workloads, after the second workload is admitted", func() {
-				gomega.Eventually(func() int {
+				gomega.Eventually(func() []visibility.PendingWorkload {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return len(info.Items)
-				}, util.Timeout, util.Interval).Should(gomega.Equal(0))
+					return info.Items
+				}, util.Timeout, util.Interval).Should(gomega.BeEmpty())
 			})
 		})
 
@@ -259,7 +259,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Verify there are zero pending workloads", func() {
 				info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				gomega.Expect(len(info.Items)).Should(gomega.Equal(0))
+				gomega.Expect(info.Items).Should(gomega.BeEmpty())
 			})
 
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
@@ -273,11 +273,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 
 			ginkgo.By("Verify there is one pending workload", func() {
-				gomega.Eventually(func() int {
+				gomega.Eventually(func() []visibility.PendingWorkload {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return len(info.Items)
-				}, util.Timeout, util.Interval).Should(gomega.Equal(1))
+					return info.Items
+				}, util.Timeout, util.Interval).Should(gomega.HaveLen(1))
 			})
 
 			ginkgo.By("Await for pods to be running", func() {
@@ -503,13 +503,13 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Returning a ResourceNotFound error for a nonexistent ClusterQueue", func() {
 				_, err := impersonatedVisibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
 				statusErr, ok := err.(*errors.StatusError)
-				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(ok).To(gomega.BeTrue())
 				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonNotFound))
 			})
 			ginkgo.By("Returning a ResourceNotFound error for a nonexistent LocalQueue", func() {
 				_, err := impersonatedVisibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
 				statusErr, ok := err.(*errors.StatusError)
-				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(ok).To(gomega.BeTrue())
 				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonNotFound))
 			})
 		})
@@ -537,19 +537,19 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Returning a Forbidden error due to insufficient permissions for the ClusterQueue request", func() {
 				_, err := impersonatedVisibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
 				statusErr, ok := err.(*errors.StatusError)
-				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(ok).To(gomega.BeTrue())
 				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonForbidden))
 			})
 			ginkgo.By("Returning a ResourceNotFound error for a nonexistent LocalQueue", func() {
 				_, err := impersonatedVisibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
 				statusErr, ok := err.(*errors.StatusError)
-				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(ok).To(gomega.BeTrue())
 				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonNotFound))
 			})
 			ginkgo.By("Returning a Forbidden error due to insufficient permissions for the LocalQueue request in different namespace", func() {
 				_, err := impersonatedVisibilityClient.LocalQueues("default").GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
 				statusErr, ok := err.(*errors.StatusError)
-				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(ok).To(gomega.BeTrue())
 				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonForbidden))
 			})
 		})
@@ -560,13 +560,13 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Returning a Forbidden error due to insufficient permissions for the ClusterQueue request", func() {
 				_, err := impersonatedVisibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
 				statusErr, ok := err.(*errors.StatusError)
-				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(ok).To(gomega.BeTrue())
 				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonForbidden))
 			})
 			ginkgo.By("Returning a Forbidden error due to insufficient permissions for the LocalQueue request", func() {
 				_, err := impersonatedVisibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
 				statusErr, ok := err.(*errors.StatusError)
-				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(ok).To(gomega.BeTrue())
 				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonForbidden))
 			})
 		})

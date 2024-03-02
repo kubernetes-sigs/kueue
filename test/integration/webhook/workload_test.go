@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload)).Should(gomega.Succeed())
 				workload.Status = kueue.WorkloadStatus{
 					Conditions: []metav1.Condition{{
 						Type:               kueue.WorkloadEvicted,
@@ -106,10 +106,10 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			ginkgo.By("Activate a Workload")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload)).Should(gomega.Succeed())
 				workload.Spec.Active = ptr.To(true)
 				g.Expect(k8sClient.Update(ctx, workload)).Should(gomega.Succeed())
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload)).Should(gomega.Succeed())
 				g.Expect(workload.Status.RequeueState).Should(gomega.BeNil(), "re-queue state should be reset")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
