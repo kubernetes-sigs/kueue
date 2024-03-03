@@ -14,6 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# allow overriding docker cli, which should work fine for this script
+DOCKER="${DOCKER:-docker}"
+
 SHELLCHECK_VERSION="0.9.0"
 SHELLCHECK_IMAGE="docker.io/koalaman/shellcheck-alpine:v0.9.0@sha256:e19ed93c22423970d56568e171b4512c9244fc75dd9114045016b4a0073ac4b7"
 
@@ -22,9 +25,9 @@ DISABLED_ERRORS="SC2002,SC3028,SC3054,SC3014,SC3040,SC3046,SC3030,SC3010,SC3037,
 
 # Download shellcheck-alpine from Docker Hub
 echo "Downloading ShellCheck Docker image..."
-docker pull "${SHELLCHECK_IMAGE}"
+"${DOCKER}" pull "${SHELLCHECK_IMAGE}"
 
 # Run ShellCheck on all shell script files, excluding those in the 'vendor' directory
 echo "Running ShellCheck..."
-docker run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" "${SHELLCHECK_IMAGE}" \
+"${DOCKER}" run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" "${SHELLCHECK_IMAGE}" \
     find . -type f -name '*.sh' ! -path './vendor/*' -exec shellcheck --exclude="$DISABLED_ERRORS" {} +
