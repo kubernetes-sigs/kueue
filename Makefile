@@ -19,6 +19,8 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+GOOS = $(shell go env GOOS)
+GOARCH = $(shell go env GOARCH)
 GO_CMD ?= go
 GO_FMT ?= gofmt
 GO_TEST_FLAGS ?= -race
@@ -329,6 +331,10 @@ CONTROLLER_GEN = $(PROJECT_DIR)/bin/controller-gen
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen
+
+.PHONY: shell-lint
+shell-lint:
+	./hack/verify-shellcheck.sh
 
 KUSTOMIZE = $(PROJECT_DIR)/bin/kustomize
 .PHONY: kustomize

@@ -19,11 +19,11 @@ set -o nounset
 set -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-ROOT_DIR=$SOURCE_DIR/..
-export KUSTOMIZE=$ROOT_DIR/bin/kustomize
-export GINKGO=$ROOT_DIR/bin/ginkgo
-export KIND=$ROOT_DIR/bin/kind
-export YQ=$ROOT_DIR/bin/yq
+ROOT_DIR="$SOURCE_DIR/.."
+export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
+export GINKGO="$ROOT_DIR"/bin/ginkgo
+export KIND="$ROOT_DIR"/bin/kind
+export YQ="$ROOT_DIR"/bin/yq
 export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
 export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
 export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
@@ -57,7 +57,7 @@ function startup {
             mkdir -p "$ARTIFACTS"
         fi
 
-        cluster_create $MANAGER_KIND_CLUSTER_NAME $SOURCE_DIR/multikueue/manager-cluster.kind.yaml
+        cluster_create "$MANAGER_KIND_CLUSTER_NAME" "$SOURCE_DIR"/multikueue/manager-cluster.kind.yaml
 
     # NOTE: for local setup, make sure that your firewall allows tcp from manager to the GW ip
     # eg. ufw `sudo ufw allow from 172.18.0.0/16 proto tcp to 172.18.0.1`
@@ -66,8 +66,9 @@ function startup {
     #                  sudo iptables --append OUTPUT --protocol tcp --src 172.18.0.1 --dst 172.18.0./0/16 --jump ACCEPT`
 
     # have the worker forward the api to the docker gateway address instead of lo
-    export GW=$(docker inspect ${MANAGER_KIND_CLUSTER_NAME}-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')
-    $YQ e '.networking.apiServerAddress=env(GW)'  $SOURCE_DIR/multikueue/worker-cluster.kind.yaml > $ARTIFACTS/worker-cluster.yaml
+    GW="$(docker inspect "${MANAGER_KIND_CLUSTER_NAME}"-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')"
+    export GW
+    $YQ e '.networking.apiServerAddress=env(GW)'  "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml" > "$ARTIFACTS"/worker-cluster.yaml
 
     cluster_create $WORKER1_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
     cluster_create $WORKER2_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
