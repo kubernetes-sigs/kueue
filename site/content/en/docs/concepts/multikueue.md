@@ -17,8 +17,8 @@ MultiKueue is currently an alpha feature and disabled by default. Check the [Ins
 
 A MultiKueue setup is composed of a manager cluster and at least one worker cluster.
 
-### Cluster Roles
-#### Manager Cluster
+## Cluster Roles
+### Manager Cluster
 
 The manager's main responsibilities are:
 - Establish and maintain the connection with the worker clusters.
@@ -31,12 +31,12 @@ Ideally, the quota in the manager cluster should be equal to the total quotas in
 If significantly lower, the worker clusters will be under utilized.
 If significantly higher, the manager will dispatch and monitor workloads in the worker clusters that don't have a chance to be admitted.
 
-#### Worker Cluster
+### Worker Cluster
 
 The worker cluster acts like a standalone Kueue cluster.
 The workloads and jobs are created and deleted by the MultiKueue Admission Check Controller running in the manager cluster.
 
-### Job Flow
+## Job Flow
 
 For a job to be subject to multi cluster dispatching, you need to assign it to a ClusterQueue that uses a MultiKueue AdmissionCheck. The Multikueue system works as follows:
 - When the job's Workload gets a QuotaReservation in the manager cluster, a copy of that Workload will be created in all the configured worker clusters.
