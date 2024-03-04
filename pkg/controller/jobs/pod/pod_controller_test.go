@@ -1291,7 +1291,6 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					Label("kueue.x-k8s.io/managed", "true").
-					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("3").
 					StatusPhase(corev1.PodFailed).
@@ -2917,6 +2916,397 @@ func TestReconciler(t *testing.T) {
 					EventType: "Normal",
 					Reason:    "Stopped",
 					Message:   "Preempted to accommodate a higher priority Workload",
+				},
+			},
+		},
+		"the failed pods are finalized in order": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("active-pod").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("deleted").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					StatusPhase(corev1.PodFailed).
+					DeletionTimestamp(now.Add(-4 * time.Minute)).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("active-pod").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error").
+					Label("kueue.x-k8s.io/managed", "true").
+					Group("test-group").
+					GroupTotalCount("4").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("4").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 4).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "active-pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 4).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "active-pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error2", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "test-group", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "OwnerReferencesAdded",
+					Message:   "Added 2 owner reference(s)",
+				},
+			},
+		},
+		"no failed pods are finalized while waiting for expectations": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("active-pod").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("active-pod").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "active-pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "active-pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			excessPodsExpectations: []keyUIDs{{
+				key:  types.NamespacedName{Name: "test-group", Namespace: "ns"},
+				uids: []types.UID{"some-other-pod"},
+			}},
+		},
+		"no unnecessary additional failed pods are finalized": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error-no-finalizer").
+					Label("kueue.x-k8s.io/managed", "true").
+					Group("test-group").
+					GroupTotalCount("2").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("finished-with-error-no-finalizer").
+					Label("kueue.x-k8s.io/managed", "true").
+					Group("test-group").
+					GroupTotalCount("2").
+					StatusPhase(corev1.PodFailed).
+					StatusConditions(corev1.PodCondition{
+						Type:               corev1.ContainersReady,
+						Status:             corev1.ConditionFalse,
+						Reason:             string(corev1.PodFailed),
+						LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)).Rfc3339Copy(),
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 4).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error-no-finalizer", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 4).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error-no-finalizer", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "test-group", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "OwnerReferencesAdded",
+					Message:   "Added 1 owner reference(s)",
 				},
 			},
 		},
