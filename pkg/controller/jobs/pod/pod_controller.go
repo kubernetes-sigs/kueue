@@ -745,9 +745,9 @@ func lastActiveTime(p *corev1.Pod) time.Time {
 	return deletionTime.Time
 }
 
-// sortInactivePods - sorts the provided pods slice base on:
+// sortInactivePods sorts the provided pods slice based on:
 // - finalizer state (pods with finalizers are first)
-// - lastActiveTime (pods that ware active last are first)
+// - lastActiveTime (pods that were active last are first)
 // - creation timestamp (newer pods are first)
 func sortInactivePods(inactivePods []corev1.Pod) {
 	sort.Slice(inactivePods, func(i, j int) bool {
@@ -769,7 +769,7 @@ func sortInactivePods(inactivePods []corev1.Pod) {
 	})
 }
 
-// sortActivePods - sorts the provided pods slice base on:
+// sortActivePods sorts the provided pods slice based on:
 // - finalizer state (pods with no finalizers are last)
 // - gated state (pods that are still gated are last)
 // - creation timestamp (newer pods are last)
@@ -1059,10 +1059,10 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 			keptPods = append(keptPods, roleActivePods...)
 		}
 
-		if finalzeblePodsCount := min(len(roleInactivePods), len(roleInactivePods)+len(roleActivePods)-int(ps.Count)); finalzeblePodsCount > 0 {
+		if finalizeablePodsCount := min(len(roleInactivePods), len(roleInactivePods)+len(roleActivePods)-int(ps.Count)); finalizeablePodsCount > 0 {
 			sortInactivePods(roleInactivePods)
-			replacedInactivePods = append(replacedInactivePods, roleInactivePods[len(roleInactivePods)-finalzeblePodsCount:]...)
-			keptPods = append(keptPods, roleInactivePods[:len(roleInactivePods)-finalzeblePodsCount]...)
+			replacedInactivePods = append(replacedInactivePods, roleInactivePods[len(roleInactivePods)-finalizeablePodsCount:]...)
+			keptPods = append(keptPods, roleInactivePods[:len(roleInactivePods)-finalizeablePodsCount]...)
 		} else {
 			keptPods = append(keptPods, roleInactivePods...)
 		}
