@@ -1,0 +1,7 @@
+# patch to add clusterqueue-viewer-role to batch-user
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clusterqueue-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/batch-user: 'true'

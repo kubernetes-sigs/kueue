@@ -41,6 +41,7 @@ resources:
 - monitor.yaml
 - binding_admin_roles.yaml
 - webhook_network_policy.yaml
+- batch-user-rolebinding.yaml
 
 patches:
 # Mount the controller config file for loading manager configurations
@@ -51,3 +52,4 @@ patches:
 - path: auth_proxy_service_patch.yaml
 - path: mutating_webhook_patch.yaml
 - path: validating_webhook_patch.yaml
+- path: clusterqueue_viewer_role_patch.yaml

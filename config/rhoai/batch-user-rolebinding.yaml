@@ -1,0 +1,12 @@
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: batch-user-rolebinding
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: 'system:authenticated'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: batch-user-role
