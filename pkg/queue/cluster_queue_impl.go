@@ -38,7 +38,7 @@ import (
 // clusterQueueBase is an incomplete base implementation of ClusterQueue
 // interface. It can be inherited and overwritten by other types.
 type clusterQueueBase struct {
-	heap              heap.Heap
+	heap              heap.Heap[workload.Info]
 	cohort            string
 	namespaceSelector labels.Selector
 	active            bool
@@ -55,20 +55,23 @@ type clusterQueueBase struct {
 	// QueueInadmissibleWorkloads is called.
 	queueInadmissibleCycle int64
 
-	lessFunc func(a, b interface{}) bool
+	lessFunc func(a, b *workload.Info) bool
 
 	rwm sync.RWMutex
 
 	clock clock.Clock
 }
 
+func workloadKey(i *workload.Info) string {
+	return workload.Key(i.Obj)
+}
+
 func newClusterQueueImpl(
-	keyFunc func(obj interface{}) string,
-	lessFunc func(a, b interface{}) bool,
+	lessFunc func(a, b *workload.Info) bool,
 	clock clock.Clock,
 ) *clusterQueueBase {
 	return &clusterQueueBase{
-		heap:                   heap.New(keyFunc, lessFunc),
+		heap:                   heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
 		queueInadmissibleCycle: -1,
 		lessFunc:               lessFunc,
@@ -246,8 +249,7 @@ func (c *clusterQueueBase) Pop() *workload.Info {
 		return nil
 	}
 
-	info := c.heap.Pop()
-	return info.(*workload.Info)
+	return c.heap.Pop()
 }
 
 func (c *clusterQueueBase) Dump() ([]string, bool) {
@@ -257,8 +259,7 @@ func (c *clusterQueueBase) Dump() ([]string, bool) {
 		return nil, false
 	}
 	elements := make([]string, c.heap.Len())
-	for i, e := range c.heap.List() {
-		info := e.(*workload.Info)
+	for i, info := range c.heap.List() {
 		elements[i] = workload.Key(info.Obj)
 	}
 	return elements, true
@@ -288,11 +289,7 @@ func (c *clusterQueueBase) Snapshot() []*workload.Info {
 func (c *clusterQueueBase) Info(key string) *workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	info := c.heap.GetByKey(key)
-	if info == nil {
-		return nil
-	}
-	return info.(*workload.Info)
+	return c.heap.GetByKey(key)
 }
 
 func (c *clusterQueueBase) totalElements() []*workload.Info {
@@ -300,10 +297,7 @@ func (c *clusterQueueBase) totalElements() []*workload.Info {
 	defer c.rwm.RUnlock()
 	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
 	elements := make([]*workload.Info, 0, totalLen)
-	for _, e := range c.heap.List() {
-		info := e.(*workload.Info)
-		elements = append(elements, info)
-	}
+	elements = append(elements, c.heap.List()...)
 	for _, e := range c.inadmissibleWorkloads {
 		elements = append(elements, e)
 	}
