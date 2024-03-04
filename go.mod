@@ -1,6 +1,6 @@
 module sigs.k8s.io/kueue
 
-go 1.21
+go 1.21.6
 
 require (
 	github.com/go-logr/logr v1.4.1
@@ -18,7 +18,7 @@ require (
 	k8s.io/api v0.29.2
 	k8s.io/apimachinery v0.29.2
 	k8s.io/apiserver v0.29.2
-	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421
+	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20231227135154-33fb7885a6f6
 	k8s.io/client-go v0.29.2
 	k8s.io/code-generator v0.29.2
 	k8s.io/component-base v0.29.2
