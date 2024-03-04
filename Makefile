@@ -129,7 +129,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 
 .PHONY: update-helm
 update-helm: manifests yq
-	SED=${SED} ./hack/update-helm.sh
+	SED=$(SED) ./hack/update-helm.sh
 
 .PHONY: generate
 generate: gomod-download controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
