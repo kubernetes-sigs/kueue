@@ -13,6 +13,10 @@ Check the concepts section for a [MultiKueue overview](/docs/concepts/multikueue
 When MultiKueue dispatches a workload from the manager cluster to a worker cluster, it expects that the job's namespace and LocalQueue also exist in the worker cluster.
 In other words, you should ensure that the worker cluster configuration mirrors the one of the manager cluster in terms of namespaces and LocalQueues.
 
+To create the sample queue setup in the `default` namespace apply:
+
+{{< include "examples/admin/single-clusterqueue-setup.yaml" "yaml" >}}
+
 ### MultiKueue Specific Kubeconfig
 
 In order to delegate the jobs in a worker cluster, the manager cluster needs to be able to create, delete, and watch workloads and their parent Jobs.
