@@ -85,7 +85,7 @@ and make progress.
 
 ## Proposal
 We propose introducing a new group of annotations with the
-***provreq.alpha.kueue.x-k8s.io/ prefix***. Annotations using this prefix will be directly copied to the ProvisioningRequest's Parameters field, including both name and value.
+***provreq.kueue.x-k8s.io/ prefix***. Annotations using this prefix will be directly copied to the ProvisioningRequest's Parameters field, including both name and value.
 Kueue would act in the pass through manner, meaning it would pass the parameters without checking if such parameters actually exists or validating its type/value.
 The annotations are set by a user in the definition of batch/v1.Job, Kubeflow Jobs, Pods, or other objects that are abstracted by Kueue Workload.
 
@@ -111,7 +111,7 @@ bogged down.
 
 #### Story 1
 As a Kueue's user I want to use ProvisioningRequest with [**atomic-scale-up.kubernetes.io class**](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/proposals/provisioning-request.md#atomic-scale-upkubernetesio-class).
-I would also like to pass the ```ValidUntilSeconds``` parameter. In the definition of my Job I add annotation ```provreq.alpha.kueue.x-k8s.io/ValidUntilSeconds: "60"``` to do so.
+I would also like to pass the ```ValidUntilSeconds``` parameter. In the definition of my Job I add annotation ```provreq.kueue.x-k8s.io/ValidUntilSeconds: "60"``` to do so.
 
 ### Story 2
 As an administrator I would like all workloads submitted to ClusterQueue X to use ProvisioningRequest with parameters ```ValidUntilSeconds``` set to 0.
