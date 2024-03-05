@@ -48,6 +48,7 @@ Selector labels
 {{- define "kueue.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "kueue.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: controller
 {{- end }}
 
 {{/*

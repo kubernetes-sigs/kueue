@@ -3,7 +3,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    control-plane: controller-manager
+  {{- include "kueue.labels" . | nindent 4 }}
   name: '{{ include "kueue.fullname" . }}-visibility-server-auth-reader'
   namespace: kube-system
 roleRef:

@@ -2,6 +2,8 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
   name: '{{ include "kueue.fullname" . }}-mutating-webhook-configuration'
   {{- if .Values.enableCertManager }}
   annotations:
@@ -296,6 +298,8 @@ webhooks:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
   name: '{{ include "kueue.fullname" . }}-validating-webhook-configuration'
   {{- if .Values.enableCertManager }}
   annotations:

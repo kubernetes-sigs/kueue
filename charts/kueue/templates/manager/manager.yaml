@@ -4,17 +4,15 @@ metadata:
   name: {{ include "kueue.fullname" . }}-controller-manager
   namespace: '{{ .Release.Namespace }}'
   labels:
-    control-plane: controller-manager
+  {{- include "kueue.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.controllerManager.replicas }}
   selector:
     matchLabels:
-      control-plane: controller-manager
     {{- include "kueue.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        control-plane: controller-manager
       {{- include "kueue.selectorLabels" . | nindent 8 }}
       annotations:
         kubectl.kubernetes.io/default-container: manager
