@@ -269,15 +269,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// Ensure all members of the composable job own the workload
-	if wl != nil {
-		if cj, implements := job.(ComposableJob); implements {
-			if err := cj.EnsureWorkloadOwnedByAllMembers(ctx, r.client, r.record, wl); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-	}
-
 	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		// Finalize the job if it's finished
 		if _, finished := job.Finished(); finished {
