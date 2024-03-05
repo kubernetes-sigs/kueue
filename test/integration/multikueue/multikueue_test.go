@@ -127,11 +127,11 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, multikueueAC)).Should(gomega.Succeed())
 
 		ginkgo.By("wait for check active", func() {
-			updatetedAc := kueue.AdmissionCheck{}
+			updatedAc := kueue.AdmissionCheck{}
 			acKey := client.ObjectKeyFromObject(multikueueAC)
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatetedAc)).To(gomega.Succeed())
-				cond := apimeta.FindStatusCondition(updatetedAc.Status.Conditions, kueue.AdmissionCheckActive)
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedAc.Status.Conditions, kueue.AdmissionCheckActive)
 				g.Expect(cond).NotTo(gomega.BeNil())
 				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "Reason: %s, Message: %q", cond.Reason, cond.Message)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -180,11 +180,11 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, ac) })
 
 			ginkgo.By("wait for the check's active state update", func() {
-				updatetedAc := kueue.AdmissionCheck{}
+				updatedAc := kueue.AdmissionCheck{}
 				acKey := client.ObjectKeyFromObject(ac)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatetedAc)).To(gomega.Succeed())
-					g.Expect(updatetedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Inactive",
@@ -206,11 +206,11 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, config) })
 
 			ginkgo.By("wait for the check's active state update", func() {
-				updatetedAc := kueue.AdmissionCheck{}
+				updatedAc := kueue.AdmissionCheck{}
 				acKey := client.ObjectKeyFromObject(ac)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatetedAc)).To(gomega.Succeed())
-					g.Expect(updatetedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Inactive",
@@ -226,11 +226,11 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
 
 			ginkgo.By("wait for the cluster's active state update", func() {
-				updatetedCluster := kueuealpha.MultiKueueCluster{}
+				updatedCluster := kueuealpha.MultiKueueCluster{}
 				clusterKey := client.ObjectKeyFromObject(cluster)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatetedCluster)).To(gomega.Succeed())
-					g.Expect(updatetedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueuealpha.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "BadConfig",
@@ -240,11 +240,11 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			})
 
 			ginkgo.By("wait for the check's active state update", func() {
-				updatetedAc := kueue.AdmissionCheck{}
+				updatedAc := kueue.AdmissionCheck{}
 				acKey := client.ObjectKeyFromObject(ac)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatetedAc)).To(gomega.Succeed())
-					g.Expect(updatetedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Inactive",
@@ -271,11 +271,11 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, secret) })
 
 			ginkgo.By("wait for the cluster's active state update", func() {
-				updatetedCluster := kueuealpha.MultiKueueCluster{}
+				updatedCluster := kueuealpha.MultiKueueCluster{}
 				clusterKey := client.ObjectKeyFromObject(cluster)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatetedCluster)).To(gomega.Succeed())
-					g.Expect(updatetedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueuealpha.MultiKueueClusterActive,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Active",
@@ -285,11 +285,11 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			})
 
 			ginkgo.By("wait for the check's active state update", func() {
-				updatetedAc := kueue.AdmissionCheck{}
+				updatedAc := kueue.AdmissionCheck{}
 				acKey := client.ObjectKeyFromObject(ac)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatetedAc)).To(gomega.Succeed())
-					g.Expect(updatetedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Active",

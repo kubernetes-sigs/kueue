@@ -92,7 +92,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 	cases := []struct {
 		name               string
 		operation          func(*Cache) error
-		clientObbjects     []client.Object
+		clientObjects      []client.Object
 		wantClusterQueues  map[string]*ClusterQueue
 		wantCohorts        map[string]sets.Set[string]
 		enableLendingLimit bool
@@ -970,7 +970,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		},
 		{
 			name: "add cluster queue after finished workloads",
-			clientObbjects: []client.Object{
+			clientObjects: []client.Object{
 				utiltesting.MakeLocalQueue("lq1", "ns").ClusterQueue("cq1").Obj(),
 				utiltesting.MakeWorkload("pending", "ns").Obj(),
 				utiltesting.MakeWorkload("reserving", "ns").ReserveQuota(
@@ -1049,7 +1049,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
-			cache := New(utiltesting.NewFakeClient(tc.clientObbjects...))
+			cache := New(utiltesting.NewFakeClient(tc.clientObjects...))
 			if err := tc.operation(cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
@@ -3173,11 +3173,11 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 }
 
 func TestClusterQueueReadiness(t *testing.T) {
-	baseFalvor := utiltesting.MakeResourceFlavor("flavor1").Obj()
+	baseFlavor := utiltesting.MakeResourceFlavor("flavor1").Obj()
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj()
 	baseQueue := utiltesting.MakeClusterQueue("queue1").
 		ResourceGroup(
-			*utiltesting.MakeFlavorQuotas(baseFalvor.Name).
+			*utiltesting.MakeFlavorQuotas(baseFlavor.Name).
 				Resource(corev1.ResourceCPU, "10", "10").Obj()).
 		AdmissionChecks(baseCheck.Name).
 		Obj()
@@ -3210,7 +3210,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 		},
 		"check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
-			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFlavor},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "CheckNotFoundOrInactive",
@@ -3218,7 +3218,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 		},
 		"check inactive": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
-			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFlavor},
 			admissionChecks:  []*kueue.AdmissionCheck{utiltesting.MakeAdmissionCheck("check1").Obj()},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
@@ -3235,7 +3235,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 		"terminating": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			admissionChecks:  []*kueue.AdmissionCheck{baseCheck},
-			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFlavor},
 			clusterQueueName: "queue1",
 			terminate:        true,
 			wantStatus:       metav1.ConditionFalse,
@@ -3246,7 +3246,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 		"ready": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			admissionChecks:  []*kueue.AdmissionCheck{baseCheck},
-			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFlavor},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionTrue,
 			wantReason:       "Ready",

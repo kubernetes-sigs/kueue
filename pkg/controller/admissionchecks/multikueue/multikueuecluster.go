@@ -82,7 +82,7 @@ func newClientWithWatch(kubeconfig []byte, options client.Options) (client.WithW
 }
 
 type multiKueueWatcher interface {
-	// returns an empty list of objets
+	// returns an empty list of objects
 	GetEmptyList() client.ObjectList
 	// returns the key of the workload of interest
 	// - the object name for workloads

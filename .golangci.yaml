@@ -21,3 +21,4 @@ linters:
     - ginkgolinter
     - gocritic
     - goimports
+    - misspell

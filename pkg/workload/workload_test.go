@@ -365,17 +365,17 @@ func TestReclaimablePodsAreEqual(t *testing.T) {
 			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
 			wantResult: false,
 		},
-		"one value missmatch": {
+		"one value mismatch": {
 			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
 			b:          []kueue.ReclaimablePod{{Name: "rp2", Count: 1}, {Name: "rp1", Count: 1}},
 			wantResult: false,
 		},
-		"one name missmatch": {
+		"one name mismatch": {
 			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
 			b:          []kueue.ReclaimablePod{{Name: "rp3", Count: 3}, {Name: "rp1", Count: 1}},
 			wantResult: false,
 		},
-		"length missmatch": {
+		"length mismatch": {
 			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
 			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
 			wantResult: false,
@@ -474,7 +474,7 @@ func TestHasRequeueState(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := HasRequeueState(tc.workload)
 			if tc.want != got {
-				t.Errorf("Unexpected result from HasRequeuState\nwant:%v\ngot:%v\n", tc.want, got)
+				t.Errorf("Unexpected result from HasRequeueState\nwant:%v\ngot:%v\n", tc.want, got)
 			}
 		})
 	}
