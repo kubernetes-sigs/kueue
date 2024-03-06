@@ -61,5 +61,5 @@ Check the [worker](#multikueue-specific-kubeconfig) section for details on Kubec
 
 Apply the following to create a sample setup in which the Jobs submitted in the ClusterQueue `cluster-queue` are delegated to a worker `worker1`
 
-{{< include "/examples/multikueue/multikueue-setup.yaml" "yaml" >}}
+{{< include "examples/multikueue/multikueue-setup.yaml" "yaml" >}}
 
