@@ -18,22 +18,42 @@ package testing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 )
 
 func NewFakeClient(objs ...client.Object) client.Client {
-	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).Build()
+	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).
+		WithInterceptorFuncs(interceptor.Funcs{Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			// Apply patches are supposed to upsert, but fake client fails if the object doesn't exist,
+			// if an apply patch occurs for an object that doesn't yet exist, create it.
+			if patch.Type() != types.ApplyPatchType {
+				return clnt.Patch(ctx, obj, patch, opts...)
+			}
+			check, ok := obj.DeepCopyObject().(client.Object)
+			if !ok {
+				return errors.New("could not check for object in fake client")
+			}
+			if err := clnt.Get(ctx, client.ObjectKeyFromObject(obj), check); apierrors.IsNotFound(err) {
+				if err := clnt.Create(ctx, check); err != nil {
+					return fmt.Errorf("could not inject object creation for fake: %w", err)
+				}
+			}
+			return clnt.Patch(ctx, obj, patch, opts...)
+		}}).Build()
 }
 
 func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.ClientBuilder {
@@ -49,12 +69,28 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 			panic(err)
 		}
 	}
-
 	return fake.NewClientBuilder().WithScheme(scheme).
 		WithIndex(&kueue.LocalQueue{}, indexer.QueueClusterQueueKey, indexer.IndexQueueClusterQueue).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadQueueKey, indexer.IndexWorkloadQueue).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadClusterQueueKey, indexer.IndexWorkloadClusterQueue).
-		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID)
+		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID).
+		WithInterceptorFuncs(interceptor.Funcs{Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			// Apply patches are supposed to upsert, but fake client fails if the object doesn't exist,
+			// if an apply patch occurs for an object that doesn't yet exist, create it.
+			if patch.Type() != types.ApplyPatchType {
+				return clnt.Patch(ctx, obj, patch, opts...)
+			}
+			check, ok := obj.DeepCopyObject().(client.Object)
+			if !ok {
+				return errors.New("could not check for object in fake client")
+			}
+			if err := clnt.Get(ctx, client.ObjectKeyFromObject(obj), check); apierrors.IsNotFound(err) {
+				if err := clnt.Create(ctx, check); err != nil {
+					return fmt.Errorf("could not inject object creation for fake: %w", err)
+				}
+			}
+			return clnt.Patch(ctx, obj, patch, opts...)
+		}})
 }
 
 type builderIndexer struct {
