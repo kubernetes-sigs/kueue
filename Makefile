@@ -219,7 +219,7 @@ build:
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	$(GO_CMD) run cmd/kueue/main.go
+	$(GO_CMD) run cmd/kueue/main.go $(ARGS)
 
 # Build the multiplatform container image locally.
 .PHONY: image-local-build
@@ -327,7 +327,7 @@ golangci-lint: ## Download golangci-lint locally if necessary.
 CONTROLLER_GEN = $(PROJECT_DIR)/bin/controller-gen
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.14.0
 
 KUSTOMIZE = $(PROJECT_DIR)/bin/kustomize
 .PHONY: kustomize

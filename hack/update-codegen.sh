@@ -19,11 +19,14 @@ set -o nounset
 set -o pipefail
 
 GO_CMD=${1:-go}
-KUEUE_ROOT=$(realpath $(dirname ${BASH_SOURCE[0]})/..)
-CODEGEN_PKG=$($GO_CMD list -m -f "{{.Dir}}" k8s.io/code-generator)
+KUEUE_ROOT=$(realpath $(dirname "${BASH_SOURCE[0]})"/..))
+if [ -d "vendor" ]; then
+  CODEGEN_PKG=$($GO_CMD list -m -f "vendor/k8s.io/code-generator" k8s.io/code-generator)
+else
+  CODEGEN_PKG=$($GO_CMD list -m -f "{{.Dir}}" k8s.io/code-generator)
+fi
 
-cd $(dirname ${BASH_SOURCE[0]})/..
-
+cd $(dirname "${BASH_SOURCE[0]}")/..
 source "${CODEGEN_PKG}/kube_codegen.sh"
 
 # TODO: remove the workaround when the issue is solved in the code-generator
