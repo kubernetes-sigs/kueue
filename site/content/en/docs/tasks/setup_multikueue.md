@@ -63,3 +63,18 @@ Apply the following to create a sample setup in which the Jobs submitted in the 
 
 {{< include "examples/multikueue/multikueue-setup.yaml" "yaml" >}}
 
+Upon successful configuration the created ClusterQueue, AdmissionCheck and MultiKueueCluster will become active.
+
+Run: 
+```bash
+kubectl get clusterqueues cluster-queue -o jsonpath="{range .status.conditions[?(@.type == \"Active\")]}CQ - Active: {@.status} Reason: {@.reason} Message: {@.message}{'\n'}{end}"
+kubectl get admissionchecks sample-multikueue -o jsonpath="{range .status.conditions[?(@.type == \"Active\")]}AC - Active: {@.status} Reason: {@.reason} Message: {@.message}{'\n'}{end}"
+kubectl get multikueuecluster multikueue-test-worker1 -o jsonpath="{range .status.conditions[?(@.type == \"Active\")]}MC - Active: {@.status} Reason: {@.reason} Message: {@.message}{'\n'}{end}"
+```
+
+And expect an output like:
+```bash
+CQ - Active: True Reason: Ready Message: Can admit new workloads
+AC - Active: True Reason: Active Message: The admission check is active
+MC - Active: True Reason: Active Message: Connected
+```
