@@ -105,10 +105,10 @@ func Test_PushOrUpdate(t *testing.T) {
 				t.Error("failed to update a workload in ClusterQueue")
 			}
 			if diff := cmp.Diff(tc.wantWorkload, newWl, cmpOpts...); len(diff) != 0 {
-				t.Errorf("Unexpectd workloads in heap (-want,+got):\n%s", diff)
+				t.Errorf("Unexpected workloads in heap (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantInAdmissibleWorkloads, cq.inadmissibleWorkloads, cmpOpts...); len(diff) != 0 {
-				t.Errorf("Unexpectd inadmissibleWorkloads (-want,+got):\n%s", diff)
+				t.Errorf("Unexpected inadmissibleWorkloads (-want,+got):\n%s", diff)
 			}
 		})
 	}

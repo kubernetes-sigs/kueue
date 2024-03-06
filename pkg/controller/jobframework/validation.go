@@ -42,7 +42,7 @@ func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.PrebuiltWorkloadLabel)...)
 	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
 
-	// this rule should be relaxed when its confirmed that running wit a prebuilt wl is fully supported by each integration
+	// this rule should be relaxed when its confirmed that running with a prebuilt wl is fully supported by each integration
 	if _, hasPrebuilt := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]; hasPrebuilt {
 		gvk := job.GVK().String()
 		if !supportedPrebuiltWlJobGVKs.Has(gvk) {

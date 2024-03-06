@@ -344,24 +344,24 @@ func TestWlReconcileJobset(t *testing.T) {
 				t.Errorf("unexpected error: %s", gotErr)
 			}
 
-			gotManagersWokloads := &kueue.WorkloadList{}
-			err := managerClient.List(ctx, gotManagersWokloads)
+			gotManagersWorkloads := &kueue.WorkloadList{}
+			err := managerClient.List(ctx, gotManagersWorkloads)
 			if err != nil {
 				t.Error("unexpected list managers workloads error")
 			}
 
-			if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWokloads.Items, objCheckOpts...); diff != "" {
-				t.Errorf("unexpected manangers workloads (-want/+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWorkloads.Items, objCheckOpts...); diff != "" {
+				t.Errorf("unexpected managers workloads (-want/+got):\n%s", diff)
 			}
 
-			gotWorker1Wokloads := &kueue.WorkloadList{}
-			err = worker1Client.List(ctx, gotWorker1Wokloads)
+			gotWorker1Workloads := &kueue.WorkloadList{}
+			err = worker1Client.List(ctx, gotWorker1Workloads)
 			if err != nil {
 				t.Error("unexpected list managers workloads error")
 			}
 
-			if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Wokloads.Items, objCheckOpts...); diff != "" {
-				t.Errorf("unexpected manangers workloads (-want/+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Workloads.Items, objCheckOpts...); diff != "" {
+				t.Errorf("unexpected managers workloads (-want/+got):\n%s", diff)
 			}
 			gotManagersJobs := &jobset.JobSetList{}
 			err = managerClient.List(ctx, gotManagersJobs)
@@ -370,7 +370,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			}
 
 			if diff := cmp.Diff(tc.wantManagersJobsSets, gotManagersJobs.Items, objCheckOpts...); diff != "" {
-				t.Errorf("unexpected manangers jobs (-want/+got):\n%s", diff)
+				t.Errorf("unexpected managers jobs (-want/+got):\n%s", diff)
 			}
 
 			gotWorker1Job := &jobset.JobSetList{}

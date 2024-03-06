@@ -495,20 +495,20 @@ func TestWlReconcile(t *testing.T) {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 
-			gotManagersWokloads := &kueue.WorkloadList{}
-			if err := managerClient.List(ctx, gotManagersWokloads); err != nil {
+			gotManagersWorkloads := &kueue.WorkloadList{}
+			if err := managerClient.List(ctx, gotManagersWorkloads); err != nil {
 				t.Errorf("unexpected list manager's workloads error: %s", err)
 			} else {
-				if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWokloads.Items, objCheckOpts...); diff != "" {
+				if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWorkloads.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected manager's workloads (-want/+got):\n%s", diff)
 				}
 			}
 
-			gotWorker1Wokloads := &kueue.WorkloadList{}
-			if err := worker1Client.List(ctx, gotWorker1Wokloads); err != nil {
+			gotWorker1Workloads := &kueue.WorkloadList{}
+			if err := worker1Client.List(ctx, gotWorker1Workloads); err != nil {
 				t.Errorf("unexpected list worker's workloads error: %s", err)
 			} else {
-				if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Wokloads.Items, objCheckOpts...); diff != "" {
+				if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Workloads.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected worker's workloads (-want/+got):\n%s", diff)
 				}
 			}
@@ -532,11 +532,11 @@ func TestWlReconcile(t *testing.T) {
 			}
 
 			if tc.useSecondWorker {
-				gotWorker2Wokloads := &kueue.WorkloadList{}
-				if err := worker2Client.List(ctx, gotWorker2Wokloads); err != nil {
+				gotWorker2Workloads := &kueue.WorkloadList{}
+				if err := worker2Client.List(ctx, gotWorker2Workloads); err != nil {
 					t.Errorf("unexpected list worker2 workloads error: %s", err)
 				} else {
-					if diff := cmp.Diff(tc.wantWorker2Workloads, gotWorker2Wokloads.Items, objCheckOpts...); diff != "" {
+					if diff := cmp.Diff(tc.wantWorker2Workloads, gotWorker2Workloads.Items, objCheckOpts...); diff != "" {
 						t.Errorf("unexpected worker2 workloads (-want/+got):\n%s", diff)
 					}
 				}

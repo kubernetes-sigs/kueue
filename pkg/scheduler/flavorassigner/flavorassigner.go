@@ -496,7 +496,7 @@ func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibil
 }
 
 func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {
-	// This function generally replicates the implementation of kube-scheduler's NodeAffintiy
+	// This function generally replicates the implementation of kube-scheduler's NodeAffinity
 	// Filter plugin as of v1.24.
 	var specCopy corev1.PodSpec
 

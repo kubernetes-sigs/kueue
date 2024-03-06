@@ -346,13 +346,13 @@ func TestRemoteClientGC(t *testing.T) {
 
 			w1remoteClient.runGC(ctx)
 
-			gotWorker1Wokloads := &kueue.WorkloadList{}
-			err := worker1Client.List(ctx, gotWorker1Wokloads)
+			gotWorker1Workloads := &kueue.WorkloadList{}
+			err := worker1Client.List(ctx, gotWorker1Workloads)
 			if err != nil {
 				t.Error("unexpected list worker's workloads error")
 			}
 
-			if diff := cmp.Diff(tc.wantWorkersWorkloads, gotWorker1Wokloads.Items, objCheckOpts...); diff != "" {
+			if diff := cmp.Diff(tc.wantWorkersWorkloads, gotWorker1Workloads.Items, objCheckOpts...); diff != "" {
 				t.Errorf("unexpected worker's workloads (-want/+got):\n%s", diff)
 			}
 

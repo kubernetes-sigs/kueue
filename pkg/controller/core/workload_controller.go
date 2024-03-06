@@ -452,7 +452,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 		// trigger the move of associated inadmissibleWorkloads if required.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock
-			// to guarantee that requeueued workloads are taken into account before
+			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
 			if err := r.cache.DeleteWorkload(wl); err != nil {
 				if !e.DeleteStateUnknown {
@@ -514,7 +514,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock
-			// to guarantee that requeueued workloads are taken into account before
+			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
 			if err := r.cache.DeleteWorkload(oldWl); err != nil && prevStatus == admitted {
 				log.Error(err, "Failed to delete workload from cache")
@@ -535,7 +535,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock
-			// to guarantee that requeueued workloads are taken into account before
+			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
 			if err := r.cache.DeleteWorkload(wl); err != nil {
 				log.Error(err, "Failed to delete workload from cache")

@@ -104,11 +104,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueAc)).Should(gomega.Succeed())
 
 		ginkgo.By("wait for check active", func() {
-			updatetedAc := kueue.AdmissionCheck{}
+			updatedAc := kueue.AdmissionCheck{}
 			acKey := client.ObjectKeyFromObject(multiKueueAc)
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sManagerClient.Get(ctx, acKey, &updatetedAc)).To(gomega.Succeed())
-				g.Expect(apimeta.IsStatusConditionTrue(updatetedAc.Status.Conditions, kueue.AdmissionCheckActive)).To(gomega.BeTrue())
+				g.Expect(k8sManagerClient.Get(ctx, acKey, &updatedAc)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(updatedAc.Status.Conditions, kueue.AdmissionCheckActive)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		})

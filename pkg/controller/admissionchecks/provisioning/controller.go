@@ -173,7 +173,7 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 			// PRs relevant for the admission check
 			if matches(req, wl.Name, checkName) {
 				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
-				if err == nil && c.reqIsNeeded(ctx, wl, prc) && requestHasParamaters(req, prc) {
+				if err == nil && c.reqIsNeeded(ctx, wl, prc) && requestHasParameters(req, prc) {
 					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(ctx, currPr, wl.Name, checkName) < getAttempt(ctx, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
 					}
@@ -434,7 +434,7 @@ func parametersKueueToProvisioning(in map[string]kueue.Parameter) map[string]aut
 	return out
 }
 
-func requestHasParamaters(req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
+func requestHasParameters(req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
 	if req.Spec.ProvisioningClassName != prc.Spec.ProvisioningClassName {
 		return false
 	}

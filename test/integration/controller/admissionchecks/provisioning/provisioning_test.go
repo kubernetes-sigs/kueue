@@ -110,13 +110,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				PodSets(
 					*testing.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
-						Image("iamge").
+						Image("image").
 						Obj(),
 					*testing.MakePodSet("ps2", 6).
 						Request(corev1.ResourceCPU, "500m").
 						Request(customResourceOne, "1").
 						Limit(customResourceOne, "1").
-						Image("iamge").
+						Image("image").
 						Obj(),
 				).
 				Obj()
@@ -701,13 +701,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				PodSets(
 					*testing.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
-						Image("iamge").
+						Image("image").
 						Obj(),
 					*testing.MakePodSet("ps2", 6).
 						Request(corev1.ResourceCPU, "500m").
 						Request(customResourceOne, "1").
 						Limit(customResourceOne, "1").
-						Image("iamge").
+						Image("image").
 						Obj(),
 				).
 				Obj()

@@ -1578,13 +1578,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		type testParams struct {
-			reqCPU          string
-			limitCPU        string
-			minCPU          string
-			maxCPU          string
-			limitType       corev1.LimitType
-			wantedStatus    string
-			shouldBeAdmited bool
+			reqCPU           string
+			limitCPU         string
+			minCPU           string
+			maxCPU           string
+			limitType        corev1.LimitType
+			wantedStatus     string
+			shouldBeAdmitted bool
 		}
 
 		ginkgo.DescribeTable("", func(tp testParams) {
@@ -1613,7 +1613,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wl := wlBuilder.Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			if tp.shouldBeAdmited {
+			if tp.shouldBeAdmitted {
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
 			} else {
 				gomega.Eventually(func() string {
@@ -1637,7 +1637,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.Entry("request under container limits", testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", wantedStatus: "didn't satisfy LimitRange constraints:"}),
 			ginkgo.Entry("request over pod limits", testParams{reqCPU: "2", limitCPU: "3", maxCPU: "1", limitType: corev1.LimitTypePod, wantedStatus: "didn't satisfy LimitRange constraints:"}),
 			ginkgo.Entry("request under pod limits", testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", limitType: corev1.LimitTypePod, wantedStatus: "didn't satisfy LimitRange constraints:"}),
-			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", shouldBeAdmited: true}),
+			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", shouldBeAdmitted: true}),
 		)
 	})
 
