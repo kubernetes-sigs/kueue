@@ -37,11 +37,11 @@ import (
 
 func NewFakeClient(objs ...client.Object) client.Client {
 	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).
-		WithInterceptorFuncs(interceptor.Funcs{Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: func(ctx context.Context, clnt client.Client, SubResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 			// Apply patches are supposed to upsert, but fake client fails if the object doesn't exist,
 			// if an apply patch occurs for an object that doesn't yet exist, create it.
 			if patch.Type() != types.ApplyPatchType {
-				return clnt.Patch(ctx, obj, patch, opts...)
+				return clnt.Patch(ctx, obj, patch, &client.PatchOptions{})
 			}
 			check, ok := obj.DeepCopyObject().(client.Object)
 			if !ok {
@@ -52,7 +52,7 @@ func NewFakeClient(objs ...client.Object) client.Client {
 					return fmt.Errorf("could not inject object creation for fake: %w", err)
 				}
 			}
-			return clnt.Patch(ctx, obj, patch, opts...)
+			return clnt.Patch(ctx, obj, patch, &client.PatchOptions{})
 		}}).Build()
 }
 
@@ -74,11 +74,11 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 		WithIndex(&kueue.Workload{}, indexer.WorkloadQueueKey, indexer.IndexWorkloadQueue).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadClusterQueueKey, indexer.IndexWorkloadClusterQueue).
 		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID).
-		WithInterceptorFuncs(interceptor.Funcs{Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: func(ctx context.Context, clnt client.Client, SubResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 			// Apply patches are supposed to upsert, but fake client fails if the object doesn't exist,
 			// if an apply patch occurs for an object that doesn't yet exist, create it.
 			if patch.Type() != types.ApplyPatchType {
-				return clnt.Patch(ctx, obj, patch, opts...)
+				return clnt.Patch(ctx, obj, patch, &client.PatchOptions{})
 			}
 			check, ok := obj.DeepCopyObject().(client.Object)
 			if !ok {
@@ -89,7 +89,7 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 					return fmt.Errorf("could not inject object creation for fake: %w", err)
 				}
 			}
-			return clnt.Patch(ctx, obj, patch, opts...)
+			return clnt.Patch(ctx, obj, patch, &client.PatchOptions{})
 		}})
 }
 
