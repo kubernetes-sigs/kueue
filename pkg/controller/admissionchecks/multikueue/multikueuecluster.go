@@ -53,15 +53,18 @@ import (
 const (
 	eventChBufferSize = 10
 
-	// this set will provide waiting time between 5s to 5min
+	// this set will provide waiting time between 0 to 5m20s
 	retryIncrement = 5 * time.Second
-	retryMaxSteps  = 6
+	retryMaxSteps  = 7
 )
 
 // retryAfter returns an exponentially increasing interval between
-// retryIncrement and 2^retryMaxSteps * retryIncrement
+// 0 and 2^(retryMaxSteps-1) * retryIncrement
 func retryAfter(failedAttempts uint) time.Duration {
-	return (1 << min(failedAttempts, retryMaxSteps)) * retryIncrement
+	if failedAttempts == 0 {
+		return 0
+	}
+	return (1 << (min(failedAttempts, retryMaxSteps) - 1)) * retryIncrement
 }
 
 type clientWithWatchBuilder func(config []byte, options client.Options) (client.WithWatch, error)
@@ -158,9 +161,8 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
 	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
-		retryIn := retryAfter(rc.failedConnAttempts)
 		rc.failedConnAttempts++
-		return &retryIn, err
+		return ptr.To(retryAfter(rc.failedConnAttempts)), err
 	}
 
 	// add a watch for all the adapters implementing multiKueueWatcher
@@ -174,9 +176,8 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).V(2).Error(err, "Unable to start the watcher", "kind", kind)
 			// however let's not accept this for now.
-			retryIn := retryAfter(rc.failedConnAttempts)
 			rc.failedConnAttempts++
-			return &retryIn, err
+			return ptr.To(retryAfter(rc.failedConnAttempts)), err
 		}
 	}
 
