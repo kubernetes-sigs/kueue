@@ -512,6 +512,15 @@ remote objects that ware created by this multikueue manager cluster and delete
 them if their local counterpart no longer exists.</p>
 </td>
 </tr>
+<tr><td><code>workerLostTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>WorkerLostTimeout defines the time a local workload's multikueue admission check state is kept Ready
+if the connection with its reserving worker cluster is lost.</p>
+<p>Defaults to 15 minutes.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

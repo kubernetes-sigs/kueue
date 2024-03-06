@@ -65,11 +65,20 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	inactiveReason := ""
-
 	log.V(2).Info("Reconcile AdmissionCheck")
+
+	newCondition := metav1.Condition{
+		Type:    kueue.AdmissionCheckActive,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Active",
+		Message: "The admission check is active",
+	}
+
 	if cfg, err := a.helper.ConfigFromRef(ctx, ac.Spec.Parameters); err != nil {
-		inactiveReason = fmt.Sprintf("Cannot load the AdmissionChecks parameters: %s", err.Error())
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "BadConfig"
+		newCondition.Message = fmt.Sprintf("Cannot load the AdmissionChecks parameters: %s", err.Error())
+
 	} else {
 		var missingClusters []string
 		var inactiveClusters []string
@@ -90,28 +99,25 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 				}
 			}
 		}
+		unusableClustersCount := len(missingClusters) + len(inactiveClusters)
+		if unusableClustersCount > 0 {
+			if unusableClustersCount < len(cfg.Spec.Clusters) {
+				// keep it partially active
+				newCondition.Reason = "SomeActiveClusters"
+			} else {
+				newCondition.Status = metav1.ConditionFalse
+				newCondition.Reason = "NoUsableClusters"
+			}
 
-		var messageParts []string
-		if len(missingClusters) > 0 {
-			messageParts = []string{fmt.Sprintf("Missing clusters: %v", missingClusters)}
+			var messageParts []string
+			if len(missingClusters) > 0 {
+				messageParts = []string{fmt.Sprintf("Missing clusters: %v", missingClusters)}
+			}
+			if len(inactiveClusters) > 0 {
+				messageParts = append(messageParts, fmt.Sprintf("Inactive clusters: %v", inactiveClusters))
+			}
+			newCondition.Message = strings.Join(messageParts, ", ")
 		}
-		if len(inactiveClusters) > 0 {
-			messageParts = append(messageParts, fmt.Sprintf("Inactive clusters: %v", inactiveClusters))
-		}
-		inactiveReason = strings.Join(messageParts, ", ")
-	}
-
-	newCondition := metav1.Condition{
-		Type: kueue.AdmissionCheckActive,
-	}
-	if len(inactiveReason) == 0 {
-		newCondition.Status = metav1.ConditionTrue
-		newCondition.Reason = "Active"
-		newCondition.Message = "The admission check is active"
-	} else {
-		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "Inactive"
-		newCondition.Message = inactiveReason
 	}
 
 	oldCondition := apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive)

@@ -46,6 +46,10 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
+const (
+	testingWorkerLostTimeout = 3 * time.Second
+)
+
 type cluster struct {
 	cfg    *rest.Config
 	client client.Client
@@ -173,6 +177,9 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name, multikueue.WithGCInterval(2*time.Second))
+	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+		multikueue.WithGCInterval(2*time.Second),
+		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

@@ -17,6 +17,8 @@ limitations under the License.
 package multikueue
 
 import (
+	"time"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -187,7 +189,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
+						Reason:  "BadConfig",
 						Message: `Cannot load the AdmissionChecks parameters: MultiKueueConfig.kueue.x-k8s.io "testing-config" not found`,
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -213,7 +215,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
+						Reason:  "NoUsableClusters",
 						Message: `Missing clusters: [testing-cluster]`,
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -247,7 +249,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
+						Reason:  "NoUsableClusters",
 						Message: `Inactive clusters: [testing-cluster]`,
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -560,4 +562,145 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		})
 	})
 
+	ginkgo.It("Should requeue the workload with a delay when the connection to the admitting worker is lost", func() {
+		jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
+			Queue(managerLq.Name).
+			ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				}, testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-2",
+					Replicas:    3,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			).
+			Obj()
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, jobSet)).Should(gomega.Succeed())
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
+
+		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+			kueue.PodSetAssignment{
+				Name: "replicated-job-1",
+			}, kueue.PodSetAssignment{
+				Name: "replicated-job-2",
+			},
+		).Obj()
+
+		ginkgo.By("setting workload reservation in the management cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the workload creation in the worker clusters", func() {
+			managerWl := &kueue.Workload{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting workload reservation in worker2, the workload is admitted in manager and worker1 wl is removed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, createdWorkload, admission)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multikueueAC.Name)
+				g.Expect(acs).NotTo(gomega.BeNil())
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
+				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker2"`))
+
+				g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Admitted",
+					Message: "The workload is admitted",
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		var disconnectedTime time.Time
+		ginkgo.By("breaking the connection to worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCluster := &kueuealpha.MultiKueueCluster{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
+				createdCluster.Spec.KubeConfig.Location = "bad-secret"
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCluster := &kueuealpha.MultiKueueCluster{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
+				activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueuealpha.MultiKueueClusterActive)
+				g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
+					Type:   kueuealpha.MultiKueueClusterActive,
+					Status: metav1.ConditionFalse,
+					Reason: "BadConfig",
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "Message", "LastTransitionTime")))
+				disconnectedTime = activeCondition.LastTransitionTime.Time
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("waiting for the local workload admission check state to be set to pending and quotaReservatio removed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multikueueAC.Name)
+				g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+					Name:  multikueueAC.Name,
+					State: kueue.CheckStatePending,
+				}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
+
+				// The transition interval should be close to testingKeepReadyTimeout (taking into account the resolution of the LastTransitionTime field)
+				g.Expect(acs.LastTransitionTime.Time).To(gomega.BeComparableTo(disconnectedTime.Add(testingWorkerLostTimeout), cmpopts.EquateApproxTime(2*time.Second)))
+
+				g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeFalse())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("restoring the connection to worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCluster := &kueuealpha.MultiKueueCluster{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
+				createdCluster.Spec.KubeConfig.Location = managerMultikueueSecret2.Name
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdCluster)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCluster := &kueuealpha.MultiKueueCluster{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(workerCluster2), createdCluster)).To(gomega.Succeed())
+				activeCondition := apimeta.FindStatusCondition(createdCluster.Status.Conditions, kueuealpha.MultiKueueClusterActive)
+				g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
+					Type:   kueuealpha.MultiKueueClusterActive,
+					Status: metav1.ConditionTrue,
+					Reason: "Active",
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "Message", "LastTransitionTime")))
+				disconnectedTime = activeCondition.LastTransitionTime.Time
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the worker2 wl is removed since the local one no longer has a reservation", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdWorkload := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
