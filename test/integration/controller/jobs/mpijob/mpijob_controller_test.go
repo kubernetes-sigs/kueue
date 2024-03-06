@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
 		parallelism := ptr.Deref(job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas, 1)
-		newParallelism := int32(parallelism + 1)
+		newParallelism := parallelism + 1
 		createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas = &newParallelism
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {

@@ -612,7 +612,7 @@ func AwaitAndVerifyCreatedWorkload(ctx context.Context, client client.Client, wl
 func VerifyWorkloadPriority(createdWorkload *kueue.Workload, priorityClassName string, priorityValue int32) {
 	ginkgo.By("checking the workload is created with priority and priorityName")
 	gomega.ExpectWithOffset(1, createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
-	gomega.ExpectWithOffset(1, *createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
+	gomega.ExpectWithOffset(1, *createdWorkload.Spec.Priority).Should(gomega.Equal(priorityValue))
 }
 
 func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {

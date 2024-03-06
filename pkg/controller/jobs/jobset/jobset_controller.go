@@ -171,7 +171,7 @@ func (j *JobSet) Finished() (metav1.Condition, bool) {
 func (j *JobSet) PodsReady() bool {
 	var replicas int32
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
-		replicas += int32(replicatedJob.Replicas)
+		replicas += replicatedJob.Replicas
 	}
 	var readyReplicas int32
 	for _, replicatedJobStatus := range j.Status.ReplicatedJobsStatus {
@@ -191,7 +191,7 @@ func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	for i := range j.Spec.ReplicatedJobs {
 		spec := &j.Spec.ReplicatedJobs[i]
 		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 {
-			if status.Succeeded > 0 && status.Succeeded <= int32(spec.Replicas) {
+			if status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
 				ret = append(ret, kueue.ReclaimablePod{
 					Name:  spec.Name,
 					Count: status.Succeeded * podsCountPerReplica(spec),
@@ -214,7 +214,7 @@ func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
 
 func podsCount(rj *jobsetapi.ReplicatedJob) int32 {
 	// The JobSet's operator validates that this will not overflow.
-	return int32(rj.Replicas) * podsCountPerReplica(rj)
+	return rj.Replicas * podsCountPerReplica(rj)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
