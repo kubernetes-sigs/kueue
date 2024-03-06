@@ -14,6 +14,9 @@ linters-settings:
       - dupImport
   goimports:
     local-prefixes: sigs.k8s.io/kueue
+  govet:
+    enable:
+      - nilness
 
 # Settings for enabling and disabling linters
 linters:
@@ -21,5 +24,6 @@ linters:
     - ginkgolinter
     - gocritic
     - goimports
+    - govet
     - misspell
     - unconvert
