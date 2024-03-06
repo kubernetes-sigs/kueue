@@ -74,7 +74,7 @@ func newTestClient(config string, watchCancel func()) *remoteClient {
 	return ret
 }
 
-func setForceReconnectandAttempts(rc *remoteClient, a uint) *remoteClient {
+func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 	rc.failedConnAttempts = a
 	rc.forceReconnect.Store(true)
 	return rc
@@ -226,7 +226,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient("worker1 old kubeconfig", cancelCalled),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": setForceReconnectandAttempts(newTestClient("nowatch", nil), 1),
+				"worker1": setReconnectState(newTestClient("nowatch", nil), 1),
 			},
 			wantClusters: []kueuealpha.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueuealpha.SecretLocationType, "worker1").Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch").Obj(),
@@ -243,10 +243,10 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "nowatch"),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": setForceReconnectandAttempts(newTestClient("nowatch", cancelCalled), 2),
+				"worker1": setReconnectState(newTestClient("nowatch", cancelCalled), 2),
 			},
 			wantRemoteClients: map[string]*remoteClient{
-				"worker1": setForceReconnectandAttempts(newTestClient("nowatch", nil), 3),
+				"worker1": setReconnectState(newTestClient("nowatch", nil), 3),
 			},
 			wantClusters: []kueuealpha.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueuealpha.SecretLocationType, "worker1").Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch").Obj(),
@@ -266,7 +266,7 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "good config"),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": setForceReconnectandAttempts(newTestClient("nowatch", cancelCalled), 5),
+				"worker1": setReconnectState(newTestClient("nowatch", cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("good config", nil),
@@ -291,7 +291,7 @@ func TestUpdateConfig(t *testing.T) {
 				makeTestSecret("worker1", "invalid"),
 			},
 			remoteClients: map[string]*remoteClient{
-				"worker1": setForceReconnectandAttempts(newTestClient("nowatch", cancelCalled), 5),
+				"worker1": setReconnectState(newTestClient("nowatch", cancelCalled), 5),
 			},
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("invalid", nil),
