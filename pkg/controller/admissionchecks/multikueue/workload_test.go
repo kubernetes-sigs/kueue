@@ -451,7 +451,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs})
 			worker1Client := worker1Builder.Build()
 
-			w1remoteClient := newRemoteClient(managerClient, nil, defaultOrigin)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 			w1remoteClient.client = worker1Client
 			cRec.remoteClients["worker1"] = w1remoteClient
 
@@ -481,7 +481,7 @@ func TestWlReconcile(t *testing.T) {
 				})
 				worker2Client = worker2Builder.Build()
 
-				w2remoteClient := newRemoteClient(managerClient, nil, defaultOrigin)
+				w2remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 				w2remoteClient.client = worker2Client
 				cRec.remoteClients["worker2"] = w2remoteClient
 

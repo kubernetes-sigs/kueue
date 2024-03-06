@@ -331,7 +331,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &jobset.JobSetList{Items: tc.worker1JobSets})
 			worker1Client := worker1Builder.Build()
 
-			w1remoteClient := newRemoteClient(managerClient, nil, defaultOrigin)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 			w1remoteClient.client = worker1Client
 
 			cRec.remoteClients["worker1"] = w1remoteClient
