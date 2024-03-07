@@ -14,6 +14,8 @@ require (
 	github.com/prometheus/client_golang v1.18.0
 	github.com/prometheus/client_model v0.6.0
 	github.com/ray-project/kuberay/ray-operator v1.1.0-rc.1
+	github.com/spf13/cobra v1.8.0
+	github.com/spf13/pflag v1.0.5
 	go.uber.org/zap v1.27.0
 	k8s.io/api v0.29.2
 	k8s.io/apimachinery v0.29.2
@@ -82,8 +84,6 @@ require (
 	github.com/prometheus/common v0.45.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/spf13/cobra v1.8.0 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.11 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.11 // indirect
