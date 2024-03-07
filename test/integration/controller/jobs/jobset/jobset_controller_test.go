@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 				return false
 			}
-			return createdWorkload.Spec.PodSets[0].Count == int32(newParallelism)
+			return createdWorkload.Spec.PodSets[0].Count == newParallelism
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		gomega.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 

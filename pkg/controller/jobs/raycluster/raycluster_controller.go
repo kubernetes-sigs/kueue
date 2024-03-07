@@ -165,7 +165,7 @@ func (j *RayCluster) Finished() (metav1.Condition, bool) {
 		Type:    kueue.WorkloadFinished,
 		Status:  metav1.ConditionFalse,
 		Reason:  string(j.Status.State),
-		Message: string(j.Status.Reason),
+		Message: j.Status.Reason,
 	}
 	// Technically a RayCluster is never "finished"
 	return condition, false
