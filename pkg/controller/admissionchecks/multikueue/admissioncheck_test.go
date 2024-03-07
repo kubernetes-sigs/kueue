@@ -152,6 +152,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage).
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
