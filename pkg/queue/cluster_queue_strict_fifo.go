@@ -37,7 +37,7 @@ type ClusterQueueStrictFIFO struct {
 var _ ClusterQueue = &ClusterQueueStrictFIFO{}
 
 func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error) {
-	cqImpl := newClusterQueueImpl(keyFunc, queueOrderingFunc(wo), realClock)
+	cqImpl := newClusterQueueImpl(queueOrderingFunc(wo), realClock)
 	cqStrict := &ClusterQueueStrictFIFO{
 		clusterQueueBase: cqImpl,
 	}
@@ -50,19 +50,17 @@ func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue, wo workload.Ordering) (Cl
 // to sort workloads. The function sorts workloads based on their priority.
 // When priorities are equal, it uses the workload's creation or eviction
 // time.
-func queueOrderingFunc(wo workload.Ordering) func(a, b interface{}) bool {
-	return func(a, b interface{}) bool {
-		objA := a.(*workload.Info)
-		objB := b.(*workload.Info)
-		p1 := utilpriority.Priority(objA.Obj)
-		p2 := utilpriority.Priority(objB.Obj)
+func queueOrderingFunc(wo workload.Ordering) func(a, b *workload.Info) bool {
+	return func(a, b *workload.Info) bool {
+		p1 := utilpriority.Priority(a.Obj)
+		p2 := utilpriority.Priority(b.Obj)
 
 		if p1 != p2 {
 			return p1 > p2
 		}
 
-		tA := wo.GetQueueOrderTimestamp(objA.Obj)
-		tB := wo.GetQueueOrderTimestamp(objB.Obj)
+		tA := wo.GetQueueOrderTimestamp(a.Obj)
+		tB := wo.GetQueueOrderTimestamp(b.Obj)
 		return !tB.Before(tA)
 	}
 }
