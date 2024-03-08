@@ -1,0 +1,16 @@
+11083,11089c11083,11089
+<     # - "pod"
+<     # podOptions:
+<     #   namespaceSelector:
+<     #     matchExpressions:
+<     #       - key: kubernetes.io/metadata.name
+<     #         operator: NotIn
+<     #         values: [ kube-system, kueue-system ]
+---
+>       - "pod"
+>       podOptions:
+>         namespaceSelector:
+>           matchExpressions:
+>             - key: kubernetes.io/metadata.name
+>               operator: NotIn
+>               values: [ kube-system, kueue-system ]
