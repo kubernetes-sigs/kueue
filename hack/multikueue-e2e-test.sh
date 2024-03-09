@@ -66,8 +66,7 @@ function startup {
     #                  sudo iptables --append OUTPUT --protocol tcp --src 172.18.0.1 --dst 172.18.0./0/16 --jump ACCEPT`
 
     # have the worker forward the api to the docker gateway address instead of lo
-    GW="$(docker inspect "${MANAGER_KIND_CLUSTER_NAME}"-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')"
-    export GW
+    export GW="$(docker inspect "${MANAGER_KIND_CLUSTER_NAME}"-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')"
     $YQ e '.networking.apiServerAddress=env(GW)'  "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml" > "$ARTIFACTS"/worker-cluster.yaml
 
     cluster_create $WORKER1_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
