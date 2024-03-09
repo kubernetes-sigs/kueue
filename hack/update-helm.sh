@@ -29,7 +29,7 @@ YQ=./bin/yq
 SED=${SED:-/usr/bin/sed}
 
 # Create the destination directory if it doesn't exist
-mkdir -p ${DEST_CRD_DIR} ${DEST_RBAC_DIR} ${DEST_WEBHOOK_DIR} ${DEST_VISIBILITY_DIR}
+mkdir -p ${DEST_CRD_DIR} "${DEST_RBAC_DIR}" ${DEST_WEBHOOK_DIR} ${DEST_VISIBILITY_DIR}
 
 # Add more excluded files separated by spaces
 EXCLUDE_FILES='kustomization.yaml kustomizeconfig.yaml'
@@ -144,7 +144,7 @@ EOF
 )
 
 # Add certmanager and webhook values in the YAML files
-for output_file in ${DEST_CRD_DIR}/*.yaml; do
+for output_file in "${DEST_CRD_DIR}"/*.yaml; do
   input_file="${output_file%.yaml}.yaml.test"
   mv "$output_file" "$input_file"
   : >$output_file
@@ -161,7 +161,7 @@ for output_file in ${DEST_CRD_DIR}/*.yaml; do
 done
 
 # Add RBAC files, replace names, namespaces in helm format, remove document separators (---)
-for output_file in ${DEST_RBAC_DIR}/*.yaml; do
+for output_file in "${DEST_RBAC_DIR}"/*.yaml; do
   if [ "$(cat $output_file | $YQ '.metadata | has("name")')" = "true" ]; then
     $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
   fi
@@ -256,7 +256,7 @@ echo "$add_webhook_line" > ${DEST_WEBHOOK_DIR}/webhook.yaml
 rm ${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml ${DEST_WEBHOOK_DIR}/ValidatingWebhookConfiguration.yml
 
 # Add visibility files, replace names, namespaces in helm format
-for output_file in ${DEST_VISIBILITY_DIR}/*.yaml; do
+for output_file in "${DEST_VISIBILITY_DIR}"/*.yaml; do
   # The name of the v1alpha1.visibility.kueue.x-k8s.io APIService needs to remain unchanged.
   if [ "$(cat $output_file | $YQ '.metadata | has("name")')" = "true" ] &&
     [ "$(cat $output_file | $YQ '.metadata.name | (. == "v1alpha1*")')" = "false" ]; then
