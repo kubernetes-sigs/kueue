@@ -30,4 +30,4 @@ echo "Downloading ShellCheck Docker image..."
 # Run ShellCheck on all shell script files, excluding those in the 'vendor' directory
 echo "Running ShellCheck..."
 "${DOCKER}" run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" "${SHELLCHECK_IMAGE}" \
-    find . -type f -name '*.sh' ! -path './vendor/*' -exec shellcheck --exclude="$DISABLED_ERRORS" {} +
+    find . -type f -name '*.sh' ! -exec shellcheck --exclude="$DISABLED_ERRORS" {} +
