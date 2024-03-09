@@ -19,8 +19,6 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-GOOS = $(shell go env GOOS)
-GOARCH = $(shell go env GOARCH)
 GO_CMD ?= go
 GO_FMT ?= gofmt
 GO_TEST_FLAGS ?= -race
