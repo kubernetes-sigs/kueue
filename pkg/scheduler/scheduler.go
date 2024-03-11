@@ -585,10 +585,11 @@ func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e ent
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added)
 
 	if e.status == notNominated || e.status == skipped {
-		workload.UnsetQuotaReservationWithCondition(e.Obj, "Pending", e.inadmissibleMsg)
-		err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true)
-		if err != nil {
-			log.Error(err, "Could not update Workload status")
+		if workload.UnsetQuotaReservationWithCondition(e.Obj, "Pending", e.inadmissibleMsg) {
+			err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true)
+			if err != nil {
+				log.Error(err, "Could not update Workload status")
+			}
 		}
 		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
 	}

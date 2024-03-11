@@ -301,7 +301,10 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
-func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) {
+// UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false and clears
+// the admission.
+// Returns whether any change was done.
+func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
@@ -309,11 +312,17 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 	}
-	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-	wl.Status.Admission = nil
+	changed := apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+	if wl.Status.Admission != nil {
+		wl.Status.Admission = nil
+		changed = true
+	}
 
 	// Reset the admitted condition if necessary.
-	_ = SyncAdmittedCondition(wl)
+	if SyncAdmittedCondition(wl) {
+		changed = true
+	}
+	return changed
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
