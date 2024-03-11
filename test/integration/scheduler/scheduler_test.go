@@ -616,6 +616,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 		ginkgo.It("Should re-enqueue by the update event of ClusterQueue", func() {
+			metrics.AdmissionAttemptsTotal.Reset()
 			wl := testing.MakeWorkload("on-demand-wl", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "6").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
