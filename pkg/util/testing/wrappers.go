@@ -780,6 +780,21 @@ func (ac *AdmissionCheckWrapper) Parameters(apigroup, kind, name string) *Admiss
 	return ac
 }
 
+func (ac *AdmissionCheckWrapper) SingleInstanceInClusterQueue(singleInstance bool, reason, message string) *AdmissionCheckWrapper {
+	cond := metav1.Condition{
+		Type:    kueue.AdmissionChecksSingleInstanceInClusterQueue,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
+	}
+	if !singleInstance {
+		cond.Status = metav1.ConditionFalse
+	}
+
+	apimeta.SetStatusCondition(&ac.Status.Conditions, cond)
+	return ac
+}
+
 func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
 	return &ac.AdmissionCheck
 }

@@ -186,12 +186,20 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				acKey := client.ObjectKeyFromObject(ac)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
-					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
-						Type:    kueue.AdmissionCheckActive,
-						Status:  metav1.ConditionFalse,
-						Reason:  "BadConfig",
-						Message: `Cannot load the AdmissionChecks parameters: MultiKueueConfig.kueue.x-k8s.io "testing-config" not found`,
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElements(
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.AdmissionCheckActive,
+							Status:  metav1.ConditionFalse,
+							Reason:  "BadConfig",
+							Message: `Cannot load the AdmissionChecks parameters: MultiKueueConfig.kueue.x-k8s.io "testing-config" not found`,
+						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.AdmissionChecksSingleInstanceInClusterQueue,
+							Status:  metav1.ConditionTrue,
+							Reason:  multikueue.SingleInstanceReason,
+							Message: multikueue.SingleInstanceMessage,
+						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

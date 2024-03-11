@@ -208,7 +208,9 @@ func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[str
 	c.Lock()
 	defer c.Unlock()
 	c.admissionChecks[ac.Name] = AdmissionCheck{
-		Active: apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
+		Active:                       apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
+		Controller:                   ac.Spec.ControllerName,
+		SingleInstanceInClusterQueue: apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue),
 	}
 
 	return c.updateClusterQueues()

@@ -195,7 +195,6 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 		return nil, err
 	}
 
-	// If the are more than 1 multikueue admission checks (len(relevantChecks) > 1), skip this workload.
 	if len(relevantChecks) == 0 {
 		return nil, nil
 	}

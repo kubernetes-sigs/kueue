@@ -55,6 +55,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage).
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
@@ -92,6 +93,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage).
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
@@ -120,6 +122,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage).
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
@@ -149,6 +152,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage).
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
@@ -178,6 +182,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage).
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionTrue,
@@ -205,6 +210,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage).
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionTrue,
@@ -247,7 +253,10 @@ func TestReconcile(t *testing.T) {
 				t.Errorf("unexpected list checks error: %s", listErr)
 			}
 
-			if diff := cmp.Diff(tc.wantChecks, checks.Items, cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(metav1.ObjectMeta{}), cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+			if diff := cmp.Diff(tc.wantChecks, checks.Items, cmpopts.EquateEmpty(),
+				cmpopts.IgnoreTypes(metav1.ObjectMeta{}),
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+				cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type })); diff != "" {
 				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
 			}
 
