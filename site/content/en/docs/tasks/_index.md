@@ -26,6 +26,7 @@ As a batch administrator, you can learn how to:
 - As a batch administrator, you can learn how to
   [monitor pending workloads](/docs/tasks/monitor_pending_workloads).
 - As a batch administrator, you can learn how to [run a Kueue managed Jobs with a custom WorkloadPriority](/docs/tasks/run_job_with_workload_priority).
+- As a batch administrator, you can learn how to [setup a MultiKueue environment](/docs/tasks/setup_multikue).
 
 ### Batch user
 
