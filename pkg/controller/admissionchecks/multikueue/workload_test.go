@@ -608,6 +608,7 @@ func TestWlReconcile(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			manageBuilder, ctx := getClientBuilder()
+			manageBuilder = manageBuilder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 			workerClusters := []string{"worker1"}
 			if tc.useSecondWorker {

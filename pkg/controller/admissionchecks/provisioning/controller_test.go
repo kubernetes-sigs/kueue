@@ -30,6 +30,7 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -610,6 +611,7 @@ func TestReconcile(t *testing.T) {
 			t.Cleanup(utiltesting.SetDuringTest(&MaxRetries, tc.maxRetries))
 
 			builder, ctx := getClientBuilder()
+			builder = builder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 			builder = builder.WithObjects(tc.workload)
 			builder = builder.WithStatusSubresource(tc.workload)
