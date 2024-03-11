@@ -373,7 +373,7 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
 func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
 	hasMissing := false
-	controllersChecks := make(map[string][]string, len(c.AdmissionChecks))
+	checksPerController := make(map[string]int, len(c.AdmissionChecks))
 	singleInstanceControllers := sets.New[string]()
 	for acName := range c.AdmissionChecks {
 		if ac, found := checks[acName]; !found {
@@ -382,7 +382,7 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 			if !ac.Active {
 				hasMissing = true
 			}
-			controllersChecks[ac.Controller] = append(controllersChecks[ac.Controller], acName)
+			checksPerController[ac.Controller]++
 			if ac.SingleInstanceInClusterQueue {
 				singleInstanceControllers.Insert(ac.Controller)
 			}
@@ -396,8 +396,8 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	}
 
 	hasMultipleSICC := false
-	for controller, checks := range controllersChecks {
-		if singleInstanceControllers.Has(controller) && len(checks) > 1 {
+	for controller, checks := range checksPerController {
+		if singleInstanceControllers.Has(controller) && checks > 1 {
 			hasMultipleSICC = true
 		}
 	}
