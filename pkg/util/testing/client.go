@@ -27,6 +27,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -34,6 +35,10 @@ import (
 
 func NewFakeClient(objs ...client.Object) client.Client {
 	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).Build()
+}
+
+func NewFakeClientSSAAsSM(objs ...client.Object) client.Client {
+	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: TreatSSAAsStrategicMerge}).Build()
 }
 
 func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.ClientBuilder {
@@ -120,4 +125,26 @@ func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, annotation
 		Reason:    reason,
 		Message:   fmt.Sprintf(messageFmt, args...),
 	})
+}
+
+type ssaPatchAsStretegicMerge struct {
+	client.Patch
+}
+
+func (*ssaPatchAsStretegicMerge) Type() types.PatchType {
+	return types.StrategicMergePatchType
+}
+
+func wrapSSAPatch(patch client.Patch) client.Patch {
+	if patch.Type() == types.ApplyPatchType {
+		return &ssaPatchAsStretegicMerge{Patch: patch}
+	}
+	return patch
+}
+
+// TreatSSAAsStrategicMerge - can be used as a SubResourcePatch interceptor function to treat SSA patches as StrategicMergePatchType.
+// Note: By doing so the values set in the patch will be updated but the call will have no knowledge of FieldManagement when it
+// comes to detecting conflicts between managers or removing fields that are missing from the patch.
+func TreatSSAAsStrategicMerge(ctx context.Context, clnt client.Client, SubResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return clnt.SubResource(SubResourceName).Patch(ctx, obj, wrapSSAPatch(patch), opts...)
 }
