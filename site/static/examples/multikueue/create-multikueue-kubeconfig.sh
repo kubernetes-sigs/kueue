@@ -100,7 +100,7 @@ subjects:
   namespace: ${NAMESPACE}
 EOF
 
-# Get or create a secret bonded to the new service account.
+# Get or create a secret bound to the new service account.
 SA_SECRET_NAME=$(kubectl get -n ${NAMESPACE} sa/${MULTIKUEUE_SA} -o "jsonpath={.secrets[0]..name}")
 if [ -z $SA_SECRET_NAME ]
 then

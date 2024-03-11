@@ -6,18 +6,34 @@ description: >
   Additional steps needed to setup the multikueue clusters.
 ---
 
+This tutorial explains how you can configure a management cluster and one worker cluster to run [JobSets](/docs/tasks/run_jobsets/#jobset-definition) and [batch/Jobs](/docs/tasks/run_jobs/#1-define-the-job) in a MultiKueue environment.
+
 Check the concepts section for a [MultiKueue overview](/docs/concepts/multikueue/). 
 
-## Worker Cluster
+Let's assume that your manager cluster is named `manager-cluster` and your worker cluster is named `worker1-cluster`.
+To follow this tutorial, ensure that the credentials for all these clusters are present in the kubeconfig in your local machine.
+Check the [kubectl documentation](https://kubernetes.io/docs/tasks/access-application-cluster/configure-access-multiple-clusters/) to learn more about how to Configure Access to Multiple Clusters.
+
+## In the Worker Cluster
+
+{{% alert title="Note" color="note" %}}
+Make sure your current _kubectl_ configuration points to the worker cluster.
+
+Run:
+```bash
+kubectl config use-context worker1-cluster
+```
+{{% /alert %}}
 
 When MultiKueue dispatches a workload from the manager cluster to a worker cluster, it expects that the job's namespace and LocalQueue also exist in the worker cluster.
 In other words, you should ensure that the worker cluster configuration mirrors the one of the manager cluster in terms of namespaces and LocalQueues.
 
-To create the sample queue setup in the `default` namespace apply:
+To create the sample queue setup in the `default` namespace, you can apply the following manifest:
 
 {{< include "examples/admin/single-clusterqueue-setup.yaml" "yaml" >}}
 
 ### MultiKueue Specific Kubeconfig
+
 
 In order to delegate the jobs in a worker cluster, the manager cluster needs to be able to create, delete, and watch workloads and their parent Jobs.
 
@@ -33,7 +49,16 @@ chmod +x create-multikueue-kubeconfig.sh
 
 To create a Kubeconfig that can be used in the manager cluster to delegate Jobs in the current worker.
 
-## Manager Cluster
+## In the Manager Cluster
+
+{{% alert title="Note" color="note" %}}
+Make sure your current _kubectl_ configuration points to the manager cluster.
+
+Run:
+```bash
+kubectl config use-context manager-cluster
+```
+{{% /alert %}}
 
 ### Jobset CRD only install
 
