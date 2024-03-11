@@ -64,8 +64,10 @@ Known Limitations:
 An approach similar to the one described for [`batch/Job`](#batchjob) is taken into account to overcome this. 
 
 ## Submitting Jobs
-
-After the [configuration](/docs/tasks/setup_multikueue), any MultiKueue supported job submitted in the Manager cluster which targets a MultiKueue configured ClusterQueue is subject to multikueue job delegation without any additional job configuration changes.
+In a [configured MultiKueue environemnt](/docs/tasks/setup_multikueue), you can submit any MultiKueue supported job to the Manager cluster, targeting a ClusterQueue configured for Multikueue.
+Kueue delegates the job to the configured worker clusters without any additional configuration changes.
 
 ## What’s next? 
-- Learn about [MultiKueue environment setup](/docs/tasks/setup_multikueue/)
+- Learn how to [setup a MultiKueue environment](/docs/tasks/setup_multikueue/)
+- Learn how to [submit JobSets](/docs/tasks/run_jobsets/#jobset-definition) to a running Kueue cluster.
+- Learn how to [submit batch/Jobs](/docs/tasks/run_jobs/#1-define-the-job) to a running Kueue cluster.
