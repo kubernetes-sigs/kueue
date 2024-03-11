@@ -116,6 +116,7 @@ func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
 		// to potentially become admissible, unless the Eviction status changed
 		// which can affect the workloads order in the queue.
 		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
+			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) {
 			c.inadmissibleWorkloads[key] = wInfo
