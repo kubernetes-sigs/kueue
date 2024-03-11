@@ -206,7 +206,6 @@ func TestPreemption(t *testing.T) {
 			Cohort("cohort-lend").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "6", "", "4").
-				Resource(corev1.ResourceMemory, "3Gi", "", "2Gi").
 				Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -217,13 +216,12 @@ func TestPreemption(t *testing.T) {
 		utiltesting.MakeClusterQueue("lend2").
 			Cohort("cohort-lend").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "6", "", "4").
-				Resource(corev1.ResourceMemory, "3Gi", "", "2Gi").
+				Resource(corev1.ResourceCPU, "6", "", "2").
 				Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
-				WithinClusterQueue:  kueue.PreemptionPolicyNever,
-				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj(),
 	}
@@ -1041,6 +1039,27 @@ func TestPreemption(t *testing.T) {
 				},
 			}),
 			wantPreempted:      sets.New("/lend1-low", "/lend2-low"),
+			enableLendingLimit: true,
+		},
+		"cannot preempt from other ClusterQueues if exceeds requestable quota including lending limit": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("lend2-low", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuota(utiltesting.MakeAdmission("lend2").Assignment(corev1.ResourceCPU, "default", "10").Obj()).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Request(corev1.ResourceCPU, "9").
+				Obj(),
+			targetCQ: "lend1",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted:      nil,
 			enableLendingLimit: true,
 		},
 	}
