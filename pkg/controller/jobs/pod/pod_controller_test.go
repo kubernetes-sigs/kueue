@@ -3421,7 +3421,7 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder()
+			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
@@ -3549,6 +3549,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 				}
 				return client.Patch(ctx, obj, patch, opts...)
 			},
+			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 		})
 
 	kClient := kcBuilder.Build()

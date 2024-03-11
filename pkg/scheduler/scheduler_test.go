@@ -2280,7 +2280,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
 				SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 					updates++
-					return client.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 				},
 			}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 			broadcaster := record.NewBroadcaster()
