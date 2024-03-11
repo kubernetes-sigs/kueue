@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -544,6 +545,16 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
+	case prevStatus == admitted && status == admitted && !equality.Semantic.DeepEqual(oldWl.Status.ReclaimablePods, wl.Status.ReclaimablePods):
+		// trigger the move of associated inadmissibleWorkloads, if there are any.
+		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
+			// Update the workload from cache while holding the queues lock
+			// to guarantee that requeued workloads are taken into account before
+			// the next scheduling cycle.
+			if err := r.cache.UpdateWorkload(oldWl, wlCopy); err != nil {
+				log.Error(err, "Failed to delete workload from cache")
+			}
+		})
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable

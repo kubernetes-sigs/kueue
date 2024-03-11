@@ -622,6 +622,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cq, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
+			util.ExpectAdmissionAttemptsMetric(1, 0)
 
 			ginkgo.By("updating ClusterQueue")
 			updatedCq := &kueue.ClusterQueue{}
@@ -645,6 +646,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
+			util.ExpectAdmissionAttemptsMetric(1, 1)
 		})
 	})
 

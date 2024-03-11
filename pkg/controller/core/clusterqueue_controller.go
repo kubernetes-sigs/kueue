@@ -302,11 +302,12 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 		return true
 	}
 	defer r.notifyWatchers(oldCq, newCq)
+	specUpdated := !equality.Semantic.DeepEqual(oldCq.Spec, newCq.Spec)
 
 	if err := r.cache.UpdateClusterQueue(newCq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
-	if err := r.qManager.UpdateClusterQueue(context.Background(), newCq); err != nil {
+	if err := r.qManager.UpdateClusterQueue(context.Background(), newCq, specUpdated); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 
