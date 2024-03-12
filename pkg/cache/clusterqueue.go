@@ -484,6 +484,29 @@ func updateUsage(wi *workload.Info, flvUsage FlavorResourceQuantities, m int64) 
 	}
 }
 
+func updateCohortUsage(wi *workload.Info, cq *ClusterQueue, m int64) {
+	for _, ps := range wi.TotalRequests {
+		for wlRes, wlResFlv := range ps.Flavors {
+			v, wlResExist := ps.Requests[wlRes]
+			flv, flvExist := cq.Cohort.Usage[wlResFlv]
+			if flvExist && wlResExist {
+				if _, exists := flv[wlRes]; exists {
+					after := cq.Usage[wlResFlv][wlRes] - cq.guaranteedQuota(wlResFlv, wlRes)
+					// rollback update cq.Usage
+					before := after - v*m
+					if before > 0 {
+						flv[wlRes] -= before
+					}
+					// simulate updating cq.Usage
+					if after > 0 {
+						flv[wlRes] += after
+					}
+				}
+			}
+		}
+	}
+}
+
 func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qKey := queueKey(q)
 	if _, ok := c.localQueues[qKey]; ok {

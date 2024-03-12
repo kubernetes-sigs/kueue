@@ -43,18 +43,26 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	updateUsage(wl, cq.Usage, -1)
 	if cq.Cohort != nil {
-		updateUsage(wl, cq.Cohort.Usage, -1)
+		if features.Enabled(features.LendingLimit) {
+			updateCohortUsage(wl, cq, -1)
+		} else {
+			updateUsage(wl, cq.Cohort.Usage, -1)
+		}
 	}
 }
 
-// AddWorkload removes a workload from its corresponding ClusterQueue and
+// AddWorkload adds a workload from its corresponding ClusterQueue and
 // updates resource usage.
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	updateUsage(wl, cq.Usage, 1)
 	if cq.Cohort != nil {
-		updateUsage(wl, cq.Cohort.Usage, 1)
+		if features.Enabled(features.LendingLimit) {
+			updateCohortUsage(wl, cq, 1)
+		} else {
+			updateUsage(wl, cq.Cohort.Usage, 1)
+		}
 	}
 }
 
