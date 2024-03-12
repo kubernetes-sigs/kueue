@@ -80,7 +80,7 @@ type remoteClient struct {
 	kubeconfig   []byte
 	origin       string
 
-	forceReconnect     atomic.Bool
+	pendingReconnect   atomic.Bool
 	failedConnAttempts uint
 
 	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
@@ -138,7 +138,7 @@ func (*workloadKueueWatcher) GetWorkloadKey(o runtime.Object) (types.NamespacedN
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
 func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (*time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(kubeconfig, rc.kubeconfig)
-	if !configChanged && !rc.forceReconnect.Load() {
+	if !configChanged && !rc.pendingReconnect.Load() {
 		return nil, nil
 	}
 
@@ -182,7 +182,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 		}
 	}
 
-	rc.forceReconnect.Store(false)
+	rc.pendingReconnect.Store(false)
 	rc.failedConnAttempts = 0
 	return nil, nil
 }
@@ -217,7 +217,7 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKu
 		log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
 		// If the context is not yet Done , queue a reconcile to attempt reconnection
 		if ctx.Err() == nil {
-			oldReconnect := rc.forceReconnect.Swap(true)
+			oldReconnect := rc.pendingReconnect.Swap(true)
 			//reconnect if this is the first watch failing.
 			if !oldReconnect {
 				log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
