@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -196,11 +197,21 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKu
 	go func() {
 		log.V(2).Info("Starting watch")
 		for r := range newWatcher.ResultChan() {
-			wlKey, err := w.GetWorkloadKey(r.Object)
-			if err != nil {
-				log.V(2).Error(err, "Cannot get workload key", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
-			} else {
-				rc.queueWorkloadEvent(ctx, wlKey)
+			switch r.Type {
+			case watch.Error:
+				switch s := r.Object.(type) {
+				case *metav1.Status:
+					log.V(5).Info("Watch error", "status", s.Status, "message", s.Message, "reason", s.Reason)
+				default:
+					log.V(5).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
+				}
+			default:
+				wlKey, err := w.GetWorkloadKey(r.Object)
+				if err != nil {
+					log.V(2).Error(err, "Cannot get workload key", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
+				} else {
+					rc.queueWorkloadEvent(ctx, wlKey)
+				}
 			}
 		}
 		log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
