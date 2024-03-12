@@ -371,6 +371,21 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 	}, Timeout, Interval).Should(gomega.BeComparableTo(admission))
 }
 
+var attemptStatuses = []metrics.AdmissionResult{metrics.AdmissionResultInadmissible, metrics.AdmissionResultSuccess}
+
+func ExpectAdmissionAttemptsMetric(pending, admitted int) {
+	vals := []int{pending, admitted}
+
+	for i, status := range attemptStatuses {
+		metric := metrics.AdmissionAttemptsTotal.WithLabelValues(string(status))
+		gomega.EventuallyWithOffset(1, func() int {
+			v, err := testutil.GetCounterMetricValue(metric)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+			return int(v)
+		}, Timeout, Interval).Should(gomega.Equal(vals[i]), "pending_workloads with status=%s", status)
+	}
+}
+
 var pendingStatuses = []string{metrics.PendingStatusActive, metrics.PendingStatusInadmissible}
 
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int) {
