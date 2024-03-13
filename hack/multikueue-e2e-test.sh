@@ -46,7 +46,8 @@ function cleanup {
         cluster_cleanup $WORKER1_KIND_CLUSTER_NAME
         cluster_cleanup $WORKER2_KIND_CLUSTER_NAME
     fi
-    exit 0
+    #do the image restore here for the case when an error happened during deploy
+    restore_managers_image
 }
 
 
