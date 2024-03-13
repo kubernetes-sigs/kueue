@@ -55,7 +55,7 @@ const (
 var (
 	CQStatuses = []ClusterQueueStatus{CQStatusPending, CQStatusActive, CQStatusTerminating}
 
-	admissionAttemptsTotal = prometheus.NewCounterVec(
+	AdmissionAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_attempts_total",
@@ -177,7 +177,7 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 )
 
 func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
-	admissionAttemptsTotal.WithLabelValues(string(result)).Inc()
+	AdmissionAttemptsTotal.WithLabelValues(string(result)).Inc()
 	admissionAttemptDuration.WithLabelValues(string(result)).Observe(duration.Seconds())
 }
 
@@ -290,7 +290,7 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 
 func Register() {
 	metrics.Registry.MustRegister(
-		admissionAttemptsTotal,
+		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		PendingWorkloads,
 		ReservingActiveWorkloads,
