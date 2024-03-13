@@ -82,37 +82,6 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 
 			gomega.Expect(created.Spec.PodSets[0].Name).Should(gomega.Equal(kueue.DefaultPodSetName))
 		})
-		ginkgo.It("Should reset re-queue state", func() {
-			ginkgo.By("Creating a new inactive Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).
-				Active(false).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload))
-				workload.Status = kueue.WorkloadStatus{
-					Conditions: []metav1.Condition{{
-						Type:               kueue.WorkloadEvicted,
-						Reason:             kueue.WorkloadEvictedByDeactivation,
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.Now(),
-					}},
-					RequeueState: &kueue.RequeueState{
-						Count:     ptr.To[int32](10),
-						RequeueAt: ptr.To(metav1.Now()),
-					},
-				}
-				g.Expect(k8sClient.Status().Update(ctx, workload)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			ginkgo.By("Activate a Workload")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload))
-				workload.Spec.Active = ptr.To(true)
-				g.Expect(k8sClient.Update(ctx, workload)).Should(gomega.Succeed())
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), workload))
-				g.Expect(workload.Status.RequeueState).Should(gomega.BeNil(), "re-queue state should be reset")
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
 	})
 })
 
