@@ -500,15 +500,6 @@ func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource str
 	}, Timeout, Interval).Should(gomega.Equal(v))
 }
 
-func ExpectCQResourceLendingQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
-	metric := metrics.ClusterQueueResourceLendingLimit.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
-	gomega.EventuallyWithOffset(1, func() float64 {
-		v, err := testutil.GetGaugeMetricValue(metric)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
-		return v
-	}, Timeout, Interval).Should(gomega.Equal(v))
-}
-
 func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
 	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func() float64 {
