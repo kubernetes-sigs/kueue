@@ -13,7 +13,7 @@ leaderElection:
 controller:
   groupKindConcurrency:
     Job.batch: 5
-    Pod.: 5
+    Pod: 5
     Workload.kueue.x-k8s.io: 5
     LocalQueue.kueue.x-k8s.io: 1
     ClusterQueue.kueue.x-k8s.io: 1
