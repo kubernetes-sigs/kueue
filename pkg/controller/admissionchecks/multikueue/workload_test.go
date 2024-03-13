@@ -64,6 +64,7 @@ func TestWlReconcile(t *testing.T) {
 		worker1Jobs       []batchv1.Job
 		// second worker
 		useSecondWorker      bool
+		worker2Reconnecting  bool
 		worker2OnDeleteError error
 		worker2OnGetError    error
 		worker2OnCreateError error
@@ -123,6 +124,26 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantError: errFake,
+		},
+		"reconnecting clients are skipped": {
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+			useSecondWorker:     true,
+			worker2Reconnecting: true,
+			worker2OnGetError:   errFake,
+
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+			wantError: nil,
 		},
 		"wl without reservation, clears the workload objects": {
 			reconcileFor: "wl1",
@@ -664,6 +685,9 @@ func TestWlReconcile(t *testing.T) {
 
 				w2remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 				w2remoteClient.client = worker2Client
+				if tc.worker2Reconnecting {
+					w2remoteClient.pendingReconnect.Store(true)
+				}
 				cRec.remoteClients["worker2"] = w2remoteClient
 
 			}

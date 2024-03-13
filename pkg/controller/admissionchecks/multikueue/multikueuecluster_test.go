@@ -76,7 +76,7 @@ func newTestClient(config string, watchCancel func()) *remoteClient {
 
 func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 	rc.failedConnAttempts = a
-	rc.forceReconnect.Store(true)
+	rc.pendingReconnect.Store(true)
 	return rc
 }
 
