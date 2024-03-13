@@ -78,22 +78,6 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 				},
 			},
 		},
-		"re-activated workload with re-queue state is reset the re-queue state": {
-			wl: *testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Condition(metav1.Condition{
-					Type:   kueue.WorkloadEvicted,
-					Status: metav1.ConditionTrue,
-					Reason: kueue.WorkloadEvictedByDeactivation,
-				}).RequeueState(ptr.To[int32](5), ptr.To(metav1.Now())).
-				Obj(),
-			wantWl: *testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Condition(metav1.Condition{
-					Type:   kueue.WorkloadEvicted,
-					Status: metav1.ConditionTrue,
-					Reason: kueue.WorkloadEvictedByDeactivation,
-				}).
-				Obj(),
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -248,7 +248,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			// To avoid flakiness, we don't verify if the workload has a QuotaReserved=false with pending reason here.
 		})
 
-		ginkgo.It("Should re-admit a timed out workload and deactivate a workload exceeded the re-queue count limit", func() {
+		ginkgo.It("Should re-admit a timed out workload and deactivate a workload exceeded the re-queue count limit. After that re-activating a workload", func() {
 			ginkgo.By("create the 'prod' workload")
 			prodWl := testing.MakeWorkload("prod", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
@@ -275,6 +275,29 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				g.Expect(ptr.Deref(prodWl.Spec.Active, true)).Should(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verify the re-activated inactive 'prod' workload re-queue state is reset")
+			// TODO: Once we move a logic to issue the Eviction with InactiveWorkload reason, we need to remove the below updates.
+			// REF: https://github.com/kubernetes-sigs/kueue/issues/1841
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&prodWl.Status.Conditions, metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Message: "evicted by Test",
+				})
+				g.Expect(k8sClient.Status().Update(ctx, prodWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed(), "Job reconciler should add an Evicted condition with InactiveWorkload to the Workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				prodWl.Spec.Active = ptr.To(true)
+				g.Expect(k8sClient.Update(ctx, prodWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed(), "Reactivate inactive Workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
