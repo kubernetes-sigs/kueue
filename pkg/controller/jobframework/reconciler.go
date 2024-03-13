@@ -292,9 +292,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
 		if err != nil {
 			log.Error(err, "Suspending job with deleted workload")
-		}
-
-		if err == nil && wl != nil {
+		} else {
 			err = workload.RemoveFinalizer(ctx, r.client, wl)
 		}
 		return ctrl.Result{}, err
