@@ -36,6 +36,7 @@ export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 source ${SOURCE_DIR}/e2e-common.sh
 
 function cleanup {
+    EX_CODE=$?
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
         if [ ! -d "$ARTIFACTS" ]; then
@@ -46,7 +47,7 @@ function cleanup {
         cluster_cleanup $WORKER1_KIND_CLUSTER_NAME
         cluster_cleanup $WORKER2_KIND_CLUSTER_NAME
     fi
-    exit 0
+    exit $EX_CODE
 }
 
 

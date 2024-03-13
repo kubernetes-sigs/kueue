@@ -28,6 +28,7 @@ export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
 source ${SOURCE_DIR}/e2e-common.sh
 
 function cleanup {
+    EX_CODE=$?
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
         if [ ! -d "$ARTIFACTS" ]; then
@@ -35,7 +36,7 @@ function cleanup {
         fi
 	cluster_cleanup $KIND_CLUSTER_NAME
     fi
-    exit 0
+    exit $EX_CODE
 }
 
 function startup {
