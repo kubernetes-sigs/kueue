@@ -28,7 +28,6 @@ export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
 source ${SOURCE_DIR}/e2e-common.sh
 
 function cleanup {
-    EX_CODE=$?
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
         if [ ! -d "$ARTIFACTS" ]; then
@@ -36,7 +35,8 @@ function cleanup {
         fi
 	cluster_cleanup $KIND_CLUSTER_NAME
     fi
-    exit $EX_CODE
+    #do the image restore here for the case when error happened during deploy
+    restore_managers_image
 }
 
 function startup {
@@ -66,4 +66,5 @@ trap cleanup EXIT
 startup
 kind_load
 kueue_deploy
+
 $GINKGO $GINKGO_ARGS --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/e2e/singlecluster/...

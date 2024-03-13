@@ -57,3 +57,8 @@ function cluster_kueue_deploy {
     fi
 }
 
+export INITIAL_IMAGE=$(cd config/components/manager && $KUSTOMIZE cfg grep "kind=Kustomization" . | yq '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")')
+
+function restore_managers_image {
+    (cd config/components/manager && $KUSTOMIZE edit set image controller=$INITIAL_IMAGE)
+}
