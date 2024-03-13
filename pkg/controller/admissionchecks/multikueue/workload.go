@@ -179,10 +179,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (m
 	clients := make(map[string]*remoteClient, len(cfg.Spec.Clusters))
 	for _, clusterName := range cfg.Spec.Clusters {
 		if client, found := w.clusters.controllerFor(clusterName); found {
-			// Skip the client if its reconnect is ongoing.
-			if !client.forceReconnect.Load() {
-				clients[clusterName] = client
-			}
+			clients[clusterName] = client
 		}
 	}
 	if len(clients) == 0 {
