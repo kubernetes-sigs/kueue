@@ -201,9 +201,9 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKu
 			case watch.Error:
 				switch s := r.Object.(type) {
 				case *metav1.Status:
-					log.V(5).Info("Watch error", "status", s.Status, "message", s.Message, "reason", s.Reason)
+					log.V(3).Info("Watch error", "status", s.Status, "message", s.Message, "reason", s.Reason)
 				default:
-					log.V(5).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
+					log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
 				}
 			default:
 				wlKey, err := w.GetWorkloadKey(r.Object)
