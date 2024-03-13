@@ -14,6 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
+export GINKGO="$ROOT_DIR"/bin/ginkgo
+export KIND="$ROOT_DIR"/bin/kind
+export YQ="$ROOT_DIR"/bin/yq
 
 
 # $1 - cluster name
@@ -57,7 +61,7 @@ function cluster_kueue_deploy {
     fi
 }
 
-export INITIAL_IMAGE=$(cd config/components/manager && $KUSTOMIZE cfg grep "kind=Kustomization" . | yq '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")')
+export INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
 
 function restore_managers_image {
     (cd config/components/manager && $KUSTOMIZE edit set image controller=$INITIAL_IMAGE)

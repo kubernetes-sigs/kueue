@@ -20,9 +20,6 @@ set -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/.."
-export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
-export GINKGO="$ROOT_DIR"/bin/ginkgo
-export KIND="$ROOT_DIR"/bin/kind
 export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
 
 source ${SOURCE_DIR}/e2e-common.sh
@@ -35,7 +32,7 @@ function cleanup {
         fi
 	cluster_cleanup $KIND_CLUSTER_NAME
     fi
-    #do the image restore here for the case when error happened during deploy
+    #do the image restore here for the case when an error happened during deploy
     restore_managers_image
 }
 
@@ -66,5 +63,4 @@ trap cleanup EXIT
 startup
 kind_load
 kueue_deploy
-
 $GINKGO $GINKGO_ARGS --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/e2e/singlecluster/...
