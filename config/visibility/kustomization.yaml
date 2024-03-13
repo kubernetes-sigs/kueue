@@ -3,5 +3,10 @@
 
 namespace: kueue-system
 namePrefix: kueue-
+
+commonLabels:
+  app.kubernetes.io/name: kueue
+  app.kubernetes.io/component: controller
+
 resources:
 - ../components/visibility
