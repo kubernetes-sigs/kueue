@@ -43,6 +43,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -108,9 +109,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
+	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", concurrency)
 	return ctrl.NewControllerManagedBy(mgr).
 		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).Named("v1_pod").
 		Watches(&kueue.Workload{}, &workloadHandler{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: concurrency,
+		}).
 		Complete(r)
 }
 
