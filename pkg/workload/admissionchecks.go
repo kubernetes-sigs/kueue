@@ -58,8 +58,7 @@ func SyncAdmittedCondition(w *kueue.Workload) bool {
 		newCondition.Message = "The workload has not all checks ready"
 	}
 
-	apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
-	return true
+	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
 }
 
 // FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
