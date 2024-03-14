@@ -66,7 +66,7 @@ type builderIndexer struct {
 	*fake.ClientBuilder
 }
 
-func (b *builderIndexer) IndexField(ctx context.Context, obj client.Object, field string, extractValue client.IndexerFunc) error {
+func (b *builderIndexer) IndexField(_ context.Context, obj client.Object, field string, extractValue client.IndexerFunc) error {
 	b.ClientBuilder = b.ClientBuilder.WithIndex(obj, field, extractValue)
 	return nil
 }
@@ -104,40 +104,40 @@ func SortEvents(ei, ej EventRecord) bool {
 	return false
 }
 
-func (tr *EventRecorder) Event(object runtime.Object, eventtype, reason, message string) {
-	tr.Eventf(object, eventtype, reason, message)
+func (tr *EventRecorder) Event(object runtime.Object, eventType, reason, message string) {
+	tr.Eventf(object, eventType, reason, message)
 }
 
-func (tr *EventRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
-	tr.AnnotatedEventf(object, nil, eventtype, reason, messageFmt, args...)
+func (tr *EventRecorder) Eventf(object runtime.Object, eventType, reason, messageFmt string, args ...interface{}) {
+	tr.AnnotatedEventf(object, nil, eventType, reason, messageFmt, args...)
 }
 
-func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, _ map[string]string, eventType, reason, messageFmt string, args ...interface{}) {
 	tr.lock.Lock()
 	defer tr.lock.Unlock()
 	key := types.NamespacedName{}
-	if cobj, iscobj := targetObject.(client.Object); iscobj {
-		key = client.ObjectKeyFromObject(cobj)
+	if cObj, isCObj := targetObject.(client.Object); isCObj {
+		key = client.ObjectKeyFromObject(cObj)
 	}
 	tr.RecordedEvents = append(tr.RecordedEvents, EventRecord{
 		Key:       key,
-		EventType: eventtype,
+		EventType: eventType,
 		Reason:    reason,
 		Message:   fmt.Sprintf(messageFmt, args...),
 	})
 }
 
-type ssaPatchAsStretegicMerge struct {
+type ssaPatchAsStrategicMerge struct {
 	client.Patch
 }
 
-func (*ssaPatchAsStretegicMerge) Type() types.PatchType {
+func (*ssaPatchAsStrategicMerge) Type() types.PatchType {
 	return types.StrategicMergePatchType
 }
 
 func wrapSSAPatch(patch client.Patch) client.Patch {
 	if patch.Type() == types.ApplyPatchType {
-		return &ssaPatchAsStretegicMerge{Patch: patch}
+		return &ssaPatchAsStrategicMerge{Patch: patch}
 	}
 	return patch
 }
