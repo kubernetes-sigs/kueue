@@ -149,6 +149,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Workload")
 
+	// If a deactivated workload is re-activated, we need to reset the RequeueState.
+	if wl.Status.RequeueState != nil && ptr.Deref(wl.Spec.Active, true) && workload.IsEvictedByDeactivation(&wl) {
+		wl.Status.RequeueState = nil
+		return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
+	}
+
 	if len(wl.ObjectMeta.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, &wl)
 	}
