@@ -13,7 +13,16 @@ limitations under the License.
 
 package jobframework
 
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 func ApplyDefaultForSuspend(job GenericJob, manageJobsWithoutQueueName bool) {
+	// Do not default suspend a job whose owner is already managed by Kueue
+	if owner := metav1.GetControllerOf(job.Object()); owner != nil && IsOwnerManagedByKueue(owner) {
+		return
+	}
+
 	if QueueName(job) != "" || manageJobsWithoutQueueName {
 		if !job.IsSuspended() {
 			job.Suspend()
