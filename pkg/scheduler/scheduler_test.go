@@ -36,6 +36,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -2004,11 +2005,12 @@ func TestRequeueAndUpdate(t *testing.T) {
 	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue(q1.Name).Obj()
 
 	cases := []struct {
-		name             string
-		e                entry
-		wantWorkloads    map[string][]string
-		wantInadmissible map[string][]string
-		wantStatus       kueue.WorkloadStatus
+		name              string
+		e                 entry
+		wantWorkloads     map[string][]string
+		wantInadmissible  map[string][]string
+		wantStatus        kueue.WorkloadStatus
+		wantStatusUpdates int
 	}{
 		{
 			name: "workload didn't fit",
@@ -2028,6 +2030,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantInadmissible: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
+			wantStatusUpdates: 1,
 		},
 		{
 			name: "assumed",
@@ -2068,6 +2071,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantWorkloads: map[string][]string{
 				"cq": {workload.Key(w1)},
 			},
+			wantStatusUpdates: 1,
 		},
 	}
 
@@ -2076,8 +2080,14 @@ func TestRequeueAndUpdate(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
+			updates := 0
 			objs := []client.Object{w1, q1, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}}}
-			cl := utiltesting.NewFakeClientSSAAsSM(objs...)
+			cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					updates++
+					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+				},
+			}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			cqCache := cache.New(cl)
@@ -2119,6 +2129,11 @@ func TestRequeueAndUpdate(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+			}
+			// Make sure a second call doesn't make unnecessary updates.
+			scheduler.requeueAndUpdate(log, ctx, tc.e)
+			if updates != tc.wantStatusUpdates {
+				t.Errorf("Observed %d status updates, want %d", updates, tc.wantStatusUpdates)
 			}
 		})
 	}
