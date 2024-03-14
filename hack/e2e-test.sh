@@ -35,7 +35,8 @@ function cleanup {
         fi
 	cluster_cleanup $KIND_CLUSTER_NAME
     fi
-    exit 0
+    #do the image restore here for the case when an error happened during deploy
+    restore_managers_image
 }
 
 function startup {
