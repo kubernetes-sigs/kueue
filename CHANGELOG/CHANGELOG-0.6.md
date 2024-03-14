@@ -1,3 +1,25 @@
+## v0.6.1
+
+Changes Since `v0.6.0`:
+
+### Feature
+
+- Added MultiKueue worker connection monitoring and reconnect. (#1809, @trasc)
+- The Failed pods in a pod-group are finalized once a replacement pods are created. (#1801, @trasc)
+
+### Bug or Regression
+
+- Exclude Pod labels, preemptionPolicy and container images when determining whether pods in a pod group have the same shape. (#1760, @alculquicondor)
+- Fix incorrect quota management when lendingLimit enabled in preemption (#1826, @kerthcet, @B1F030)
+- Fix the configuration for the number of reconcilers for the Pod integration. It was only reconciling one group at a time. (#1837, @alculquicondor)
+- Kueue visibility API is no longer installed by default. Users can install it via helm or applying the visibility-api.yaml artifact. (#1764, @trasc)
+- WaitForPodsReady: Fix a bug that the requeueState isn't reset. (#1843, @tenzen-y)
+
+### Other (Cleanup or Flake)
+
+- Avoid API calls for admission attempts when Workload already has condition Admitted=false (#1845, @alculquicondor)
+- Skip requeueing of Workloads when there is a status update for a ClusterQueue, saving on API calls for Workloads that were already attempted for admission. (#1832, @alculquicondor)
+
 ## v0.6.0
 
 Changes since `v0.5.0`:
