@@ -109,12 +109,10 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
 
 			lookupKey := types.NamespacedName{Name: parentJob.Name, Namespace: ns.Name}
-			gomega.EventuallyWithOffset(1, func() error {
-				if err := k8sClient.Get(ctx, lookupKey, parentJob); err != nil {
-					return err
-				}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, parentJob)).To(gomega.Succeed())
 				parentJob.Status.JobDeploymentStatus = rayv1alpha1.JobDeploymentStatusSuspended
-				return k8sClient.Status().Update(ctx, parentJob)
+				g.Expect(k8sClient.Status().Update(ctx, parentJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Fetching the workload created for the job")
@@ -138,23 +136,23 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 					},
 				},
 			).Obj()
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).To(gomega.Succeed())
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 
 			ginkgo.By("Creating the child cluster")
 			childCluster := testingraycluster.MakeCluster(jobName, ns.Name).
 				Suspend(false).
 				Obj()
 			gomega.Expect(ctrl.SetControllerReference(parentJob, childCluster, k8sClient.Scheme())).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, childCluster)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, childCluster)).To(gomega.Succeed())
 
-			childClusterKey := client.ObjectKeyFromObject(childCluster)
 			ginkgo.By("Checking that the child cluster is not suspended")
-			gomega.Eventually(func() *bool {
-				gomega.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).Should(gomega.Succeed())
-				return childCluster.Spec.Suspend
-			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
+			childClusterKey := client.ObjectKeyFromObject(childCluster)
+			gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).To(gomega.Succeed())
+				gomega.Expect(childCluster.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
