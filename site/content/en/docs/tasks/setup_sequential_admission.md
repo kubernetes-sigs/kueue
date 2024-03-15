@@ -91,7 +91,7 @@ you should set the timestamp to the `Creation`.
 Kueue will re-queue a Workload evicted by the `PodsReadyTimeout` reason until the number of re-queues reaches `backoffLimitCount`.
 If you don't specify any value for `backoffLimitCount`,
 a Workload is repeatedly and endlessly re-queued to the queue based on the `timestamp`.
-Once the number of re-queues reaches the limit, Kueue [deactivates the Workload](docs/concepts/workload/#active).
+Once the number of re-queues reaches the limit, Kueue [deactivates the Workload](/docs/concepts/workload/#active).
 
 ## Example
 
