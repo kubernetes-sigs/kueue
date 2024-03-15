@@ -1,0 +1,54 @@
+# This workflow will compile e2e tests and release them
+
+name: ODH Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to be used for release, i.e.: v0.0.1'
+        required: true
+  push:
+    tags:
+      - '*'
+
+env:
+  KUEUE_RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
+jobs:
+  release-odh:
+    runs-on: ubuntu-latest
+
+    # Permission required to create a release
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: v1.21
+
+    - name: Verify that release doesn't exist yet
+      shell: bash {0}
+      run: |
+        gh release view $KUEUE_RELEASE_VERSION
+        status=$?
+        if [[ $status -eq 0 ]]; then
+          echo "Release $KUEUE_RELEASE_VERSION already exists."
+          exit 1
+        fi
+      env:
+        GITHUB_TOKEN: ${{ github.TOKEN }}
+
+    - name: Compile tests
+      run: |
+        go test -c -o compiled-tests/e2e-singlecluster ./test/e2e/singlecluster/
+
+    - name: Creates a release in GitHub
+      run: |
+        gh release create $KUEUE_RELEASE_VERSION --target $GITHUB_SHA compiled-tests/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.CODEFLARE_MACHINE_ACCOUNT_TOKEN }}
+      shell: bash
