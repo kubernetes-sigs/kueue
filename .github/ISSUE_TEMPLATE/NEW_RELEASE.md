@@ -43,7 +43,7 @@ Please do not remove items from the checklist
       [promote the container images](https://github.com/kubernetes/k8s.io/tree/main/k8s.gcr.io#image-promoter)
       to production: <!-- example kubernetes/k8s.io#3612-->
 - [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
-- [ ] Publish the draft release prepared at the [Github releases page](https://github.com/kubernetes-sigs/kueue/releases).
+- [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
 - [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
