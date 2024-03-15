@@ -9,7 +9,7 @@ description: >
 
 Resources in a cluster are typically not homogeneous. Resources could differ in:
 
-- pricing and availability (for example, spot verus on-demand VMs)
+- pricing and availability (for example, spot versus on-demand VMs)
 - architecture (for example, x86 versus ARM CPUs)
 - brands and models (for example, Radeon 7000 versus Nvidia A100 versus T4 GPUs)
 
