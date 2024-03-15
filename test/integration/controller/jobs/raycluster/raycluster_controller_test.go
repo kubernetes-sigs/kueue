@@ -581,7 +581,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 				Should(gomega.Succeed())
 			return *createdJob2.Spec.Suspend
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 
 		ginkgo.By("deleting the job", func() {
