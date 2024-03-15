@@ -375,5 +375,5 @@ pi is approximately 3.1410376000000002
 ```
 
 That looks like pi! 🎉️🥧️
-If you are interested in running this same example with YAML outside of Python, see [Run an MPIJob](/docs/tasks/run_mpi_jobs/).
+If you are interested in running this same example with YAML outside of Python, see [Run an MPIJob](/docs/tasks/run_kubeflow_jobs/run_mpijobs/).
 
