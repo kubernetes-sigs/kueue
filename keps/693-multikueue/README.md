@@ -71,7 +71,7 @@ Establish the need for a designated management cluster.
 
 ![Architecture](arch.png "Architecture")
 
-For each workload coming to a ClusterQueue (with the MultiKueue AdmissonCheck enabled)
+For each workload coming to a ClusterQueue (with the MultiKueue AdmissionCheck enabled)
 in the management cluster, and getting past the preadmission phase in the 
 two-phase admission process (meaning that the global quota - total amount resources
 that can be consumed across all clusters - is ok), 

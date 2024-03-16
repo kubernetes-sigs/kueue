@@ -504,7 +504,7 @@ Workload creation will fail.
 This generally shouldn't be a problem, unless multiple Pods (that should be considered the same
 from an admission perspective) have different label values or reference different volume claims.
 
-Based on user feedback, we can consider excluding certaing labels and volumes, or make it
+Based on user feedback, we can consider excluding certain labels and volumes, or make it
 configurable.
 
 #### Groups of pods where driver generates workers
