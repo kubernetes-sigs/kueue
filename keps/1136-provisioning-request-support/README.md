@@ -168,7 +168,7 @@ spec:
     kind: “ProvisioningRequestConfig”
     name: “SuperProviderConfig”
 ---
-kind: ProvsioningRequestConfig:
+kind: ProvisioningRequestConfig:
 name: "SuperProviderConfig"
 spec:
   provisioningClass: "SuperSpot"
