@@ -16,7 +16,7 @@
 {{ $.Scratch.Set "iscode" "true" }}
 {{ end }}
 
-{{/* `fparameter is a relative path of the static file from the `static` diretory. For exampl, `/example/python/install-kueue-queues.py` */}}
+{{/* `fparameter is a relative path of the static file from the `static` directory. For example, `/example/python/install-kueue-queues.py` */}}
 {{ $.Scratch.Set "filepath" "/" }}
 {{ $.Scratch.Add "filepath" "static/" }}
 {{ $.Scratch.Add "filepath" ($.Scratch.Get "fparameter") }}

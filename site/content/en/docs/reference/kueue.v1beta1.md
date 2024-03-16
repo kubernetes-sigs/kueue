@@ -748,7 +748,7 @@ reclaim its nominal quota.</li>
 and there are admitted Workloads in the ClusterQueue with lower priority.</li>
 </ul>
 <p>The preemption algorithm tries to find a minimal set of Workloads to
-preempt to accomomdate the pending Workload, preempting Workloads with
+preempt to accommodate the pending Workload, preempting Workloads with
 lower priority first.</p>
 </td>
 </tr>
