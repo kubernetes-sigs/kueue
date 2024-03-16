@@ -78,7 +78,7 @@ _Available in Kueue v0.6.0 and later_
 {{% /alert %}}
 
 The `requeuingStrategy` (`waitForPodsReady.requeuingStrategy`) contains optional parameters: 
-`timestamp` (`waitForPodsReady.requeuingStrategt.timestamp`) and `backoffLimitCount` (`waitForPodsReady.requeuingStrategt.backoffLimitCount`).
+`timestamp` (`waitForPodsReady.requeuingStrategy.timestamp`) and `backoffLimitCount` (`waitForPodsReady.requeuingStrategy.backoffLimitCount`).
 
 The `timestamp` field defines which timestamp Kueue uses to order the Workloads in the queue:
 
