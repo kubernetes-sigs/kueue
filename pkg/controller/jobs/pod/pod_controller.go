@@ -144,7 +144,7 @@ var (
 	_ jobframework.ComposableJob   = (*Pod)(nil)
 )
 
-func fromObject(o runtime.Object) *Pod {
+func FromObject(o runtime.Object) *Pod {
 	out := Pod{}
 	out.pod = *o.(*corev1.Pod)
 	return &out
@@ -429,7 +429,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 		if !podsInGroup[i].DeletionTimestamp.IsZero() || (stopReason != jobframework.StopReasonWorkloadDeleted && podSuspended(&podsInGroup[i])) {
 			continue
 		}
-		podInGroup := fromObject(&podsInGroup[i])
+		podInGroup := FromObject(&podsInGroup[i])
 
 		// The podset info is not relevant here, since this should mark the pod's end of life
 		pCopy := &corev1.Pod{
@@ -654,7 +654,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 		}
 
 		if !podRoleFound {
-			podSet := fromObject(&podInGroup).PodSets()
+			podSet := FromObject(&podInGroup).PodSets()
 			podSet[0].Name = roleHash
 
 			resultPodSets = append(resultPodSets, podSet[0])

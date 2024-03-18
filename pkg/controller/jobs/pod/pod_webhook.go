@@ -133,7 +133,7 @@ func (p *Pod) addRoleHash() error {
 }
 
 func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	pod := fromObject(obj)
+	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Applying defaults")
 
@@ -201,7 +201,7 @@ var _ webhook.CustomValidator = &PodWebhook{}
 func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
-	pod := fromObject(obj)
+	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Validating create")
 	allErrs := jobframework.ValidateCreateForQueueName(pod)
@@ -220,8 +220,8 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
-	oldPod := fromObject(oldObj)
-	newPod := fromObject(newObj)
+	oldPod := FromObject(oldObj)
+	newPod := FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&newPod.pod))
 	log.V(5).Info("Validating update")
 	allErrs := jobframework.ValidateUpdateForQueueName(oldPod, newPod)
