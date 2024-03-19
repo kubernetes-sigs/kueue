@@ -202,19 +202,23 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
 	cycleCohortsUsage := cohortsUsage{}
+	cycleCohortsSkipPreemption := sets.New[string]()
 	for i := range entries {
 		e := &entries[i]
-		if e.assignment.RepresentativeMode() == flavorassigner.NoFit {
+		mode := e.assignment.RepresentativeMode()
+		if mode == flavorassigner.NoFit {
 			continue
 		}
 
 		cq := snapshot.ClusterQueues[e.ClusterQueue]
 		if cq.Cohort != nil {
 			sum := cycleCohortsUsage.totalUsageForCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage)
-			// If the workload uses resources that were potentially assumed in this cycle and will no longer fit in the
-			// cohort. If a resource of a flavor is used only once or for the first time in the cycle the checks done by
-			// the flavorassigner are still valid.
-			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) && !cq.FitInCohort(sum) {
+			// Check whether there was an assignment in this cycle that could render the next assignments invalid:
+			// - If the workload no longer fits in the cohort.
+			// - If there was another assignment in the cohort, then the preemption calculation is no longer valid.
+			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) &&
+				((mode == flavorassigner.Fit && !cq.FitInCohort(sum)) ||
+					(mode == flavorassigner.Preempt && cycleCohortsSkipPreemption.Has(cq.Cohort.Name))) {
 				e.status = skipped
 				e.inadmissibleMsg = "other workloads in the cohort were prioritized"
 				// When the workload needs borrowing and there is another workload in cohort doesn't
@@ -241,6 +245,9 @@ func (s *Scheduler) schedule(ctx context.Context) {
 					e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
 					e.requeueReason = queue.RequeueReasonPendingPreemption
 				}
+				if cq.Cohort != nil {
+					cycleCohortsSkipPreemption.Insert(cq.Cohort.Name)
+				}
 			} else {
 				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
 			}
@@ -261,6 +268,9 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		e.status = nominated
 		if err := s.admit(ctx, e, cq.AdmissionChecks); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
+		}
+		if cq.Cohort != nil {
+			cycleCohortsSkipPreemption.Insert(cq.Cohort.Name)
 		}
 	}
 
