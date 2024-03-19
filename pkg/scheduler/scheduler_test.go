@@ -716,6 +716,60 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/borrower": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60").Obj(),
 			},
 		},
+		"multiple CQs need preemption": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50", "50").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50", "10").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Priority(-1).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltesting.MakeWorkload("pending", "eng-alpha").
+					Priority(1).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltesting.MakeWorkload("use-all", "eng-alpha").
+					Request(corev1.ResourceCPU, "100").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "on-demand", "100").Obj()).
+					Obj(),
+			},
+			wantLeft: map[string][]string{
+				// Preemptor is not admitted in this cycle.
+				"other-beta": {"eng-beta/preemptor"},
+			},
+			wantInadmissibleLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/pending"},
+			},
+			wantPreempted: sets.New("eng-alpha/use-all"),
+			wantAssignments: map[string]kueue.Admission{
+				// Removal from cache for the preempted workloads is deferred until we receive Workload updates
+				"eng-alpha/use-all": *utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "on-demand", "100").Obj(),
+			},
+		},
 		"cannot borrow resource not listed in clusterQueue": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-alpha").
