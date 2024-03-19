@@ -48,8 +48,8 @@ const (
 	BurstFlag            = "burst"
 	VerbosityFlag        = "verbose"
 	VerboseFlagShort     = "v"
-	JobsFlag             = "jobs"
-	JobsFlagShort        = "j"
+	ConcurrencyFlag      = "concurrent-workers"
+	ConcurrencyFlagShort = "c"
 	DryRunFlag           = "dry-run"
 	AddLabelsFlag        = "add-labels"
 )
@@ -79,7 +79,7 @@ func setFlags(cmd *cobra.Command) {
 	cmd.Flags().String(QueueMappingFileFlag, "", "yaml file containing extra mappings from \""+QueueLabelFlag+"\" label values to local queue names")
 	cmd.Flags().Float32(QPSFlag, 50, "client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
 	cmd.Flags().Int(BurstFlag, 50, "client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
-	cmd.Flags().UintP(JobsFlag, JobsFlagShort, 8, "number of concurrent import workers")
+	cmd.Flags().UintP(ConcurrencyFlag, ConcurrencyFlagShort, 8, "number of concurrent import workers")
 	cmd.Flags().Bool(DryRunFlag, true, "don't import, check the config only")
 
 	_ = cmd.MarkFlagRequired(QueueLabelFlag)
@@ -198,7 +198,7 @@ func getKubeClient(cmd *cobra.Command) (client.Client, error) {
 func importCmd(cmd *cobra.Command, _ []string) error {
 	log := ctrl.Log.WithName("import")
 	ctx := ctrl.LoggerInto(context.Background(), log)
-	jobs, _ := cmd.Flags().GetUint(JobsFlag)
+	cWorkers, _ := cmd.Flags().GetUint(ConcurrencyFlag)
 	c, err := getKubeClient(cmd)
 	if err != nil {
 		return err
@@ -209,7 +209,7 @@ func importCmd(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if err = pod.Check(ctx, c, cache, jobs); err != nil {
+	if err = pod.Check(ctx, c, cache, cWorkers); err != nil {
 		return err
 	}
 
@@ -217,5 +217,5 @@ func importCmd(cmd *cobra.Command, _ []string) error {
 		fmt.Printf("%q is enabled by default, use \"--%s=false\" to continue with the import\n", DryRunFlag, DryRunFlag)
 		return nil
 	}
-	return pod.Import(ctx, c, cache, jobs)
+	return pod.Import(ctx, c, cache, cWorkers)
 }
