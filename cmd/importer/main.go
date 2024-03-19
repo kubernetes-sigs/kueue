@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -25,6 +26,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/yaml.v2"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,6 +51,7 @@ const (
 	JobsFlag             = "jobs"
 	JobsFlagShort        = "j"
 	DryRunFlag           = "dry-run"
+	AddLabelsFlag        = "add-labels"
 )
 
 var (
@@ -72,6 +75,7 @@ func setFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSliceP(NamespaceFlag, NamespaceFlagShort, nil, "target namespaces (at least one should be provided)")
 	cmd.Flags().String(QueueLabelFlag, "", "label used to identify the target local queue")
 	cmd.Flags().StringToString(QueueMappingFlag, nil, "mapping from \""+QueueLabelFlag+"\" label values to local queue names")
+	cmd.Flags().StringToString(AddLabelsFlag, nil, "additional label=value pairs to be added to the imported pods")
 	cmd.Flags().String(QueueMappingFileFlag, "", "yaml file containing extra mappings from \""+QueueLabelFlag+"\" label values to local queue names")
 	cmd.Flags().Float32(QPSFlag, 50, "client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
 	cmd.Flags().Int(BurstFlag, 50, "client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
@@ -140,7 +144,25 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 		maps.Copy(mapping, extraMapping)
 	}
 
-	return util.LoadImportCache(ctx, c, namespaces, queueLabel, mapping)
+	addLabels, err := flags.GetStringToString(AddLabelsFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	var validationErrors []error
+	for name, value := range addLabels {
+		for _, err := range validation.IsQualifiedName(name) {
+			validationErrors = append(validationErrors, fmt.Errorf("name %q: %s", name, err))
+		}
+		for _, err := range validation.IsValidLabelValue(value) {
+			validationErrors = append(validationErrors, fmt.Errorf("label %q value %q: %s", name, value, err))
+		}
+	}
+	if len(validationErrors) > 0 {
+		return nil, fmt.Errorf("%s: %w", AddLabelsFlag, errors.Join(validationErrors...))
+	}
+
+	return util.LoadImportCache(ctx, c, namespaces, queueLabel, mapping, addLabels)
 }
 
 func getKubeClient(cmd *cobra.Command) (client.Client, error) {

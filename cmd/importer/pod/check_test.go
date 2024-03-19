@@ -126,7 +126,7 @@ func TestCheckNamespace(t *testing.T) {
 			client := builder.Build()
 			ctx := context.Background()
 
-			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, testingQueueLabel, tc.mapping)
+			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, testingQueueLabel, tc.mapping, nil)
 			gotErr := Check(ctx, client, mpc, 8)
 
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {

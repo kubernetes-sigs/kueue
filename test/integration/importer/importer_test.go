@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("Importer", func() {
 			})
 
 			ginkgo.By("Running the import", func() {
-				mapping, err := importerutil.LoadImportCache(ctx, k8sClient, []string{ns.Name}, "src.lbl", map[string]string{"src-val": "lq1"})
+				mapping, err := importerutil.LoadImportCache(ctx, k8sClient, []string{ns.Name}, "src.lbl", map[string]string{"src-val": "lq1"}, nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred())
 				gomega.Expect(mapping).ToNot(gomega.BeNil())
 

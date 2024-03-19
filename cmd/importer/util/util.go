@@ -63,14 +63,16 @@ type ImportCache struct {
 	ClusterQueues   map[string]*kueue.ClusterQueue
 	ResourceFalvors map[string]*kueue.ResourceFlavor
 	PriorityClasses map[string]*schedulingv1.PriorityClass
+	AddLabels       map[string]string
 }
 
-func LoadImportCache(ctx context.Context, c client.Client, namespaces []string, queueLabel string, mapping map[string]string) (*ImportCache, error) {
+func LoadImportCache(ctx context.Context, c client.Client, namespaces []string, queueLabel string, mapping, addLabels map[string]string) (*ImportCache, error) {
 	ret := ImportCache{
 		Namespaces:  slices.Clone(namespaces),
 		QueueLabel:  queueLabel,
 		Mapping:     maps.Clone(mapping),
 		LocalQueues: make(map[string]map[string]*kueue.LocalQueue),
+		AddLabels:   addLabels,
 	}
 
 	// get the cluster queues

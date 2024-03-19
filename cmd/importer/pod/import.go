@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -58,7 +59,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 
 		oldLq, found := p.Labels[controllerconstants.QueueLabel]
 		if !found {
-			if err := addLabels(ctx, c, p, lq.Name); err != nil {
+			if err := addLabels(ctx, c, p, lq.Name, cache.AddLabels); err != nil {
 				return fmt.Errorf("cannot add queue label: %w", err)
 			}
 		} else if oldLq != lq.Name {
@@ -141,9 +142,10 @@ func checkError(err error) (retry, reload bool, timeout time.Duration) {
 	return false, false, 0
 }
 
-func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string) error {
+func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string, addLabels map[string]string) error {
 	p.Labels[controllerconstants.QueueLabel] = queue
 	p.Labels[pod.ManagedLabelKey] = pod.ManagedLabelValue
+	maps.Copy(p.Labels, addLabels)
 
 	err := c.Update(ctx, p)
 	retry, reload, timeouut := checkError(err)
@@ -164,6 +166,7 @@ func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string
 			}
 			p.Labels[controllerconstants.QueueLabel] = queue
 			p.Labels[pod.ManagedLabelKey] = pod.ManagedLabelValue
+			maps.Copy(p.Labels, addLabels)
 		}
 		err = c.Update(ctx, p)
 		retry, reload, timeouut = checkError(err)
