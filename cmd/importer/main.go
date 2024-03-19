@@ -19,10 +19,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/yaml.v2"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,17 +37,18 @@ import (
 )
 
 const (
-	NamespaceFlag      = "namespace"
-	NamespaceFlagShort = "n"
-	QueueMappingFlag   = "queuemapping"
-	QueueLabelFlag     = "queuelabel"
-	QPSFlag            = "qps"
-	BurstFlag          = "burst"
-	VerbosityFlag      = "verbose"
-	VerboseFlagShort   = "v"
-	JobsFlag           = "jobs"
-	JobsFlagShort      = "j"
-	DryRunFlag         = "dry-run"
+	NamespaceFlag        = "namespace"
+	NamespaceFlagShort   = "n"
+	QueueMappingFlag     = "queuemapping"
+	QueueMappingFileFlag = "queuemapping-file"
+	QueueLabelFlag       = "queuelabel"
+	QPSFlag              = "qps"
+	BurstFlag            = "burst"
+	VerbosityFlag        = "verbose"
+	VerboseFlagShort     = "v"
+	JobsFlag             = "jobs"
+	JobsFlagShort        = "j"
+	DryRunFlag           = "dry-run"
 )
 
 var (
@@ -69,9 +72,10 @@ func setFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSliceP(NamespaceFlag, NamespaceFlagShort, nil, "target namespaces (at least one should be provided)")
 	cmd.Flags().String(QueueLabelFlag, "", "label used to identify the target local queue")
 	cmd.Flags().StringToString(QueueMappingFlag, nil, "mapping from \""+QueueLabelFlag+"\" label values to local queue names")
+	cmd.Flags().String(QueueMappingFileFlag, "", "yaml file containing extra mappings from \""+QueueLabelFlag+"\" label values to local queue names")
 	cmd.Flags().Float32(QPSFlag, 50, "client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
 	cmd.Flags().Int(BurstFlag, 50, "client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
-	cmd.Flags().UintP(JobsFlag, JobsFlagShort, 8, "number of concurrent jobs")
+	cmd.Flags().UintP(JobsFlag, JobsFlagShort, 8, "number of concurrent import workers")
 	cmd.Flags().Bool(DryRunFlag, true, "don't import, check the config only")
 
 	_ = cmd.MarkFlagRequired(QueueLabelFlag)
@@ -112,10 +116,30 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 	if err != nil {
 		return nil, err
 	}
+
 	mapping, err := flags.GetStringToString(QueueMappingFlag)
 	if err != nil {
 		return nil, err
 	}
+
+	mappingFile, err := flags.GetString(QueueMappingFileFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	if mappingFile != "" {
+		yamlFile, err := os.ReadFile(mappingFile)
+		if err != nil {
+			return nil, err
+		}
+		extraMapping := map[string]string{}
+		err = yaml.Unmarshal(yamlFile, extraMapping)
+		if err != nil {
+			return nil, fmt.Errorf("decoding %q: %w", mappingFile, err)
+		}
+		maps.Copy(mapping, extraMapping)
+	}
+
 	return util.LoadImportCache(ctx, c, namespaces, queueLabel, mapping)
 }
 
