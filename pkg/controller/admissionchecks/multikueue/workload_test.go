@@ -93,7 +93,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().Obj(),
 			},
 		},
-		"unmanaged wl (no parent) is ignored": {
+		"unmanaged wl (no parent) is rejected": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -102,7 +102,22 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected, Message: "No multikueue adapter found"}).
+					Obj(),
+			},
+		},
+		"unmanaged wl (owned by pod) is rejected": {
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "uid1").
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "uid1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected, Message: `No multikueue adapter found for owner kind "/v1, Kind=Pod"`}).
 					Obj(),
 			},
 		},
