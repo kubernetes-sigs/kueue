@@ -433,7 +433,7 @@ jobset-operator-crd:
 	cp -f $(JOBSETROOT)/config/components/crd/bases/* $(PROJECT_DIR)/dep-crds/jobset-operator/
 
 
-CAROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler)
+CAROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler/apis)
 .PHONY: cluster-autoscaler-crd
 cluster-autoscaler-crd:
 	mkdir -p $(PROJECT_DIR)/dep-crds/cluster-autoscaler/
