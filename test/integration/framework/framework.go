@@ -85,7 +85,7 @@ func (f *Framework) Init() *rest.Config {
 	return cfg
 }
 
-func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
+func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Client) {
 	err := config.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
@@ -116,6 +116,13 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
 
+	ctx, cancel := context.WithCancel(context.Background())
+	f.cancel = cancel
+
+	return ctx, k8sClient
+}
+
+func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup) {
 	webhookInstallOptions := &f.testEnv.WebhookInstallOptions
 	mgrOpts := manager.Options{
 		Scheme: scheme.Scheme,
@@ -132,8 +139,6 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 	mgr, err := ctrl.NewManager(cfg, mgrOpts)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	f.cancel = cancel
 	managerSetup(mgr, ctx)
 
 	go func() {
@@ -155,7 +160,11 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 			return nil
 		}).Should(gomega.Succeed())
 	}
+}
 
+func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
+	ctx, k8sClient := f.SetupClient(cfg)
+	f.StartManager(ctx, cfg, managerSetup)
 	return ctx, k8sClient
 }
 

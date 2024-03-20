@@ -74,7 +74,7 @@ func TestPodsReady(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			pod := fromObject(tc.pod)
+			pod := FromObject(tc.pod)
 			got := pod.PodsReady()
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
@@ -98,7 +98,7 @@ func TestRun(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			pod := fromObject(&tc.pods[0])
+			pod := FromObject(&tc.pods[0])
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
@@ -3554,9 +3554,9 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 
 			pod.OwnerReferences = append(pod.OwnerReferences, tc.ownerReference)
 
-			if tc.wantRes != IsPodOwnerManagedByKueue(fromObject(pod)) {
+			if tc.wantRes != IsPodOwnerManagedByKueue(FromObject(pod)) {
 				t.Errorf("Unexpected 'IsPodOwnerManagedByKueue' result\n want: %t\n got: %t)",
-					tc.wantRes, IsPodOwnerManagedByKueue(fromObject(pod)))
+					tc.wantRes, IsPodOwnerManagedByKueue(FromObject(pod)))
 			}
 		})
 	}
