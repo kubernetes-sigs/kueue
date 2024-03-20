@@ -127,7 +127,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Import done", "checked", summary.TotalPods, "failed", summary.FailedPods)
 	for e, pods := range summary.ErrorsForPods {
-		fmt.Printf("%dx: %s\n\t%v", len(pods), e, pods)
+		log.Info("Error", "err", e, "occurrences", len(pods), "obsevedFirstIn", pods[0])
 	}
 	return errors.Join(summary.Errors...)
 }

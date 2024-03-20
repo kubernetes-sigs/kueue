@@ -68,7 +68,7 @@ func Check(ctx context.Context, c client.Client, cache *util.ImportCache, jobs u
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Check done", "checked", summary.TotalPods, "failed", summary.FailedPods)
 	for e, pods := range summary.ErrorsForPods {
-		fmt.Printf("%dx: %s\n\t Observed first for pod %q\n", len(pods), e, pods[0])
+		log.Info("Error", "err", e, "occurrences", len(pods), "obsevedFirstIn", pods[0])
 	}
 	return errors.Join(summary.Errors...)
 }
