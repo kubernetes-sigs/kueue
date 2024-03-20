@@ -73,6 +73,8 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			return fmt.Errorf("construct workload: %w", err)
 		}
 
+		maps.Copy(wl.Labels, cache.AddLabels)
+
 		if pc, found := cache.PriorityClasses[p.Spec.PriorityClassName]; found {
 			wl.Spec.PriorityClassName = pc.Name
 			wl.Spec.Priority = &pc.Value
@@ -122,8 +124,8 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 		return admitWorkload(ctx, c, wl)
 	})
 
-	fmt.Printf("Checked %d pods\n", summary.TotalPods)
-	fmt.Printf("Failed %d pods\n", summary.FailedPods)
+	log := ctrl.LoggerFrom(ctx)
+	log.Info("Import done", "checked", summary.TotalPods, "failed", summary.FailedPods)
 	for e, pods := range summary.ErrorsForPods {
 		fmt.Printf("%dx: %s\n\t%v", len(pods), e, pods)
 	}
@@ -148,20 +150,20 @@ func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string
 	maps.Copy(p.Labels, addLabels)
 
 	err := c.Update(ctx, p)
-	retry, reload, timeouut := checkError(err)
+	retry, reload, timeout := checkError(err)
 
 	for retry {
-		if timeouut >= 0 {
+		if timeout >= 0 {
 			select {
 			case <-ctx.Done():
 				return errors.New("context canceled")
-			case <-time.After(timeouut):
+			case <-time.After(timeout):
 			}
 		}
 		if reload {
 			err = c.Get(ctx, client.ObjectKeyFromObject(p), p)
 			if err != nil {
-				retry, reload, timeouut = checkError(err)
+				retry, reload, timeout = checkError(err)
 				continue
 			}
 			p.Labels[controllerconstants.QueueLabel] = queue
@@ -169,7 +171,7 @@ func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string
 			maps.Copy(p.Labels, addLabels)
 		}
 		err = c.Update(ctx, p)
-		retry, reload, timeouut = checkError(err)
+		retry, reload, timeout = checkError(err)
 	}
 	return err
 }
@@ -179,37 +181,34 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 	if apierrors.IsAlreadyExists(err) {
 		return nil
 	}
-	retry, _, timeouut := checkError(err)
+	retry, _, timeout := checkError(err)
 	for retry {
-		if timeouut >= 0 {
+		if timeout >= 0 {
 			select {
 			case <-ctx.Done():
 				return errors.New("context canceled")
-			case <-time.After(timeouut):
+			case <-time.After(timeout):
 			}
 		}
 		err = c.Create(ctx, wl)
-		retry, _, timeouut = checkError(err)
+		retry, _, timeout = checkError(err)
 	}
 	return err
 }
 
 func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	err := workload.ApplyAdmissionStatus(ctx, c, wl, false)
-	if apierrors.IsAlreadyExists(err) {
-		return nil
-	}
-	retry, _, timeouut := checkError(err)
+	retry, _, timeout := checkError(err)
 	for retry {
-		if timeouut >= 0 {
+		if timeout >= 0 {
 			select {
 			case <-ctx.Done():
 				return errors.New("context canceled")
-			case <-time.After(timeouut):
+			case <-time.After(timeout):
 			}
 		}
 		err = workload.ApplyAdmissionStatus(ctx, c, wl, false)
-		retry, _, timeouut = checkError(err)
+		retry, _, timeout = checkError(err)
 	}
 	return err
 }

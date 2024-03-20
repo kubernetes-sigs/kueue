@@ -26,6 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -45,7 +46,7 @@ var (
 	ErrCQInvalid    = errors.New("clusterqueue invalid")
 )
 
-func ListOptions(namespace, queueLabel, continueToken string) []client.ListOption {
+func listOptions(namespace, queueLabel, continueToken string) []client.ListOption {
 	opts := []client.ListOption{
 		client.InNamespace(namespace),
 		client.HasLabels{queueLabel},
@@ -152,15 +153,18 @@ func PushPods(ctx context.Context, c client.Client, namespaces []string, queueLa
 		defer log.V(3).Info("End pods list")
 		page := 0
 		for {
-			err := c.List(ctx, lst, ListOptions(ns, queueLabel, lst.Continue)...)
+			err := c.List(ctx, lst, listOptions(ns, queueLabel, lst.Continue)...)
 			if err != nil {
 				log.Error(err, "list")
 				return fmt.Errorf("listing pods in %s, page %d: %w", ns, page, err)
 			}
 
 			for _, p := range lst.Items {
-				// ignore deleted or in final Phase?
-				ch <- p
+				if p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded {
+					log.V(2).Info("Skip pod", "pod", klog.KObj(&p), "phase", p.Status.Phase)
+				} else {
+					ch <- p
+				}
 			}
 
 			page++

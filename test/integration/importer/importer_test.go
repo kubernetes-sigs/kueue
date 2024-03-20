@@ -109,6 +109,9 @@ var _ = ginkgo.Describe("Importer", func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 			})
 
+			wl1UID := wl1.UID
+			wl2UID := wl2.UID
+
 			ginkgo.By("Starting kueue, the cluster queue status should account for the imported Workloads", func() {
 				fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
@@ -148,6 +151,13 @@ var _ = ginkgo.Describe("Importer", func() {
 
 				util.ExpectWorkloadToFinish(ctx, k8sClient, wl2LookupKey)
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl3)
+			})
+
+			ginkgo.By("Checking the imported Workloads are not recreated", func() {
+				gomega.Expect(k8sClient.Get(ctx, wl1LookupKey, wl1)).To(gomega.Succeed())
+				gomega.Expect(wl1.UID).To(gomega.Equal(wl1UID))
+				gomega.Expect(k8sClient.Get(ctx, wl2LookupKey, wl2)).To(gomega.Succeed())
+				gomega.Expect(wl2.UID).To(gomega.Equal(wl2UID))
 			})
 		})
 	})

@@ -145,7 +145,9 @@ func TestImportNamespace(t *testing.T) {
 			},
 
 			wantWorkloads: []kueue.Workload{
-				*baseWlWrapper.Clone().Obj(),
+				*baseWlWrapper.Clone().
+					Label("new.lbl", "val").
+					Obj(),
 			},
 		},
 	}

@@ -6,6 +6,8 @@ A tool able to import existing pods into kueue.
 
 The importer should run in a cluster having the Kueue CRDs defined and in which the `kueue-controller-manager` is not running or has the `pod` integration disabled.
 
+For an import to succeed, all the involved Kueue objects (LocalQueues, ClusterQueues and ResourceFlavors) need to be created in the cluster, the check stage of the importer will check this and enumerate the missing objects. 
+
 ## Build
 
 From kueue source root run:
