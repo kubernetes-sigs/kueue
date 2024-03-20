@@ -394,6 +394,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 	ginkgo.It("Should run a jobSet on worker if admitted", func() {
 		jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 			Queue(managerLq.Name).
+			ManagedBy(multikueue.ControllerName).
 			ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",
@@ -573,6 +574,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 	ginkgo.It("Should requeue the workload with a delay when the connection to the admitting worker is lost", func() {
 		jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 			Queue(managerLq.Name).
+			ManagedBy(multikueue.ControllerName).
 			ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",

@@ -73,6 +73,11 @@ type jobAdapter interface {
 	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
 	// suspended and not start the execution locally.
 	KeepAdmissionCheckPending() bool
+	// IsJobManagedByKueue returns
+	// a bool indicating if the job object identified by key is managed by kueue and can be delegated.
+	// a reason message
+	// any API error encountered during the check
+	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
 }
 
 type wlGroup struct {
@@ -179,6 +184,15 @@ func (a *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			rejectionMessage = "No multikueue adapter found"
 		}
 		return reconcile.Result{}, a.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
+	}
+
+	managed, unamagedReason, err := adapter.IsJobManagedByKueue(ctx, a.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if !managed {
+		return reconcile.Result{}, a.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unamagedReason))
 	}
 
 	grp, err := a.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
