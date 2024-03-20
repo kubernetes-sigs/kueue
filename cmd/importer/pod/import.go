@@ -121,13 +121,17 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
 		}
 		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
-		return admitWorkload(ctx, c, wl)
+		if err := admitWorkload(ctx, c, wl); err != nil {
+			return err
+		}
+		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
+		return nil
 	})
 
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Import done", "checked", summary.TotalPods, "failed", summary.FailedPods)
 	for e, pods := range summary.ErrorsForPods {
-		log.Info("Error", "err", e, "occurrences", len(pods), "obsevedFirstIn", pods[0])
+		log.Info("Import failed for Pods", "err", e, "occurrences", len(pods), "obsevedFirstIn", pods[0])
 	}
 	return errors.Join(summary.Errors...)
 }

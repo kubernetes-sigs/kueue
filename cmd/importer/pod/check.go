@@ -54,21 +54,20 @@ func Check(ctx context.Context, c client.Client, cache *util.ImportCache, jobs u
 			return fmt.Errorf("%q has no resource groups flavors: %w", cq.Name, util.ErrCQInvalid)
 		}
 
-		rf := string(cq.Spec.ResourceGroups[0].Flavors[0].Name)
-		if _, found := cache.ResourceFalvors[rf]; !found {
-			return fmt.Errorf("%q flavor %q: %w", cq.Name, rf, util.ErrCQInvalid)
+		rfName := string(cq.Spec.ResourceGroups[0].Flavors[0].Name)
+		rf, rfFound := cache.ResourceFalvors[rfName]
+		if !rfFound {
+			return fmt.Errorf("%q flavor %q: %w", cq.Name, rfName, util.ErrCQInvalid)
 		}
 
-		// do some additional checks like:
-		// - (maybe) the resources managed by the queues
-
+		log.V(2).Info("Successfully checked", "pod", klog.KObj(p), "clusterQueue", klog.KObj(cq), "resourceFalvor", klog.KObj(rf))
 		return nil
 	})
 
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Check done", "checked", summary.TotalPods, "failed", summary.FailedPods)
 	for e, pods := range summary.ErrorsForPods {
-		log.Info("Error", "err", e, "occurrences", len(pods), "obsevedFirstIn", pods[0])
+		log.Info("Validation failed for Pods", "err", e, "occurrences", len(pods), "obsevedFirstIn", pods[0])
 	}
 	return errors.Join(summary.Errors...)
 }
