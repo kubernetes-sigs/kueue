@@ -27,7 +27,8 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type jobsetAdapter struct{}
@@ -62,8 +63,11 @@ func (b *jobsetAdapter) SyncJob(ctx context.Context, localClient client.Client, 
 	if remoteJob.Labels == nil {
 		remoteJob.Labels = map[string]string{}
 	}
-	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
+	remoteJob.Labels[controllerconstants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
+
+	// set the manager
+	remoteJob.Labels[jobset.LabelManagedBy] = jobset.JobSetManager
 
 	return remoteClient.Create(ctx, &remoteJob)
 }
@@ -81,6 +85,19 @@ func (b *jobsetAdapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
+func (b *jobsetAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	js := jobset.JobSet{}
+	err := c.Get(ctx, key, &js)
+	if err != nil {
+		return false, "", err
+	}
+	lblVal := js.Labels[jobset.LabelManagedBy]
+	if lblVal != constants.KueueName {
+		return false, fmt.Sprintf("Expecting label %q to be %q not %q", jobset.LabelManagedBy, constants.KueueName, lblVal), nil
+	}
+	return true, "", nil
+}
+
 var _ multiKueueWatcher = (*jobsetAdapter)(nil)
 
 func (*jobsetAdapter) GetEmptyList() client.ObjectList {
@@ -93,7 +110,7 @@ func (*jobsetAdapter) GetWorkloadKey(o runtime.Object) (types.NamespacedName, er
 		return types.NamespacedName{}, errors.New("not a jobset")
 	}
 
-	prebuiltWl, hasPrebuiltWorkload := jobSet.Labels[constants.PrebuiltWorkloadLabel]
+	prebuiltWl, hasPrebuiltWorkload := jobSet.Labels[controllerconstants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
 		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for jobset: %s", klog.KObj(jobSet))
 	}
