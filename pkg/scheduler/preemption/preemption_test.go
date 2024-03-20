@@ -1127,15 +1127,25 @@ func TestCandidatesOrdering(t *testing.T) {
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("low", "").
 			ReserveQuota(utiltesting.MakeAdmission("self").Obj()).
-			Priority(10).
 			Priority(-10).
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("other", "").
 			ReserveQuota(utiltesting.MakeAdmission("other").Obj()).
 			Priority(10).
 			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("old", "").
-			ReserveQuota(utiltesting.MakeAdmission("self").Obj()).
+		workload.NewInfo(utiltesting.MakeWorkload("evicted", "").
+			SetOrReplaceCondition(metav1.Condition{
+				Type:   kueue.WorkloadEvicted,
+				Status: metav1.ConditionTrue,
+			}).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("old-a", "").
+			UID("old-a").
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("old-b", "").
+			UID("old-b").
+			ReserveQuotaAt(utiltesting.MakeAdmission("self").Obj(), now).
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("current", "").
 			ReserveQuota(utiltesting.MakeAdmission("self").Obj()).
@@ -1151,7 +1161,7 @@ func TestCandidatesOrdering(t *testing.T) {
 	for i, c := range candidates {
 		gotNames[i] = workload.Key(c.Obj)
 	}
-	wantCandidates := []string{"/other", "/low", "/current", "/old", "/high"}
+	wantCandidates := []string{"/evicted", "/other", "/low", "/current", "/old-a", "/old-b", "/high"}
 	if diff := cmp.Diff(wantCandidates, gotNames); diff != "" {
 		t.Errorf("Sorted with wrong order (-want,+got):\n%s", diff)
 	}

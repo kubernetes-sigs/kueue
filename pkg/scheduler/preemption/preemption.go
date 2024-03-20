@@ -389,6 +389,7 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 }
 
 // candidatesOrdering criteria:
+// 0. Workloads already marked for preemption first.
 // 1. Workloads from other ClusterQueues in the cohort before the ones in the
 // same ClusterQueue as the preemptor.
 // 2. Workloads with lower priority first.
@@ -397,6 +398,11 @@ func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) f
 	return func(i, j int) bool {
 		a := candidates[i]
 		b := candidates[j]
+		aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
+		bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
+		if aEvicted != bEvicted {
+			return aEvicted
+		}
 		aInCQ := a.ClusterQueue == cq
 		bInCQ := b.ClusterQueue == cq
 		if aInCQ != bInCQ {
@@ -407,7 +413,13 @@ func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) f
 		if pa != pb {
 			return pa < pb
 		}
-		return quotaReservationTime(b.Obj, now).Before(quotaReservationTime(a.Obj, now))
+		timeA := quotaReservationTime(a.Obj, now)
+		timeB := quotaReservationTime(b.Obj, now)
+		if !timeA.Equal(timeB) {
+			return timeA.After(timeB)
+		}
+		// Arbitrary comparison for deterministic sorting.
+		return a.Obj.UID < b.Obj.UID
 	}
 }
 
