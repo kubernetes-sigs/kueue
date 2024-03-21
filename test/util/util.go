@@ -244,11 +244,21 @@ func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client
 }
 
 func FilterAdmittedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
+	return filterWorkloads(ctx, k8sClient, workload.HasQuotaReservation, wls...)
+}
+
+func FilterEvictedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
+	return filterWorkloads(ctx, k8sClient, func(wl *kueue.Workload) bool {
+		return apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)
+	}, wls...)
+}
+
+func filterWorkloads(ctx context.Context, k8sClient client.Client, filter func(*kueue.Workload) bool, wls ...*kueue.Workload) []*kueue.Workload {
 	ret := make([]*kueue.Workload, 0, len(wls))
 	var updatedWorkload kueue.Workload
 	for _, wl := range wls {
 		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)
-		if err == nil && workload.HasQuotaReservation(&updatedWorkload) {
+		if err == nil && filter(&updatedWorkload) {
 			ret = append(ret, wl)
 		}
 	}
@@ -274,17 +284,25 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 }
 
 func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(1, func() int {
+	expectWorkloadsToBeAdmittedCountWithOffset(ctx, 2, k8sClient, len(wls), wls...)
+}
+
+func ExpectWorkloadsToBeAdmittedCount(ctx context.Context, k8sClient client.Client, count int, wls ...*kueue.Workload) {
+	expectWorkloadsToBeAdmittedCountWithOffset(ctx, 2, k8sClient, count, wls...)
+}
+
+func expectWorkloadsToBeAdmittedCountWithOffset(ctx context.Context, offset int, k8sClient client.Client, count int, wls ...*kueue.Workload) {
+	gomega.EventuallyWithOffset(offset, func() int {
 		admitted := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
-			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			gomega.ExpectWithOffset(offset, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted) {
 				admitted++
 			}
 		}
 		return admitted
-	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are admitted")
+	}, Timeout, Interval).Should(gomega.Equal(count), "Not enough workloads are admitted")
 }
 
 func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
