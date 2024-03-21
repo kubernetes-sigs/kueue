@@ -20,6 +20,11 @@ const (
       project_id: alpha
       resource_type: gpu
   toLocalQueue: alpha-gpu
+- match:
+    labels:
+      project_id: alpha
+      resource_type: cpu
+  skip: true
 `
 )
 
@@ -41,6 +46,15 @@ var testMappingRules = MappingRules{
 			},
 		},
 		ToLocalQueue: "alpha-gpu",
+	},
+	{
+		Match: MappingMatch{
+			Labels: map[string]string{
+				"project_id":    "alpha",
+				"resource_type": "cpu",
+			},
+		},
+		Skip: true,
 	},
 }
 
@@ -69,6 +83,7 @@ func TestMappingMatch(t *testing.T) {
 		rules     MappingRules
 
 		wantMatch bool
+		wantSkip  bool
 		wantQueue string
 	}{
 		"missing one label": {
@@ -82,6 +97,14 @@ func TestMappingMatch(t *testing.T) {
 
 			wantMatch: true,
 			wantQueue: "alpha-gpu",
+		},
+		"skip": {
+			className: "preemptible",
+			labels:    map[string]string{"project_id": "alpha", "resource_type": "cpu"},
+			rules:     testMappingRules,
+
+			wantMatch: true,
+			wantSkip:  true,
 		},
 		"priority class not matching": {
 			className: "preemptible-1",
@@ -100,10 +123,14 @@ func TestMappingMatch(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotQueue, gotMatch := tc.rules.QueueFor(tc.className, tc.labels)
+			gotQueue, gotSkip, gotMatch := tc.rules.QueueFor(tc.className, tc.labels)
 
 			if tc.wantMatch != gotMatch {
 				t.Errorf("unexpected match %v", gotMatch)
+			}
+
+			if tc.wantSkip != gotSkip {
+				t.Errorf("unexpected skip %v", gotSkip)
 			}
 
 			if tc.wantQueue != gotQueue {

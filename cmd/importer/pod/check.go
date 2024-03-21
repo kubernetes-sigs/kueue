@@ -37,27 +37,27 @@ func Check(ctx context.Context, c client.Client, cache *util.ImportCache, jobs u
 			ctrl.LoggerFrom(ctx).Error(err, "Listing pods")
 		}
 	}()
-	summary := util.ConcurrentProcessPod(ch, jobs, func(p *corev1.Pod) error {
+	summary := util.ConcurrentProcessPod(ch, jobs, func(p *corev1.Pod) (bool, error) {
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 		log.V(3).Info("Checking")
 
-		cq, err := cache.ClusterQueue(p)
-		if err != nil {
-			return err
+		cq, skip, err := cache.ClusterQueue(p)
+		if skip || err != nil {
+			return skip, err
 		}
 
 		if len(cq.Spec.ResourceGroups) == 0 {
-			return fmt.Errorf("%q has no resource groups: %w", cq.Name, util.ErrCQInvalid)
+			return false, fmt.Errorf("%q has no resource groups: %w", cq.Name, util.ErrCQInvalid)
 		}
 
 		if len(cq.Spec.ResourceGroups[0].Flavors) == 0 {
-			return fmt.Errorf("%q has no resource groups flavors: %w", cq.Name, util.ErrCQInvalid)
+			return false, fmt.Errorf("%q has no resource groups flavors: %w", cq.Name, util.ErrCQInvalid)
 		}
 
 		rfName := string(cq.Spec.ResourceGroups[0].Flavors[0].Name)
 		rf, rfFound := cache.ResourceFalvors[rfName]
 		if !rfFound {
-			return fmt.Errorf("%q flavor %q: %w", cq.Name, rfName, util.ErrCQInvalid)
+			return false, fmt.Errorf("%q flavor %q: %w", cq.Name, rfName, util.ErrCQInvalid)
 		}
 
 		var pv int32
@@ -66,11 +66,11 @@ func Check(ctx context.Context, c client.Client, cache *util.ImportCache, jobs u
 		}
 
 		log.V(2).Info("Successfully checked", "clusterQueue", klog.KObj(cq), "resourceFalvor", klog.KObj(rf), "priority", pv)
-		return nil
+		return false, nil
 	})
 
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Check done", "checked", summary.TotalPods, "failed", summary.FailedPods)
+	log.Info("Check done", "checked", summary.TotalPods, "skipped", summary.SkippedPods, "failed", summary.FailedPods)
 	for e, pods := range summary.ErrorsForPods {
 		log.Info("Validation failed for Pods", "err", e, "occurrences", len(pods), "obsevedFirstIn", pods[0])
 	}

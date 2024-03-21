@@ -86,17 +86,18 @@ func (mm *MappingMatch) Match(priorityClassName string, labels map[string]string
 type MappingRule struct {
 	Match        MappingMatch `json:"match"`
 	ToLocalQueue string       `json:"toLocalQueue"`
+	Skip         bool         `json:"skip"`
 }
 
 type MappingRules []MappingRule
 
-func (mr MappingRules) QueueFor(priorityClassName string, labels map[string]string) (string, bool) {
+func (mr MappingRules) QueueFor(priorityClassName string, labels map[string]string) (string, bool, bool) {
 	for i := range mr {
 		if mr[i].Match.Match(priorityClassName, labels) {
-			return mr[i].ToLocalQueue, true
+			return mr[i].ToLocalQueue, mr[i].Skip, true
 		}
 	}
-	return "", false
+	return "", false, false
 }
 
 func MappingRulesFromFile(mappingFile string) (MappingRules, error) {
@@ -167,35 +168,39 @@ func LoadImportCache(ctx context.Context, c client.Client, namespaces []string, 
 	return &ret, nil
 }
 
-func (mappingCache *ImportCache) LocalQueue(p *corev1.Pod) (*kueue.LocalQueue, error) {
-	queueName, found := mappingCache.MappingRules.QueueFor(p.Spec.PriorityClassName, p.Labels)
+func (mappingCache *ImportCache) LocalQueue(p *corev1.Pod) (*kueue.LocalQueue, bool, error) {
+	queueName, skip, found := mappingCache.MappingRules.QueueFor(p.Spec.PriorityClassName, p.Labels)
 	if !found {
-		return nil, ErrNoMapping
+		return nil, false, ErrNoMapping
+	}
+
+	if skip {
+		return nil, true, nil
 	}
 
 	nqQueues, found := mappingCache.LocalQueues[p.Namespace]
 	if !found {
-		return nil, fmt.Errorf("%s: %w", queueName, ErrLQNotFound)
+		return nil, false, fmt.Errorf("%s: %w", queueName, ErrLQNotFound)
 	}
 
 	lq, found := nqQueues[queueName]
 	if !found {
-		return nil, fmt.Errorf("%s: %w", queueName, ErrLQNotFound)
+		return nil, false, fmt.Errorf("%s: %w", queueName, ErrLQNotFound)
 	}
-	return lq, nil
+	return lq, false, nil
 }
 
-func (mappingCache *ImportCache) ClusterQueue(p *corev1.Pod) (*kueue.ClusterQueue, error) {
-	lq, err := mappingCache.LocalQueue(p)
-	if err != nil {
-		return nil, err
+func (mappingCache *ImportCache) ClusterQueue(p *corev1.Pod) (*kueue.ClusterQueue, bool, error) {
+	lq, skip, err := mappingCache.LocalQueue(p)
+	if skip || err != nil {
+		return nil, skip, err
 	}
 	queueName := string(lq.Spec.ClusterQueue)
 	cq, found := mappingCache.ClusterQueues[queueName]
 	if !found {
-		return nil, fmt.Errorf("cluster queue: %s: %w", queueName, ErrCQNotFound)
+		return nil, false, fmt.Errorf("cluster queue: %s: %w", queueName, ErrCQNotFound)
 	}
-	return cq, nil
+	return cq, false, nil
 }
 
 func PushPods(ctx context.Context, c client.Client, namespaces []string, ch chan<- corev1.Pod) error {
@@ -231,18 +236,20 @@ func PushPods(ctx context.Context, c client.Client, namespaces []string, ch chan
 }
 
 type Result struct {
-	Pod string
-	Err error
+	Pod  string
+	Err  error
+	Skip bool
 }
 
 type ProcessSummary struct {
 	TotalPods     int
+	SkippedPods   int
 	FailedPods    int
 	ErrorsForPods map[string][]string
 	Errors        []error
 }
 
-func ConcurrentProcessPod(ch <-chan corev1.Pod, jobs uint, f func(p *corev1.Pod) error) ProcessSummary {
+func ConcurrentProcessPod(ch <-chan corev1.Pod, jobs uint, f func(p *corev1.Pod) (bool, error)) ProcessSummary {
 	wg := sync.WaitGroup{}
 	resultCh := make(chan Result)
 
@@ -251,8 +258,8 @@ func ConcurrentProcessPod(ch <-chan corev1.Pod, jobs uint, f func(p *corev1.Pod)
 		go func() {
 			defer wg.Done()
 			for pod := range ch {
-				err := f(&pod)
-				resultCh <- Result{Pod: client.ObjectKeyFromObject(&pod).String(), Err: err}
+				skip, err := f(&pod)
+				resultCh <- Result{Pod: client.ObjectKeyFromObject(&pod).String(), Err: err, Skip: skip}
 			}
 		}()
 	}
@@ -266,6 +273,9 @@ func ConcurrentProcessPod(ch <-chan corev1.Pod, jobs uint, f func(p *corev1.Pod)
 	}
 	for result := range resultCh {
 		ps.TotalPods++
+		if result.Skip {
+			ps.SkippedPods++
+		}
 		if result.Err != nil {
 			ps.FailedPods++
 			estr := result.Err.Error()

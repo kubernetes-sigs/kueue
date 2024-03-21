@@ -50,9 +50,15 @@ It's done providing an yaml mapping file name as `--queuemapping-file` argument,
       src.lbl: src-val2
       src2.lbl: src2-val
   toLocalQueue: user-queue2
+- match:
+    labels:
+      src.lbl: src-val3
+  skip: true
 ```
 
-During the mapping, if the match rule has no `priorityClassName` the `priorityClassName` of the pod will be ignored, if more than one `label: value` pairs are provided, all of them should match.
+- During the mapping, if the match rule has no `priorityClassName` the `priorityClassName` of the pod will be ignored, if more than one `label: value` pairs are provided, all of them should match.
+- The rules are evaluated in order.
+- `skip: true` can be used to ignore the pods matching a rule.
 
 ### Import
 After which, if `--dry-run=false` was specified, for each selected Pod the importer will:
