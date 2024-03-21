@@ -82,6 +82,11 @@ func (w *WorkloadWrapper) Clone() *WorkloadWrapper {
 	return &WorkloadWrapper{Workload: *w.DeepCopy()}
 }
 
+func (w *WorkloadWrapper) UID(uid types.UID) *WorkloadWrapper {
+	w.Workload.UID = uid
+	return w
+}
+
 func (w *WorkloadWrapper) Finalizers(fin ...string) *WorkloadWrapper {
 	w.ObjectMeta.Finalizers = fin
 	return w
@@ -116,11 +121,16 @@ func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
 
 // ReserveQuota sets workload admission and adds a "QuotaReserved" status condition
 func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
+	return w.ReserveQuotaAt(a, time.Now())
+}
+
+// ReserveQuotaAt sets workload admission and adds a "QuotaReserved" status condition
+func (w *WorkloadWrapper) ReserveQuotaAt(a *kueue.Admission, now time.Time) *WorkloadWrapper {
 	w.Status.Admission = a
 	w.Status.Conditions = []metav1.Condition{{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
+		LastTransitionTime: metav1.NewTime(now),
 		Reason:             "AdmittedByTest",
 		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
 	}}
