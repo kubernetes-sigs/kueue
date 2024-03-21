@@ -20,12 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap/zapcore"
-	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -82,8 +80,10 @@ func setFlags(cmd *cobra.Command) {
 	cmd.Flags().UintP(ConcurrencyFlag, ConcurrencyFlagShort, 8, "number of concurrent import workers")
 	cmd.Flags().Bool(DryRunFlag, true, "don't import, check the config only")
 
-	_ = cmd.MarkFlagRequired(QueueLabelFlag)
 	_ = cmd.MarkFlagRequired(NamespaceFlag)
+	cmd.MarkFlagsRequiredTogether(QueueLabelFlag, QueueMappingFlag)
+	cmd.MarkFlagsOneRequired(QueueLabelFlag, QueueMappingFileFlag)
+	cmd.MarkFlagsMutuallyExclusive(QueueLabelFlag, QueueMappingFileFlag)
 }
 
 func init() {
@@ -116,12 +116,8 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 	if err != nil {
 		return nil, err
 	}
-	queueLabel, err := flags.GetString(QueueLabelFlag)
-	if err != nil {
-		return nil, err
-	}
 
-	mapping, err := flags.GetStringToString(QueueMappingFlag)
+	queueLabel, err := flags.GetString(QueueLabelFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -131,17 +127,18 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 		return nil, err
 	}
 
+	var mapping util.MappingRules
 	if mappingFile != "" {
-		yamlFile, err := os.ReadFile(mappingFile)
+		mapping, err = util.MappingRulesFromFile(mappingFile)
 		if err != nil {
 			return nil, err
 		}
-		extraMapping := map[string]string{}
-		err = yaml.Unmarshal(yamlFile, extraMapping)
+	} else {
+		queueLabelMapping, err := flags.GetStringToString(QueueMappingFlag)
 		if err != nil {
-			return nil, fmt.Errorf("decoding %q: %w", mappingFile, err)
+			return nil, err
 		}
-		maps.Copy(mapping, extraMapping)
+		mapping = util.MappingRulesForLabel(queueLabel, queueLabelMapping)
 	}
 
 	addLabels, err := flags.GetStringToString(AddLabelsFlag)
@@ -162,7 +159,7 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 		return nil, fmt.Errorf("%s: %w", AddLabelsFlag, errors.Join(validationErrors...))
 	}
 
-	return util.LoadImportCache(ctx, c, namespaces, queueLabel, mapping, addLabels)
+	return util.LoadImportCache(ctx, c, namespaces, mapping, addLabels)
 }
 
 func getKubeClient(cmd *cobra.Command) (client.Client, error) {

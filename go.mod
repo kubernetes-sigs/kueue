@@ -16,7 +16,6 @@ require (
 	github.com/ray-project/kuberay/ray-operator v1.1.0-rc.1
 	github.com/spf13/cobra v1.8.0
 	go.uber.org/zap v1.27.0
-	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.29.3
 	k8s.io/apimachinery v0.29.3
 	k8s.io/apiserver v0.29.3
@@ -33,6 +32,7 @@ require (
 	sigs.k8s.io/controller-tools v0.14.0
 	sigs.k8s.io/jobset v0.4.0
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1
+	sigs.k8s.io/yaml v1.4.0
 )
 
 require (
@@ -121,11 +121,11 @@ require (
 	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.29.0 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
 	k8s.io/kms v0.29.3 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.28.0 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
 )

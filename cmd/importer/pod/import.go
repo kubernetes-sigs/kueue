@@ -43,34 +43,34 @@ import (
 func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
 	go func() {
-		err := util.PushPods(ctx, c, cache.Namespaces, cache.QueueLabel, ch)
+		err := util.PushPods(ctx, c, cache.Namespaces, ch)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Listing pods")
 		}
 	}()
-	summary := util.ConcurrentProcessPod(ch, jobs, func(p *corev1.Pod) error {
+	summary := util.ConcurrentProcessPod(ch, jobs, func(p *corev1.Pod) (bool, error) {
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 		log.V(3).Info("Importing")
 
-		lq, err := cache.LocalQueue(p)
-		if err != nil {
-			return err
+		lq, skip, err := cache.LocalQueue(p)
+		if skip || err != nil {
+			return skip, err
 		}
 
 		oldLq, found := p.Labels[controllerconstants.QueueLabel]
 		if !found {
 			if err := addLabels(ctx, c, p, lq.Name, cache.AddLabels); err != nil {
-				return fmt.Errorf("cannot add queue label: %w", err)
+				return false, fmt.Errorf("cannot add queue label: %w", err)
 			}
 		} else if oldLq != lq.Name {
-			return fmt.Errorf("another local queue name is set %q expecting %q", oldLq, lq.Name)
+			return false, fmt.Errorf("another local queue name is set %q expecting %q", oldLq, lq.Name)
 		}
 
 		kp := pod.FromObject(p)
 		// Note: the recorder is not used for single pods, we can just pass nil for now.
 		wl, err := kp.ConstructComposableWorkload(ctx, c, nil)
 		if err != nil {
-			return fmt.Errorf("construct workload: %w", err)
+			return false, fmt.Errorf("construct workload: %w", err)
 		}
 
 		maps.Copy(wl.Labels, cache.AddLabels)
@@ -82,12 +82,11 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 		}
 
 		if err := createWorkload(ctx, c, wl); err != nil {
-			return fmt.Errorf("creating workload: %w", err)
+			return false, fmt.Errorf("creating workload: %w", err)
 
 		}
 
 		//make its admission and update its status
-
 		info := workload.NewInfo(wl)
 		cq := cache.ClusterQueues[string(lq.Spec.ClusterQueue)]
 		admission := kueue.Admission{
@@ -122,14 +121,14 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 		}
 		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
 		if err := admitWorkload(ctx, c, wl); err != nil {
-			return err
+			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
-		return nil
+		return false, nil
 	})
 
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Import done", "checked", summary.TotalPods, "failed", summary.FailedPods)
+	log.Info("Import done", "checked", summary.TotalPods, "skipped", summary.SkippedPods, "failed", summary.FailedPods)
 	for e, pods := range summary.ErrorsForPods {
 		log.Info("Import failed for Pods", "err", e, "occurrences", len(pods), "obsevedFirstIn", pods[0])
 	}
