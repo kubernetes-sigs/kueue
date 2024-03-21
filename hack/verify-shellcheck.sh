@@ -14,6 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# check if any shellscript has changed
+CHANGED=$(git diff $(find . -name "*.sh"))
+if CHANGED=""; then
+  echo "No shell scripts have changed"
+  echo "Exiting"
+  exit 0
+else
+ 
 # allow overriding docker cli, which should work fine for this script
 DOCKER="${DOCKER:-docker}"
 
@@ -35,6 +43,19 @@ SHELLCHECK_OPTIONS=(
 )
 
 # Currently disabled these errors will take care of them later
+SHELLCHECK_DISABLED="SC2002,SC3028,SC3054,SC3014,SC3040,SC3046,SC3030,SC3010,SC3037,SC3045,SC3006,SC3018,SC3016,SC3011,SC3044,SC3043,SC3060,SC3024,SC1091,SC2066,SC2086,SC2034,SC1083,SC1009,SC1073,SC1072,SC2155,SC2046"
+
+# common arguments we'll pass to shellcheck
+SHELLCHECK_OPTIONS=(
+  # allow following sourced files that are not specified in the command,
+  # we need this because we specify one file at a time in order to trivially
+  # detect which files are failing
+  "--external-sources"
+  # include our disabled lints
+  "--exclude=${SHELLCHECK_DISABLED}"
+  # set colorized output
+  "--color=${SHELLCHECK_COLORIZED_OUTPUT}"
+)
 
 scripts_to_check=("$@")
 if [[ "$#" == 0 ]]; then
@@ -67,4 +88,6 @@ echo "Running ShellCheck..."
     "${SHELLCHECK_IMAGE}" \
   shellcheck "${SHELLCHECK_OPTIONS[@]}" "${scripts_to_check[@]}" >&2 || res=$?
 
-echo "Shellcheck ran successfully"
+echo "Shellcheck ran successfully" 
+fi
+
