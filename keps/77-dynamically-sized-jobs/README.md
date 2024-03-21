@@ -8,6 +8,7 @@
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1 - RayCluster w/ autoscaling](#story-1---raycluster-w-autoscaling)
+  - [Notes/Constraints/Caveats](#notes)
 - [Design Details](#design-details)
   - [Workload Slices](#workload-slices)
   - [Creating Workload Slices](#creating-workload-slices)
@@ -20,9 +21,6 @@
   - [Phase 3 - Scale up with Workload Slices and Scheduling Gates](#phase-3---scale-up-with-workload-slices-and-scheduling-gates)
     - [Scheduler](#scheduler)
 - [Additional Details](#additional-details)
-  - [Feature Gate](#feature-gate)
-  - [Locking Flavor Assignments for Workload Slices](#locking-flavor-assignments-for-workload-slices)
-  - [Webhook changes](#webhook-changes)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -43,17 +41,17 @@ See: [Support dynamically sized (elastic) jobs #77](https://github.com/kubernete
 
 Kueue currently lacks support for resizing jobs. When a job is resized, Kueue will recreate the Workload representation of the job, leading to a disruptive suspend and requeue process. This limitation hinders the usability of Kueue for resources like RayCluster that sometimes have autoscaling capabilities enabled.
 
-To properly support RayCluster, Kueue needs to gracefully handle the scale up and scale down of RayCluster nodes. Concretely this means that scaling the resources used by a RayCluster is appropriately reflected in the respective ClusterQueue without needing to suspend the entire cluster.
+To properly support RayCluster, Kueue needs to gracefully handle the scale up and scale down of RayCluster nodes. Concretely this means that scaling the resources used by a RayCluster is appropriately reflected in the respective ClusterQueue without needing to suspend the entire RayCluster.
 
 ### Goals
 
 - Gracefully handle resize operations for Kueue jobs (i.e. update quota usage without suspend, enqueue scale ups)
-- Autoscaling RayCluster works with Kueue (MVP)
+- Autoscaling RayCluster works with Kueue since it has an autoscaler and there is high demand (MVP)s
 
 ### Non-Goals
 
 - Vertical scaling of workloads – Kueue will only handle resize operations that scale Pods horizontally 
-- Support resize for other Kueue jobs such as QueuedWorkload, JobSet, etc (future)
+- Support resize for other Kueue jobs such as Job, JobSet, etc (future)
 - Resizing of RayJobs
 - Partial Preemption
 
@@ -70,10 +68,14 @@ For the MVP, we will only focus on admission of **RayClusters** with autoscaling
 
 #### Story 1 - RayCluster w/ autoscaling
 
-1. The user creates a RayCluster.
+1. The user creates a RayCluster with `enableInTreeAutoscaling: true`.
 2. Kueue admits the RayCluster based on the requested resources in the head pod and worker pod. 
-3. User updates RayCluster to enable autoscaling
+3. Given the deman of the job, the Ray Autoscaler adjusts the replicas field as it adds or removes Pods from the cluster.
 4. Kueue will not suspend and requeue the RayCluster, instead it will dynamically update ClusterQueue usage based on the scaling event. 
+
+### Notes/Constraints/Caveats (Optional)
+
+If Kueue needs to preempt the resized RayCluster, it would preempt it as a whole, regardless of whether the RayCluster was previously scaled up.
 
 ## Design Details
 
@@ -98,17 +100,18 @@ Jobs implementing the ResizeJob method will create a Workload Slice for every ne
 
 ### Pod Scheduling Gates
 
-Inside **raycluster_webhook** implement schedulingGate injection for pods on RayCluster creation time. Which will then be ungated following a similar behavior as to how a job is suspended and then unsuspended in the beginning. When we have a scale up, the new pods will be gated due to the schedulingGates injection in the webhook.
+Inside **raycluster_webhook** implement schedulingGate injection for pods on RayCluster creation time.
+The Pods will be ungated following a similar behavior as to how a job is suspended and then unsuspended in the when admitted.
+When the RayCluster scales up, the new pods will be gated due to the schedulingGates injection in the webhook.
 
-After the creation of each individual Workload Slice and admission of a Workload Slice, the **workload_scheduling_gates_controller** should be in charge of removing the scheduling gates from each pod. We only need to ungate the number of pods to match the number of admitted pods, this should be a counter. We don’t want to accidentally ungate too many pods since race conditions could happen and we also don’t want to double count.
+After the creation of each individual Workload Slice and admission of a Workload Slice, the **workload_scheduling_gates_controller** should be in charge of removing the scheduling gates from each pod. We only need to ungate the number of pods to match the number of admitted pods, this should be a counter. We don’t want to accidentally ungate too many pods since race conditions could happen and we also don’t want to double count. It's worth mentioning that for the case of recreated pods (i.e. machine failure for example), these pods will go through the admission/scheduuling check again, Kueue is responsible fo removing the scheduling gates when there's available quota and resources to spend on the RayCluster. 
 
 ### Garbage Collecting Workload Slices
 
-The logic of folding and deleting would be isolated in this controller that takes a look at the number of pods that were ungated. We don’t necessarily have to say that this Workload Slice belongs to a specific pod. 
+The logic of folding and deleting would be isolated in this controller. We don’t necessarily have to say that this Workload Slice belongs to a specific pod. This controller will look at the Workload objects and check whether they have the Admitted condition or not.
 
-1. You increment the ungated counter and pass the UID of the workload you are folding to the parent workload. If we still don’t see the workload being deleted, we at least know it has been counted towards the parent workload and we cannot count it again.  
-2. This UID can be seen in the parent’s workload spec. 
-
+1. The controller increments the `.status.admission.podSetAssignments.count` and passes the UID of the workload you are folding to the parent workload.
+If we still don’t see the workload being deleted, we at least know it has been counted towards the parent workload and the controller shouldn't fold it again.
 
 ## Phases for MVP (alpha)
 
@@ -120,7 +123,6 @@ Scaling down a RayCluster won’t involve the creation of Workload Slices, inste
 1. Compare job's PodSet.Count vs Workload.Spec.PodSets[1].Count (worker group) inside the jobframework generic reconciler. 
 2. Call *updateWorkloadToMatchJob()*, this will construct and update the workload and in turn update the PodSet Count field.
 3. Inside the *Update()* method from the *workload_controller* update the workload in cache and in queue. By updating the workload in cache this will update the cluster queue resource usage and by updating the workload in queue this will trigger the scheduler so that it re-assigns the flavors to the already assumed workload and in this way PodSetAssignments will be updated by applying admission based on the new assignments. 
-4. Inside the schedule logic in the scheduler, since the workload is already assumed in the cache we need to specify if the feature is enabled so that we can apply admission to the workload and update its PodSetAssignments. 
 
 #### Job controller
 
@@ -130,7 +132,7 @@ Given these changes, check if the delta is positive or negative indicating a sca
 
 ### Phase 2 - Aggregating Workload Slices
 
-In Phase 2, aggregating Workload Slices into the parent workload will be implemented.
+In Phase 2, aggregating Workload Slices into the parent workload will be implemented. This doesn't represent a usable feature to end users, but it can be reviewed independently from the phase 3.
 
 ### Phase 3 - Scale up with Workload Slices and Scheduling Gates
 
@@ -141,57 +143,12 @@ When the RayCluster scales, the RayCluster webhook would be modified to intercep
 - Cons: The fact of having schedulingGates, means we need an API call for every pod, because all pods that are created by the RayCluster are going to have schedulingGates. We need to remove those gates and for every pod you need to make API calls.
 
 #### Scheduler
-Since every scale up will have its own individual workload they should be proposed to the current scheduling cycle and continue the normal admission process. We should lock flavor assignments to Workload Slices we need to ensure that the Workload Slice is assigned the same resource flavor as the parent workload. 
+Since every scale up will have its own individual workload they should proceed to the current scheduling cycle and continue the normal admission process.
+However, we need to ensure that the Workload Slice is assigned the same resource flavor as the parent workload. 
 
-The *nominate()* returns the workloads with their requirements (resource flavors, borrowing) if they were admitted by the clusterQueues in the snapshot, so we need to return the original workload that was already admitted with the resize information inside *TotalRequests* so that *PodSetAssignments* is also updated.
+The `nominate()` returns the workloads with their requirements (resource flavors, borrowing) if they were admitted by the clusterQueues in the snapshot, so we need to return the original workload that was already admitted with the resize information inside *TotalRequests* so that *PodSetAssignments* is locked to the parent Workload assignments.
 
 ## Additional Details
-
-### Feature Gate
-In kube_features add Elastic/Dynamic size jobs feature gate.
-
-### Locking Flavor Assignments for Workload Slices
-
-We can extract the flavor(s) that the parent workload is using through wl.Status.Admission.PodSetAssigments[1].Flavors
-
-We add a new field to the Workload Info object to know which parent flavor(s) were used.
-
-```golang
-// Info holds a Workload object and some pre-processing.
-type Info struct {
-   Obj *kueue.Workload
-   // list of total resources requested by the podsets.
-   TotalRequests []PodSetResources
-   // Populated from the queue during admission or from the admission field if
-   // already admitted.
-   ClusterQueue   string
-   LastAssignment *AssignmentClusterQueueState
- // Parent Flavors
- ParentFlavor []string
-}
-```
-
-Which can be passed on as an extra parameter in *getAssignments()* in the scheduler to flavorassigner.go when it assigns a flavor through *assignFlavors()*
-
-```golang
-func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodSetResources, ParentFlavor []string) Assignment {}
-```
-
-Which then calls *findFlavorForPodSetResource()* and we can use the parent flavor(s) value to check if this flavor can fit to the pod. If it doesn’t we don’t try to find another flavor for it.
-
-### Webhook changes
-In **workload_webhook** modify *validateWorkloadUpdate()* it to make PodSets and PodSetAssignments mutable for a running job. 
-
-```diff
-if workload.HasQuotaReservation(oldObj) {
--        allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
-        allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassSource, oldObj.Spec.PriorityClassSource, specPath.Child("priorityClassSource"))...)
-        allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassName, oldObj.Spec.PriorityClassName, specPath.Child("priorityClassName"))...)
-    }
-...
-- allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
-
-```
 
 ### Test Plan
 
