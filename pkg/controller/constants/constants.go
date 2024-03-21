@@ -36,4 +36,7 @@ const (
 	// workloadPriorityClass name.
 	// This label is always mutable because it might be useful for the preemption.
 	WorkloadPriorityClassLabel = "kueue.x-k8s.io/priority-class"
+
+	// ProvReqAnnotationPrefix is the prefix for annotations that should be pass to ProvisioningRequest as Parameters.
+	ProvReqAnnotationPrefix = "provreq.kueue.x-k8s.io/"
 )

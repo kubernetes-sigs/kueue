@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/maps"
@@ -803,10 +804,11 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()),
-			Namespace:  object.GetNamespace(),
-			Labels:     map[string]string{},
-			Finalizers: []string{kueue.ResourceInUseFinalizerName},
+			Name:        GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()),
+			Namespace:   object.GetNamespace(),
+			Labels:      map[string]string{},
+			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
+			Annotations: admissioncheck.FilterProvReqAnnotations(job.Object().GetAnnotations()),
 		},
 		Spec: kueue.WorkloadSpec{
 			PodSets:   podSets,

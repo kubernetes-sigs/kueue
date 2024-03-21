@@ -115,6 +115,8 @@ func TestReconcile(t *testing.T) {
 		}).
 		Obj()
 
+	basePodSet := []autoscaling.PodSet{{PodTemplateRef: autoscaling.Reference{Name: "ppt-wl-check1-1-main"}, Count: 1}}
+
 	baseWorkloadWithCheck1Ready := baseWorkload.DeepCopy()
 	workload.SetAdmissionCheckState(&baseWorkloadWithCheck1Ready.Status.AdmissionChecks, kueue.AdmissionCheckState{
 		Name:  "check1",
@@ -301,6 +303,47 @@ func TestReconcile(t *testing.T) {
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: baseTemplate1.DeepCopy(),
 				baseTemplate2.Name: baseTemplate2.DeepCopy(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"workload with provreq annotation": {
+			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+				Annotations(map[string]string{
+					"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
+					"invalid-provreq-prefix/Foo1":              "Bar1",
+					"another-invalid-provreq-prefix/Foo2":      "Bar2"}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending}).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{{ObjectMeta: metav1.ObjectMeta{Name: "config1"}}},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				GetProvisioningRequestName("wl", baseCheck.Name, 1): {
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      GetProvisioningRequestName("wl", baseCheck.Name, 1),
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "wl",
+							},
+						},
+					},
+					Spec: autoscaling.ProvisioningRequestSpec{
+						Parameters: map[string]autoscaling.Parameter{
+							"ValidUntilSeconds": "0",
+						},
+						PodSets: basePodSet,
+					},
+				},
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{

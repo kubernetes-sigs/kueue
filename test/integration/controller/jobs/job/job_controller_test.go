@@ -104,7 +104,11 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
 		})
-		job := testingjob.MakeJob(jobName, ns.Name).PriorityClass(priorityClassName).Obj()
+		job := testingjob.MakeJob(jobName, ns.Name).
+			PriorityClass(priorityClassName).
+			SetAnnotation("provreq.kueue.x-k8s.io/ValidUntilSeconds", "0").
+			SetAnnotation("invalid-provreq-prefix/Foo", "Bar").
+			Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 		createdJob := &batchv1.Job{}
@@ -126,9 +130,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		createdTime := createdWorkload.CreationTimestamp
 
-		ginkgo.By("checking the workload is created with priority and priorityName")
+		ginkgo.By("checking the workload is created with priority, priorityName, and ProvisioningRequest annotations")
 		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
 		gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
+		gomega.Expect(createdWorkload.Annotations).Should(gomega.Equal(map[string]string{"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0"}))
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		jobQueueName := "test-queue"

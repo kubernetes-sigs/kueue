@@ -491,6 +491,55 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"when a workload is created for the pod it has its ProvReq annotations copied": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+					Label("kueue.x-k8s.io/managed", "true").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+					Label("kueue.x-k8s.io/managed", "true").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl", "ns").
+					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Obj(),
+			},
+			workloadCmpOpts: []cmp.Option{
+				cmpopts.IgnoreFields(kueue.Workload{},
+					"TypeMeta",
+					"ObjectMeta.Name",
+					"ObjectMeta.Finalizers",
+					"ObjectMeta.ResourceVersion",
+					"ObjectMeta.OwnerReferences",
+					"ObjectMeta.Labels",
+					"Spec",
+				),
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForPod("pod", "test-uid"),
+				},
+			},
+		},
 		"workload is composed and created for the pod group": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
@@ -498,6 +547,8 @@ func TestReconciler(t *testing.T) {
 					Label("kueue.x-k8s.io/managed", "true").
 					KueueFinalizer().
 					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
 					Group("test-group").
 					GroupTotalCount("2").
 					Obj(),
@@ -507,6 +558,8 @@ func TestReconciler(t *testing.T) {
 					Label("kueue.x-k8s.io/managed", "true").
 					KueueFinalizer().
 					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
 					Group("test-group").
 					GroupTotalCount("2").
 					Obj(),
@@ -517,6 +570,8 @@ func TestReconciler(t *testing.T) {
 					Label("kueue.x-k8s.io/managed", "true").
 					KueueFinalizer().
 					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
 					Group("test-group").
 					GroupTotalCount("2").
 					Obj(),
@@ -526,6 +581,8 @@ func TestReconciler(t *testing.T) {
 					Label("kueue.x-k8s.io/managed", "true").
 					KueueFinalizer().
 					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
 					Group("test-group").
 					GroupTotalCount("2").
 					Obj(),
@@ -542,7 +599,9 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
+					Annotations(map[string]string{
+						"kueue.x-k8s.io/is-group-workload":                           "true",
+						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,

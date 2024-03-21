@@ -119,6 +119,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						Image("image").
 						Obj(),
 				).
+				Annotations(map[string]string{
+					"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
+					"invalid-provreq-prefix/Foo":               "Bar"}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 			wlKey = client.ObjectKeyFromObject(wl)
@@ -225,8 +228,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking that the provision requests content", func() {
 				gomega.Expect(createdRequest.Spec.ProvisioningClassName).To(gomega.Equal("provisioning-class"))
 				gomega.Expect(createdRequest.Spec.Parameters).To(gomega.BeComparableTo(map[string]autoscaling.Parameter{
-					"p1": "v1",
-					"p2": "v2",
+					"p1":                "v1",
+					"p2":                "v2",
+					"ValidUntilSeconds": "0",
 				}))
 				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(2))
 
@@ -449,8 +453,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking that the provision requests content", func() {
 				gomega.Expect(createdRequest.Spec.ProvisioningClassName).To(gomega.Equal("provisioning-class"))
 				gomega.Expect(createdRequest.Spec.Parameters).To(gomega.BeComparableTo(map[string]autoscaling.Parameter{
-					"p1": "v1",
-					"p2": "v2",
+					"p1":                "v1",
+					"p2":                "v2",
+					"ValidUntilSeconds": "0",
 				}))
 			})
 
@@ -477,8 +482,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(err).To(gomega.Succeed())
 					g.Expect(createdRequest.Spec.ProvisioningClassName).To(gomega.Equal("provisioning-class-updated"))
 					g.Expect(createdRequest.Spec.Parameters).To(gomega.BeComparableTo(map[string]autoscaling.Parameter{
-						"p1": "v1updated",
-						"p3": "v3",
+						"p1":                "v1updated",
+						"p3":                "v3",
+						"ValidUntilSeconds": "0",
 					}))
 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -503,8 +509,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(err).To(gomega.Succeed())
 					g.Expect(createdRequest.Spec.ProvisioningClassName).To(gomega.Equal("provisioning-class2"))
 					g.Expect(createdRequest.Spec.Parameters).To(gomega.BeComparableTo(map[string]autoscaling.Parameter{
-						"p1": "v1.2",
-						"p2": "v2.2",
+						"p1":                "v1.2",
+						"p2":                "v2.2",
+						"ValidUntilSeconds": "0",
 					}))
 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
