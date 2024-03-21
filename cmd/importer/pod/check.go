@@ -32,7 +32,7 @@ import (
 func Check(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
 	go func() {
-		err := util.PushPods(ctx, c, cache.Namespaces, cache.QueueLabel, ch)
+		err := util.PushPods(ctx, c, cache.Namespaces, ch)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Listing pods")
 		}
@@ -60,7 +60,12 @@ func Check(ctx context.Context, c client.Client, cache *util.ImportCache, jobs u
 			return fmt.Errorf("%q flavor %q: %w", cq.Name, rfName, util.ErrCQInvalid)
 		}
 
-		log.V(2).Info("Successfully checked", "pod", klog.KObj(p), "clusterQueue", klog.KObj(cq), "resourceFalvor", klog.KObj(rf))
+		var pv int32
+		if pc, found := cache.PriorityClasses[p.Spec.PriorityClassName]; found {
+			pv = pc.Value
+		}
+
+		log.V(2).Info("Successfully checked", "clusterQueue", klog.KObj(cq), "resourceFalvor", klog.KObj(rf), "priority", pv)
 		return nil
 	})
 

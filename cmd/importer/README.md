@@ -20,14 +20,41 @@ go build  -C cmd/importer/ -o $(pwd)/bin/importer
 
 The command runs against the systems default kubectl configuration. Check the [kubectl documentation](https://kubernetes.io/docs/tasks/access-application-cluster/configure-access-multiple-clusters/) to learn more about how to Configure Access to Multiple Clusters.
 
+### Check
 The importer will perform following checks:
 
 - At least one `namespace` is provided.
-- The label key (`queuelabel`) providing the queue mapping is provided.
-- A mapping from one of the encountered `queuelabel` values to an existing LocalQueue exists.
+- For every Pod a  mapping to a LocalQueue is available.
+- The target LocalQueue exists.
 - The LocalQueues involved in the import are using an existing ClusterQueue.
 - The ClusterQueues involved have at least one ResourceGroup using an existing ResourceFlavor. This ResourceFlavor is used when the importer creates the admission for the created workloads.
 
+The are two ways the mapping from a pod to a local queue can be specified:
+
+#### Simple mapping
+
+It's done by specifying a label name and any number of <label-value>=<localQueue-name> a command line arguments eg.  `--queuelabel=src.lbl --queuemapping=src-val=user-queue,src-val2=user-queue2`.
+
+#### Advanced mapping
+
+It's done providing an yaml mapping file name as `--queuemapping-file` argument, it's expected content being:
+
+```yaml
+- match:
+    labels:
+      src.lbl: src-val
+  toLocalQueue: user-queue
+- match:
+    priorityClassName: p-class
+    labels:
+      src.lbl: src-val2
+      src2.lbl: src2-val
+  toLocalQueue: user-queue2
+```
+
+During the mapping, if the match rule has no `priorityClassName` the `priorityClassName` of the pod will be ignored, if more than one `label: value` pairs are provided, all of them should match.
+
+### Import
 After which, if `--dry-run=false` was specified, for each selected Pod the importer will:
 
 - Update the Pod's Kueue related labels.
@@ -36,7 +63,31 @@ After which, if `--dry-run=false` was specified, for each selected Pod the impor
 
 ### Example
 
+#### Simple mapping
+
 ```bash
 ./bin/importer import -n ns1,ns2 --queuelabel=src.lbl --queuemapping=src-val=user-queue,src-val2=user-queue2 --dry-run=false
 ```
  Will import all the pods in namespace `ns1` or `ns2` having the label `src.lbl` set in LocalQueues `user-queue` or `user-queue2` depending on `src.lbl` value.
+
+ #### Advanced mapping
+ With mapping file:
+```yaml
+- match:
+    labels:
+      src.lbl: src-val
+  toLocalQueue: user-queue
+- match:
+    priorityClassName: p-class
+    labels:
+      src.lbl: src-val2
+      src2.lbl: src2-val
+  toLocalQueue: user-queue2
+```
+
+```bash
+./bin/importer import -n ns1,ns2  --queuemapping-file=<mapping-file-path> --dry-run=false
+```
+
+ Will import all the pods in namespace `ns1` or `ns2` having the label `src.lbl` set to `src-val` in LocalQueue `user-queue` regardless of their priorityClassName and those with `src.lbl==src-val2` ,`src2.lbl==src2-val` and `priorityClassName==p-class`in `user-queue2`.
+

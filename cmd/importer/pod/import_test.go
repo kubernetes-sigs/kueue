@@ -86,7 +86,7 @@ func TestImportNamespace(t *testing.T) {
 		pods         []corev1.Pod
 		clusteQueues []kueue.ClusterQueue
 		localQueues  []kueue.LocalQueue
-		mapping      map[string]string
+		mapping      util.MappingRules
 		addLabels    map[string]string
 
 		wantPods      []corev1.Pod
@@ -98,8 +98,16 @@ func TestImportNamespace(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.Clone().Obj(),
 			},
-			mapping: map[string]string{
-				"q1": "lq1",
+			mapping: util.MappingRules{
+				util.MappingRule{
+					Match: util.MappingMatch{
+						PriorityClassName: "",
+						Labels: map[string]string{
+							testingQueueLabel: "q1",
+						},
+					},
+					ToLocalQueue: "lq1",
+				},
 			},
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
@@ -123,8 +131,16 @@ func TestImportNamespace(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.Clone().Obj(),
 			},
-			mapping: map[string]string{
-				"q1": "lq1",
+			mapping: util.MappingRules{
+				util.MappingRule{
+					Match: util.MappingMatch{
+						PriorityClassName: "",
+						Labels: map[string]string{
+							testingQueueLabel: "q1",
+						},
+					},
+					ToLocalQueue: "lq1",
+				},
 			},
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
@@ -165,7 +181,7 @@ func TestImportNamespace(t *testing.T) {
 			client := builder.Build()
 			ctx := context.Background()
 
-			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, testingQueueLabel, tc.mapping, tc.addLabels)
+			mpc, _ := util.LoadImportCache(ctx, client, []string{testingNamespace}, tc.mapping, tc.addLabels)
 			gotErr := Import(ctx, client, mpc, 8)
 
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {

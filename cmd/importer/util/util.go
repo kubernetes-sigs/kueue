@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
+	"os"
 	"slices"
 	"sync"
 
@@ -29,6 +29,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -39,27 +40,25 @@ const (
 )
 
 var (
-	ErrNoMappingKey = errors.New("no mapping key found")
-	ErrNoMapping    = errors.New("no mapping found")
-	ErrLQNotFound   = errors.New("localqueue not found")
-	ErrCQNotFound   = errors.New("clusterqueue not found")
-	ErrCQInvalid    = errors.New("clusterqueue invalid")
+	ErrNoMapping  = errors.New("no mapping found")
+	ErrLQNotFound = errors.New("localqueue not found")
+	ErrCQNotFound = errors.New("clusterqueue not found")
+	ErrCQInvalid  = errors.New("clusterqueue invalid")
 )
 
-func listOptions(namespace, queueLabel, continueToken string) []client.ListOption {
+func listOptions(namespace, continueToken string) []client.ListOption {
 	opts := []client.ListOption{
 		client.InNamespace(namespace),
-		client.HasLabels{queueLabel},
 		client.Limit(ListLength),
 		client.Continue(continueToken),
 	}
+
 	return opts
 }
 
 type ImportCache struct {
 	Namespaces      []string
-	QueueLabel      string
-	Mapping         map[string]string
+	MappingRules    MappingRules
 	LocalQueues     map[string]map[string]*kueue.LocalQueue
 	ClusterQueues   map[string]*kueue.ClusterQueue
 	ResourceFalvors map[string]*kueue.ResourceFlavor
@@ -67,13 +66,73 @@ type ImportCache struct {
 	AddLabels       map[string]string
 }
 
-func LoadImportCache(ctx context.Context, c client.Client, namespaces []string, queueLabel string, mapping, addLabels map[string]string) (*ImportCache, error) {
+type MappingMatch struct {
+	PriorityClassName string            `json:"priorityClassName"`
+	Labels            map[string]string `json:"labels"`
+}
+
+func (mm *MappingMatch) Match(priorityClassName string, labels map[string]string) bool {
+	if mm.PriorityClassName != "" && priorityClassName != mm.PriorityClassName {
+		return false
+	}
+	for l, lv := range mm.Labels {
+		if labels[l] != lv {
+			return false
+		}
+	}
+	return true
+}
+
+type MappingRule struct {
+	Match        MappingMatch `json:"match"`
+	ToLocalQueue string       `json:"toLocalQueue"`
+}
+
+type MappingRules []MappingRule
+
+func (mr MappingRules) QueueFor(priorityClassName string, labels map[string]string) (string, bool) {
+	for i := range mr {
+		if mr[i].Match.Match(priorityClassName, labels) {
+			return mr[i].ToLocalQueue, true
+		}
+	}
+	return "", false
+}
+
+func MappingRulesFromFile(mappingFile string) (MappingRules, error) {
+	ret := MappingRules{}
+	yamlFile, err := os.ReadFile(mappingFile)
+	if err != nil {
+		return nil, err
+	}
+	err = yaml.Unmarshal(yamlFile, &ret)
+	if err != nil {
+		return nil, fmt.Errorf("decoding %q: %w", mappingFile, err)
+	}
+	return ret, nil
+}
+
+func MappingRulesForLabel(label string, m map[string]string) MappingRules {
+	ret := make(MappingRules, 0, len(m))
+	for labelValue, queue := range m {
+		ret = append(ret, MappingRule{
+			Match: MappingMatch{
+				Labels: map[string]string{
+					label: labelValue,
+				},
+			},
+			ToLocalQueue: queue,
+		})
+	}
+	return ret
+}
+
+func LoadImportCache(ctx context.Context, c client.Client, namespaces []string, mappingRules MappingRules, addLabels map[string]string) (*ImportCache, error) {
 	ret := ImportCache{
-		Namespaces:  slices.Clone(namespaces),
-		QueueLabel:  queueLabel,
-		Mapping:     maps.Clone(mapping),
-		LocalQueues: make(map[string]map[string]*kueue.LocalQueue),
-		AddLabels:   addLabels,
+		Namespaces:   slices.Clone(namespaces),
+		MappingRules: mappingRules,
+		LocalQueues:  make(map[string]map[string]*kueue.LocalQueue),
+		AddLabels:    addLabels,
 	}
 
 	// get the cluster queues
@@ -109,14 +168,9 @@ func LoadImportCache(ctx context.Context, c client.Client, namespaces []string, 
 }
 
 func (mappingCache *ImportCache) LocalQueue(p *corev1.Pod) (*kueue.LocalQueue, error) {
-	mappingKey, found := p.Labels[mappingCache.QueueLabel]
+	queueName, found := mappingCache.MappingRules.QueueFor(p.Spec.PriorityClassName, p.Labels)
 	if !found {
-		return nil, ErrNoMappingKey
-	}
-
-	queueName, found := mappingCache.Mapping[mappingKey]
-	if !found {
-		return nil, fmt.Errorf("%s: %w", mappingKey, ErrNoMapping)
+		return nil, ErrNoMapping
 	}
 
 	nqQueues, found := mappingCache.LocalQueues[p.Namespace]
@@ -144,7 +198,7 @@ func (mappingCache *ImportCache) ClusterQueue(p *corev1.Pod) (*kueue.ClusterQueu
 	return cq, nil
 }
 
-func PushPods(ctx context.Context, c client.Client, namespaces []string, queueLabel string, ch chan<- corev1.Pod) error {
+func PushPods(ctx context.Context, c client.Client, namespaces []string, ch chan<- corev1.Pod) error {
 	defer close(ch)
 	for _, ns := range namespaces {
 		lst := &corev1.PodList{}
@@ -153,7 +207,7 @@ func PushPods(ctx context.Context, c client.Client, namespaces []string, queueLa
 		defer log.V(3).Info("End pods list")
 		page := 0
 		for {
-			err := c.List(ctx, lst, listOptions(ns, queueLabel, lst.Continue)...)
+			err := c.List(ctx, lst, listOptions(ns, lst.Continue)...)
 			if err != nil {
 				log.Error(err, "list")
 				return fmt.Errorf("listing pods in %s, page %d: %w", ns, page, err)
@@ -166,7 +220,6 @@ func PushPods(ctx context.Context, c client.Client, namespaces []string, queueLa
 					ch <- p
 				}
 			}
-
 			page++
 			if lst.Continue == "" {
 				log.V(2).Info("No more pods", "pages", page)

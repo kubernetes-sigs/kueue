@@ -43,7 +43,7 @@ import (
 func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
 	go func() {
-		err := util.PushPods(ctx, c, cache.Namespaces, cache.QueueLabel, ch)
+		err := util.PushPods(ctx, c, cache.Namespaces, ch)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Listing pods")
 		}

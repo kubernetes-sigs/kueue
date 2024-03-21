@@ -1,0 +1,116 @@
+package util
+
+import (
+	"os"
+	"path"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+)
+
+const (
+	testContent = `
+- match:
+    priorityClassName: preemptible
+    labels:
+      resource_type: cpu-only
+  toLocalQueue: preemptible-cpu
+- match:
+    labels:
+      project_id: alpha
+      resource_type: gpu
+  toLocalQueue: alpha-gpu
+`
+)
+
+var testMappingRules = MappingRules{
+	{
+		Match: MappingMatch{
+			PriorityClassName: "preemptible",
+			Labels: map[string]string{
+				"resource_type": "cpu-only",
+			},
+		},
+		ToLocalQueue: "preemptible-cpu",
+	},
+	{
+		Match: MappingMatch{
+			Labels: map[string]string{
+				"project_id":    "alpha",
+				"resource_type": "gpu",
+			},
+		},
+		ToLocalQueue: "alpha-gpu",
+	},
+}
+
+func TestMappingFromFile(t *testing.T) {
+	tdir := t.TempDir()
+	fPath := path.Join(tdir, "mapping.yaml")
+	err := os.WriteFile(fPath, []byte(testContent), os.FileMode(0600))
+	if err != nil {
+		t.Fatalf("unable to create the test file: %s", err)
+	}
+
+	mapping, err := MappingRulesFromFile(fPath)
+	if err != nil {
+		t.Fatalf("unexpected load error: %s", err)
+	}
+
+	if diff := cmp.Diff(testMappingRules, mapping); diff != "" {
+		t.Errorf("unexpected mapping(want-/ got+):\n%s", diff)
+	}
+}
+
+func TestMappingMatch(t *testing.T) {
+	cases := map[string]struct {
+		className string
+		labels    map[string]string
+		rules     MappingRules
+
+		wantMatch bool
+		wantQueue string
+	}{
+		"missing one label": {
+			labels: map[string]string{"project_id": "alpha"},
+			rules:  testMappingRules,
+		},
+		"priority class not checked if not part of the rule": {
+			className: "preemptible",
+			labels:    map[string]string{"project_id": "alpha", "resource_type": "gpu"},
+			rules:     testMappingRules,
+
+			wantMatch: true,
+			wantQueue: "alpha-gpu",
+		},
+		"priority class not matching": {
+			className: "preemptible-1",
+			labels:    map[string]string{"resource_type": "cpu-only"},
+			rules:     testMappingRules,
+		},
+		"priority class matching": {
+			className: "preemptible",
+			labels:    map[string]string{"resource_type": "cpu-only"},
+			rules:     testMappingRules,
+
+			wantMatch: true,
+			wantQueue: "preemptible-cpu",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotQueue, gotMatch := tc.rules.QueueFor(tc.className, tc.labels)
+
+			if tc.wantMatch != gotMatch {
+				t.Errorf("unexpected match %v", gotMatch)
+			}
+
+			if tc.wantQueue != gotQueue {
+				t.Errorf("unexpected queue want %q got %q", tc.wantQueue, gotQueue)
+			}
+
+		})
+	}
+
+}
