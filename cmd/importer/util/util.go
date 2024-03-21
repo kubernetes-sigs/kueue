@@ -44,6 +44,7 @@ var (
 	ErrLQNotFound = errors.New("localqueue not found")
 	ErrCQNotFound = errors.New("clusterqueue not found")
 	ErrCQInvalid  = errors.New("clusterqueue invalid")
+	ErrPCNotFound = errors.New("priorityclass not found")
 )
 
 func listOptions(namespace, continueToken string) []client.ListOption {

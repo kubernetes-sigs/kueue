@@ -29,7 +29,7 @@ The importer will perform following checks:
 - The LocalQueues involved in the import are using an existing ClusterQueue.
 - The ClusterQueues involved have at least one ResourceGroup using an existing ResourceFlavor. This ResourceFlavor is used when the importer creates the admission for the created workloads.
 
-The are two ways the mapping from a pod to a local queue can be specified:
+The are two ways the mapping from a pod to a LocalQueue can be specified:
 
 #### Simple mapping
 
