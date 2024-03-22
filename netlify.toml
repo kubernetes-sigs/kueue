@@ -3,15 +3,15 @@
   publish = "public"
   command = "npm install && hugo --gc --minify"
 
-[context.deploy-preview.environment]
-  HUGO_VERSION = "0.92.0"
-  NODE_VERSION = "16"
+[build.environment]
+  HUGO_VERSION = "0.124.1"
 
 [context.production.environment]
-  HUGO_VERSION = "0.92.0"
   HUGO_ENV = "production"
-  NODE_VERSION = "16"
+  HUGO_BASEURL = "https://kueue.sigs.k8s.io/"
 
-[context.branch-deploy.environment]
-  HUGO_VERSION = "0.92.0"
-  NODE_VERSION = "16"
+[context.deploy-preview]
+  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL"
+
+[context.branch-deploy]
+  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL"
