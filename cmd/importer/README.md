@@ -122,6 +122,9 @@ And run
 ```
 
 2. Update the importer args in `cmd/importer/run-in-cluster/importer.yaml`
+
+Note: `dry-run` is set to `false` by default.
+
 3. Update the mapping configuration in `cmd/importer/run-in-cluster/mapping.yaml`
 4. Deploy the configuration:
 

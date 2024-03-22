@@ -12,7 +12,7 @@ spec:
     - -n=ns1,ns2
     - --queuemapping-file=/mapping.yaml
     - --dry-run=false
-    - -vv
+    - -v=2
     volumeMounts:
     - name: config
       mountPath: /mapping.yaml
