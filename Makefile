@@ -334,7 +334,6 @@ importer-image-build:
 		$(PUSH) \
 		-f ./cmd/importer/Dockerfile ./
 
-# Developers don't need to build this image, as it will be available as gcr.io/k8s-staging-kueue/importer
 .PHONY: importer-image-push
 importer-image-push: PUSH=--push
 importer-image-push: importer-image-build

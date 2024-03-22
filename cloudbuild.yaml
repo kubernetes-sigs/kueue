@@ -27,7 +27,7 @@ steps:
     args:
       - importer-image-push
     env:
-      - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
+      - STAGING_IMAGE_REGISTRY=gcr.io/$PROJECT_ID
       - GIT_TAG=$_GIT_TAG
       - EXTRA_TAG=$_PULL_BASE_REF
       - DOCKER_BUILDX_CMD=/buildx-entrypoint

@@ -100,7 +100,9 @@ After which, if `--dry-run=false` was specified, for each selected Pod the impor
 
 #### Run in cluster
 
-`cmd/importer/run-in-cluster` provides the necessary kustomize manifests needed to run the importer from within the cluster, In order to use them you should:
+`cmd/importer/run-in-cluster` provides the necessary kustomize manifests needed to run the importer from within the cluster.
+
+In order to use the manifests, you should:
 
 1. Update the used image
 
@@ -119,7 +121,7 @@ And run
 (cd cmd/importer/run-in-cluster && kustomize edit set image importer=<image:tag>)
 ```
 
-2. Updated the importer args in `cmd/importer/run-in-cluster/importer.yaml`
+2. Update the importer args in `cmd/importer/run-in-cluster/importer.yaml`
 3. Update the mapping configuration in `cmd/importer/run-in-cluster/mapping.yaml`
 4. Deploy the configuration:
 
@@ -127,7 +129,7 @@ And run
  kubectl apply -k cmd/importer/run-in-cluster/
 ```
 
-And check  the logs
+And check the logs
 
 ```yaml
 kubectl -n kueue-importer logs kueue-importer -f
