@@ -1,5 +1,6 @@
 ---
 title: "Run Plain Pods"
+linkTitle: "Plain Pods"
 date: 2023-09-27
 weight: 6
 description: >

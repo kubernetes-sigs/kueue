@@ -30,4 +30,4 @@ Keep in mind the following rules for each integration:
   mark the integration as stale for at most 2 releases. After that, Kueue maintainers will remove
   the folder.
 - Based on user feedback, the [Kueue maintainers](/OWNERS), at their discretion, might choose to
-  move the [integration to pkg/controller/jobs](https://kueue.sigs.k8s.io/docs/tasks/integrate_a_custom_job/).
+  move the [integration to pkg/controller/jobs](https://kueue.sigs.k8s.io/docs/tasks/dev/integrate_a_custom_job/).

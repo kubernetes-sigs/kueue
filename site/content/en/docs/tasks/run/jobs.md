@@ -1,5 +1,6 @@
 ---
-title: "Run A Job"
+title: "Run A Kubernetes Job"
+linkTitle: "Kubernetes Jobs"
 date: 2022-02-14
 weight: 5
 description: >

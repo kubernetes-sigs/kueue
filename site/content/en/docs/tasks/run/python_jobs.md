@@ -1,5 +1,6 @@
 ---
 title: "Run Jobs Using Python"
+linkTitle: "Python"
 date: 2023-07-05
 weight: 7
 description: >
