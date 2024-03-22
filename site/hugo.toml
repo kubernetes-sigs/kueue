@@ -16,7 +16,7 @@ defaultContentLanguageInSubdir = false
 # useful when translating
 enableMissingTranslationPlaceholders = true
 # disable taxonomies
-disableKinds = ["taxonomy", "taxonomyTerm"]
+disableKinds = ["taxonomy"]
 # deprecated directories
 ignoreFiles = []
 ###############################################################################
