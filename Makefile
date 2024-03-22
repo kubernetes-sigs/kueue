@@ -324,7 +324,9 @@ importer-build:
 
 .PHONY: importer-image-build
 importer-image-build:
-	$(IMAGE_BUILD_CMD) -t $(STAGING_IMAGE_REGISTRY)/importer:$(GIT_TAG) \
+	$(IMAGE_BUILD_CMD) \
+		-t $(STAGING_IMAGE_REGISTRY)/importer:$(GIT_TAG) \
+		-t $(STAGING_IMAGE_REGISTRY)/importer:$(RELEASE_BRANCH)-latest \
 		--platform=$(PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
