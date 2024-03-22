@@ -317,6 +317,32 @@ debug-image-push:
 		--platform=$(PLATFORMS) \
 		--push ./hack/debugpod
 
+# Build the importer binary
+.PHONY: importer-build
+importer-build:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/importer cmd/importer/main.go
+
+.PHONY: importer-image-build
+importer-image-build:
+	$(IMAGE_BUILD_CMD) -t $(STAGING_IMAGE_REGISTRY)/importer:$(GIT_TAG) \
+		--platform=$(PLATFORMS) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		$(PUSH) \
+		-f ./cmd/importer/Dockerfile ./
+
+# Developers don't need to build this image, as it will be available as gcr.io/k8s-staging-kueue/importer
+.PHONY: importer-image-push
+importer-image-push: PUSH=--push
+importer-image-push: importer-image-build
+
+# Build a docker local gcr.io/k8s-staging-kueue/importer image
+.PHONY: importer-image
+importer-image: PLATFORMS=linux/amd64
+importer-image: PUSH=--load
+importer-image: importer-image-build
+
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
 .PHONY: golangci-lint
