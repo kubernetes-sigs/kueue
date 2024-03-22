@@ -340,7 +340,7 @@ kustomize: ## Download kustomize locally if necessary.
 ENVTEST = $(PROJECT_DIR)/bin/setup-envtest
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20240320141353-395cfc7486e6
 
 GINKGO = $(PROJECT_DIR)/bin/ginkgo
 .PHONY: ginkgo
