@@ -185,8 +185,20 @@ in the form of:
 This can inform certain test coverage improvements that we want to do before
 extending the production code to implement this enhancement.
 -->
+The code will adhere to regular best practices for unit tests and coverage.
+
+
 
 #### Integration tests
+Integration tests will be executed against mocked clients for RayClusters 
+that will provide predefined responses and allow to test various scenarios, 
+including situations like:
+
+* RayCluster has a scale up, workload slices get created, pods are gated
+* RayCluster has a scale up, gated pods are admitted, pods get ungated and assigned same flavors as parent workload
+* Workload slices are correctly folded and deleted
+* RayCluster has a scale down, Workload spec reflects podset count values
+* When Kueu preempt a resized RayCluster, it should preempt it as a whole
 
 ### Graduation Criteria
 <!--
@@ -208,7 +220,7 @@ milestones with these graduation criteria:
 The feature starts at the alpha level, with a feature gate.
 
 In the Alpha version, Dynamically Sized Jobs will support RayCluster resizing. 
-- Scale down/up of replica workers
+- Scale up/down of replica workers
 
 
 ## Implementation History
