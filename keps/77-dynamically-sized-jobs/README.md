@@ -8,7 +8,7 @@
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1 - RayCluster w/ autoscaling](#story-1---raycluster-w-autoscaling)
-  - [Notes/Constraints/Caveats](#notes)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
 - [Design Details](#design-details)
   - [Workload Slices](#workload-slices)
   - [Creating Workload Slices](#creating-workload-slices)
