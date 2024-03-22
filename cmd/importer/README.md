@@ -6,13 +6,13 @@ A tool able to import existing pods into kueue.
 
 The importer should run in a cluster having the Kueue CRDs defined and in which the `kueue-controller-manager` is not running or has the `pod` integration framework disabled. Check Kueue's [installation guide](https://kueue.sigs.k8s.io/docs/installation/) and [Run Plain Pods](https://kueue.sigs.k8s.io/docs/tasks/run_plain_pods/#before-you-begin) for details.
 
-For an import to succeed, all the involved Kueue objects (LocalQueues, ClusterQueues and ResourceFlavors) need to be created in the cluster, the check stage of the importer will check this and enumerate the missing objects. 
+For an import to succeed, all the involved Kueue objects (LocalQueues, ClusterQueues and ResourceFlavors) need to be created in the cluster, the check stage of the importer will check this and enumerate the missing objects.
 
 ## Build
 
 From kueue source root run:
  ```bash
-go build  -C cmd/importer/ -o $(pwd)/bin/importer
+make importer-build
 
  ```
 
@@ -97,3 +97,43 @@ After which, if `--dry-run=false` was specified, for each selected Pod the impor
 
  Will import all the pods in namespace `ns1` or `ns2` having the label `src.lbl` set to `src-val` in LocalQueue `user-queue` regardless of their priorityClassName and those with `src.lbl==src-val2` ,`src2.lbl==src2-val` and `priorityClassName==p-class`in `user-queue2`.
 
+
+#### Run in cluster
+
+`cmd/importer/run-in-cluster` provides the necessary kustomize manifests needed to run the importer from within the cluster.
+
+In order to use the manifests, you should:
+
+1. Update the used image
+
+A minimal image containing the importer can be built by
+
+```bash
+make importer-image
+```
+
+Make the created image accessible by your cluster.
+
+Note: Importer images will be available in `gcr.io/k8s-staging-kueue/importer` soon.
+
+And run
+```bash
+(cd cmd/importer/run-in-cluster && kustomize edit set image importer=<image:tag>)
+```
+
+2. Update the importer args in `cmd/importer/run-in-cluster/importer.yaml`
+
+Note: `dry-run` is set to `false` by default.
+
+3. Update the mapping configuration in `cmd/importer/run-in-cluster/mapping.yaml`
+4. Deploy the configuration:
+
+```bash
+ kubectl apply -k cmd/importer/run-in-cluster/
+```
+
+And check the logs
+
+```yaml
+kubectl -n kueue-importer logs kueue-importer -f
+```
