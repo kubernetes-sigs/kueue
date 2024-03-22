@@ -274,6 +274,10 @@ prometheus:
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
+.PHONY: site-server
+site-server: hugo
+	(cd site; $(HUGO) server)
+
 ##@ Release
 .PHONY: artifacts
 artifacts: kustomize yq helm
@@ -295,7 +299,7 @@ artifacts: kustomize yq helm
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize
-	sed -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/config.toml
+	sed -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
 	@$(call clean-manifests)
 
@@ -359,6 +363,11 @@ GENREF = $(PROJECT_DIR)/bin/genref
 .PHONY: genref
 genref: ## Download genref locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@v0.28.0
+
+HUGO = $(PROJECT_DIR)/bin/hugo
+.PHONY: hugo
+hugo:
+	@GOBIN=$(PROJECT_DIR)/bin CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@v0.124.1
 
 MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
