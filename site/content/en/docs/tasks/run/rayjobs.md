@@ -1,5 +1,6 @@
 ---
 title: "Run A RayJob"
+linkTitle: "RayJobs"
 date: 2023-05-18
 weight: 6
 description: >

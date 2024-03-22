@@ -1,7 +1,7 @@
 ---
 title: "Setup RBAC"
 date: 2022-02-14
-weight: 2
+weight: 1
 description: >
   Setup role-based access control (RBAC) in your cluster to control the types of users that can view and create Kueue objects.
 ---

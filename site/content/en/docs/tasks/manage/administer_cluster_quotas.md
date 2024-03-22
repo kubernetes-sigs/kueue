@@ -1,7 +1,7 @@
 ---
 title: "Administer Cluster Quotas"
 date: 2022-03-14
-weight: 3
+weight: 2
 description: >
   Manage your cluster resource quotas and to establish fair sharing rules among the tenants.
 ---

@@ -3,7 +3,7 @@ title: "Pending workloads in Status"
 date: 2023-09-27
 weight: 3
 description: >
-  Pending workloads in Status
+  Obtain the pending workloads in ClusterQueue and LocalQueue statuses.
 ---
 
 This page shows you how to monitor pending workloads.
