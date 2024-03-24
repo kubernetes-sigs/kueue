@@ -24,6 +24,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -43,16 +44,10 @@ func NewFakeClientSSAAsSM(objs ...client.Object) client.Client {
 
 func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.ClientBuilder {
 	scheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		panic(err)
-	}
-	if err := kueue.AddToScheme(scheme); err != nil {
-		panic(err)
-	}
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kueue.AddToScheme(scheme))
 	for i := range addToSchemes {
-		if err := addToSchemes[i](scheme); err != nil {
-			panic(err)
-		}
+		utilruntime.Must(addToSchemes[i](scheme))
 	}
 
 	return fake.NewClientBuilder().WithScheme(scheme).
