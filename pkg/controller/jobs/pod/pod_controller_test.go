@@ -981,10 +981,11 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"workload is not deleted if one of the pods in the finished group is absent": {
+		"Pods are finalized even if one of the pods in the finished group is absent": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
+					KueueFinalizer().
 					Label("kueue.x-k8s.io/managed", "true").
 					Group("test-group").
 					GroupTotalCount("2").
