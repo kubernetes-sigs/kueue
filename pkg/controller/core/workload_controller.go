@@ -750,7 +750,7 @@ func (w *workloadCqHandler) Update(ctx context.Context, ev event.UpdateEvent, wq
 
 	if !newCq.DeletionTimestamp.IsZero() ||
 		!slices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) ||
-		oldCq.Spec.StopPolicy != newCq.Spec.StopPolicy {
+		ptr.Deref(oldCq.Spec.StopPolicy, kueue.None) != ptr.Deref(newCq.Spec.StopPolicy, kueue.None) {
 		w.queueReconcileForWorkloads(ctx, newCq.Name, wq)
 	}
 }
