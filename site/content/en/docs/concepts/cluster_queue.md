@@ -487,5 +487,5 @@ If set to `None` or `spec.stopPolicy` is removed the ClusterQueue will to normal
 
 - Create [local queues](/docs/concepts/local_queue)
 - Create [resource flavors](/docs/concepts/resource_flavor) if you haven't already done so.
-- Learn how to [administer cluster quotas](/docs/tasks/administer_cluster_quotas).
+- Learn how to [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas).
 - Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueue) for `ClusterQueue`

@@ -1,5 +1,6 @@
 ---
 title: "Run A RayCluster"
+linkTitle: "RayClusters"
 date: 2024-01-17
 weight: 6
 description: >

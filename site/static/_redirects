@@ -1,0 +1,30 @@
+###############################################
+# set server-side redirects in this file      #
+# see https://www.netlify.com/docs/redirects/ #
+# test at https://play.netlify.com/redirects  #
+###############################################
+
+/docs/tasks/administer_cluster_quotas      /doc/tasks/manage/administer_cluster_quotas      301
+/docs/tasks/monitor_pending_workloads      /doc/tasks/manage/monitor_pending_workloads      301
+/docs/tasks/rbac                           /doc/tasks/manage/rbac                           301
+/docs/tasks/run_job_with_workload_priority /doc/tasks/manage/run_job_with_workload_priority 301
+/docs/tasks/setup_multikueue               /doc/tasks/manage/setup_multikueue               301
+/docs/tasks/setup_sequential_admission     /doc/tasks/manage/setup_sequential_admission     301
+
+/docs/tasks/enabling_pprof_endpoints /doc/tasks/dev/enabling_pprof_endpoints 301
+/docs/tasks/integrate_a_custom_job   /doc/tasks/dev/integrate_a_custom_job   301
+
+/docs/tasks/run_flux_minicluster /docs/tasks/run/flux_miniclusters 301
+/docs/tasks/run_jobs             /docs/tasks/run/jobs              301
+/docs/tasks/run_jobsets          /docs/tasks/run/jobsets           301
+/docs/tasks/run_kubeflow_jobs    /docs/tasks/run/kubeflow          301
+/docs/tasks/run_plain_pods       /docs/tasks/run/plain_pods        301
+/docs/tasks/run_rayclusters      /docs/tasks/run/rayclusters       301
+/docs/tasks/run_rayjobs          /docs/tasks/run/rayjobs           301
+
+/docs/tasks/run_kubeflow_jobs/run_mpijobs     /docs/tasks/run/kubeflow/mpijobs     301
+/docs/tasks/run_kubeflow_jobs/run_mxjobs      /docs/tasks/run/kubeflow/mxjobs      301
+/docs/tasks/run_kubeflow_jobs/run_paddlejobs  /docs/tasks/run/kubeflow/paddlejobs  301
+/docs/tasks/run_kubeflow_jobs/run_pytorchjobs /docs/tasks/run/kubeflow/pytorchjobs 301
+/docs/tasks/run_kubeflow_jobs/run_tfjobs      /docs/tasks/run/kubeflow/tfjobs      301
+/docs/tasks/run_kubeflow_jobs/run_xgboostjobs /docs/tasks/run/kubeflow/xgboostjobs 301
