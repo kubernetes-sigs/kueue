@@ -35,7 +35,7 @@ DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
 # TODO(#52): Add kueue to k8s gcr registry
-STAGING_IMAGE_REGISTRY ?= gcr.io/k8s-staging-kueue
+STAGING_IMAGE_REGISTRY := gcr.io/k8s-staging-kueue
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
@@ -303,7 +303,7 @@ artifacts: kustomize yq helm
 	$(HELM) package --version $(GIT_TAG) --app-version $(GIT_TAG) charts/kueue -d artifacts/
 	mv artifacts/kueue-$(GIT_TAG).tgz artifacts/kueue-chart-$(GIT_TAG).tgz
 	# Revert the image changes
-	$(YQ)  e  '.controllerManager.manager.image.repository = "$(STAGING_IMAGE_REGISTRY)/$(IMAGE_NAME)" | .controllerManager.manager.image.tag = "main" | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
+	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REGISTRY)/$(IMAGE_NAME)" | .controllerManager.manager.image.tag = "main" | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize
@@ -317,7 +317,7 @@ prepare-release-branch: yq kustomize
 # Developers don't need to build this image, as it will be available as gcr.io/k8s-staging-kueue/debug
 .PHONY: debug-image-push
 debug-image-push:
-	$(IMAGE_BUILD_CMD) -t $(STAGING_IMAGE_REGISTRY)/debug:$(GIT_TAG) \
+	$(IMAGE_BUILD_CMD) -t $(IMAGE_REGISTRY)/debug:$(GIT_TAG) \
 		--platform=$(PLATFORMS) \
 		--push ./hack/debugpod
 
@@ -329,8 +329,8 @@ importer-build:
 .PHONY: importer-image-build
 importer-image-build:
 	$(IMAGE_BUILD_CMD) \
-		-t $(STAGING_IMAGE_REGISTRY)/importer:$(GIT_TAG) \
-		-t $(STAGING_IMAGE_REGISTRY)/importer:$(RELEASE_BRANCH)-latest \
+		-t $(IMAGE_REGISTRY)/importer:$(GIT_TAG) \
+		-t $(IMAGE_REGISTRY)/importer:$(RELEASE_BRANCH)-latest \
 		--platform=$(PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \

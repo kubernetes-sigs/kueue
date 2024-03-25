@@ -8,26 +8,10 @@ steps:
     entrypoint: make
     args:
       - image-push
-    env:
-      - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
-      - GIT_TAG=$_GIT_TAG
-      - EXTRA_TAG=$_PULL_BASE_REF
-      - DOCKER_BUILDX_CMD=/buildx-entrypoint
-  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20221214-1b4dd4d69a'
-    entrypoint: make
-    args:
       - debug-image-push
-    env:
-      - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
-      - GIT_TAG=$_GIT_TAG
-      - EXTRA_TAG=$_PULL_BASE_REF
-      - DOCKER_BUILDX_CMD=/buildx-entrypoint
-  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20221214-1b4dd4d69a'
-    entrypoint: make
-    args:
       - importer-image-push
     env:
-      - STAGING_IMAGE_REGISTRY=gcr.io/$PROJECT_ID
+      - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
       - GIT_TAG=$_GIT_TAG
       - EXTRA_TAG=$_PULL_BASE_REF
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
