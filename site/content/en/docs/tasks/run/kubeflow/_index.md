@@ -1,7 +1,7 @@
 ---
 
 title: "Run with Kubeflow"
-linkTitle: "Run with Kubeflow"
+linkTitle: "Kubeflow Jobs"
 weight: 6
 date: 2023-08-23
 description: >

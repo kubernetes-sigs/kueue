@@ -3,7 +3,7 @@ title: "Pending Workloads on-demand"
 date: 2023-12-05
 weight: 3
 description: >
-  Pending Workloads on-demand
+  Obtain the pending Workloads via the on-demand visibility API
 ---
 
 This page shows you how to monitor pending workloads with VisibilityOnDemand feature.

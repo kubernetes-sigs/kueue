@@ -1,7 +1,7 @@
 ---
 title: "Sequential Admission with Ready Pods"
 date: 2022-03-14
-weight: 4
+weight: 5
 description: >
   Simple implementation of the all-or-nothing scheduling
 ---

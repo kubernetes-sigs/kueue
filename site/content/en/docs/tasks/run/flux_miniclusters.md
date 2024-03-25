@@ -1,5 +1,6 @@
 ---
 title: "Run A Flux MiniCluster"
+linkTitle: "Flux MiniClusters"
 date: 2022-02-14
 weight: 6
 description: >
