@@ -768,6 +768,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantErr: podset.ErrInvalidPodSetUpdate,
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission checks on annotations, the workload is finished with failure": {
 			job: *baseJobWrapper.Clone().
@@ -839,6 +840,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantErr: podset.ErrInvalidPodSetUpdate,
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission checks on nodeSelector, the workload is finished with failure": {
 			job: *baseJobWrapper.Clone().
@@ -910,6 +912,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantErr: podset.ErrInvalidPodSetUpdate,
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission check nodeSelector and current node selector, the workload is finished with failure": {
 			job: *baseJobWrapper.Clone().
@@ -959,6 +962,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantErr: podset.ErrInvalidPodSetUpdate,
 		},
 		"when workload is admitted the PodSetUpdates values matching for key": {
 			job: *baseJobWrapper.Clone().
