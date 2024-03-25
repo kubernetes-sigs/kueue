@@ -33,7 +33,7 @@ metadata:
 
 ### b. Configure the resource needs
 
-The resource needs of the workload can be configured in the `spec.replicatedJobs`. Should also be taken into account that number of replicas, [parallelism](https://kubernetes.io/docs/concepts/workloads/controllers/job/#parallel-jobs) and completions affect the resource calculations. 
+The resource needs of the workload can be configured in the `spec.replicatedJobs`. Should also be taken into account that number of replicas, [parallelism](https://kubernetes.io/docs/concepts/workloads/controllers/job/#parallel-jobs) and completions affect the resource calculations.
 
 ```yaml
     - replicas: 1
@@ -50,7 +50,7 @@ The resource needs of the workload can be configured in the `spec.replicatedJobs
 ```
 
 ### c. Jobs prioritisation
-  
+
 The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#priorityclass) of `spec.replicatedJobs` that is not empty will be used as the priority.
 
 ```yaml
@@ -60,6 +60,10 @@ The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-evi
             spec:
               priorityClassName: high-priority
 ```
+
+### d. Suspension
+
+You should create the JobSet in a suspended state, as Kueue will decide when it’s the best time to start the Job.
 
 ## Example JobSet
 
@@ -74,6 +78,7 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
+  suspend: true
   network:
     enableDNSHostnames: false
     subdomain: some-subdomain
