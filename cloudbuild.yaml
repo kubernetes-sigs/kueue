@@ -11,7 +11,7 @@ steps:
       - debug-image-push
       - importer-image-push
     env:
-      - STAGING_IMAGE_REGISTRY=gcr.io/$PROJECT_ID
+      - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
       - GIT_TAG=$_GIT_TAG
       - EXTRA_TAG=$_PULL_BASE_REF
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
