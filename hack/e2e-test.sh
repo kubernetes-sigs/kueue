@@ -22,6 +22,10 @@ SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/.."
 export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
 
+export JOBSET_MANIFEST=https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml
+export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
+export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
+
 source ${SOURCE_DIR}/e2e-common.sh
 
 function cleanup {
@@ -52,6 +56,9 @@ function kind_load {
         docker pull $E2E_TEST_IMAGE
 	cluster_kind_load $KIND_CLUSTER_NAME
     fi
+    docker pull registry.k8s.io/jobset/jobset:$JOBSET_VERSION
+    kubectl apply --server-side -f ${JOBSET_CRDS}/*
+    install_jobset $KIND_CLUSTER_NAME
 }
 
 function kueue_deploy {

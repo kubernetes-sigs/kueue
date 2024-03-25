@@ -25,10 +25,6 @@ export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
 export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
 export WORKER2_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker2
 
-export JOBSET_MANIFEST=https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml
-export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
-export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
-
 source ${SOURCE_DIR}/e2e-common.sh
 
 function cleanup {
@@ -70,14 +66,6 @@ function startup {
     cluster_create $WORKER2_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
 
     fi
-}
-
-
-#$1 - cluster name
-function install_jobset {
-    cluster_kind_load_image ${1} ${JOBSET_IMAGE}
-    kubectl config use-context kind-${1}
-    kubectl apply --server-side -f ${JOBSET_MANIFEST}
 }
 
 function kind_load {
