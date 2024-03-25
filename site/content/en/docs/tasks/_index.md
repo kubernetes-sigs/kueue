@@ -54,7 +54,5 @@ As a platform developer, you can learn how to:
 
 ## Troubleshooting
 
-Sometimes things go wrong. The following guides can help you understand the state
-of the system.
-
-- [Troubleshooting Jobs](troubleshooting/troubleshooting_jobs)
+Sometimes things go wrong.
+You can follow the [Troubleshooting guides](troubleshooting) to understand the state of the system.
