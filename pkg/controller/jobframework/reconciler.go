@@ -273,11 +273,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-		// Finalize the job if it's finished
-		if _, finished := job.Finished(); finished {
-			if err := r.finalizeJob(ctx, job); err != nil {
-				return ctrl.Result{}, err
-			}
+		if err := r.finalizeJob(ctx, job); err != nil {
+			return ctrl.Result{}, err
 		}
 
 		r.record.Eventf(object, corev1.EventTypeNormal, ReasonFinishedWorkload,
