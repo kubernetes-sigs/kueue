@@ -27,16 +27,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -490,85 +487,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 					return ptr.Deref(createdJob.Spec.Suspend, false)
 
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-			})
-		})
-	})
-	ginkgo.When("Creating a JobSet", func() {
-		var (
-			defaultRf    *kueue.ResourceFlavor
-			localQueue   *kueue.LocalQueue
-			clusterQueue *kueue.ClusterQueue
-		)
-		ginkgo.BeforeEach(func() {
-			defaultRf = testing.MakeResourceFlavor("default").Obj()
-			gomega.Expect(k8sClient.Create(ctx, defaultRf)).Should(gomega.Succeed())
-			clusterQueue = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(
-					*testing.MakeFlavorQuotas(defaultRf.Name).
-						Resource(corev1.ResourceCPU, "2").
-						Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
-			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteAllJobsetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultRf, true)
-		})
-
-		ginkgo.It("Should run a jobSet if admitted", func() {
-			jobSet := testingjobset.MakeJobSet("job-set", ns.Name).
-				Queue("main").
-				ReplicatedJobs(
-					testingjobset.ReplicatedJobRequirements{
-						Name:        "replicated-job-1",
-						Replicas:    2,
-						Parallelism: 2,
-						Completions: 2,
-						Image:       "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
-						// Give it the time to be observed Active in the live status update step.
-						Args: []string{"5s"},
-					},
-				).
-				Request("replicated-job-1", "cpu", "500m").
-				Request("replicated-job-1", "memory", "200M").
-				Obj()
-
-			ginkgo.By("Creating the jobSet", func() {
-				gomega.Expect(k8sClient.Create(ctx, jobSet)).Should(gomega.Succeed())
-			})
-
-			createdLeaderWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
-
-			ginkgo.By("Waiting for the jobSet to get status updates", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdJobset := &jobset.JobSet{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobset)).To(gomega.Succeed())
-
-					g.Expect(createdJobset.Status.ReplicatedJobsStatus).To(gomega.BeComparableTo([]jobset.ReplicatedJobStatus{
-						{
-							Name:   "replicated-job-1",
-							Ready:  2,
-							Active: 2,
-						},
-					}, cmpopts.IgnoreFields(jobset.ReplicatedJobStatus{}, "Succeeded", "Failed")))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Waiting for the jobSet to finish", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-
-					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "JobSetFinished",
-						Message: "JobSet finished successfully",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

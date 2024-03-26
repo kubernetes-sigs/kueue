@@ -191,7 +191,6 @@ MULTIKUEUE-E2E_TARGETS := $(addprefix run-test-multikueue-e2e-,${E2E_K8S_VERSION
 .PHONY: test-e2e-all
 test-e2e-all: ginkgo $(E2E_TARGETS) $(MULTIKUEUE-E2E_TARGETS)
 
-
 FORCE:
 
 run-test-e2e-%: K8S_VERSION = $(@:run-test-e2e-%=%)
