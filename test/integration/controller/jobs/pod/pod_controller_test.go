@@ -18,6 +18,7 @@ package pod
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -1022,6 +1023,65 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						return k8sClient.Get(ctx, excessPodLookupKey, createdPod)
 					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 				})
+			})
+
+			ginkgo.It("Should finalize all Succeeded Pods when deleted", func() {
+				ginkgo.By("Creating pods with queue name")
+				// Use a number of Pods big enough to cause conflicts when removing finalizers >50% of the time.
+				const podCount = 7
+				pods := make([]*corev1.Pod, podCount)
+				for i := range pods {
+					pods[i] = testingpod.MakePod(fmt.Sprintf("test-pod-%d", i), ns.Name).
+						Group("test-group").
+						GroupTotalCount(strconv.Itoa(podCount)).
+						Request(corev1.ResourceCPU, "1").
+						Queue("test-queue").
+						Obj()
+					gomega.Expect(k8sClient.Create(ctx, pods[i])).Should(gomega.Succeed())
+				}
+
+				ginkgo.By("checking that workload is created for the pod group")
+				wlLookupKey := types.NamespacedName{
+					Namespace: pods[0].Namespace,
+					Name:      "test-group",
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("Admitting workload", func() {
+					admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+						kueue.PodSetAssignment{
+							Name: "4b0469f7",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To[int32](podCount),
+						},
+					).Obj()
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+					for i := range pods {
+						util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(pods[i]), map[string]string{"kubernetes.io/arch": "arm64"})
+					}
+				})
+
+				ginkgo.By("Finishing and deleting Pods", func() {
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods...)
+					for i := range pods {
+						gomega.Expect(k8sClient.Delete(ctx, pods[i])).To(gomega.Succeed())
+					}
+
+					gomega.Eventually(func(g gomega.Gomega) {
+						for i := range pods {
+							key := types.NamespacedName{Namespace: ns.Name, Name: fmt.Sprintf("test-pod-%d", i)}
+							g.Expect(k8sClient.Get(ctx, key, &corev1.Pod{})).To(testing.BeNotFoundError())
+						}
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
 			})
 
 			ginkgo.It("Should finalize workload if pods are absent", func() {
