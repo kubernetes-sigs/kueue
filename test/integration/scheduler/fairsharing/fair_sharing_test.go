@@ -92,9 +92,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cqA))
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cqB))
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cqShared))
+			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cqA)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cqB)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cqShared)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("Admits workloads respecting fair share", func() {
