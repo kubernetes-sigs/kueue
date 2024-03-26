@@ -70,7 +70,7 @@ For the MVP, we will only focus on admission of **RayClusters** with autoscaling
 
 1. The user creates a RayCluster with `enableInTreeAutoscaling: true`.
 2. Kueue admits the RayCluster based on the requested resources in the head pod and worker pod. 
-3. Given the deman of the job, the Ray Autoscaler adjusts the replicas field as it adds or removes Pods from the cluster.
+3. Given the demand of the job, the Ray Autoscaler adjusts the replicas field as it adds or removes Pods from the cluster.
 4. Kueue will not suspend and requeue the RayCluster, instead it will dynamically update ClusterQueue usage based on the scaling event. 
 
 ### Notes/Constraints/Caveats (Optional)
@@ -83,6 +83,9 @@ If Kueue needs to preempt the resized RayCluster, it would preempt it as a whole
 To support horizontal scaling of jobs, we will introduce the concept of a "Workload Slice”. A Workload Slice is a Workload object with an owner reference to the original Workload for a job. Workload Slices represent per-replica changes to a job that were not initially accounted for when the job was created.
 
 The benefit of Workload Slices is that Kueue can evaluate admission on a per-replica basis without changing the existing semantics of the Workload API. Once a Workload Slice is admitted, it will be garbage collected and its resources will be aggregated into the admission status of the parent workload.
+- Workload Slices will be submitted to the same LocalQueue that's referenced by the top-level RayCluster
+- Workload Slices will be created by Kueue and use identical PodTemplates which is already enforced by Kuberay
+- Workload Slices will beneed to belong to the same resource flavor as the top-level RayCluster that was initially admitted
 
 
 ### Creating Workload Slices
@@ -98,13 +101,15 @@ type GenericJob interface {
 ```
 Jobs implementing the ResizeJob method will create a Workload Slice for every new replica of a job. 
 
+On scale down to M we will change the original Workload's resources and then on scale up to N we will create N-M WorkloadSlice objects that go through admission and scheduling gate checks, i.e. the Workload can "lose" the original (first time admission) quota when scaling down before scaling up.
+
 ### Pod Scheduling Gates
 
 Inside **raycluster_webhook** implement schedulingGate injection for pods on RayCluster creation time.
 The Pods will be ungated following a similar behavior as to how a job is suspended and then unsuspended in the when admitted.
 When the RayCluster scales up, the new pods will be gated due to the schedulingGates injection in the webhook.
 
-After the creation of each individual Workload Slice and admission of a Workload Slice, the **workload_scheduling_gates_controller** should be in charge of removing the scheduling gates from each pod. We only need to ungate the number of pods to match the number of admitted pods, this should be a counter. We don’t want to accidentally ungate too many pods since race conditions could happen and we also don’t want to double count. It's worth mentioning that for the case of recreated pods (i.e. machine failure for example), these pods will go through the admission/scheduuling check again, Kueue is responsible fo removing the scheduling gates when there's available quota and resources to spend on the RayCluster. 
+After the creation of each individual Workload Slice and admission of a Workload Slice, the **workload_scheduling_gates_controller** should be in charge of removing the scheduling gates from each pod. All worker pods from the same worker group share the same pod template, so we only need to ungate the number of pods to match the number of admitted pods, this should be a counter. We don’t want to accidentally ungate too many pods since race conditions could happen and we also don’t want to double count. It's worth mentioning that for the case of recreated pods (i.e. machine failure for example), these pods will go through the admission/scheduuling check again, Kueue is responsible fo removing the scheduling gates when there's available quota and resources to spend on the RayCluster. 
 
 ### Garbage Collecting Workload Slices
 
