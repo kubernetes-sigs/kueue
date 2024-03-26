@@ -84,7 +84,16 @@ SHELL = /usr/bin/env bash -o pipefail
 
 # Setting SED allows macos users to install GNU sed and use the latter
 # instead of the default BSD sed.
-SED ?= /usr/bin/sed
+SED := /usr/bin/sed
+# If the OS is Darwin (MacOS)
+ifeq ($(shell uname), Darwin)
+    # Check if gsed is available
+    ifeq ($(shell command -v gsed 2>/dev/null),)
+        $(error "gsed could not be found, please install it.")
+    endif
+    # Set SED to gsed if available
+    SED := $(shell which gsed)
+endif
 
 version_pkg = sigs.k8s.io/kueue/pkg/version
 LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
@@ -307,7 +316,7 @@ artifacts: kustomize yq helm
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize
-	sed -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml
+	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
 	@$(call clean-manifests)
 
