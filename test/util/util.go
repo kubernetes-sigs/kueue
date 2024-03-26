@@ -19,6 +19,7 @@ package util
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -30,6 +31,8 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -665,4 +668,26 @@ func ExpectPodsFinalized(ctx context.Context, k8sClient client.Client, keys ...t
 			return createdPod.Finalizers
 		}, Timeout, Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
 	}
+}
+
+func ExpectEventsForObjects(eventWatcher watch.Interface, objs sets.Set[types.NamespacedName], filter func(*corev1.Event) bool) {
+	gotObjs := sets.New[types.NamespacedName]()
+	timeoutCh := time.After(Timeout)
+readCh:
+	for !gotObjs.Equal(objs) {
+		select {
+
+		case evt, ok := <-eventWatcher.ResultChan():
+			gomega.Expect(ok).To(gomega.BeTrue())
+			event, ok := evt.Object.(*corev1.Event)
+			gomega.Expect(ok).To(gomega.BeTrue())
+			if filter(event) {
+				objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
+				gotObjs.Insert(objKey)
+			}
+		case <-timeoutCh:
+			break readCh
+		}
+	}
+	gomega.ExpectWithOffset(1, gotObjs).To(gomega.Equal(objs))
 }

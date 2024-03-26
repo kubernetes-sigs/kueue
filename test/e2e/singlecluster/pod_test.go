@@ -237,21 +237,9 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					gomega.Expect(k8sClient.Create(ctx, excess)).To(gomega.Succeed())
 				})
 				ginkgo.By("Use events to observe the excess pods are getting stopped", func() {
-					preemptedPods := sets.New[types.NamespacedName]()
-					gomega.Eventually(func(g gomega.Gomega) sets.Set[types.NamespacedName] {
-						select {
-						case evt, ok := <-eventWatcher.ResultChan():
-							g.Expect(ok).To(gomega.BeTrue())
-							event, ok := evt.Object.(*corev1.Event)
-							g.Expect(ok).To(gomega.BeTrue())
-							if event.InvolvedObject.Namespace == ns.Name && event.Reason == "ExcessPodDeleted" {
-								objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
-								preemptedPods.Insert(objKey)
-							}
-						default:
-						}
-						return preemptedPods
-					}, util.Timeout, util.Interval).Should(gomega.Equal(excessPods))
+					util.ExpectEventsForObjects(eventWatcher, excessPods, func(e *corev1.Event) bool {
+						return e.InvolvedObject.Namespace == ns.Name && e.Reason == "ExcessPodDeleted"
+					})
 				})
 				ginkgo.By("Verify the excess pod is deleted", func() {
 					gomega.Eventually(func() error {
@@ -374,21 +362,9 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			ginkgo.By("Use events to observe the default-priority pods are getting preempted", func() {
-				preemptedPods := sets.New[types.NamespacedName]()
-				gomega.Eventually(func(g gomega.Gomega) sets.Set[types.NamespacedName] {
-					select {
-					case evt, ok := <-eventWatcher.ResultChan():
-						g.Expect(ok).To(gomega.BeTrue())
-						event, ok := evt.Object.(*corev1.Event)
-						g.Expect(ok).To(gomega.BeTrue())
-						if event.InvolvedObject.Namespace == ns.Name && event.Reason == "Stopped" {
-							objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
-							preemptedPods.Insert(objKey)
-						}
-					default:
-					}
-					return preemptedPods
-				}, util.Timeout, util.Interval).Should(gomega.Equal(defaultGroupPods))
+				util.ExpectEventsForObjects(eventWatcher, defaultGroupPods, func(e *corev1.Event) bool {
+					return e.InvolvedObject.Namespace == ns.Name && e.Reason == "Stopped"
+				})
 			})
 
 			replacementPods := make(map[types.NamespacedName]types.NamespacedName, len(defaultPriorityGroup))

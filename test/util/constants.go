@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	Timeout = time.Second * 30
+	Timeout = time.Second * 5
 	// LongTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
 	LongTimeout = 45 * time.Second
@@ -31,6 +31,6 @@ const (
 	// need started and the time it takes for a change in ready probe response triggers
 	// a change in the deployment status.
 	StartUpTimeout     = 5 * time.Minute
-	ConsistentDuration = time.Second * 3
+	ConsistentDuration = time.Second
 	Interval           = time.Millisecond * 250
 )
