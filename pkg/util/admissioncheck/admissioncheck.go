@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 var (
@@ -140,4 +142,15 @@ func FilterForController(ctx context.Context, c client.Client, states []kueue.Ad
 		}
 	}
 	return retActive, nil
+}
+
+// FilterProvReqAnnotations returns annotations containing the Provisioning Request annotation prefix.
+func FilterProvReqAnnotations(annotations map[string]string) map[string]string {
+	res := make(map[string]string)
+	for k, v := range annotations {
+		if strings.HasPrefix(k, controllerconsts.ProvReqAnnotationPrefix) {
+			res[k] = v
+		}
+	}
+	return res
 }

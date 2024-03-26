@@ -25,6 +25,7 @@ import (
 	"maps"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -45,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -173,7 +175,7 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 			// PRs relevant for the admission check
 			if matches(req, wl.Name, checkName) {
 				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
-				if err == nil && c.reqIsNeeded(ctx, wl, prc) && requestHasParameters(req, prc) {
+				if err == nil && c.reqIsNeeded(ctx, wl, prc) && provReqSyncedWithConfig(req, prc) {
 					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(ctx, currPr, wl.Name, checkName) < getAttempt(ctx, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
 					}
@@ -267,6 +269,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 					Parameters:            parametersKueueToProvisioning(prc.Spec.Parameters),
 				},
 			}
+			passProvReqParams(wl, req)
 
 			expectedPodSets := requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)
 			psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) string { return p.Name })
@@ -434,19 +437,29 @@ func parametersKueueToProvisioning(in map[string]kueue.Parameter) map[string]aut
 	return out
 }
 
-func requestHasParameters(req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
+// provReqSyncedWithConfig checks if the provisioning request has the same provisioningClassName as the provisioning request config
+// and contains all the parameters from the config
+func provReqSyncedWithConfig(req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
 	if req.Spec.ProvisioningClassName != prc.Spec.ProvisioningClassName {
 		return false
 	}
-	if len(req.Spec.Parameters) != len(prc.Spec.Parameters) {
-		return false
-	}
-	for k, vReq := range req.Spec.Parameters {
-		if vCfg, found := prc.Spec.Parameters[k]; !found || vReq != autoscaling.Parameter(vCfg) {
+	for k, vCfg := range prc.Spec.Parameters {
+		if vReq, found := req.Spec.Parameters[k]; !found || string(vReq) != string(vCfg) {
 			return false
 		}
 	}
 	return true
+}
+
+// passProvReqParams extracts from Workload's annotations ones that should be passed to ProvisioningRequest
+func passProvReqParams(wl *kueue.Workload, req *autoscaling.ProvisioningRequest) {
+	if req.Spec.Parameters == nil {
+		req.Spec.Parameters = make(map[string]autoscaling.Parameter, 0)
+	}
+	for annotation, val := range admissioncheck.FilterProvReqAnnotations(wl.Annotations) {
+		paramName := strings.TrimPrefix(annotation, constants.ProvReqAnnotationPrefix)
+		req.Spec.Parameters[paramName] = autoscaling.Parameter(val)
+	}
 }
 
 func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {

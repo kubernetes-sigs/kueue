@@ -132,6 +132,12 @@ func (j *MXJobWrapper) Queue(queue string) *MXJobWrapper {
 	return j
 }
 
+// Annotations updates annotations of the job.
+func (j *MXJobWrapper) Annotations(annotations map[string]string) *MXJobWrapper {
+	j.ObjectMeta.Annotations = annotations
+	return j
+}
+
 // Request adds a resource request to the default container.
 func (j *MXJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *MXJobWrapper {
 	j.Spec.MXReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)

@@ -116,7 +116,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.When("Using single pod", func() {
 			ginkgo.It("Should reconcile the single pod with the queue name", func() {
-				pod := testingpod.MakePod(podName, ns.Name).Queue("test-queue").Obj()
+				pod := testingpod.MakePod(podName, ns.Name).
+					Queue("test-queue").
+					Annotation("provreq.kueue.x-k8s.io/ValidUntilSeconds", "0").
+					Annotation("invalid-provreq-prefix/Foo", "Bar").
+					Obj()
 				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
 
 				createdPod := &corev1.Pod{}
@@ -148,6 +152,9 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"),
 					"The Workload should have .spec.queueName set")
+
+				ginkgo.By("checking that workload has ProvisioningRequest annotations")
+				gomega.Expect(createdWorkload.Annotations).Should(gomega.Equal(map[string]string{"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0"}))
 
 				ginkgo.By("checking the pod is unsuspended when workload is assigned")
 

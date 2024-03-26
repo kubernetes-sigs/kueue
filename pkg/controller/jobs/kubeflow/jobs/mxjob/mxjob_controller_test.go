@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmxjob "sigs.k8s.io/kueue/pkg/util/testingjobs/mxjob"
@@ -301,8 +302,8 @@ var (
 	}
 	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
-		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
-		cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),
+		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta"),
+		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name", "Labels", "ResourceVersion", "OwnerReferences", "Finalizers"), cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"),
 	}
@@ -330,6 +331,32 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet("scheduler", 1).Obj(),
 						*utiltesting.MakePodSet("server", 2).Obj(),
 						*utiltesting.MakePodSet("worker", 2).Obj(),
+					).
+					Obj(),
+			},
+		},
+		"workload is created with a ProvReq annotation": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: testingmxjob.MakeMXJob("mxjob", "ns").
+				Annotations(map[string]string{
+					controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
+					"invalid-provreq-prefix/test-annotation-2":                   "test-val-2",
+				}).
+				Obj(),
+			wantJob: testingmxjob.MakeMXJob("mxjob", "ns").
+				Annotations(map[string]string{
+					controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
+					"invalid-provreq-prefix/test-annotation-2":                   "test-val-2",
+				}).Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("mxjob", "ns").
+					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					PodSets(
+						*utiltesting.MakePodSet("scheduler", 1).Obj(),
+						*utiltesting.MakePodSet("server", 1).Obj(),
+						*utiltesting.MakePodSet("worker", 1).Obj(),
 					).
 					Obj(),
 			},

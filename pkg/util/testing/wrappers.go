@@ -87,6 +87,11 @@ func (w *WorkloadWrapper) UID(uid types.UID) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Name(name string) *WorkloadWrapper {
+	w.Workload.Name = name
+	return w
+}
+
 func (w *WorkloadWrapper) Finalizers(fin ...string) *WorkloadWrapper {
 	w.ObjectMeta.Finalizers = fin
 	return w
@@ -277,8 +282,8 @@ func (w *WorkloadWrapper) appendOwnerReference(gvk schema.GroupVersionKind, name
 	return w
 }
 
-func (w *WorkloadWrapper) Annotations(kv map[string]string) *WorkloadWrapper {
-	w.ObjectMeta.Annotations = kv
+func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWrapper {
+	w.ObjectMeta.Annotations = annotations
 	return w
 }
 

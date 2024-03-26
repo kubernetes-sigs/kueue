@@ -425,6 +425,38 @@ func TestReconciler(t *testing.T) {
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
+		"when workload is created, it has its owner ProvReq annotations": {
+			job: *baseJobWrapper.Clone().
+				SetAnnotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+				SetAnnotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+				SetAnnotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+				UID("test-uid").
+				Suspend(true).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").
+					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("foo").
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Obj(),
+			},
+
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+				},
+			},
+		},
 		"when workload is admitted the PodSetUpdates are propagated to job": {
 			job: *baseJobWrapper.Clone().
 				Obj(),

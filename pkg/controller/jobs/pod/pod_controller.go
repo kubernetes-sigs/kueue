@@ -51,6 +51,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -897,9 +898,10 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace:  p.pod.GetNamespace(),
-			Labels:     map[string]string{},
-			Finalizers: []string{kueue.ResourceInUseFinalizerName},
+			Namespace:   p.pod.GetNamespace(),
+			Labels:      map[string]string{},
+			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
+			Annotations: admissioncheck.FilterProvReqAnnotations(p.pod.GetAnnotations()),
 		},
 		Spec: kueue.WorkloadSpec{
 			QueueName: jobframework.QueueName(p),
