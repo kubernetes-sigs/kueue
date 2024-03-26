@@ -5,6 +5,8 @@ metadata:
   namespace: default
   labels:
     kueue.x-k8s.io/queue-name: user-queue
+  annotations:
+    provreq.kueue.x-k8s.io/maxRunDurationSeconds: "600"
 spec:
   parallelism: 3
   completions: 3
