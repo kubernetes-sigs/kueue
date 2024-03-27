@@ -52,6 +52,8 @@ function kind_load {
         docker pull $E2E_TEST_IMAGE
 	cluster_kind_load $KIND_CLUSTER_NAME
     fi
+    docker pull registry.k8s.io/jobset/jobset:$JOBSET_VERSION
+    install_jobset $KIND_CLUSTER_NAME
 }
 
 function kueue_deploy {
