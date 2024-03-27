@@ -1,4 +1,4 @@
-# KEP-77: Dynamically Sized JObs
+# KEP-77: Dynamically Sized Jobs
 
 <!-- toc -->
 - [Summary](#summary)
@@ -80,17 +80,17 @@ If Kueue needs to preempt the resized RayCluster, it would preempt it as a whole
 ## Design Details
 
 ### Workload Slices
-To support horizontal scaling of jobs, we will introduce the concept of a "Workload Slice”. A Workload Slice is a Workload object with an owner reference to the original Workload for a job. Workload Slices represent per-replica changes to a job that were not initially accounted for when the job was created.
+To support horizontal scaling of jobs, we will introduce the concept of a "Workload Slice”. A Workload Slice is a Workload object  with an owner reference to the original Workload for a job. Workload Slices represent per-replica changes to a job that were not initially accounted for when the job was created.
 
 The benefit of Workload Slices is that Kueue can evaluate admission on a per-replica basis without changing the existing semantics of the Workload API. Once a Workload Slice is admitted, it will be garbage collected and its resources will be aggregated into the admission status of the parent workload.
 - Workload Slices will be submitted to the same LocalQueue that's referenced by the top-level RayCluster
 - Workload Slices will be created by Kueue and use identical PodTemplates which is already enforced by Kuberay
-- Workload Slices will beneed to belong to the same resource flavor as the top-level RayCluster that was initially admitted
+- Workload Slices will need to belong to the same resource flavor as the top-level RayCluster that was initially admitted
 
 
 ### Creating Workload Slices
 
-The [GenericJob interface](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/interface.go#L30-L55) will be updated to handle resize operations of jobs.
+The [GenericJob interface (7e778f5)](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/interface.go#L30-L55) will be updated to handle resize operations of jobs.
 
 ```golang
 type GenericJob interface {
@@ -109,7 +109,7 @@ Inside **raycluster_webhook** implement schedulingGate injection for pods on Ray
 The Pods will be ungated following a similar behavior as to how a job is suspended and then unsuspended in the when admitted.
 When the RayCluster scales up, the new pods will be gated due to the schedulingGates injection in the webhook.
 
-After the creation of each individual Workload Slice and admission of a Workload Slice, the **workload_scheduling_gates_controller** should be in charge of removing the scheduling gates from each pod. All worker pods from the same worker group share the same pod template, so we only need to ungate the number of pods to match the number of admitted pods, this should be a counter. We don’t want to accidentally ungate too many pods since race conditions could happen and we also don’t want to double count. It's worth mentioning that for the case of recreated pods (i.e. machine failure for example), these pods will go through the admission/scheduuling check again, Kueue is responsible fo removing the scheduling gates when there's available quota and resources to spend on the RayCluster. 
+After the creation of each individual Workload Slice and admission of a Workload Slice, the **workload_scheduling_gates_controller** should be in charge of removing the scheduling gates from each pod. All worker pods from the same worker group share the same pod template, so we only need to ungate the number of pods to match the number of admitted pods, this should be a counter. We don’t want to accidentally ungate too many pods since race conditions could happen and we also don’t want to double count. It's worth mentioning that for the case of recreated pods (i.e. machine failure for example), these pods will go through the admission/scheduling check again, Kueue is responsible fo removing the scheduling gates when there's available quota and resources to spend on the RayCluster. 
 
 ### Garbage Collecting Workload Slices
 
@@ -125,9 +125,12 @@ Scaling down will be the first phase towards MVP because it can be implemented w
 
 Scaling down a RayCluster won’t involve the creation of Workload Slices, instead it’ll involve an update to the current workload, no requeuing.
 
-1. Compare job's PodSet.Count vs Workload.Spec.PodSets[1].Count (worker group) inside the jobframework generic reconciler. 
-2. Call *updateWorkloadToMatchJob()*, this will construct and update the workload and in turn update the PodSet Count field.
-3. Inside the *Update()* method from the *workload_controller* update the workload in cache and in queue. By updating the workload in cache this will update the cluster queue resource usage and by updating the workload in queue this will trigger the scheduler so that it re-assigns the flavors to the already assumed workload and in this way PodSetAssignments will be updated by applying admission based on the new assignments. 
+1. Compare Pod Counts: Within the job framework, check if the PodSet.Count of the job matches the Workload.Spec.PodSets[1].Count (worker group).
+2. Synchronize Workload: If the pod counts don't match, update the workload to align with the job's PodSet.Count.
+3. Trigger Resource Updates:  By updating the workload in cache and in queue, we'll signal the following:
+- The cluster queue resource usage should recalculate, ensuring accurate resource management.
+- The scheduler should re-evaluate and update PodSetAssignments related to the workload.
+
 
 #### Job controller
 
