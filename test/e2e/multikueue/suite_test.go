@@ -56,7 +56,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(worker1ClusterName).NotTo(gomega.BeEmpty(), "WORKER1_KIND_CLUSTER_NAME should not be empty")
 
 	worker2ClusterName := os.Getenv("WORKER2_KIND_CLUSTER_NAME")
-	gomega.Expect(worker1ClusterName).NotTo(gomega.BeEmpty(), "WORKER2_KIND_CLUSTER_NAME should not be empty")
+	gomega.Expect(worker2ClusterName).NotTo(gomega.BeEmpty(), "WORKER2_KIND_CLUSTER_NAME should not be empty")
 
 	k8sManagerClient = util.CreateClientUsingCluster("kind-" + managerClusterName)
 	k8sWorker1Client = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
