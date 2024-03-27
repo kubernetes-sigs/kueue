@@ -83,10 +83,22 @@ If Kueue needs to preempt the resized RayCluster, it would preempt it as a whole
 To support horizontal scaling of jobs, we will introduce the concept of a "Workload Slice”. A Workload Slice is a Workload object  with an owner reference to the original Workload for a job. Workload Slices represent per-replica changes to a job that were not initially accounted for when the job was created.
 
 The benefit of Workload Slices is that Kueue can evaluate admission on a per-replica basis without changing the existing semantics of the Workload API. Once a Workload Slice is admitted, it will be garbage collected and its resources will be aggregated into the admission status of the parent workload.
-- Workload Slices will be submitted to the same LocalQueue that's referenced by the top-level RayCluster
-- Workload Slices will be created by Kueue and use identical PodTemplates which is already enforced by Kuberay
-- Workload Slices will need to belong to the same resource flavor as the top-level RayCluster that was initially admitted
+- Workload Slices will be submitted to the same LocalQueue that's referenced by the top-level Workload. 
+- In MultiKueue, Workload Slices would go into the same cluster in a multi-cluster environment.
+- Workload Slices will be created by Kueue and use identical PodTemplates (which is already enforced by Kuberay in the case for RayCluster).
+- Workload Slices will belong to the same resource flavor as the top-level Workload that was initially admitted.
 
+The parent Workload should have a condition that reflects the scaling progression status. 
+
+```golang
+const (
+  ...
+  ...
+	// WorkloadResizeRequested means that the Workload is in the process of scaling up or down
+	WorkloadResizeRequested = "ResizeRequested"
+)
+
+```
 
 ### Creating Workload Slices
 
@@ -105,11 +117,11 @@ On scale down to M we will change the original Workload's resources and then on 
 
 ### Pod Scheduling Gates
 
-Inside **raycluster_webhook** implement schedulingGate injection for pods on RayCluster creation time.
+Inside the job's webhook, implement schedulingGate injection for pods on creation time.
 The Pods will be ungated following a similar behavior as to how a job is suspended and then unsuspended in the when admitted.
-When the RayCluster scales up, the new pods will be gated due to the schedulingGates injection in the webhook.
+When the job scales up, the new pods will be gated due to the schedulingGates injection in the webhook.
 
-After the creation of each individual Workload Slice and admission of a Workload Slice, the **workload_scheduling_gates_controller** should be in charge of removing the scheduling gates from each pod. All worker pods from the same worker group share the same pod template, so we only need to ungate the number of pods to match the number of admitted pods, this should be a counter. We don’t want to accidentally ungate too many pods since race conditions could happen and we also don’t want to double count. It's worth mentioning that for the case of recreated pods (i.e. machine failure for example), these pods will go through the admission/scheduling check again, Kueue is responsible fo removing the scheduling gates when there's available quota and resources to spend on the RayCluster. 
+After the creation of each individual Workload Slice and admission of a Workload Slice, the **workload_scheduling_gates_controller** should be in charge of removing the scheduling gates from each pod. All worker pods from the same worker group share the same pod template, so we only need to ungate the number of pods to match the number of admitted pods, this should be a counter. We don’t want to accidentally ungate too many pods since race conditions could happen and we also don’t want to double count. It's worth mentioning that for the case of recreated pods (i.e. machine failure for example), these pods will go through the admission/scheduling check again, Kueue is responsible fo removing the scheduling gates when there's available quota and resources to spend on the Job. 
 
 ### Garbage Collecting Workload Slices
 
@@ -123,7 +135,7 @@ If we still don’t see the workload being deleted, we at least know it has been
 ### Phase 1 - Scale Down
 Scaling down will be the first phase towards MVP because it can be implemented without introducing the Workload Slices. 
 
-Scaling down a RayCluster won’t involve the creation of Workload Slices, instead it’ll involve an update to the current workload, no requeuing.
+Scaling down a Job won’t involve the creation of Workload Slices, instead it’ll involve an update to the current workload, no requeuing.
 
 1. Compare Pod Counts: Within the job framework, check if the PodSet.Count of the job matches the Workload.Spec.PodSets[1].Count (worker group).
 2. Synchronize Workload: If the pod counts don't match, update the workload to align with the job's PodSet.Count.
@@ -138,17 +150,19 @@ Rework *equivalentToWorkload()* and *reconcile()* to account for potential diffe
 
 Given these changes, check if the delta is positive or negative indicating a scaleup/scaledown. If it’s a scaledown the reconciler should trigger an update on the workload to match the new job’s spec and no quota needs to be checked or accounted for, the cluster queue should update the workload resource usage. 
 
+**Important:** in Phase 1 if there's a scale up, the behaviour will be suspend and requeue. This will be temporary while Phase 2 and 3 are not completed.
+
 ### Phase 2 - Aggregating Workload Slices
 
 In Phase 2, aggregating Workload Slices into the parent workload will be implemented. This doesn't represent a usable feature to end users, but it can be reviewed independently from the phase 3.
 
 ### Phase 3 - Scale up with Workload Slices and Scheduling Gates
 
-In Phase 3, scale up will be implemented by introducing Workload Slices and adding Pod scheduling gates as part of Kueue’s mutating admission for RayCluster. 
+In Phase 3, scale up will be implemented by introducing Workload Slices and adding Pod scheduling gates as part of Kueue’s mutating admission for the job. 
 
-When the RayCluster scales, the RayCluster webhook would be modified to intercept and "gate" all pods. Every time there’s a resize, you create a dependable (child) workload slice and once it's admitted, you increase the count in the original workload, delete the old workload and remove the schedulingGates. 
+When a job scales, its webhook would be modified to intercept and "gate" all pods. Every time there’s a resize, you create a dependable (child) workload slice and once it's admitted, you increase the count in the original workload, delete the old workload and remove the schedulingGates. 
 - Pros: You are able to hold the pods added by Kuberay
-- Cons: The fact of having schedulingGates, means we need an API call for every pod, because all pods that are created by the RayCluster are going to have schedulingGates. We need to remove those gates and for every pod you need to make API calls.
+- Cons: The fact of having schedulingGates, means we need an API call for every pod, because all pods that are created by the job are going to have schedulingGates. We need to remove those gates and for every pod you need to make API calls.
 
 #### Scheduler
 Since every scale up will have its own individual workload they should proceed to the current scheduling cycle and continue the normal admission process.
@@ -198,15 +212,15 @@ The code will adhere to regular best practices for unit tests and coverage.
 
 
 #### Integration tests
-Integration tests will be executed against mocked clients for RayClusters 
+Integration tests will be executed against mocked clients for Jobs 
 that will provide predefined responses and allow to test various scenarios, 
 including situations like:
 
-* RayCluster has a scale up, workload slices get created, pods are gated
-* RayCluster has a scale up, gated pods are admitted, pods get ungated and assigned same flavors as parent workload
+* Job has a scale up, workload slices get created, pods are gated
+* Job has a scale up, gated pods are admitted, pods get ungated and assigned same flavors as parent workload
 * Workload slices are correctly folded and deleted
-* RayCluster has a scale down, Workload spec reflects podset count values
-* When Kueu preempt a resized RayCluster, it should preempt it as a whole
+* Job has a scale down, Workload spec reflects podset count values
+* When Kueu preempt a resized Job, it should preempt it as a whole
 
 ### Graduation Criteria
 <!--
