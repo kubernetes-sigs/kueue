@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
@@ -33,7 +33,7 @@ import (
 func TestPodSets(t *testing.T) {
 	job := testingrayutil.MakeJob("job", "ns").
 		WithHeadGroupSpec(
-			rayjobapi.HeadGroupSpec{
+			rayv1.HeadGroupSpec{
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -46,7 +46,7 @@ func TestPodSets(t *testing.T) {
 			},
 		).
 		WithWorkerGroups(
-			rayjobapi.WorkerGroupSpec{
+			rayv1.WorkerGroupSpec{
 				GroupName: "group1",
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
@@ -58,7 +58,7 @@ func TestPodSets(t *testing.T) {
 					},
 				},
 			},
-			rayjobapi.WorkerGroupSpec{
+			rayv1.WorkerGroupSpec{
 				GroupName: "group2",
 				Replicas:  ptr.To[int32](3),
 				Template: corev1.PodTemplateSpec{
@@ -125,14 +125,14 @@ func TestPodSets(t *testing.T) {
 
 func TestNodeSelectors(t *testing.T) {
 	baseJob := testingrayutil.MakeJob("job", "ns").
-		WithHeadGroupSpec(rayjobapi.HeadGroupSpec{
+		WithHeadGroupSpec(rayv1.HeadGroupSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					NodeSelector: map[string]string{},
 				},
 			},
 		}).
-		WithWorkerGroups(rayjobapi.WorkerGroupSpec{
+		WithWorkerGroups(rayv1.WorkerGroupSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					NodeSelector: map[string]string{
@@ -140,7 +140,7 @@ func TestNodeSelectors(t *testing.T) {
 					},
 				},
 			},
-		}, rayjobapi.WorkerGroupSpec{
+		}, rayv1.WorkerGroupSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					NodeSelector: map[string]string{
@@ -152,12 +152,12 @@ func TestNodeSelectors(t *testing.T) {
 		Obj()
 
 	cases := map[string]struct {
-		job          *rayjobapi.RayJob
+		job          *rayv1.RayJob
 		runInfo      []podset.PodSetInfo
 		restoreInfo  []podset.PodSetInfo
 		wantRunError error
-		wantAfterRun *rayjobapi.RayJob
-		wantFinal    *rayjobapi.RayJob
+		wantAfterRun *rayv1.RayJob
+		wantFinal    *rayv1.RayJob
 	}{
 		"valid configuration": {
 			job: baseJob.DeepCopy(),
@@ -197,7 +197,7 @@ func TestNodeSelectors(t *testing.T) {
 			},
 			wantAfterRun: testingrayutil.MakeJob("job", "ns").
 				Suspend(false).
-				WithHeadGroupSpec(rayjobapi.HeadGroupSpec{
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							NodeSelector: map[string]string{
@@ -206,7 +206,7 @@ func TestNodeSelectors(t *testing.T) {
 						},
 					},
 				}).
-				WithWorkerGroups(rayjobapi.WorkerGroupSpec{
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							NodeSelector: map[string]string{
@@ -214,7 +214,7 @@ func TestNodeSelectors(t *testing.T) {
 							},
 						},
 					},
-				}, rayjobapi.WorkerGroupSpec{
+				}, rayv1.WorkerGroupSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							NodeSelector: map[string]string{
