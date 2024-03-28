@@ -30,7 +30,8 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -46,7 +47,7 @@ func TestWlReconcileJobset(t *testing.T) {
 	}
 
 	baseWorkloadBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
-	baseJobSetBuilder := testingjobset.MakeJobSet("jobset1", TestNamespace)
+	baseJobSetBuilder := testingjobset.MakeJobSet("jobset1", TestNamespace).Label(jobset.LabelManagedBy, constants.KueueName)
 
 	cases := map[string]struct {
 		managersWorkloads []kueue.Workload
@@ -60,7 +61,7 @@ func TestWlReconcileJobset(t *testing.T) {
 		wantWorker1Workloads  []kueue.Workload
 		wantWorker1JobSets    []jobset.JobSet
 	}{
-		"remote wl with reservation, multikueue AC is marked Ready": {
+		"wl with unmanaged owner is rejected ": {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -70,39 +71,22 @@ func TestWlReconcileJobset(t *testing.T) {
 			},
 
 			managersJobSets: []jobset.JobSet{
-				*baseJobSetBuilder.DeepCopy().Obj(),
+				*testingjobset.MakeJobSet("jobset1", TestNamespace).Obj(),
 			},
 
-			worker1Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Obj(),
-			},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker1"`,
+						State:   kueue.CheckStateRejected,
+						Message: `The owner is not managed by Kueue: Expecting label "alpha.jobset.sigs.k8s.io/managed-by" to be "kueue" not ""`,
 					}).
 					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersJobsSets: []jobset.JobSet{
-				*baseJobSetBuilder.DeepCopy().Obj(),
-			},
-
-			wantWorker1Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Obj(),
-			},
-			wantWorker1JobSets: []jobset.JobSet{
-				*baseJobSetBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
-					Obj(),
+				*testingjobset.MakeJobSet("jobset1", TestNamespace).Obj(),
 			},
 		},
 		"remote jobset status is changed, the status is copied in the local Jobset ": {
@@ -124,7 +108,7 @@ func TestWlReconcileJobset(t *testing.T) {
 
 			worker1JobSets: []jobset.JobSet{
 				*baseJobSetBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(controllerconstants.PrebuiltWorkloadLabel, "wl1").
 					JobsStatus(
 						jobset.ReplicatedJobStatus{
 							Name:      "replicated-job-1",
@@ -180,7 +164,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			},
 			wantWorker1JobSets: []jobset.JobSet{
 				*baseJobSetBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(controllerconstants.PrebuiltWorkloadLabel, "wl1").
 					JobsStatus(
 						jobset.ReplicatedJobStatus{
 							Name:      "replicated-job-1",
@@ -215,7 +199,7 @@ func TestWlReconcileJobset(t *testing.T) {
 
 			worker1JobSets: []jobset.JobSet{
 				*baseJobSetBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(controllerconstants.PrebuiltWorkloadLabel, "wl1").
 					Condition(metav1.Condition{Type: string(jobset.JobSetCompleted), Status: metav1.ConditionTrue}).
 					Obj(),
 			},
@@ -252,7 +236,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			},
 			wantWorker1JobSets: []jobset.JobSet{
 				*baseJobSetBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(controllerconstants.PrebuiltWorkloadLabel, "wl1").
 					Condition(metav1.Condition{Type: string(jobset.JobSetCompleted), Status: metav1.ConditionTrue}).
 					Obj(),
 			},
@@ -279,7 +263,7 @@ func TestWlReconcileJobset(t *testing.T) {
 
 			worker1JobSets: []jobset.JobSet{
 				*baseJobSetBuilder.DeepCopy().
-					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(controllerconstants.PrebuiltWorkloadLabel, "wl1").
 					Condition(metav1.Condition{Type: string(jobset.JobSetCompleted), Status: metav1.ConditionTrue}).
 					Obj(),
 			},
