@@ -55,7 +55,7 @@ func TestToRefMap(t *testing.T) {
 	}
 }
 
-func TestToCmpNoOrder(t *testing.T) {
+func TestCmpNoOrder(t *testing.T) {
 	cases := map[string]struct {
 		sliceA []int
 		sliceB []int
@@ -95,7 +95,7 @@ func TestToCmpNoOrder(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			res := CmpNoOrder[int](tc.sliceA, tc.sliceB)
+			res := CmpNoOrder(tc.sliceA, tc.sliceB)
 			if res != tc.want {
 				t.Errorf("Unexpected result: want: %v, got: %v", tc.want, res)
 			}

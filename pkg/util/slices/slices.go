@@ -72,13 +72,14 @@ func CmpNoOrder[E comparable, S ~[]E](a, b S) bool {
 	counters := make(map[E]int, len(a))
 	for i := range a {
 		counters[a[i]]++
-		counters[b[i]]--
 	}
 
-	for _, v := range counters {
-		if v != 0 {
-			return false
+	for _, v := range b {
+		if counters[v] != 0 {
+			counters[v]--
+			continue
 		}
+		return false
 	}
 	return true
 }
