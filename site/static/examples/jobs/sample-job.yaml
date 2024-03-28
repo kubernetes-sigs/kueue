@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  generateName: sample-job-
+  name: sample-job-
   namespace: default
   labels:
     kueue.x-k8s.io/queue-name: user-queue
