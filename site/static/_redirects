@@ -4,15 +4,15 @@
 # test at https://play.netlify.com/redirects  #
 ###############################################
 
-/docs/tasks/administer_cluster_quotas      /doc/tasks/manage/administer_cluster_quotas      301
-/docs/tasks/monitor_pending_workloads      /doc/tasks/manage/monitor_pending_workloads      301
-/docs/tasks/rbac                           /doc/tasks/manage/rbac                           301
-/docs/tasks/run_job_with_workload_priority /doc/tasks/manage/run_job_with_workload_priority 301
-/docs/tasks/setup_multikueue               /doc/tasks/manage/setup_multikueue               301
-/docs/tasks/setup_sequential_admission     /doc/tasks/manage/setup_sequential_admission     301
+/docs/tasks/administer_cluster_quotas      /docs/tasks/manage/administer_cluster_quotas      301
+/docs/tasks/monitor_pending_workloads      /docs/tasks/manage/monitor_pending_workloads      301
+/docs/tasks/rbac                           /docs/tasks/manage/rbac                           301
+/docs/tasks/run_job_with_workload_priority /docs/tasks/manage/run_job_with_workload_priority 301
+/docs/tasks/setup_multikueue               /docs/tasks/manage/setup_multikueue               301
+/docs/tasks/setup_sequential_admission     /docs/tasks/manage/setup_sequential_admission     301
 
-/docs/tasks/enabling_pprof_endpoints /doc/tasks/dev/enabling_pprof_endpoints 301
-/docs/tasks/integrate_a_custom_job   /doc/tasks/dev/integrate_a_custom_job   301
+/docs/tasks/enabling_pprof_endpoints /docs/tasks/dev/enabling_pprof_endpoints 301
+/docs/tasks/integrate_a_custom_job   /docs/tasks/dev/integrate_a_custom_job   301
 
 /docs/tasks/run_flux_minicluster /docs/tasks/run/flux_miniclusters 301
 /docs/tasks/run_jobs             /docs/tasks/run/jobs              301
