@@ -59,7 +59,7 @@ steps:
     Method: GenericPrometheusQuery
     Params:
       action: start
-      metricName: Job (Kueue) API performance
+      metricName: job_api_performance
       metricVersion: v1
       unit: s
       queries:
@@ -76,7 +76,27 @@ steps:
         - name: perc_90_pod_waiting_time
           query: quantile(0.90, kube_pod_start_time{namespace=~"{{$namespacePrefix}}.*"} - kube_pod_created{namespace=~"{{$namespacePrefix}}.*"})                
         - name: max_job_throughput
-          query: max_over_time(sum(rate(kueue_admitted_workloads_total{cluster_queue="{{$clusterQueue}}"}[1m]))[{{$testTimeout}}:5s])                               
+          query: max_over_time(sum(rate(kueue_admitted_workloads_total{cluster_queue="{{$clusterQueue}}"}[1m]))[{{$testTimeout}}:5s])     
+  - Identifier: GenericPrometheusQueryAdditional
+    Method: GenericPrometheusQuery
+    Params:
+      action: start
+      metricName: kueue_api_performance
+      metricVersion: v1
+      unit: s
+      queries:    
+        - name: kueue_admission_attempt_success_avg
+          query: kueue_admission_attempt_duration_seconds_sum{result="success"}/kueue_admission_attempt_duration_seconds_count{result="success"}    
+        - name: kueue_admission_attempt_inadmissible_avg
+          query: kueue_admission_attempt_duration_seconds_sum{result="inadmissible"}/kueue_admission_attempt_duration_seconds_count{result="inadmissible"}
+        - name: perc_90_kueue_admission_attempt_success
+          query: histogram_quantile(0.90, sum(rate(kueue_admission_attempt_duration_seconds_bucket{result="success"}[{{$testTimeout}}])) by (le))  
+        - name: perc_90_kueue_admission_attempt_inadmissible
+          query: histogram_quantile(0.90, sum(rate(kueue_admission_attempt_duration_seconds_bucket{result="inadmissible"}[{{$testTimeout}}])) by (le))
+        - name: kueue_admission_wait_time_avg
+          query: kueue_admission_wait_time_seconds_sum / kueue_admission_wait_time_seconds_count
+        - name: perc_90_kueue_admission_wait_time
+          query: histogram_quantile(0.90, sum(rate(kueue_admission_wait_time_seconds_bucket[{{$testTimeout}}])) by (le))     
 - name: Sleep
   measurements:
   - Identifier: sleep
@@ -178,4 +198,11 @@ steps:
     Method: GenericPrometheusQuery
     Params:
       action: gather
-      enableViolations: true      
+      enableViolations: true
+- name: Gather additional Prometheus measurements
+  measurements:
+  - Identifier: GenericPrometheusQueryAdditional
+    Method: GenericPrometheusQuery
+    Params:
+      action: gather
+      enableViolations: true                
