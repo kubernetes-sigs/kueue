@@ -11,7 +11,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-Check [administer cluster quotas](/docs/tasks/administer_cluster_quotas) for details on the initial cluster setup.
+Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial cluster setup.
 You'll also need kubernetes python installed. We recommend a virtual environment.
 
 ```bash
