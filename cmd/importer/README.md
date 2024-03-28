@@ -109,9 +109,9 @@ After which, if `--dry-run=false` was specified, for each selected Pod the impor
 
 In order to use the manifests, you should:
 
-1. Update the used image
+1. (Optional) Build the image
 
-A minimal image containing the importer can be built by
+You can build a minimal image containing the importer by running the command:
 
 ```bash
 make importer-image
@@ -119,20 +119,22 @@ make importer-image
 
 Make the created image accessible by your cluster.
 
-Note: Importer images will be available in `gcr.io/k8s-staging-kueue/importer` soon.
 
-And run
+2. Set the image to use
 
 ```bash
 (cd cmd/importer/run-in-cluster && kustomize edit set image importer=<image:tag>)
 ```
+You can use the image that you built in step one or one of images published in
+https://gcr.io/k8s-staging-kueue/importer, for example:
+`gcr.io/k8s-staging-kueue/importer:main-latest`
 
-2. Update the importer args in `cmd/importer/run-in-cluster/importer.yaml`
+3. Update the importer args in `cmd/importer/run-in-cluster/importer.yaml` as needed.
 
 Note: `dry-run` is set to `false` by default.
 
-3. Update the mapping configuration in `cmd/importer/run-in-cluster/mapping.yaml`
-4. Deploy the configuration:
+4. Update the mapping configuration in `cmd/importer/run-in-cluster/mapping.yaml`
+5. Deploy the configuration:
 
 ```bash
  kubectl apply -k cmd/importer/run-in-cluster/
