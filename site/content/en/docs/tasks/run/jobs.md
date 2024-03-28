@@ -18,7 +18,7 @@ Make sure the following conditions are met:
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation).
-- The cluster has [quotas configured](/docs/tasks/administer_cluster_quotas).
+- The cluster has [quotas configured](/docs/tasks/manage/administer_cluster_quotas).
 
 The following picture shows all the concepts you will interact with in this tutorial:
 
