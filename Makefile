@@ -84,15 +84,12 @@ SHELL = /usr/bin/env bash -o pipefail
 
 # Setting SED allows macos users to install GNU sed and use the latter
 # instead of the default BSD sed.
-SED := /usr/bin/sed
-# If the OS is Darwin (MacOS)
-ifeq ($(shell uname), Darwin)
-    # Check if gsed is available
-    ifeq ($(shell command -v gsed 2>/dev/null),)
-        $(error "gsed could not be found, please install it.")
-    endif
-    # Set SED to gsed if available
-    SED := $(shell which gsed)
+SED ?= $(shell command -v sed)
+ifeq ($(shell command -v gsed 2>/dev/null),)
+    SED = $(shell command -v sed)
+endif
+ifeq ($(shell ${SED} --version 2>&1 | grep -q GNU; echo $$?),1)
+    $(error !!! GNU sed is required. If on OS X, use 'brew install gnu-sed'.)
 endif
 
 version_pkg = sigs.k8s.io/kueue/pkg/version
