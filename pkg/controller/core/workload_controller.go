@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -587,9 +588,32 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		if err := r.cache.UpdateWorkload(oldWl, wlCopy); err != nil {
 			log.Error(err, "Updating workload in cache")
 		}
+		// This forces you to go through the scheduler to update PodSetAssignments if there's a difference between the
+		// worker group podSetAssignments.Count of the old and new workload
+		if features.Enabled(features.DynamicallySizedJobs) && compareAdmissionPodSetAssignmentCount(oldWl.Status.Admission, wlCopy.Status.Admission) {
+			if !r.queues.UpdateWorkload(oldWl, wlCopy) {
+				log.V(2).Info("Updated workload due to resize.")
+			}
+		}
 	}
 
 	return true
+}
+
+func compareAdmissionPodSetAssignmentCount(oldWlAdmission *kueue.Admission, newWlAdmisson *kueue.Admission) bool {
+	// this is specific to RayClusters, it contains a PodSet of length 2, containing head and workers
+	oldWlPsa := len(oldWlAdmission.PodSetAssignments)
+	newWlPsa := len(newWlAdmisson.PodSetAssignments)
+	if oldWlPsa == newWlPsa {
+		for i := 0; i < oldWlPsa; i++ {
+			if oldWlAdmission.PodSetAssignments[i].Name == newWlAdmisson.PodSetAssignments[i].Name {
+				if oldWlAdmission.PodSetAssignments[i].Count != newWlAdmisson.PodSetAssignments[i].Count {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (r *WorkloadReconciler) Generic(e event.GenericEvent) bool {

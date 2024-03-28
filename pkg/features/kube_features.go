@@ -83,6 +83,10 @@ const (
 	//
 	// Enables lending limit.
 	LendingLimit featuregate.Feature = "LendingLimit"
+	// owner: @vicenteferrara
+	// kep: <TODO>
+	// alpha: v0.7
+	DynamicallySizedJobs featuregate.Feature = "DynamicallySizedJobs"
 )
 
 func init() {
@@ -104,6 +108,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	PrioritySortingWithinCohort: {Default: true, PreRelease: featuregate.Beta},
 	MultiKueue:                  {Default: false, PreRelease: featuregate.Alpha},
 	LendingLimit:                {Default: false, PreRelease: featuregate.Alpha},
+	DynamicallySizedJobs:        {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {
