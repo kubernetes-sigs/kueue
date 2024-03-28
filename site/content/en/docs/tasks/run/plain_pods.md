@@ -62,7 +62,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 3. Pods that belong to other API resources managed by Kueue are excluded from being queued by `pod` integration. 
    For example, pods managed by `batch/v1.Job` won't be managed by `pod` integration.
 
-4. Check [Administer cluster quotas](/docs/tasks/administer_cluster_quotas) for details on the initial Kueue setup.
+4. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
 ## Running a single Pod admitted by Kueue
 

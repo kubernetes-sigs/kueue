@@ -15,7 +15,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay 1.1.0 or newer.
 
-2. Check [Administer cluster quotas](/docs/tasks/administer_cluster_quotas) for details on the initial Kueue setup.
+2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
 3. See [KubeRay Installation](https://ray-project.github.io/kuberay/deploy/installation/) for installation and configuration details of KubeRay.
 
