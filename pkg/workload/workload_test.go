@@ -584,3 +584,62 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestResourceUsage(t *testing.T) {
+	cases := map[string]struct {
+		info *Info
+		want Requests
+	}{
+		"nil": {},
+		"one podset": {
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Requests: Requests{
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  3,
+					},
+				}},
+			},
+			want: Requests{
+				corev1.ResourceCPU: 1_000,
+				"example.com/gpu":  3,
+			},
+		},
+		"multiple podsets": {
+			info: &Info{
+				TotalRequests: []PodSetResources{
+					{
+						Requests: Requests{
+							corev1.ResourceCPU: 1_000,
+							"example.com/gpu":  3,
+						},
+					},
+					{
+						Requests: Requests{
+							corev1.ResourceCPU:    2_000,
+							corev1.ResourceMemory: 2 * utiltesting.Gi,
+						},
+					},
+					{
+						Requests: Requests{
+							"example.com/gpu": 1,
+						},
+					},
+				},
+			},
+			want: Requests{
+				corev1.ResourceCPU:    3_000,
+				corev1.ResourceMemory: 2 * utiltesting.Gi,
+				"example.com/gpu":     4,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.info.ResourceUsage()
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("info.ResourceUsage() returned (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

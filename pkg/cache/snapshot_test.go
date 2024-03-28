@@ -223,6 +223,18 @@ func TestSnapshot(t *testing.T) {
 							"example.com/gpu": 15,
 						},
 					},
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  400_000,
+							Lendable: 400_000,
+							Usage:    20_000,
+						},
+						"example.com/gpu": {
+							Nominal:  50,
+							Lendable: 50,
+							Usage:    15,
+						},
+					},
 				}
 				return Snapshot{
 					ClusterQueues: map[string]*ClusterQueue{
@@ -254,6 +266,13 @@ func TestSnapshot(t *testing.T) {
 							Usage: FlavorResourceQuantities{
 								"demand": {corev1.ResourceCPU: 10_000},
 								"spot":   {corev1.ResourceCPU: 0},
+							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  300_000,
+									Lendable: 300_000,
+									Usage:    10_000,
+								},
 							},
 							Workloads: map[string]*workload.Info{
 								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
@@ -303,6 +322,18 @@ func TestSnapshot(t *testing.T) {
 									"example.com/gpu": 15,
 								},
 							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  100_000,
+									Lendable: 100_000,
+									Usage:    10_000,
+								},
+								"example.com/gpu": {
+									Nominal:  50,
+									Lendable: 50,
+									Usage:    15,
+								},
+							},
 							Workloads: map[string]*workload.Info{
 								"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
@@ -350,6 +381,12 @@ func TestSnapshot(t *testing.T) {
 							Usage: FlavorResourceQuantities{
 								"default": {
 									corev1.ResourceCPU: 0,
+								},
+							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  100_000,
+									Lendable: 100_000,
 								},
 							},
 							Preemption:        defaultPreemption,
@@ -455,6 +492,13 @@ func TestSnapshot(t *testing.T) {
 							corev1.ResourceCPU: 0,
 						},
 					},
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  60_000,
+							Lendable: 30_000,
+							Usage:    25_000,
+						},
+					},
 				}
 				return Snapshot{
 					ClusterQueues: map[string]*ClusterQueue{
@@ -494,6 +538,13 @@ func TestSnapshot(t *testing.T) {
 							Usage: FlavorResourceQuantities{
 								"arm": {corev1.ResourceCPU: 15_000},
 								"x86": {corev1.ResourceCPU: 10_000},
+							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  30_000,
+									Lendable: 15_000,
+									Usage:    25_000,
+								},
 							},
 							Workloads: map[string]*workload.Info{
 								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
@@ -566,6 +617,12 @@ func TestSnapshot(t *testing.T) {
 							Usage: FlavorResourceQuantities{
 								"arm": {corev1.ResourceCPU: 0},
 								"x86": {corev1.ResourceCPU: 0},
+							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  30_000,
+									Lendable: 15_000,
+								},
 							},
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
@@ -714,6 +771,16 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 						"alpha":   {corev1.ResourceMemory: 0},
 						"beta":    {corev1.ResourceMemory: 0},
 					},
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  12_000,
+							Lendable: 12_000,
+						},
+						corev1.ResourceMemory: {
+							Nominal:  12 * utiltesting.Gi,
+							Lendable: 12 * utiltesting.Gi,
+						},
+					},
 				}
 				return Snapshot{
 					ClusterQueues: map[string]*ClusterQueue{
@@ -729,6 +796,16 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"alpha":   {corev1.ResourceMemory: 0},
 								"beta":    {corev1.ResourceMemory: 0},
 							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  6_000,
+									Lendable: 6_000,
+								},
+								corev1.ResourceMemory: {
+									Nominal:  12 * utiltesting.Gi,
+									Lendable: 12 * utiltesting.Gi,
+								},
+							},
 						},
 						"c2": {
 							Name:                          "c2",
@@ -739,6 +816,12 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							AllocatableResourceGeneration: 1,
 							Usage: FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 0},
+							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  6_000,
+									Lendable: 6_000,
+								},
 							},
 						},
 					},
@@ -756,6 +839,18 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 						"default": {corev1.ResourceCPU: 2_000},
 						"alpha":   {corev1.ResourceMemory: utiltesting.Gi},
 						"beta":    {corev1.ResourceMemory: utiltesting.Gi},
+					},
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  12_000,
+							Lendable: 12_000,
+							Usage:    2_000,
+						},
+						corev1.ResourceMemory: {
+							Nominal:  12 * utiltesting.Gi,
+							Lendable: 12 * utiltesting.Gi,
+							Usage:    2 * utiltesting.Gi,
+						},
 					},
 				}
 				return Snapshot{
@@ -775,6 +870,17 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"alpha":   {corev1.ResourceMemory: utiltesting.Gi},
 								"beta":    {corev1.ResourceMemory: utiltesting.Gi},
 							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  6_000,
+									Lendable: 6_000,
+								},
+								corev1.ResourceMemory: {
+									Nominal:  12 * utiltesting.Gi,
+									Lendable: 12 * utiltesting.Gi,
+									Usage:    2 * utiltesting.Gi,
+								},
+							},
 						},
 						"c2": {
 							Name:   "c2",
@@ -788,6 +894,13 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							AllocatableResourceGeneration: 1,
 							Usage: FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 2_000},
+							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  6_000,
+									Lendable: 6_000,
+									Usage:    2_000,
+								},
 							},
 						},
 					},
@@ -805,6 +918,18 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 						"default": {corev1.ResourceCPU: 3_000},
 						"alpha":   {corev1.ResourceMemory: 0},
 						"beta":    {corev1.ResourceMemory: utiltesting.Gi},
+					},
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  12_000,
+							Lendable: 12_000,
+							Usage:    3_000,
+						},
+						corev1.ResourceMemory: {
+							Nominal:  12 * utiltesting.Gi,
+							Lendable: 12 * utiltesting.Gi,
+							Usage:    utiltesting.Gi,
+						},
 					},
 				}
 				return Snapshot{
@@ -824,6 +949,18 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"alpha":   {corev1.ResourceMemory: 0},
 								"beta":    {corev1.ResourceMemory: utiltesting.Gi},
 							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  6_000,
+									Lendable: 6_000,
+									Usage:    1_000,
+								},
+								corev1.ResourceMemory: {
+									Nominal:  12 * utiltesting.Gi,
+									Lendable: 12 * utiltesting.Gi,
+									Usage:    utiltesting.Gi,
+								},
+							},
 						},
 						"c2": {
 							Name:   "c2",
@@ -837,6 +974,13 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							FlavorFungibility:             defaultFlavorFungibility,
 							Usage: FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 2_000},
+							},
+							ResourceStats: ResourceStats{
+								corev1.ResourceCPU: {
+									Nominal:  6_000,
+									Lendable: 6_000,
+									Usage:    2_000,
+								},
 							},
 						},
 					},
@@ -951,6 +1095,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
+					ResourceStats: ResourceStats{
+						"cpu": {Nominal: 20_000, Lendable: 10_000},
+					},
 				}
 				return Snapshot{
 					ClusterQueues: map[string]*ClusterQueue{
@@ -969,6 +1116,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 6_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 4_000},
+							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -985,6 +1135,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 4_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 6_000},
+							},
 						},
 					},
 				}
@@ -999,6 +1152,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					RequestableResources:          initialCohortResources,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 1_000},
+					},
+					ResourceStats: ResourceStats{
+						"cpu": {Nominal: 20_000, Lendable: 10_000, Usage: 11_000},
 					},
 				}
 				return Snapshot{
@@ -1018,6 +1174,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 6_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 4_000, Usage: 7_000},
+							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1034,6 +1193,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 4_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 6_000, Usage: 4_000},
+							},
 						},
 					},
 				}
@@ -1048,6 +1210,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					RequestableResources:          initialCohortResources,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
+					},
+					ResourceStats: ResourceStats{
+						"cpu": {Nominal: 20_000, Lendable: 10_000, Usage: 10_000},
 					},
 				}
 				return Snapshot{
@@ -1067,6 +1232,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 6_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 4_000, Usage: 6_000},
+							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1083,6 +1251,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 4_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 6_000, Usage: 4_000},
+							},
 						},
 					},
 				}
@@ -1097,6 +1268,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					RequestableResources:          initialCohortResources,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
+					},
+					ResourceStats: ResourceStats{
+						"cpu": {Nominal: 20_000, Lendable: 10_000, Usage: 5_000},
 					},
 				}
 				return Snapshot{
@@ -1116,6 +1290,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 6_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 4_000, Usage: 1_000},
+							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1131,6 +1308,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								"default": {
 									corev1.ResourceCPU: 4_000,
 								},
+							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 6_000, Usage: 4_000},
 							},
 						},
 					},
@@ -1148,6 +1328,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
+					ResourceStats: ResourceStats{
+						"cpu": {Nominal: 20_000, Lendable: 10_000, Usage: 1_000},
+					},
 				}
 				return Snapshot{
 					ClusterQueues: map[string]*ClusterQueue{
@@ -1166,6 +1349,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 6_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 4_000, Usage: 1_000},
+							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1182,6 +1368,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 4_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 6_000},
+							},
 						},
 					},
 				}
@@ -1197,6 +1386,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					RequestableResources:          initialCohortResources,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
+					},
+					ResourceStats: ResourceStats{
+						"cpu": {Nominal: 20_000, Lendable: 10_000, Usage: 6_000},
 					},
 				}
 				return Snapshot{
@@ -1216,6 +1408,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 6_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 4_000, Usage: 6_000},
+							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1232,6 +1427,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 4_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 6_000},
+							},
 						},
 					},
 				}
@@ -1247,6 +1445,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					RequestableResources:          initialCohortResources,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 3_000},
+					},
+					ResourceStats: ResourceStats{
+						"cpu": {Nominal: 20_000, Lendable: 10_000, Usage: 9_000},
 					},
 				}
 				return Snapshot{
@@ -1266,6 +1467,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 									corev1.ResourceCPU: 6_000,
 								},
 							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 4_000, Usage: 9_000},
+							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1281,6 +1485,9 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								"default": {
 									corev1.ResourceCPU: 4_000,
 								},
+							},
+							ResourceStats: ResourceStats{
+								"cpu": {Nominal: 10_000, Lendable: 6_000},
 							},
 						},
 					},
