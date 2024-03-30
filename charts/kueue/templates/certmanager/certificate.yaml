@@ -4,6 +4,8 @@ kind: Issuer
 metadata:
   name: {{ include "kueue.fullname" . }}-selfsigned-issuer
   namespace: '{{ .Release.Namespace }}'
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
 spec:
   selfSigned: {}
 ---
@@ -12,6 +14,8 @@ kind: Certificate
 metadata:
   name: {{ include "kueue.fullname" . }}-serving-cert
   namespace: '{{ .Release.Namespace }}'
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
 spec:
   dnsNames:
   - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc'

@@ -112,6 +112,16 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 	return nil
 }
 
+// AddOrUpdateLabel adds or updates the label identified by k with value v
+// allocating a new Labels nap if nil
+func (podSetInfo *PodSetInfo) AddOrUpdateLabel(k, v string) {
+	if podSetInfo.Labels == nil {
+		podSetInfo.Labels = map[string]string{k: v}
+	} else {
+		podSetInfo.Labels[k] = v
+	}
+}
+
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
 // It returns error if there is a conflict.
 func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {

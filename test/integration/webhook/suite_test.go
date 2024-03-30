@@ -66,7 +66,11 @@ var _ = ginkgo.BeforeSuite(func() {
 
 		cCache := cache.New(mgr.GetClient())
 		queues := queue.NewManager(mgr.GetClient(), cCache)
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
+
+		configuration := &config.Configuration{}
+		mgr.GetScheme().Default(configuration)
+
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 	})
 })

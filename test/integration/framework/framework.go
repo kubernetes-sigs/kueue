@@ -27,6 +27,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -41,6 +42,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
@@ -82,14 +85,23 @@ func (f *Framework) Init() *rest.Config {
 	return cfg
 }
 
-func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
-	err := kueue.AddToScheme(scheme.Scheme)
+func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Client) {
+	err := config.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kueuealpha.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kubeflow.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = rayjobapi.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = rayv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = jobsetapi.AddToScheme(scheme.Scheme)
@@ -104,6 +116,13 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
 
+	ctx, cancel := context.WithCancel(context.Background())
+	f.cancel = cancel
+
+	return ctx, k8sClient
+}
+
+func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup) {
 	webhookInstallOptions := &f.testEnv.WebhookInstallOptions
 	mgrOpts := manager.Options{
 		Scheme: scheme.Scheme,
@@ -120,8 +139,6 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 	mgr, err := ctrl.NewManager(cfg, mgrOpts)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	f.cancel = cancel
 	managerSetup(mgr, ctx)
 
 	go func() {
@@ -143,7 +160,11 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 			return nil
 		}).Should(gomega.Succeed())
 	}
+}
 
+func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
+	ctx, k8sClient := f.SetupClient(cfg)
+	f.StartManager(ctx, cfg, managerSetup)
 	return ctx, k8sClient
 }
 

@@ -25,6 +25,7 @@ import (
 	"maps"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,7 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -45,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -168,12 +170,12 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Workload, relevantChecks []string, ownedPrs []autoscaling.ProvisioningRequest) map[string]*autoscaling.ProvisioningRequest {
 	activeOrLastPRForChecks := make(map[string]*autoscaling.ProvisioningRequest)
 	for _, checkName := range relevantChecks {
-		for _, pr := range ownedPrs {
-			req := &pr
+		for i := range ownedPrs {
+			req := &ownedPrs[i]
 			// PRs relevant for the admission check
 			if matches(req, wl.Name, checkName) {
 				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
-				if err == nil && c.reqIsNeeded(ctx, wl, prc) && requestHasParamaters(req, prc) {
+				if err == nil && c.reqIsNeeded(ctx, wl, prc) && provReqSyncedWithConfig(req, prc) {
 					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(ctx, currPr, wl.Name, checkName) < getAttempt(ctx, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
 					}
@@ -229,6 +231,11 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		if !c.reqIsNeeded(ctx, wl, prc) {
 			continue
 		}
+		if ac := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName); ac != nil && ac.State == kueue.CheckStateReady {
+			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
+			continue
+		}
+
 		oldPr, exists := activeOrLastPRForChecks[checkName]
 		attempt := int32(1)
 		shouldCreatePr := false
@@ -262,6 +269,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 					Parameters:            parametersKueueToProvisioning(prc.Spec.Parameters),
 				},
 			}
+			passProvReqParams(wl, req)
 
 			expectedPodSets := requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)
 			psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) string { return p.Name })
@@ -287,6 +295,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			if err := c.client.Create(ctx, req); err != nil {
 				return nil, err
 			}
+			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
 		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, requestName, prc); err != nil {
@@ -428,19 +437,29 @@ func parametersKueueToProvisioning(in map[string]kueue.Parameter) map[string]aut
 	return out
 }
 
-func requestHasParamaters(req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
+// provReqSyncedWithConfig checks if the provisioning request has the same provisioningClassName as the provisioning request config
+// and contains all the parameters from the config
+func provReqSyncedWithConfig(req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
 	if req.Spec.ProvisioningClassName != prc.Spec.ProvisioningClassName {
 		return false
 	}
-	if len(req.Spec.Parameters) != len(prc.Spec.Parameters) {
-		return false
-	}
-	for k, vReq := range req.Spec.Parameters {
-		if vCfg, found := prc.Spec.Parameters[k]; !found || vReq != autoscaling.Parameter(vCfg) {
+	for k, vCfg := range prc.Spec.Parameters {
+		if vReq, found := req.Spec.Parameters[k]; !found || string(vReq) != string(vCfg) {
 			return false
 		}
 	}
 	return true
+}
+
+// passProvReqParams extracts from Workload's annotations ones that should be passed to ProvisioningRequest
+func passProvReqParams(wl *kueue.Workload, req *autoscaling.ProvisioningRequest) {
+	if req.Spec.Parameters == nil {
+		req.Spec.Parameters = make(map[string]autoscaling.Parameter, 0)
+	}
+	for annotation, val := range admissioncheck.FilterProvReqAnnotations(wl.Annotations) {
+		paramName := strings.TrimPrefix(annotation, constants.ProvReqAnnotationPrefix)
+		req.Spec.Parameters[paramName] = autoscaling.Parameter(val)
+	}
 }
 
 func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
@@ -472,9 +491,8 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			}
 
 			prFailed := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Failed)
-			prAccepted := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
-			prAvailable := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.CapacityAvailable)
-			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl), "check", check, "prName", pr.Name, "failed", prFailed, "accepted", prAccepted, "available", prAvailable)
+			prProvisioned := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
+			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl), "check", check, "prName", pr.Name, "failed", prFailed, "accepted", prProvisioned)
 
 			switch {
 			case prFailed:
@@ -491,7 +509,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 					}
 				}
-			case prAccepted || prAvailable:
+			case prProvisioned:
 				if checkState.State != kueue.CheckStateReady {
 					updated = true
 					checkState.State = kueue.CheckStateReady
@@ -522,7 +540,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			return err
 		}
 		for i := range recorderMessages {
-			c.record.Eventf(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
+			c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
 	return nil

@@ -14,11 +14,15 @@ limitations under the License.
 package jobframework
 
 import (
+	"fmt"
 	"strings"
 
+	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -26,15 +30,25 @@ import (
 var (
 	annotationsPath               = field.NewPath("metadata", "annotations")
 	labelsPath                    = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	supportedPrebuiltWlJobGVKs    = sets.New(batchv1.SchemeGroupVersion.WithKind("Job").String(),
+		jobset.SchemeGroupVersion.WithKind("JobSet").String())
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.QueueLabel)...)
+	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.PrebuiltWorkloadLabel)...)
 	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
+
+	// this rule should be relaxed when its confirmed that running with a prebuilt wl is fully supported by each integration
+	if _, hasPrebuilt := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]; hasPrebuilt {
+		gvk := job.GVK().String()
+		if !supportedPrebuiltWlJobGVKs.Has(gvk) {
+			allErrs = append(allErrs, field.Forbidden(labelsPath.Key(constants.PrebuiltWorkloadLabel), fmt.Sprintf("Is not supported for %q", gvk)))
+		}
+	}
 	return allErrs
 }
 
@@ -58,26 +72,15 @@ func ValidateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList
 	return allErrs
 }
 
-func ValidateCreateForParentWorkload(job GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if _, exists := job.Object().GetAnnotations()[constants.ParentWorkloadAnnotation]; exists {
-		if job.Object().GetOwnerReferences() == nil {
-			allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "must not add a parent workload annotation to job without OwnerReference"))
-		}
-	}
-	return allErrs
-}
-
 func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
 	}
-	return allErrs
-}
 
-func ValidateUpdateForParentWorkload(oldJob, newJob GenericJob) field.ErrorList {
-	allErrs := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob), ParentWorkloadName(oldJob), parentWorkloadKeyPath)
+	oldWlName, _ := PrebuiltWorkloadFor(oldJob)
+	newWlName, _ := PrebuiltWorkloadFor(newJob)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldWlName, newWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	return allErrs
 }
 

@@ -90,6 +90,9 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyNever,
 							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy: kueue.BorrowWithinCohortPolicyNever,
+							},
 						},
 					},
 				},
@@ -104,6 +107,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+								MaxPriorityThreshold: ptr.To[int32](100),
+							},
 						},
 					},
 				},
@@ -119,6 +126,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+								MaxPriorityThreshold: ptr.To[int32](100),
+							},
 						},
 					},
 				},
@@ -128,7 +139,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 		ginkgo.It("Should have qualified flavor names when updating", func() {
 			ginkgo.By("Creating a new clusterQueue")
 			cq := testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource("memory").Obj()).
+				ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
 
@@ -171,12 +182,13 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 		},
 			ginkgo.Entry("Should have non-negative borrowing limit",
 				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource("2", "-1").Obj()).
+					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "2", "-1").Obj()).
+					Cohort("cohort").
 					Obj(),
 				isForbidden),
 			ginkgo.Entry("Should have non-negative quota value",
 				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource("-1").Obj()).
+					ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
 					Obj(),
 				isForbidden),
 			ginkgo.Entry("Should have at least one flavor",
@@ -189,7 +201,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				isInvalid),
 			ginkgo.Entry("Should have qualified flavor name",
 				testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(*testing.MakeFlavorQuotas("invalid_name").Resource("cpu", "5").Obj()).
+					ResourceGroup(*testing.MakeFlavorQuotas("invalid_name").Resource(corev1.ResourceCPU, "5").Obj()).
 					Obj(),
 				isForbidden),
 			ginkgo.Entry("Should have qualified resource name",

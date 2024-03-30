@@ -8,7 +8,7 @@
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
-  - [Notes/Contraints/Caveats (Optional)](#notescontraintscaveats-optional)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Why no control to opt-out a ClusterQueue from preemption](#why-no-control-to-opt-out-a-clusterqueue-from-preemption)
   - [Reassigning flavors after preemption](#reassigning-flavors-after-preemption)
   - [Risks and Mitigations](#risks-and-mitigations)
@@ -87,7 +87,7 @@ determine the preemption policy for two scenarios:
 - Pending high priority pod: the ClusterQueue is out of quota, but there are
   low priority active Workloads.
 
-The enhacement also includes an algorithm for selecting a set of Workloads to be
+The enhancement also includes an algorithm for selecting a set of Workloads to be
 preempted from the ClusterQueue or the cohort (to reclaim borrowed Quota).
 
 ### User Stories (Optional)
@@ -110,7 +110,7 @@ spec:
     withinClusterQueue: LowerPriorityOnly
 ```
 
-### Notes/Contraints/Caveats (Optional)
+### Notes/Constraints/Caveats (Optional)
 
 #### Why no control to opt-out a ClusterQueue from preemption
 
@@ -204,7 +204,7 @@ type ClusterQueueSpec struct {
   //   and there are active Workloads with lower priority.
   //
   // The preemption algorithm tries to find a minimal set of Workloads to
-  // preempt to accomodate the pending Workload, preempting Workloads with
+  // preempt to accommodate the pending Workload, preempting Workloads with
   // lower priority first.
   preemption ClusterQueuePreemption
 }
@@ -212,10 +212,10 @@ type ClusterQueueSpec struct {
 type PreemptionPolicy string
 
 const (
-  PreemptionPoliyNever                    = "Never"
-  PreemptionPoliyReclaimFromLowerPriority = "ReclaimFromLowerPriority"
-  PreemptionPoliyReclaimFromAny           = "ReclaimFromAny"
-  PreemptionPoliyLowerPriority            = "LowerPriority"
+  PreemptionPolicyNever                    = "Never"
+  PreemptionPolicyReclaimFromLowerPriority = "ReclaimFromLowerPriority"
+  PreemptionPolicyReclaimFromAny           = "ReclaimFromAny"
+  PreemptionPolicyLowerPriority            = "LowerPriority"
 )
 
 type ClusterQueuePreemption struct {
@@ -267,7 +267,7 @@ The algorithm is like follows:
 Some highlights:
 - A Workload could get flavor assignments at different steps for different
   resources.
-- Assigments that require preemption implicitly do not borrow quota.
+- Assignments that require preemption implicitly do not borrow quota.
 
 A flavor assignment from step 1 means that we need to preempt or wait for other
 workloads in the cohort and/or ClusterQueue to finish to accommodate this
@@ -411,7 +411,7 @@ extending the production code to implement this enhancement.
 #### Integration tests
 
 - No new workloads in the cohort can borrow when workloads in a ClusterQueue
-  fit whitin their min quota (StrictFIFO and BestEffortFIFO), but there are
+  fit within their min quota (StrictFIFO and BestEffortFIFO), but there are
   running workloads.
 - Preemption within a ClusterQueue based on priority.
 - Preemption within a Cohort to reclaim min quota.
@@ -504,7 +504,7 @@ It's unclear whether this behavior is useful and it adds complexity.
 A workload might have a known cost of interruption that varies over time.
 For example:
 Early in its execution, the Workload hasn't made much progress, so it can be
-preempted. Later, the Worload is on the path of doing significant progress, so
+preempted. Later, the Workload is on the path of doing significant progress, so
 it's best not to disturb it. Lastly, the Workload is expected to have made
 some checkpoints, so it's ok to disturb it.
 
@@ -620,7 +620,7 @@ We should have an explicit API for this behavior
 These extra knobs could enhance the control over preemption:
 
 ```golang
-type ClusterQueuePremption struct {
+type ClusterQueuePreemption struct {
   // triggerAfterWorkloadWaitingSeconds is the time in seconds that Workloads
   // in this ClusterQueue will wait before triggering preemptions of active
   // workloads in this ClusterQueue or its cohort (when reclaiming quota).

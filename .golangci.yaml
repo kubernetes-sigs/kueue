@@ -9,10 +9,22 @@ run:
 
 # Settings of specific linters
 linters-settings:
+  gocritic:
+    enabled-checks:
+      - dupImport
   goimports:
     local-prefixes: sigs.k8s.io/kueue
+  govet:
+    enable:
+      - nilness
 
 # Settings for enabling and disabling linters
 linters:
   enable:
+    - ginkgolinter
+    - gocritic
     - goimports
+    - govet
+    - loggercheck
+    - misspell
+    - unconvert

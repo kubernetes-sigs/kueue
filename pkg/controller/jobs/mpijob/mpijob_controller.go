@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,13 +56,14 @@ func init() {
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &MPIJob{} }, nil)
+var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &MPIJob{} })
 
 func isMPIJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org/v2")
@@ -216,6 +218,6 @@ func podsCount(jobSpec *kubeflow.MPIJobSpec, mpiReplicaType kubeflow.MPIReplicaT
 	return ptr.Deref(jobSpec.MPIReplicaSpecs[mpiReplicaType].Replicas, 1)
 }
 
-func GetWorkloadNameForMPIJob(jobName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
+func GetWorkloadNameForMPIJob(jobName string, jobUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }

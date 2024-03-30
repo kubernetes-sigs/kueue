@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -103,12 +104,8 @@ func TestConfigHelper(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
-			if err := clientgoscheme.AddToScheme(scheme); err != nil {
-				panic(err)
-			}
-			if err := kueue.AddToScheme(scheme); err != nil {
-				panic(err)
-			}
+			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+			utilruntime.Must(kueue.AddToScheme(scheme))
 			builder := fake.NewClientBuilder().WithScheme(scheme)
 			if tc.admissioncheck != nil {
 				builder = builder.WithObjects(tc.admissioncheck)
@@ -167,12 +164,8 @@ func TestIndexerFunc(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
-			if err := clientgoscheme.AddToScheme(scheme); err != nil {
-				panic(err)
-			}
-			if err := kueue.AddToScheme(scheme); err != nil {
-				panic(err)
-			}
+			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+			utilruntime.Must(kueue.AddToScheme(scheme))
 
 			indexFnc := IndexerByConfigFunction("test-controller", kueue.GroupVersion.WithKind("ProvisioningRequestConfig"))
 
@@ -218,12 +211,8 @@ func TestFilterCheckStates(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
-			if err := clientgoscheme.AddToScheme(scheme); err != nil {
-				panic(err)
-			}
-			if err := kueue.AddToScheme(scheme); err != nil {
-				panic(err)
-			}
+			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+			utilruntime.Must(kueue.AddToScheme(scheme))
 			builder := fake.NewClientBuilder().WithScheme(scheme)
 			if len(tc.admissionchecks) > 0 {
 				builder = builder.WithLists(&kueue.AdmissionCheckList{Items: tc.admissionchecks})

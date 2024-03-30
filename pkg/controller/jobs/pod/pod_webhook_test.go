@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -232,7 +233,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Group("test-group").
-				RoleHash("90ce3e8a").
+				RoleHash("a9f06f3a").
 				Label("kueue.x-k8s.io/managed", "true").
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -249,7 +250,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Group("test-group").
-				RoleHash("90ce3e8a").
+				RoleHash("a9f06f3a").
 				Label("kueue.x-k8s.io/managed", "true").
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -309,6 +310,33 @@ func TestGetRoleHash(t *testing.T) {
 				{pod: *testingpod.MakePod("pod1", "test-ns").
 					Volume(corev1.Volume{
 						Name: "volume2",
+					}).
+					Obj()},
+			},
+			wantEqualHash: true,
+		},
+		// NOTE: volumes used to be included in the role hash.
+		// https://github.com/kubernetes-sigs/kueue/issues/1697
+		"volumes with different claims shouldn't affect the role": {
+			pods: []*Pod{
+				{pod: *testingpod.MakePod("pod1", "test-ns").
+					Volume(corev1.Volume{
+						Name: "volume",
+						VolumeSource: corev1.VolumeSource{
+							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "claim1",
+							},
+						},
+					}).
+					Obj()},
+				{pod: *testingpod.MakePod("pod1", "test-ns").
+					Volume(corev1.Volume{
+						Name: "volume",
+						VolumeSource: corev1.VolumeSource{
+							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "claim2",
+							},
+						},
 					}).
 					Obj()},
 			},
@@ -590,6 +618,59 @@ func TestValidateUpdate(t *testing.T) {
 			}
 			if diff := cmp.Diff(warns, tc.wantWarns); diff != "" {
 				t.Errorf("Expected different list of warnings (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetPodOptions(t *testing.T) {
+	cases := map[string]struct {
+		integrationOpts map[string]any
+		wantOpts        configapi.PodIntegrationOptions
+		wantError       error
+	}{
+		"proper podIntegrationOptions exists": {
+			integrationOpts: map[string]any{
+				corev1.SchemeGroupVersion.WithKind("Pod").String(): &configapi.PodIntegrationOptions{
+					PodSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"podKey": "podValue"},
+					},
+					NamespaceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"nsKey": "nsValue"},
+					},
+				},
+				batchv1.SchemeGroupVersion.WithKind("Job").String(): nil,
+			},
+			wantOpts: configapi.PodIntegrationOptions{
+				PodSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"podKey": "podValue"},
+				},
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"nsKey": "nsValue"},
+				},
+			},
+		},
+		"integrationOptions doesn't have podIntegrationOptions": {
+			integrationOpts: map[string]any{
+				batchv1.SchemeGroupVersion.WithKind("Job").String(): nil,
+			},
+			wantError: errPodOptsNotFound,
+		},
+		"podIntegrationOptions isn't of type PodIntegrationOptions": {
+			integrationOpts: map[string]any{
+				corev1.SchemeGroupVersion.WithKind("Pod").String(): &configapi.WaitForPodsReady{},
+			},
+			wantError: errPodOptsTypeAssertion,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotOpts, gotError := getPodOptions(tc.integrationOpts)
+			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("Unexpected error from getPodOptions (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantOpts, gotOpts, cmpopts.EquateEmpty()); len(diff) != 0 {
+				t.Errorf("Unexpected podIntegrationOptions from gotPodOptions (-want,+got):\n%s", diff)
 			}
 		})
 	}

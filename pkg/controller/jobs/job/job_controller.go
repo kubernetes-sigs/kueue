@@ -32,19 +32,19 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
 var (
-	parentWorkloadKey = ".metadata.parentWorkload"
-	gvk               = batchv1.SchemeGroupVersion.WithKind("Job")
+	gvk = batchv1.SchemeGroupVersion.WithKind("Job")
 
 	FrameworkName = "batch/job"
 )
@@ -75,11 +75,11 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(
+var NewReconciler = jobframework.NewGenericReconcilerFactory(
 	func() jobframework.GenericJob {
 		return &Job{}
-	}, func(c client.Client) handler.EventHandler {
-		return &parentWorkloadHandler{client: c}
+	}, func(b *builder.Builder, c client.Client) *builder.Builder {
+		return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
 	},
 )
 
@@ -116,7 +116,11 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, o
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Queueing reconcile for child jobs")
 	var childJobs batchv1.JobList
-	if err := h.client.List(ctx, &childJobs, client.InNamespace(w.Namespace), client.MatchingFields{parentWorkloadKey: w.Name}); err != nil {
+	owner := metav1.GetControllerOf(w)
+	if owner == nil {
+		return
+	}
+	if err := h.client.List(ctx, &childJobs, client.InNamespace(w.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: string(owner.UID)}); err != nil {
 		klog.Error(err, "Unable to list child jobs")
 		return
 	}
@@ -205,11 +209,27 @@ func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	}}, nil
 }
 
+// The following labels are managed internally by batch/job controller, we should not
+// propagate them to the workload.
+var (
+	// the legacy names are no longer defined in the api, only in k/2/apis/batch
+	legacyJobNameLabel       = "job-name"
+	legacyControllerUidLabel = "controller-uid"
+	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUidLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+)
+
+func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
+	for _, managedLabel := range ManagedLabels {
+		delete(pt.Labels, managedLabel)
+	}
+	return pt
+}
+
 func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
 			Name:     kueue.DefaultPodSetName,
-			Template: *j.Spec.Template.DeepCopy(),
+			Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
 			Count:    j.podsCount(),
 			MinCount: j.minPodsCount(),
 		},
@@ -247,7 +267,13 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
+	info := podSetsInfo[0]
+	for _, managedLabel := range ManagedLabels {
+		if v, found := j.Spec.Template.Labels[managedLabel]; found {
+			info.AddOrUpdateLabel(managedLabel, v)
+		}
+	}
+	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info) || changed
 	return changed
 }
 
@@ -308,19 +334,13 @@ func (j *Job) syncCompletionWithParallelism() bool {
 	return false
 }
 
-func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
-		job := fromObject(o)
-		if pwName := jobframework.ParentWorkloadName(job); pwName != "" {
-			return []string{pwName}
-		}
-		return nil
-	}); err != nil {
+func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {
+	if err := fieldIndexer.IndexField(ctx, &batchv1.Job{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID); err != nil {
 		return err
 	}
-	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+	return jobframework.SetupWorkloadOwnerIndex(ctx, fieldIndexer, gvk)
 }
 
-func GetWorkloadNameForJob(jobName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
+func GetWorkloadNameForJob(jobName string, jobUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }

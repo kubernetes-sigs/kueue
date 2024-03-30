@@ -23,11 +23,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func keyFunc(obj interface{}) string {
-	i := obj.(*workload.Info)
-	return workload.Key(i.Obj)
-}
-
 // Key is the key used to index the queue.
 func Key(q *kueue.LocalQueue) string {
 	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)

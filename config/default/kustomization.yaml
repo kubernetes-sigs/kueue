@@ -9,15 +9,15 @@ namespace: kueue-system
 namePrefix: kueue-
 
 # Labels to add to all resources and selectors.
-#commonLabels:
-#  someName: someValue
+commonLabels:
+  app.kubernetes.io/name: kueue
+  app.kubernetes.io/component: controller
 
 resources:
 - ../components/crd
 - ../components/rbac
 - ../components/manager
 - ../components/internalcert
-- ../components/visibility
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
 # ../components/crd/kustomization.yaml
 - ../components/webhook

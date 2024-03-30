@@ -1,0 +1,28 @@
+# permissions for end users to edit jobs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: '{{ include "kueue.fullname" . }}-raycluster-editor-role'
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.kueue.x-k8s.io/batch-user: "true"
+rules:
+  - apiGroups:
+      - ray.io
+    resources:
+      - rayclusters
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ray.io
+    resources:
+      - rayclusters/status
+    verbs:
+      - get

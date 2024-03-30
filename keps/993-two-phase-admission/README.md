@@ -150,7 +150,7 @@ const (
 // AdmissionCheckSpec defines the desired state of AdmissionCheck.
 type AdmissionCheckSpec struct {
 	// Name of the controller which will actually perform
-	// the checks. This is the name with which controller indentifies with,
+	// the checks. This is the name with which controller identifies with,
 	// not a K8S pod or deployment name. Cannot be empty. 
 	ControllerName string `json:"controllerName"`
 

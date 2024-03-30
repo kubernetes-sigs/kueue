@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -30,7 +31,7 @@ import (
 func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 	tests := map[string]struct {
 		reason           RequeueReason
-		lastAssignment   *workload.AssigmentClusterQueueState
+		lastAssignment   *workload.AssignmentClusterQueueState
 		wantInadmissible bool
 	}{
 		"failure after nomination": {
@@ -43,7 +44,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		},
 		"didn't fit and no pending flavors": {
 			reason: RequeueReasonGeneric,
-			lastAssignment: &workload.AssigmentClusterQueueState{
+			lastAssignment: &workload.AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceMemory: -1,
@@ -58,7 +59,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		},
 		"didn't fit but pending flavors": {
 			reason: RequeueReasonGeneric,
-			lastAssignment: &workload.AssigmentClusterQueueState{
+			lastAssignment: &workload.AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    -1,
@@ -75,11 +76,14 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq, _ := newClusterQueueBestEffortFIFO(&kueue.ClusterQueue{
-				Spec: kueue.ClusterQueueSpec{
-					QueueingStrategy: kueue.StrictFIFO,
+			cq, _ := newClusterQueueBestEffortFIFO(
+				&kueue.ClusterQueue{
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy: kueue.StrictFIFO,
+					},
 				},
-			})
+				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
+			)
 			wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 			info := workload.NewInfo(wl)
 			info.LastAssignment = tc.lastAssignment

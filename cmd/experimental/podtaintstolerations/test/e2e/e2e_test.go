@@ -179,7 +179,7 @@ var _ = ginkgo.Describe("Kueue Pod-Taints-Tolerations Controller", func() {
 
 				gomega.EventuallyWithOffset(1, func() bool {
 					return apierrors.IsNotFound(k8sClient.Get(ctx, podKey, &corev1.Pod{}))
-				}, util.Timeout, util.Interval).Should(gomega.Equal(true))
+				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 		})
 	})
@@ -190,7 +190,7 @@ func expectPodUnsuspendedWithTolerations(key types.NamespacedName, tolerations m
 	gomega.EventuallyWithOffset(1, func() bool {
 		gomega.Expect(k8sClient.Get(ctx, key, pod)).To(gomega.Succeed())
 		return isSuspended(pod)
-	}, util.Timeout, util.Interval).Should(gomega.Equal(false))
+	}, util.Timeout, util.Interval).Should(gomega.BeFalse())
 
 	gomega.EventuallyWithOffset(1, func() map[string]string {
 		gomega.Expect(k8sClient.Get(ctx, key, pod)).To(gomega.Succeed())

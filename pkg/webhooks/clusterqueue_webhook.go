@@ -33,10 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
-	isNegativeErrorMsg string = `must be greater than or equal to 0`
+	limitIsEmptyErrorMsg string = `must be nil when cohort is empty`
+	lendingLimitErrorMsg string = `must be less than or equal to the nominalQuota`
 )
 
 type ClusterQueueWebhook struct{}
@@ -65,6 +68,11 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 		cq.Spec.Preemption = &kueue.ClusterQueuePreemption{
 			WithinClusterQueue:  kueue.PreemptionPolicyNever,
 			ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+		}
+	}
+	if cq.Spec.Preemption.BorrowWithinCohort == nil {
+		cq.Spec.Preemption.BorrowWithinCohort = &kueue.BorrowWithinCohort{
+			Policy: kueue.BorrowWithinCohortPolicyNever,
 		}
 	}
 	if cq.Spec.FlavorFungibility == nil {
@@ -112,10 +120,12 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	if len(cq.Spec.Cohort) != 0 {
 		allErrs = append(allErrs, validateNameReference(cq.Spec.Cohort, path.Child("cohort"))...)
 	}
-	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
+	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, cq.Spec.Cohort, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
-
+	if cq.Spec.Preemption != nil {
+		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
+	}
 	return allErrs
 }
 
@@ -130,7 +140,17 @@ func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorL
 	return allErrs
 }
 
-func validateResourceGroups(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
+func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if preemption.ReclaimWithinCohort == kueue.PreemptionPolicyNever &&
+		preemption.BorrowWithinCohort != nil &&
+		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
+		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
+	}
+	return allErrs
+}
+
+func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cohort string, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	seenResources := sets.New[corev1.ResourceName]()
 	seenFlavors := sets.New[kueue.ResourceFlavorReference]()
@@ -148,7 +168,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, path *field.Pa
 		}
 		for j, fqs := range rg.Flavors {
 			path := path.Child("flavors").Index(j)
-			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, path)...)
+			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, cohort, path)...)
 			if seenFlavors.Has(fqs.Name) {
 				allErrs = append(allErrs, field.Duplicate(path.Child("name"), fqs.Name))
 			} else {
@@ -159,7 +179,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, path *field.Pa
 	return allErrs
 }
 
-func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, path *field.Path) field.ErrorList {
+func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, cohort string, path *field.Path) field.ErrorList {
 	allErrs := validateNameReference(string(flavorQuotas.Name), path.Child("name"))
 	if len(flavorQuotas.Resources) != len(coveredResources) {
 		allErrs = append(allErrs, field.Invalid(path.Child("resources"), field.OmitValueType{}, "must have the same number of resources as the coveredResources"))
@@ -175,7 +195,15 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 		}
 		allErrs = append(allErrs, validateResourceQuantity(rq.NominalQuota, path.Child("nominalQuota"))...)
 		if rq.BorrowingLimit != nil {
-			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, path.Child("borrowingLimit"))...)
+			borrowingLimitPath := path.Child("borrowingLimit")
+			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, borrowingLimitPath)...)
+			allErrs = append(allErrs, validateLimit(*rq.BorrowingLimit, cohort, borrowingLimitPath)...)
+		}
+		if features.Enabled(features.LendingLimit) && rq.LendingLimit != nil {
+			lendingLimitPath := path.Child("lendingLimit")
+			allErrs = append(allErrs, validateResourceQuantity(*rq.LendingLimit, lendingLimitPath)...)
+			allErrs = append(allErrs, validateLimit(*rq.LendingLimit, cohort, lendingLimitPath)...)
+			allErrs = append(allErrs, validateLendingLimit(*rq.LendingLimit, rq.NominalQuota, lendingLimitPath)...)
 		}
 	}
 	return allErrs
@@ -185,7 +213,25 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if value.Cmp(resource.Quantity{}) < 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), isNegativeErrorMsg))
+		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), constants.IsNegativeErrorMsg))
+	}
+	return allErrs
+}
+
+// validateLimit enforces that BorrowingLimit or LendingLimit must be nil when cohort is empty
+func validateLimit(limit resource.Quantity, cohort string, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if len(cohort) == 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath, limit.String(), limitIsEmptyErrorMsg))
+	}
+	return allErrs
+}
+
+// validateLendingLimit enforces that LendingLimit is not greater than NominalQuota
+func validateLendingLimit(lend, nominal resource.Quantity, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if lend.Cmp(nominal) > 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath, lend.String(), lendingLimitErrorMsg))
 	}
 	return allErrs
 }

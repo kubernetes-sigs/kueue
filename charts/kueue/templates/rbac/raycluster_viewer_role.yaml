@@ -1,0 +1,23 @@
+# permissions for end users to view jobs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: '{{ include "kueue.fullname" . }}-raycluster-viewer-role'
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+rules:
+  - apiGroups:
+      - ray.io
+    resources:
+      - rayclusters
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ray.io
+    resources:
+      - rayclusters/status
+    verbs:
+      - get

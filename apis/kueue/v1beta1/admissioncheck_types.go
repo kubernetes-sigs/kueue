@@ -25,16 +25,14 @@ type CheckState string
 const (
 	// CheckStateRetry means that the check cannot pass at this moment, back off (possibly
 	// allowing other to try, unblock quota) and retry.
-	// A workload having at least one check in the state,
-	// will be evicted if admitted will not be considered
-	// for admission.
+	// A workload having at least one check in this state will be evicted if admitted and
+	// will not be considered for admission while the check is in this state.
 	CheckStateRetry CheckState = "Retry"
 
 	// CheckStateRejected means that the check will not pass in the near future. It is not worth
 	// to retry.
-	// NOTE: The admission behaviour is currently the same as for retry,
-	// we can consider marking the workload as "Finished" with a failure
-	// description.
+	// A workload having at least one check in this state will be evicted if admitted and
+	// will be marked as Finished.
 	CheckStateRejected CheckState = "Rejected"
 
 	// CheckStatePending means that the check still hasn't been performed and the state can be
@@ -92,14 +90,20 @@ const (
 	// AdmissionCheckActive indicates that the controller of the admission check is
 	// ready to evaluate the checks states
 	AdmissionCheckActive string = "Active"
+
+	// AdmissionChecksSingleInstanceInClusterQueue indicates if the AdmissionCheck should be the only
+	// one managed by the same controller (as determined by the controllerName field) in a ClusterQueue.
+	// Having multiple AdmissionChecks managed by the same controller where at least one has this condition
+	// set to true will cause the ClusterQueue to be marked as Inactive.
+	AdmissionChecksSingleInstanceInClusterQueue string = "SingleInstanceInClusterQueue"
 )
 
-//+genclient
-//+genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:storageversion
-//+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
 
 // AdmissionCheck is the Schema for the admissionchecks API
 type AdmissionCheck struct {
@@ -110,7 +114,7 @@ type AdmissionCheck struct {
 	Status AdmissionCheckStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // AdmissionCheckList contains a list of AdmissionCheck
 type AdmissionCheckList struct {

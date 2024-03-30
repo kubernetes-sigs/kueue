@@ -213,6 +213,64 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: nil,
 		},
+		"no supported waitForPodsReady.requeuingStrategy.timestamp": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						Timestamp: ptr.To[configapi.RequeuingTimestamp]("NoSupported"),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "waitForPodsReady.requeuingStrategy.timestamp",
+				},
+			},
+		},
+		"supported waitForPodsReady.requeuingStrategy.timestamp": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						Timestamp: ptr.To(configapi.CreationTimestamp),
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		"non-negative waitForPodsReady.requeuingStrategy.backoffLimitCount": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						BackoffLimitCount: ptr.To[int32](10),
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		"negative waitForPodsReady.requeuingStrategy.backoffLimitCount": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						BackoffLimitCount: ptr.To[int32](-1),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.requeuingStrategy.backoffLimitCount",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {

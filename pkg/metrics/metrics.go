@@ -24,6 +24,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 type AdmissionResult string
@@ -54,7 +55,7 @@ const (
 var (
 	CQStatuses = []ClusterQueueStatus{CQStatusPending, CQStatusActive, CQStatusTerminating}
 
-	admissionAttemptsTotal = prometheus.NewCounterVec(
+	AdmissionAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_attempts_total",
@@ -165,10 +166,18 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 			Help:      `Reports the cluster_queue's resource borrowing limit within all the flavors`,
 		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
 	)
+
+	ClusterQueueResourceLendingLimit = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cluster_queue_lending_limit",
+			Help:      `Reports the cluster_queue's resource lending limit within all the flavors`,
+		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
+	)
 )
 
 func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
-	admissionAttemptsTotal.WithLabelValues(string(result)).Inc()
+	AdmissionAttemptsTotal.WithLabelValues(string(result)).Inc()
 	admissionAttemptDuration.WithLabelValues(string(result)).Observe(duration.Seconds())
 }
 
@@ -207,9 +216,12 @@ func ClearCacheMetrics(cqName string) {
 	}
 }
 
-func ReportClusterQueueQuotas(cohort, queue, flavor, resource string, nominal, borrowing float64) {
+func ReportClusterQueueQuotas(cohort, queue, flavor, resource string, nominal, borrowing, lending float64) {
 	ClusterQueueResourceNominalQuota.WithLabelValues(cohort, queue, flavor, resource).Set(nominal)
 	ClusterQueueResourceBorrowingLimit.WithLabelValues(cohort, queue, flavor, resource).Set(borrowing)
+	if features.Enabled(features.LendingLimit) {
+		ClusterQueueResourceLendingLimit.WithLabelValues(cohort, queue, flavor, resource).Set(lending)
+	}
 }
 
 func ReportClusterQueueResourceReservations(cohort, queue, flavor, resource string, usage float64) {
@@ -226,6 +238,9 @@ func ClearClusterQueueResourceMetrics(cqName string) {
 	}
 	ClusterQueueResourceNominalQuota.DeletePartialMatch(lbls)
 	ClusterQueueResourceBorrowingLimit.DeletePartialMatch(lbls)
+	if features.Enabled(features.LendingLimit) {
+		ClusterQueueResourceLendingLimit.DeletePartialMatch(lbls)
+	}
 	ClusterQueueResourceUsage.DeletePartialMatch(lbls)
 	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
 }
@@ -242,6 +257,9 @@ func ClearClusterQueueResourceQuotas(cqName, flavor, resource string) {
 
 	ClusterQueueResourceNominalQuota.DeletePartialMatch(lbls)
 	ClusterQueueResourceBorrowingLimit.DeletePartialMatch(lbls)
+	if features.Enabled(features.LendingLimit) {
+		ClusterQueueResourceLendingLimit.DeletePartialMatch(lbls)
+	}
 }
 
 func ClearClusterQueueResourceUsage(cqName, flavor, resource string) {
@@ -272,7 +290,7 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 
 func Register() {
 	metrics.Registry.MustRegister(
-		admissionAttemptsTotal,
+		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		PendingWorkloads,
 		ReservingActiveWorkloads,
@@ -283,5 +301,6 @@ func Register() {
 		ClusterQueueResourceReservations,
 		ClusterQueueResourceNominalQuota,
 		ClusterQueueResourceBorrowingLimit,
+		ClusterQueueResourceLendingLimit,
 	)
 }

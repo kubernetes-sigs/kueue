@@ -69,6 +69,20 @@ const (
 	//
 	// Enable priority sorting within the cohort.
 	PrioritySortingWithinCohort featuregate.Feature = "PrioritySortingWithinCohort"
+
+	// owner: @trasc
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
+	// alpha: v0.6
+	//
+	// Enables MultiKueue support.
+	MultiKueue featuregate.Feature = "MultiKueue"
+
+	// owners: @B1F030, @kerthcet
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1224-lending-limit
+	// alpha: v0.6
+	//
+	// Enables lending limit.
+	LendingLimit featuregate.Feature = "LendingLimit"
 )
 
 func init() {
@@ -88,6 +102,8 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	ProvisioningACC:             {Default: false, PreRelease: featuregate.Alpha},
 	VisibilityOnDemand:          {Default: false, PreRelease: featuregate.Alpha},
 	PrioritySortingWithinCohort: {Default: true, PreRelease: featuregate.Beta},
+	MultiKueue:                  {Default: false, PreRelease: featuregate.Alpha},
+	LendingLimit:                {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {

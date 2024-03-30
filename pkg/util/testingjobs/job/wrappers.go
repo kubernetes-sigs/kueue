@@ -76,7 +76,7 @@ func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
 	return j
 }
 
-func (j *JobWrapper) TerimnationGracePeriod(seconds int64) *JobWrapper {
+func (j *JobWrapper) TerminationGracePeriod(seconds int64) *JobWrapper {
 	j.Spec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
 	return j
 }
@@ -137,12 +137,6 @@ func (j *JobWrapper) Label(key, value string) *JobWrapper {
 // QueueNameAnnotation updates the queue name of the job by annotation (deprecated)
 func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
 	return j.SetAnnotation(constants.QueueAnnotation, queue)
-}
-
-// ParentWorkload sets the parent-workload annotation
-func (j *JobWrapper) ParentWorkload(parentWorkload string) *JobWrapper {
-	j.Annotations[constants.ParentWorkloadAnnotation] = parentWorkload
-	return j
 }
 
 func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
@@ -206,6 +200,11 @@ func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersi
 	return j
 }
 
+func (j *JobWrapper) Containers(containers ...corev1.Container) *JobWrapper {
+	j.Spec.Template.Spec.Containers = containers
+	return j
+}
+
 // UID updates the uid of the job.
 func (j *JobWrapper) UID(uid string) *JobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
@@ -228,4 +227,18 @@ func (j *JobWrapper) Active(c int32) *JobWrapper {
 func (j *JobWrapper) Condition(c batchv1.JobCondition) *JobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
 	return j
+}
+
+func SetContainerDefaults(c *corev1.Container) {
+	if c.TerminationMessagePath == "" {
+		c.TerminationMessagePath = "/dev/termination-log"
+	}
+
+	if c.TerminationMessagePolicy == "" {
+		c.TerminationMessagePolicy = corev1.TerminationMessageReadFile
+	}
+
+	if c.ImagePullPolicy == "" {
+		c.ImagePullPolicy = corev1.PullIfNotPresent
+	}
 }

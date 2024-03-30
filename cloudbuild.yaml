@@ -8,6 +8,8 @@ steps:
     entrypoint: make
     args:
       - image-push
+      - debug-image-push
+      - importer-image-push
     env:
       - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
       - GIT_TAG=$_GIT_TAG

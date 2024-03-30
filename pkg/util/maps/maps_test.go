@@ -105,7 +105,7 @@ func TestContains(t *testing.T) {
 			},
 			wantResult: true,
 		},
-		"missmatch": {
+		"mismatch": {
 			a: map[string]int{
 				"v1": 1,
 				"v2": 3,

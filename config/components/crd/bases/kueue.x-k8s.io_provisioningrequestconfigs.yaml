@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.14.0
   name: provisioningrequestconfigs.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -21,14 +21,19 @@ spec:
           API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
@@ -37,12 +42,19 @@ spec:
               ProvisioningRequestConfig
             properties:
               managedResources:
-                description: "managedResources contains the list of resources managed
-                  by the autoscaling. \n If empty, all resources are considered managed.
-                  \n If not empty, the ProvisioningRequest will contain only the podsets
-                  that are requesting at least one of them. \n If none of the workloads
-                  podsets is requesting at least a managed resource, the workload
-                  is considered ready."
+                description: |-
+                  managedResources contains the list of resources managed by the autoscaling.
+
+
+                  If empty, all resources are considered managed.
+
+
+                  If not empty, the ProvisioningRequest will contain only the podsets that are
+                  requesting at least one of them.
+
+
+                  If none of the workloads podsets is requesting at least a managed resource,
+                  the workload is considered ready.
                 items:
                   description: ResourceName is the name identifying various resources
                     in a ResourceList.
@@ -60,9 +72,9 @@ spec:
                 maxProperties: 100
                 type: object
               provisioningClassName:
-                description: ProvisioningClassName describes the different modes of
-                  provisioning the resources. Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName
-                  for details.
+                description: |-
+                  ProvisioningClassName describes the different modes of provisioning the resources.
+                  Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for details.
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string

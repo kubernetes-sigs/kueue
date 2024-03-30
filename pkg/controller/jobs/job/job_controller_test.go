@@ -26,10 +26,11 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -378,6 +379,20 @@ var (
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 	}
+	workloadCmpOptsWithOwner = []cmp.Option{
+		cmpopts.EquateEmpty(),
+		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
+			return a.Name < b.Name
+		}),
+		cmpopts.SortSlices(func(a, b metav1.Condition) bool {
+			return a.Type < b.Type
+		}),
+		cmpopts.IgnoreFields(
+			kueue.Workload{}, "TypeMeta", "ObjectMeta.Name", "ObjectMeta.ResourceVersion",
+		),
+		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
+	}
 )
 
 func TestReconciler(t *testing.T) {
@@ -387,6 +402,11 @@ func TestReconciler(t *testing.T) {
 		Parallelism(10).
 		Request(corev1.ResourceCPU, "1").
 		Image("", nil)
+
+	baseWorkloadWrapper := utiltesting.MakeWorkload("wl", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj())
 
 	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)
@@ -398,11 +418,45 @@ func TestReconciler(t *testing.T) {
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
 		workloads         []kueue.Workload
+		otherJobs         []batchv1.Job
 		priorityClasses   []client.Object
 		wantJob           batchv1.Job
 		wantWorkloads     []kueue.Workload
+		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
+		"when workload is created, it has its owner ProvReq annotations": {
+			job: *baseJobWrapper.Clone().
+				SetAnnotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+				SetAnnotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+				SetAnnotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+				UID("test-uid").
+				Suspend(true).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").
+					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("foo").
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Obj(),
+			},
+
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+				},
+			},
+		},
 		"when workload is admitted the PodSetUpdates are propagated to job": {
 			job: *baseJobWrapper.Clone().
 				Obj(),
@@ -411,9 +465,7 @@ func TestReconciler(t *testing.T) {
 				PodLabel("ac-key", "ac-value").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
@@ -430,10 +482,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
@@ -449,6 +498,14 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
 		"when workload is admitted and spec.active is set to false, the workload's conditions is set to Evicted": {
 			job: *baseJobWrapper.Clone().
@@ -458,9 +515,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Active(false).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -475,10 +530,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Active(false).
 					Condition(metav1.Condition{
@@ -507,9 +559,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(true).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Active(false).
 					Condition(metav1.Condition{
@@ -533,10 +583,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Active(false).
 					Condition(metav1.Condition{
@@ -571,6 +618,14 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The workload is deactivated",
+				},
+			},
 		},
 		"when job is initially suspended, the Workload has active=false and it's not admitted, " +
 			"it should not get an evicted condition, but the job should remain suspended": {
@@ -581,9 +636,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(true).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Active(false).
 					Queue("foo").
@@ -614,10 +667,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Active(false).
 					Queue("foo").
@@ -655,9 +705,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(true).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
@@ -686,10 +734,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
@@ -723,6 +768,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantErr: podset.ErrInvalidPodSetUpdate,
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission checks on annotations, the workload is finished with failure": {
 			job: *baseJobWrapper.Clone().
@@ -731,9 +777,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(true).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
@@ -762,10 +806,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
@@ -799,6 +840,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantErr: podset.ErrInvalidPodSetUpdate,
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission checks on nodeSelector, the workload is finished with failure": {
 			job: *baseJobWrapper.Clone().
@@ -807,9 +849,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(true).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
@@ -838,10 +878,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
@@ -875,6 +912,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantErr: podset.ErrInvalidPodSetUpdate,
 		},
 		"when workload is admitted and PodSetUpdates conflict between admission check nodeSelector and current node selector, the workload is finished with failure": {
 			job: *baseJobWrapper.Clone().
@@ -885,9 +923,7 @@ func TestReconciler(t *testing.T) {
 				NodeSelector("provisioning", "spot").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
@@ -904,10 +940,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check",
@@ -929,6 +962,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantErr: podset.ErrInvalidPodSetUpdate,
 		},
 		"when workload is admitted the PodSetUpdates values matching for key": {
 			job: *baseJobWrapper.Clone().
@@ -942,9 +976,7 @@ func TestReconciler(t *testing.T) {
 				NodeSelector("node-selector-key2", "only-in-check2").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
@@ -987,10 +1019,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:  "check1",
@@ -1031,6 +1060,14 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
 			},
 		},
 		"suspended job with matching admitted workload is unsuspended": {
@@ -1042,19 +1079,22 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
 			},
 		},
 		"non-matching admitted workload is deleted": {
@@ -1064,13 +1104,20 @@ func TestReconciler(t *testing.T) {
 			job:     *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*baseWorkloadWrapper.Clone().
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/wl",
+				},
+			},
 		},
 		"non-matching non-admitted workload is updated": {
 			reconcilerOptions: []jobframework.Option{
@@ -1079,17 +1126,27 @@ func TestReconciler(t *testing.T) {
 			job:     *baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					Priority(0).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(0).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/a",
+				},
 			},
 		},
 		"suspended job with partial admission and admitted workload is unsuspended": {
@@ -1105,14 +1162,15 @@ func TestReconciler(t *testing.T) {
 				Parallelism(8).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
@@ -1123,6 +1181,14 @@ func TestReconciler(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
 					Admitted(true).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
 			},
 		},
 		"unsuspended job with partial admission and non-matching admitted workload is suspended and workload is deleted": {
@@ -1137,7 +1203,8 @@ func TestReconciler(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							SetMinimumCount(5).
@@ -1149,6 +1216,20 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload; restoring pod templates according to existent Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/a",
+				},
+			},
 		},
 		"the workload is created when queue name is set": {
 			job: *baseJobWrapper.
@@ -1163,7 +1244,8 @@ func TestReconciler(t *testing.T) {
 				UID("test-uid").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
@@ -1171,6 +1253,20 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Missing Workload; unable to restore pod templates",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+				},
 			},
 		},
 		"the workload is updated when queue name has changed for suspended job": {
@@ -1186,7 +1282,8 @@ func TestReconciler(t *testing.T) {
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
@@ -1196,7 +1293,8 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue-new").
 					Priority(0).
@@ -1217,7 +1315,8 @@ func TestReconciler(t *testing.T) {
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(0).
@@ -1228,7 +1327,8 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("foo").
 					Priority(0).
@@ -1252,12 +1352,27 @@ func TestReconciler(t *testing.T) {
 				UID(strings.Repeat("long-uid", 8)).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
 					Labels(map[string]string{}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Missing Workload; unable to restore pod templates",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID(strings.Repeat("long-uid", 8))),
+				},
 			},
 		},
 		"the workload is not created when queue name is not set": {
@@ -1268,34 +1383,29 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				Obj(),
 		},
-		"should get error if child job owner not found": {
-			job: *utiltestingjob.MakeJob("job", "ns").
-				ParentWorkload("non-existing-parent-workload").
-				Obj(),
-			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
-			wantErr: jobframework.ErrChildJobOwnerNotFound,
-		},
-		"should get error if workload owner is unknown": {
-			job: *utiltestingjob.MakeJob("job", "ns").
-				ParentWorkload("non-existing-parent-workload").
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("CronJob")).
-				Obj(),
-			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
-			wantErr: jobframework.ErrUnknownWorkloadOwner,
-		},
 		"non-standalone job is suspended if its parent workload is not found": {
-			reconcilerOptions: []jobframework.Option{
-				jobframework.WithManageJobsWithoutQueueName(true),
-			},
 			job: *baseJobWrapper.
 				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
-				ParentWorkload("unit-test").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				ParentWorkload("unit-test").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					Queue("queue").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Suspended",
+					Message:   "Kueue managed child job suspended",
+				},
+			},
 		},
 		"non-standalone job is not suspended if its parent workload is admitted": {
 			reconcilerOptions: []jobframework.Option{
@@ -1303,19 +1413,25 @@ func TestReconciler(t *testing.T) {
 			},
 			job: *baseJobWrapper.
 				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
-				ParentWorkload("unit-test").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
-				ParentWorkload("unit-test").
 				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					Queue("queue").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1323,6 +1439,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 		},
@@ -1332,48 +1449,74 @@ func TestReconciler(t *testing.T) {
 			},
 			job: *baseJobWrapper.
 				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
-				ParentWorkload("parent-workload").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				ParentWorkload("unit-test").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					Queue("queue").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("parent-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("parent-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Suspended",
+					Message:   "Kueue managed child job suspended",
+				},
 			},
 		},
 		"non-standalone job is not suspended if its parent workload is admitted and queue name is set": {
 			job: *baseJobWrapper.
 				Clone().
 				Suspend(false).
-				ParentWorkload("parent-workload").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Queue("test-queue").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
 				Suspend(false).
-				ParentWorkload("parent-workload").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Queue("test-queue").
 				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					Queue("queue").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("parent-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("parent-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Admitted(true).
 					Obj(),
 			},
@@ -1393,23 +1536,34 @@ func TestReconciler(t *testing.T) {
 				Parallelism(5).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("first-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("first-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
 					Admitted(true).
 					Obj(),
-				*utiltesting.MakeWorkload("second-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("second-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("first-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("first-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
 					Admitted(true).
 					Obj(),
 			},
 			wantErr: jobframework.ErrExtraWorkloads,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/second-workload",
+				},
+			},
 		},
 		"when workload is evicted, suspend, reset startTime and restore node affinity": {
 			job: *baseJobWrapper.Clone().
@@ -1419,10 +1573,7 @@ func TestReconciler(t *testing.T) {
 				Active(10).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
@@ -1435,15 +1586,20 @@ func TestReconciler(t *testing.T) {
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+				},
 			},
 		},
 		"when workload is evicted but suspended, reset startTime and restore node affinity": {
@@ -1454,9 +1610,7 @@ func TestReconciler(t *testing.T) {
 				Active(10).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
@@ -1469,9 +1623,7 @@ func TestReconciler(t *testing.T) {
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
@@ -1487,9 +1639,7 @@ func TestReconciler(t *testing.T) {
 				Active(10).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
@@ -1502,9 +1652,7 @@ func TestReconciler(t *testing.T) {
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
@@ -1518,10 +1666,7 @@ func TestReconciler(t *testing.T) {
 				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Obj(),
 			},
@@ -1529,10 +1674,7 @@ func TestReconciler(t *testing.T) {
 				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
@@ -1542,11 +1684,19 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/wl' is declared finished",
+				},
+			},
 		},
 		"when the workload is finished, its finalizer is removed": {
 			job: *baseJobWrapper.Clone().Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Condition(metav1.Condition{
@@ -1564,6 +1714,14 @@ func TestReconciler(t *testing.T) {
 						Status: metav1.ConditionTrue,
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/a' is declared finished",
+				},
 			},
 		},
 		"the workload is created when queue name is set, with workloadPriorityClass": {
@@ -1584,7 +1742,8 @@ func TestReconciler(t *testing.T) {
 				WorkloadPriorityClass("test-wpc").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
@@ -1594,6 +1753,20 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Missing Workload; unable to restore pod templates",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+				},
 			},
 		},
 		"the workload is created when queue name is set, with PriorityClass": {
@@ -1614,7 +1787,8 @@ func TestReconciler(t *testing.T) {
 				PriorityClass("test-pc").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-pc").
@@ -1624,6 +1798,20 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Missing Workload; unable to restore pod templates",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+				},
 			},
 		},
 		"the workload is created when queue name is set, with workloadPriorityClass and PriorityClass": {
@@ -1646,7 +1834,8 @@ func TestReconciler(t *testing.T) {
 				PriorityClass("test-pc").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					PriorityClass("test-wpc").
@@ -1656,6 +1845,20 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Missing Workload; unable to restore pod templates",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+				},
 			},
 		},
 		"the workload shouldn't be recreated for the completed job": {
@@ -1668,32 +1871,370 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{},
 		},
+		"when the prebuilt workload is missing, no new one is created and the job is suspended": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
+				UID("test-uid").
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
+			},
+		},
+		"when the prebuilt workload exists its owner info is updated": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Not admitted by cluster queue",
+				},
+			},
+		},
+		"when the prebuilt workload is owned by another object": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "other-job", "other-uid").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "other-job", "other-uid").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
+			},
+		},
+		"when the prebuilt workload is not equivalent to the job": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "OutOfSync",
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
+			},
+		},
+		"the workload is not admitted and tolerations change": {
+			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey1",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey2",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
+				},
+			},
+		},
+		"the workload is admitted and tolerations change": {
+			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey1",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey1",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+						},
+						Count: ptr.To[int32](10),
+					}).Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload; restoring pod templates according to existent Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
+				},
+			},
+			wantErr: jobframework.ErrNoMatchingWorkloads,
+		},
+		"the workload is admitted, job still suspended and tolerations change": {
+			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).
+				Suspend(true).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey1",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+						},
+						Count: ptr.To[int32](10),
+					}).Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
+				},
+			},
+			wantErr: jobframework.ErrNoMatchingWorkloads,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder()
+			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			objs := append(tc.priorityClasses, &tc.job)
+			objs := append(tc.priorityClasses, &tc.job, utiltesting.MakeResourceFlavor("default").Obj())
 			kcBuilder := clientBuilder.
 				WithObjects(objs...)
+
+			if len(tc.otherJobs) > 0 {
+				kcBuilder = kcBuilder.WithLists(&batchv1.JobList{Items: tc.otherJobs})
+			}
 
 			for i := range tc.workloads {
 				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
 			}
 
+			// For prebuilt workloads we are skipping the ownership setup in the test body and
+			// expect the reconciler to do it.
+			_, useesPrebuiltWorkload := tc.job.Labels[controllerconsts.PrebuiltWorkloadLabel]
+
 			kClient := kcBuilder.Build()
 			for i := range tc.workloads {
-				if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
-					t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+				controller := metav1.GetControllerOfNoCopy(&tc.workloads[i])
+				if !useesPrebuiltWorkload && controller == nil {
+					if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
+						t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+					}
 				}
 				if err := kClient.Create(ctx, &tc.workloads[i]); err != nil {
 					t.Fatalf("Could not create workload: %v", err)
 				}
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 
 			jobKey := client.ObjectKeyFromObject(&tc.job)
@@ -1715,8 +2256,18 @@ func TestReconciler(t *testing.T) {
 			if err := kClient.List(ctx, &gotWorkloads); err != nil {
 				t.Fatalf("Could not get Workloads after reconcile: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, workloadCmpOpts...); diff != "" {
+
+			wlCheckOpts := workloadCmpOpts
+			if useesPrebuiltWorkload {
+				wlCheckOpts = workloadCmpOptsWithOwner
+			}
+
+			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, wlCheckOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}

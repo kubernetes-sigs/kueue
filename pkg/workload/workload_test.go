@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -254,7 +255,7 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			workload := utiltesting.MakeWorkload("foo", "bar").Obj()
 			workload.Status = tc.oldStatus
-			cl := utiltesting.NewFakeClient(workload)
+			cl := utiltesting.NewFakeClientSSAAsSM(workload)
 			ctx := context.Background()
 			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix")
 			if err != nil {
@@ -272,17 +273,26 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 }
 
 func TestGetQueueOrderTimestamp(t *testing.T) {
+	var (
+		evictionOrdering = Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp}
+		creationOrdering = Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp}
+	)
+
 	creationTime := metav1.Now()
 	conditionTime := metav1.NewTime(time.Now().Add(time.Hour))
+
 	cases := map[string]struct {
 		wl   *kueue.Workload
-		want metav1.Time
+		want map[Ordering]metav1.Time
 	}{
 		"no condition": {
 			wl: utiltesting.MakeWorkload("name", "ns").
 				Creation(creationTime.Time).
 				Obj(),
-			want: creationTime,
+			want: map[Ordering]metav1.Time{
+				evictionOrdering: creationTime,
+				creationOrdering: creationTime,
+			},
 		},
 		"evicted by preemption": {
 			wl: utiltesting.MakeWorkload("name", "ns").
@@ -294,7 +304,10 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 					Reason:             kueue.WorkloadEvictedByPreemption,
 				}).
 				Obj(),
-			want: creationTime,
+			want: map[Ordering]metav1.Time{
+				evictionOrdering: creationTime,
+				creationOrdering: creationTime,
+			},
 		},
 		"evicted by PodsReady timeout": {
 			wl: utiltesting.MakeWorkload("name", "ns").
@@ -306,7 +319,10 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
 				}).
 				Obj(),
-			want: conditionTime,
+			want: map[Ordering]metav1.Time{
+				evictionOrdering: conditionTime,
+				creationOrdering: creationTime,
+			},
 		},
 		"after eviction": {
 			wl: utiltesting.MakeWorkload("name", "ns").
@@ -318,14 +334,19 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
 				}).
 				Obj(),
-			want: creationTime,
+			want: map[Ordering]metav1.Time{
+				evictionOrdering: creationTime,
+				creationOrdering: creationTime,
+			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotTime := GetQueueOrderTimestamp(tc.wl)
-			if diff := cmp.Diff(*gotTime, tc.want); diff != "" {
-				t.Errorf("Unexpected time (-want,+got):\n%s", diff)
+			for ordering, want := range tc.want {
+				gotTime := ordering.GetQueueOrderTimestamp(tc.wl)
+				if diff := cmp.Diff(*gotTime, want); diff != "" {
+					t.Errorf("Unexpected time (-want,+got):\n%s", diff)
+				}
 			}
 		})
 	}
@@ -344,17 +365,17 @@ func TestReclaimablePodsAreEqual(t *testing.T) {
 			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
 			wantResult: false,
 		},
-		"one value missmatch": {
+		"one value mismatch": {
 			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
 			b:          []kueue.ReclaimablePod{{Name: "rp2", Count: 1}, {Name: "rp1", Count: 1}},
 			wantResult: false,
 		},
-		"one name missmatch": {
+		"one name mismatch": {
 			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
 			b:          []kueue.ReclaimablePod{{Name: "rp3", Count: 3}, {Name: "rp1", Count: 1}},
 			wantResult: false,
 		},
-		"length missmatch": {
+		"length mismatch": {
 			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
 			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
 			wantResult: false,
@@ -377,14 +398,14 @@ func TestReclaimablePodsAreEqual(t *testing.T) {
 
 func TestAssignmentClusterQueueState(t *testing.T) {
 	cases := map[string]struct {
-		state              *AssigmentClusterQueueState
+		state              *AssignmentClusterQueueState
 		wantPendingFlavors bool
 	}{
 		"no info": {
 			wantPendingFlavors: false,
 		},
 		"all done": {
-			state: &AssigmentClusterQueueState{
+			state: &AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    -1,
@@ -398,7 +419,7 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			wantPendingFlavors: false,
 		},
 		"some pending": {
-			state: &AssigmentClusterQueueState{
+			state: &AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    0,
@@ -412,7 +433,7 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			wantPendingFlavors: true,
 		},
 		"all pending": {
-			state: &AssigmentClusterQueueState{
+			state: &AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    1,
@@ -431,6 +452,134 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			got := tc.state.PendingFlavors()
 			if got != tc.wantPendingFlavors {
 				t.Errorf("state.PendingFlavors() = %t, want %t", got, tc.wantPendingFlavors)
+			}
+		})
+	}
+}
+
+func TestHasRequeueState(t *testing.T) {
+	cases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"workload has requeue state": {
+			workload: utiltesting.MakeWorkload("test", "test").RequeueState(ptr.To[int32](5), ptr.To(metav1.Now())).Obj(),
+			want:     true,
+		},
+		"workload doesn't have requeue state": {
+			workload: utiltesting.MakeWorkload("test", "test").RequeueState(nil, nil).Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := HasRequeueState(tc.workload)
+			if tc.want != got {
+				t.Errorf("Unexpected result from HasRequeueState\nwant:%v\ngot:%v\n", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestIsEvictedByDeactivation(t *testing.T) {
+	cases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"evicted condition doesn't exist": {
+			workload: utiltesting.MakeWorkload("test", "test").Obj(),
+		},
+		"evicted condition with false status": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByDeactivation,
+					Status: metav1.ConditionFalse,
+				}).
+				Obj(),
+		},
+		"evicted condition with PodsReadyTimeout reason": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+		},
+		"evicted condition with InactiveWorkload reason": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByDeactivation,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			want: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IsEvictedByDeactivation(tc.workload)
+			if tc.want != got {
+				t.Errorf("Unexpected result from IsEvictedByDeactivation\nwant:%v\ngot:%v\n", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
+	cases := map[string]struct {
+		workload             *kueue.Workload
+		wantEvictedByTimeout bool
+		wantCondition        *metav1.Condition
+	}{
+		"evicted condition doesn't exist": {
+			workload: utiltesting.MakeWorkload("test", "test").Obj(),
+		},
+		"evicted condition with false status": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					Status: metav1.ConditionFalse,
+				}).
+				Obj(),
+		},
+		"evicted condition with Preempted reason": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPreemption,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+		},
+		"evicted condition with PodsReadyTimeout reason": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			wantEvictedByTimeout: true,
+			wantCondition: &metav1.Condition{
+				Type:   kueue.WorkloadEvicted,
+				Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+				Status: metav1.ConditionTrue,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotCondition, gotEvictedByTimeout := IsEvictedByPodsReadyTimeout(tc.workload)
+			if tc.wantEvictedByTimeout != gotEvictedByTimeout {
+				t.Errorf("Unexpected evictedByTimeout from IsEvictedByPodsReadyTimeout\nwant:%v\ngot:%v\n",
+					tc.wantEvictedByTimeout, gotEvictedByTimeout)
+			}
+			if diff := cmp.Diff(tc.wantCondition, gotCondition,
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); len(diff) != 0 {
+				t.Errorf("Unexpected condition from IsEvictedByPodsReadyTimeout: (-want,+got):\n%s", diff)
 			}
 		})
 	}

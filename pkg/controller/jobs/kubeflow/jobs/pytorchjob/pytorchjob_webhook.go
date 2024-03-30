@@ -36,10 +36,7 @@ type PyTorchJobWebhook struct {
 
 // SetupPyTorchJobWebhook configures the webhook for kubeflow PyTorchJob.
 func SetupPyTorchJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &PyTorchJobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}

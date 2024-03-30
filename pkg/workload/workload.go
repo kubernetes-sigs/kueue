@@ -28,9 +28,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 )
@@ -39,14 +42,14 @@ var (
 	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
 )
 
-type AssigmentClusterQueueState struct {
+type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int
 	CohortGeneration       int64
 	ClusterQueueGeneration int64
 }
 
-func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
-	c := AssigmentClusterQueueState{
+func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
+	c := AssignmentClusterQueueState{
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
 		CohortGeneration:       s.CohortGeneration,
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
@@ -59,7 +62,7 @@ func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
 
 // PendingFlavors returns whether there are pending flavors to try
 // after the last attempt.
-func (s *AssigmentClusterQueueState) PendingFlavors() bool {
+func (s *AssignmentClusterQueueState) PendingFlavors() bool {
 	if s == nil {
 		// This is only reached in unit tests.
 		return false
@@ -74,6 +77,20 @@ func (s *AssigmentClusterQueueState) PendingFlavors() bool {
 	return false
 }
 
+func (s *AssignmentClusterQueueState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
+	if !features.Enabled(features.FlavorFungibility) {
+		return 0
+	}
+	if s == nil || ps >= len(s.LastTriedFlavorIdx) {
+		return 0
+	}
+	idx, ok := s.LastTriedFlavorIdx[ps][res]
+	if !ok {
+		return 0
+	}
+	return idx + 1
+}
+
 // Info holds a Workload object and some pre-processing.
 type Info struct {
 	Obj *kueue.Workload
@@ -82,14 +99,16 @@ type Info struct {
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
 	ClusterQueue   string
-	LastAssignment *AssigmentClusterQueueState
+	LastAssignment *AssignmentClusterQueueState
 }
 
 type PodSetResources struct {
 	Name     string
 	Requests Requests
 	Count    int32
-	Flavors  map[corev1.ResourceName]kueue.ResourceFlavorReference
+
+	// Flavors are populated when the Workload is assigned.
+	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
@@ -299,7 +318,10 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
-func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) {
+// UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false and clears
+// the admission.
+// Returns whether any change was done.
+func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
@@ -307,8 +329,17 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 	}
-	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-	wl.Status.Admission = nil
+	changed := apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+	if wl.Status.Admission != nil {
+		wl.Status.Admission = nil
+		changed = true
+	}
+
+	// Reset the admitted condition if necessary.
+	if SyncAdmittedCondition(wl) {
+		changed = true
+	}
+	return changed
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
@@ -370,6 +401,7 @@ func admissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
+	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
 	for _, conditionName := range admissionManagedConditions {
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
@@ -389,11 +421,17 @@ func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
 }
 
+type Ordering struct {
+	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
+}
+
 // GetQueueOrderTimestamp return the timestamp to be used by the scheduler. It could
 // be the workload creation time or the last time a PodsReady timeout has occurred.
-func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
-	if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue && c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
-		return &c.LastTransitionTime
+func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
+	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
+		if evictedCond, evictedByTimeout := IsEvictedByPodsReadyTimeout(w); evictedByTimeout {
+			return &evictedCond.LastTransitionTime
+		}
 	}
 	return &w.CreationTimestamp
 }
@@ -403,7 +441,7 @@ func HasQuotaReservation(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 }
 
-// UpdateReclaimablePods updates the ReclaimablePods list for the workload wit SSA.
+// UpdateReclaimablePods updates the ReclaimablePods list for the workload with SSA.
 func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
 	patch := BaseSSAWorkload(w)
 	patch.Status.ReclaimablePods = reclaimablePods
@@ -430,7 +468,38 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	return true
 }
 
+// HasRequeueState returns true if the workload has re-queue state.
+func HasRequeueState(w *kueue.Workload) bool {
+	return w.Status.RequeueState != nil
+}
+
 // IsAdmitted returns true if the workload is admitted.
 func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
+}
+
+// IsFinished returns true if the workload is finished.
+func IsFinished(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
+}
+
+// IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
+func IsEvictedByDeactivation(w *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
+	return cond != nil && cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadEvictedByDeactivation
+}
+
+func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != kueue.WorkloadEvictedByPodsReadyTimeout {
+		return nil, false
+	}
+	return cond, true
+}
+
+func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
+		return c.Update(ctx, wl)
+	}
+	return nil
 }

@@ -1,3 +1,19 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package cache
 
 import (
@@ -8,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -71,63 +88,45 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 	}
 }
 
-func TestCohortCanFit(t *testing.T) {
+func TestFitInCohort(t *testing.T) {
 	cases := map[string]struct {
-		c       *Cohort
-		request FlavorResourceQuantities
-		wantFit bool
+		request            FlavorResourceQuantities
+		wantFit            bool
+		cq                 *ClusterQueue
+		enableLendingLimit bool
 	}{
 		"full cohort, empty request": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{},
 			wantFit: true,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"can fit": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    4,
-						corev1.ResourceMemory: 4,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f2": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -135,31 +134,35 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: true,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    4,
+							corev1.ResourceMemory: 4,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"full cohort, none fit": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -171,31 +174,35 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"one cannot fit": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    4,
-						corev1.ResourceMemory: 4,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    4,
-						corev1.ResourceMemory: 4,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -207,23 +214,35 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    4,
+							corev1.ResourceMemory: 4,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    4,
+							corev1.ResourceMemory: 4,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"missing flavor": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f2": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -231,21 +250,27 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"missing resource": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 3,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -253,12 +278,96 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 3,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
+		},
+		"lendingLimit enabled can't fit": {
+			request: FlavorResourceQuantities{
+				"f1": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 3,
+				},
+			},
+			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ-A",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							// CQ-A has 2 nominal cpu, CQ-B has 3 nominal cpu and 2 lendingLimit,
+							// so when lendingLimit enabled, the cohort's RequestableResources is 4 cpu.
+							corev1.ResourceCPU: 4,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 2,
+						},
+					},
+				},
+				GuaranteedQuota: FlavorResourceQuantities{
+					"f1": {
+						corev1.ResourceCPU: 0,
+					},
+				},
+			},
+			enableLendingLimit: true,
+		},
+		"lendingLimit enabled can fit": {
+			request: FlavorResourceQuantities{
+				"f1": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 3,
+				},
+			},
+			wantFit: true,
+			cq: &ClusterQueue{
+				Name: "CQ-A",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							// CQ-A has 2 nominal cpu, CQ-B has 3 nominal cpu and 2 lendingLimit,
+							// so when lendingLimit enabled, the cohort's RequestableResources is 4 cpu.
+							corev1.ResourceCPU: 4,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							// CQ-B has admitted a workload with 2 cpus, but with 1 GuaranteedQuota,
+							// so when lendingLimit enabled, Cohort.Usage should be 2 - 1 = 1.
+							corev1.ResourceCPU: 1,
+						},
+					},
+				},
+				GuaranteedQuota: FlavorResourceQuantities{
+					"f1": {
+						corev1.ResourceCPU: 2,
+					},
+				},
+			},
+			enableLendingLimit: true,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.c.CanFit(tc.request)
+			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
+			got := tc.cq.FitInCohort(tc.request)
 			if got != tc.wantFit {
 				t.Errorf("Unexpected result, %v", got)
 			}
@@ -347,6 +456,166 @@ func TestClusterQueueUpdate(t *testing.T) {
 				tc.wantLastAssignmentGeneration,
 				snapshot.ClusterQueues["eng-alpha"].AllocatableResourceGeneration); diff != "" {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
+	cq := utiltesting.MakeClusterQueue("cq").
+		AdmissionChecks("check1", "check2", "check3").
+		Obj()
+
+	testcases := []struct {
+		name            string
+		cqStatus        metrics.ClusterQueueStatus
+		admissionChecks map[string]AdmissionCheck
+		wantStatus      metrics.ClusterQueueStatus
+		wantReason      string
+	}{
+		{
+			name:     "Pending clusterQueue updated valid AC list",
+			cqStatus: pending,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: active,
+			wantReason: "Ready",
+		},
+		{
+			name:     "Active clusterQueue updated with not found AC",
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue updated with inactive AC",
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     false,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue updated with duplicate single instance AC Controller",
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:                       true,
+					Controller:                   "controller1",
+					SingleInstanceInClusterQueue: true,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:                       true,
+					Controller:                   "controller2",
+					SingleInstanceInClusterQueue: true,
+				},
+			},
+			wantStatus: pending,
+			wantReason: "MultipleSingleInstanceControllerChecks",
+		},
+		{
+			name:     "Terminating clusterQueue updated with valid AC list",
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+		{
+			name:     "Terminating clusterQueue updated with not found AC",
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			cq, err := cache.newClusterQueue(cq)
+			if err != nil {
+				t.Fatalf("failed to new clusterQueue %v", err)
+			}
+
+			cq.Status = tc.cqStatus
+
+			// Align the admission check related internals to the desired Status.
+			if tc.cqStatus == active {
+				cq.hasMultipleSingleInstanceControllersChecks = false
+				cq.hasMissingOrInactiveAdmissionChecks = false
+			} else {
+				cq.hasMultipleSingleInstanceControllersChecks = true
+				cq.hasMissingOrInactiveAdmissionChecks = true
+			}
+			cq.updateWithAdmissionChecks(tc.admissionChecks)
+
+			if cq.Status != tc.wantStatus {
+				t.Errorf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
+			}
+
+			gotReason, _ := cq.inactiveReason()
+			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
+				t.Errorf("Unexpected inactiveReason (-want,+got):\n%s", diff)
 			}
 		})
 	}

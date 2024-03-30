@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -110,15 +110,18 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				PodSets(
 					*testing.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
-						Image("iamge").
+						Image("image").
 						Obj(),
 					*testing.MakePodSet("ps2", 6).
 						Request(corev1.ResourceCPU, "500m").
 						Request(customResourceOne, "1").
 						Limit(customResourceOne, "1").
-						Image("iamge").
+						Image("image").
 						Obj(),
 				).
+				Annotations(map[string]string{
+					"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
+					"invalid-provreq-prefix/Foo":               "Bar"}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 			wlKey = client.ObjectKeyFromObject(wl)
@@ -225,8 +228,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking that the provision requests content", func() {
 				gomega.Expect(createdRequest.Spec.ProvisioningClassName).To(gomega.Equal("provisioning-class"))
 				gomega.Expect(createdRequest.Spec.Parameters).To(gomega.BeComparableTo(map[string]autoscaling.Parameter{
-					"p1": "v1",
-					"p2": "v2",
+					"p1":                "v1",
+					"p2":                "v2",
+					"ValidUntilSeconds": "0",
 				}))
 				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(2))
 
@@ -449,8 +453,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking that the provision requests content", func() {
 				gomega.Expect(createdRequest.Spec.ProvisioningClassName).To(gomega.Equal("provisioning-class"))
 				gomega.Expect(createdRequest.Spec.Parameters).To(gomega.BeComparableTo(map[string]autoscaling.Parameter{
-					"p1": "v1",
-					"p2": "v2",
+					"p1":                "v1",
+					"p2":                "v2",
+					"ValidUntilSeconds": "0",
 				}))
 			})
 
@@ -477,8 +482,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(err).To(gomega.Succeed())
 					g.Expect(createdRequest.Spec.ProvisioningClassName).To(gomega.Equal("provisioning-class-updated"))
 					g.Expect(createdRequest.Spec.Parameters).To(gomega.BeComparableTo(map[string]autoscaling.Parameter{
-						"p1": "v1updated",
-						"p3": "v3",
+						"p1":                "v1updated",
+						"p3":                "v3",
+						"ValidUntilSeconds": "0",
 					}))
 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -503,8 +509,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(err).To(gomega.Succeed())
 					g.Expect(createdRequest.Spec.ProvisioningClassName).To(gomega.Equal("provisioning-class2"))
 					g.Expect(createdRequest.Spec.Parameters).To(gomega.BeComparableTo(map[string]autoscaling.Parameter{
-						"p1": "v1.2",
-						"p2": "v2.2",
+						"p1":                "v1.2",
+						"p2":                "v2.2",
+						"ValidUntilSeconds": "0",
 					}))
 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -541,6 +548,115 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.Message).To(gomega.Equal(provisioning.CheckInactiveMessage))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should let a running workload to continue after the provisioning request deleted", func() {
+			updatedWl := &kueue.Workload{}
+			ginkgo.By("Setting the admission check to the workload", func() {
+				gomega.Eventually(func() error {
+					err := k8sClient.Get(ctx, wlKey, updatedWl)
+					if err != nil {
+						return err
+					}
+					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
+					return nil
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				gomega.Eventually(func() error {
+					err := k8sClient.Get(ctx, wlKey, updatedWl)
+					if err != nil {
+						return err
+					}
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, updatedWl, admission)).To(gomega.Succeed())
+					return nil
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdRequest := &autoscaling.ProvisioningRequest{}
+			provReqKey := types.NamespacedName{
+				Namespace: wlKey.Namespace,
+				Name:      provisioning.GetProvisioningRequestName(wlKey.Name, ac.Name, 1),
+			}
+
+			ginkgo.By("Checking that the provision request is created", func() {
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, provReqKey, createdRequest)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the provision request as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, createdRequest)).To(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, createdRequest)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the admission check is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
+					g.Expect(state).NotTo(gomega.BeNil())
+					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
+					g.Expect(state.PodSetUpdates).To(gomega.BeComparableTo([]kueue.PodSetUpdate{
+						{
+							Name: "ps1",
+							Annotations: map[string]string{
+								provisioning.ConsumesAnnotationKey: provReqKey.Name,
+							},
+						},
+						{
+							Name: "ps2",
+							Annotations: map[string]string{
+								provisioning.ConsumesAnnotationKey: provReqKey.Name,
+							},
+						},
+					}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the workload is admitted", func() {
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, updatedWl)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, updatedWl)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Deleting the provision request", func() {
+				gomega.Eventually(func() error {
+					return k8sClient.Delete(ctx, createdRequest)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking provision request is deleted", func() {
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, provReqKey, createdRequest)
+				}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+			})
+
+			// We use this as a proxy check to verify that the workload remains admitted,
+			// because the test suite does not run the workload controller
+			ginkgo.By("Checking the admission check remains ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
+					g.Expect(state).NotTo(gomega.BeNil())
+					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the provisioning request remains deleted", func() {
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, provReqKey, createdRequest)
+				}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 			})
 		})
 	})
@@ -592,13 +708,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				PodSets(
 					*testing.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
-						Image("iamge").
+						Image("image").
 						Obj(),
 					*testing.MakePodSet("ps2", 6).
 						Request(corev1.ResourceCPU, "500m").
 						Request(customResourceOne, "1").
 						Limit(customResourceOne, "1").
-						Image("iamge").
+						Image("image").
 						Obj(),
 				).
 				Obj()

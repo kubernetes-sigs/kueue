@@ -32,12 +32,7 @@ import (
 )
 
 func TestValidateIntegrationsName(t *testing.T) {
-	// temp dir
-	tmpDir, err := os.MkdirTemp("", "temp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	integrationsConfig := filepath.Join(tmpDir, "integrations.yaml")
 	if err := os.WriteFile(integrationsConfig, []byte(`
@@ -117,12 +112,17 @@ integrations:
 						MaxCount: config.DefaultClusterQueuesMaxCount,
 					},
 				},
+				MultiKueue: &config.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: config.DefaultMultiKueueGCInterval},
+					Origin:            ptr.To(config.DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: config.DefaultMultiKueueWorkerLostTimeout},
+				},
 			},
 		},
 		{
 			name:       "bad integrations config",
 			configFile: badIntegrationsConfig,
-			wantError:  fmt.Errorf("integrations.frameworks: Unsupported value: \"unregistered/jobframework\": supported values: \"batch/job\", \"jobset.x-k8s.io/jobset\", \"kubeflow.org/mpijob\", \"kubeflow.org/mxjob\", \"kubeflow.org/paddlejob\", \"kubeflow.org/pytorchjob\", \"kubeflow.org/tfjob\", \"kubeflow.org/xgboostjob\", \"pod\", \"ray.io/rayjob\""),
+			wantError:  fmt.Errorf("integrations.frameworks: Unsupported value: \"unregistered/jobframework\": supported values: \"batch/job\", \"jobset.x-k8s.io/jobset\", \"kubeflow.org/mpijob\", \"kubeflow.org/mxjob\", \"kubeflow.org/paddlejob\", \"kubeflow.org/pytorchjob\", \"kubeflow.org/tfjob\", \"kubeflow.org/xgboostjob\", \"pod\", \"ray.io/raycluster\", \"ray.io/rayjob\""),
 		},
 	}
 

@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -47,12 +48,7 @@ func TestLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// temp dir
-	tmpDir, err := os.MkdirTemp("", "temp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	namespaceOverWriteConfig := filepath.Join(tmpDir, "namespace-overwrite.yaml")
 	if err := os.WriteFile(namespaceOverWriteConfig, []byte(`
@@ -155,6 +151,9 @@ apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 waitForPodsReady:
   enable: true
+  requeuingStrategy:
+    timestamp: Creation
+    backoffLimitCount: 10
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -257,13 +256,29 @@ integrations:
 		t.Fatal(err)
 	}
 
+	multiKueueConfig := filepath.Join(tmpDir, "multiKueue.yaml")
+	if err := os.WriteFile(multiKueueConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+namespace: kueue-system
+multiKueue:
+  gcInterval: 1m30s
+  origin: multikueue-manager1
+  workerLostTimeout: 10m
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 		Metrics: metricsserver.Options{
 			BindAddress: configapi.DefaultMetricsBindAddress,
 		},
-		LeaderElectionID: configapi.DefaultLeaderElectionID,
-		LeaderElection:   true,
+		LeaderElection:             true,
+		LeaderElectionID:           configapi.DefaultLeaderElectionID,
+		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+		LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+		RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+		RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 		WebhookServer: &webhook.DefaultServer{
 			Options: webhook.Options{
 				Port: configapi.DefaultWebhookPort,
@@ -318,6 +333,12 @@ integrations:
 		},
 	}
 
+	defaultMultiKueue := &configapi.MultiKueue{
+		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+		Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+	}
+
 	testcases := []struct {
 		name              string
 		configFile        string
@@ -334,14 +355,19 @@ integrations:
 				ClientConnection:       defaultClientConnection,
 				Integrations:           defaultIntegrations,
 				QueueVisibility:        defaultQueueVisibility,
+				MultiKueue:             defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElectionID: "",
-				LeaderElection:   false,
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -386,6 +412,7 @@ integrations:
 					},
 				},
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -403,14 +430,19 @@ integrations:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
+				MultiKueue:                 defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
 				Metrics: metricsserver.Options{
 					BindAddress: ":38080",
 				},
-				LeaderElection:   true,
-				LeaderElectionID: "test-id",
+				LeaderElection:             true,
+				LeaderElectionID:           "test-id",
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: 9444,
@@ -436,6 +468,7 @@ integrations:
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -455,6 +488,7 @@ integrations:
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -472,14 +506,20 @@ integrations:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
+				MultiKueue:                 defaultMultiKueue,
 			},
+
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElectionID: "",
-				LeaderElection:   false,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaderElection:             false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -502,16 +542,27 @@ integrations:
 					Enable:         true,
 					BlockAdmission: ptr.To(true),
 					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						Timestamp:         ptr.To(configapi.CreationTimestamp),
+						BackoffLimitCount: ptr.To[int32](10),
+					},
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -536,6 +587,7 @@ integrations:
 				},
 				Integrations:    defaultIntegrations,
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -556,6 +608,7 @@ integrations:
 				},
 				Integrations:    defaultIntegrations,
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -617,12 +670,19 @@ integrations:
 					},
 				},
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -649,12 +709,19 @@ integrations:
 						MaxCount: 0,
 					},
 				},
+				MultiKueue: defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -700,18 +767,47 @@ integrations:
 						},
 					},
 				},
+				MultiKueue: defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
 					},
 				},
 			},
+		},
+		{
+			name:       "multiKueue config",
+			configFile: multiKueueConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
+				QueueVisibility:            defaultQueueVisibility,
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
+				},
+			},
+			wantOptions: defaultControlOptions,
 		},
 	}
 
@@ -784,6 +880,15 @@ func TestEncode(t *testing.T) {
 				"health": map[string]any{
 					"healthProbeBindAddress": configapi.DefaultHealthProbeBindAddress,
 				},
+				"leaderElection": map[string]any{
+					"leaderElect":       true,
+					"leaseDuration":     configapi.DefaultLeaderElectionLeaseDuration.String(),
+					"renewDeadline":     configapi.DefaultLeaderElectionRenewDeadline.String(),
+					"retryPeriod":       configapi.DefaultLeaderElectionRetryPeriod.String(),
+					"resourceLock":      resourcelock.LeasesResourceLock,
+					"resourceName":      configapi.DefaultLeaderElectionID,
+					"resourceNamespace": "",
+				},
 				"internalCertManagement": map[string]any{
 					"enable":             true,
 					"webhookServiceName": configapi.DefaultWebhookServiceName,
@@ -811,6 +916,11 @@ func TestEncode(t *testing.T) {
 					"updateIntervalSeconds": int64(configapi.DefaultQueueVisibilityUpdateIntervalSeconds),
 					"clusterQueues":         map[string]any{"maxCount": int64(10)},
 				},
+				"multiKueue": map[string]any{
+					"gcInterval":        "1m0s",
+					"origin":            "multikueue",
+					"workerLostTimeout": "15m0s",
+				},
 			},
 		},
 	}
@@ -827,6 +937,38 @@ func TestEncode(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantResult, gotMap); diff != "" {
 				t.Errorf("Unexpected result (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWaitForPodsReadyIsEnabled(t *testing.T) {
+	cases := map[string]struct {
+		cfg  *configapi.Configuration
+		want bool
+	}{
+		"cfg.waitForPodsReady is null": {
+			cfg: &configapi.Configuration{},
+		},
+		"cfg.WaitForPodsReadyIsEnabled.enable is false": {
+			cfg: &configapi.Configuration{
+				WaitForPodsReady: &configapi.WaitForPodsReady{},
+			},
+		},
+		"waitForPodsReady is true": {
+			cfg: &configapi.Configuration{
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+				},
+			},
+			want: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := WaitForPodsReadyIsEnabled(tc.cfg)
+			if tc.want != got {
+				t.Errorf("Unexpected result from WaitForPodsReadyIsEnabled\nwant:\n%v\ngot:%v\n", tc.want, got)
 			}
 		})
 	}

@@ -23,7 +23,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -33,7 +32,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 
@@ -48,8 +46,8 @@ const (
 var (
 	annotationsPath               = field.NewPath("metadata", "annotations")
 	labelsPath                    = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
 	queueNameAnnotationsPath      = annotationsPath.Key(constants.QueueAnnotation)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
@@ -67,34 +65,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "valid parent-workload annotation",
-			job: testingutil.MakeJob("job", "default").
-				ParentWorkload("parent-workload-name").
-				Queue("queue").
-				OwnerReference("parent-workload-name", kubeflow.SchemeGroupVersionKind).
-				Obj(),
-			wantErr: nil,
-		},
-		{
-			name: "invalid parent-workload annotation",
-			job: testingutil.MakeJob("job", "default").
-				ParentWorkload("parent workload name").
-				OwnerReference("parent workload name", kubeflow.SchemeGroupVersionKind).
-				Queue("queue").
-				Obj(),
-			wantErr: field.ErrorList{field.Invalid(parentWorkloadKeyPath, "parent workload name", invalidRFC1123Message)},
-		},
-		{
-			name: "invalid parent-workload annotation (owner is missing)",
-			job: testingutil.MakeJob("job", "default").
-				ParentWorkload("parent-workload").
-				Queue("queue").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(parentWorkloadKeyPath, "must not add a parent workload annotation to job without OwnerReference"),
-			},
-		},
-		{
 			name:    "invalid queue-name label",
 			job:     testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
 			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
@@ -103,18 +73,6 @@ func TestValidateCreate(t *testing.T) {
 			name:    "invalid queue-name annotation (deprecated)",
 			job:     testingutil.MakeJob("job", "default").QueueNameAnnotation("queue name").Obj(),
 			wantErr: field.ErrorList{field.Invalid(queueNameAnnotationsPath, "queue name", invalidRFC1123Message)},
-		},
-		{
-			name: "invalid queue-name and parent-workload annotation",
-			job: testingutil.MakeJob("job", "default").
-				Queue("queue name").
-				ParentWorkload("parent workload name").
-				OwnerReference("parent workload name", kubeflow.SchemeGroupVersionKind).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(parentWorkloadKeyPath, "parent workload name", invalidRFC1123Message),
-				field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message),
-			},
 		},
 		{
 			name: "invalid partial admission annotation (format)",
@@ -233,6 +191,30 @@ func TestValidateCreate(t *testing.T) {
 			wantErr:       nil,
 			serverVersion: "1.27.0",
 		},
+		{
+			name: "invalid prebuilt workload",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.PrebuiltWorkloadLabel, "workload name").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(prebuiltWlNameLabelPath, "workload name", invalidRFC1123Message),
+			},
+			serverVersion: "1.27.0",
+		},
+		{
+			name: "valid prebuilt workload",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.PrebuiltWorkloadLabel, "workload-name").
+				Indexed(true).
+				Obj(),
+			wantErr:       nil,
+			serverVersion: "1.27.0",
+		},
 	}
 
 	for _, tc := range testcases {
@@ -300,38 +282,6 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob:  testingutil.MakeJob("job", "default").Obj(),
 			newJob:  testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
 			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
-		},
-		{
-			name:   "update the nil parent workload to non-empty",
-			oldJob: testingutil.MakeJob("job", "default").Obj(),
-			newJob: testingutil.MakeJob("job", "default").
-				ParentWorkload("parent").
-				OwnerReference("parent", kubeflow.SchemeGroupVersionKind).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(parentWorkloadKeyPath, "parent", apivalidation.FieldImmutableErrorMsg),
-			},
-		},
-		{
-			name:   "update the non-empty parent workload to nil",
-			oldJob: testingutil.MakeJob("job", "default").ParentWorkload("parent").Obj(),
-			newJob: testingutil.MakeJob("job", "default").Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(parentWorkloadKeyPath, "", apivalidation.FieldImmutableErrorMsg),
-			},
-		},
-		{
-			name:   "invalid queue name and immutable parent",
-			oldJob: testingutil.MakeJob("job", "default").Obj(),
-			newJob: testingutil.MakeJob("job", "default").
-				Queue("queue name").
-				ParentWorkload("parent").
-				OwnerReference("parent", kubeflow.SchemeGroupVersionKind).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message),
-				field.Invalid(parentWorkloadKeyPath, "parent", apivalidation.FieldImmutableErrorMsg),
-			},
 		},
 		{
 			name: "immutable parallelism while unsuspended with partial admission enabled",
@@ -407,6 +357,18 @@ func TestValidateUpdate(t *testing.T) {
 				field.Invalid(workloadPriorityClassNamePath, "test-1", apivalidation.FieldImmutableErrorMsg),
 			},
 		},
+		{
+			name: "immutable prebuilt workload ",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Label(constants.PrebuiltWorkloadLabel, "old-workload").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Label(constants.PrebuiltWorkloadLabel, "new-workload").
+				Obj(),
+			wantErr: apivalidation.ValidateImmutableField("old-workload", "new-workload", prebuiltWlNameLabelPath),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -425,15 +387,6 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		want                       *batchv1.Job
 	}{
-		"add a parent job name to annotations": {
-			job: testingutil.MakeJob("child-job", "default").
-				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
-				Obj(),
-			want: testingutil.MakeJob("child-job", "default").
-				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
-				ParentWorkload(jobframework.GetWorkloadNameForOwnerWithGVK("parent-job", kubeflow.SchemeGroupVersionKind)).
-				Obj(),
-		},
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
 			want: testingutil.MakeJob("job", "default").Queue("queue").Obj(),

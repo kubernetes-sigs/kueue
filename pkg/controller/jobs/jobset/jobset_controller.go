@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,17 +52,18 @@ func init() {
 	}))
 }
 
-//+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-//+kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/status,verbs=get;update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/status,verbs=get;update
+// +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/finalizers,verbs=get;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &JobSet{} }, nil)
+var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &JobSet{} })
 
 func isJobSet(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "JobSet" && strings.HasPrefix(owner.APIVersion, "jobset.x-k8s.io/v1")
@@ -169,7 +171,7 @@ func (j *JobSet) Finished() (metav1.Condition, bool) {
 func (j *JobSet) PodsReady() bool {
 	var replicas int32
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
-		replicas += int32(replicatedJob.Replicas)
+		replicas += replicatedJob.Replicas
 	}
 	var readyReplicas int32
 	for _, replicatedJobStatus := range j.Status.ReplicatedJobsStatus {
@@ -189,7 +191,7 @@ func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	for i := range j.Spec.ReplicatedJobs {
 		spec := &j.Spec.ReplicatedJobs[i]
 		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 {
-			if status.Succeeded > 0 && status.Succeeded <= int32(spec.Replicas) {
+			if status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
 				ret = append(ret, kueue.ReclaimablePod{
 					Name:  spec.Name,
 					Count: status.Succeeded * podsCountPerReplica(spec),
@@ -212,13 +214,13 @@ func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
 
 func podsCount(rj *jobsetapi.ReplicatedJob) int32 {
 	// The JobSet's operator validates that this will not overflow.
-	return int32(rj.Replicas) * podsCountPerReplica(rj)
+	return rj.Replicas * podsCountPerReplica(rj)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
-func GetWorkloadNameForJobSet(jobSetName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobSetName, gvk)
+func GetWorkloadNameForJobSet(jobSetName string, jobSetUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobSetName, jobSetUID, gvk)
 }

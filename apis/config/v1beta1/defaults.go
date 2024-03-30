@@ -22,10 +22,9 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
-
-	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 const (
@@ -36,19 +35,19 @@ const (
 	DefaultHealthProbeBindAddress                       = ":8081"
 	DefaultMetricsBindAddress                           = ":8080"
 	DefaultLeaderElectionID                             = "c1f6bfd2.kueue.x-k8s.io"
+	DefaultLeaderElectionLeaseDuration                  = 15 * time.Second
+	DefaultLeaderElectionRenewDeadline                  = 10 * time.Second
+	DefaultLeaderElectionRetryPeriod                    = 2 * time.Second
 	DefaultClientConnectionQPS                  float32 = 20.0
 	DefaultClientConnectionBurst                int32   = 30
 	defaultPodsReadyTimeout                             = 5 * time.Minute
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
+	defaultJobFrameworkName                             = "batch/job"
+	DefaultMultiKueueGCInterval                         = time.Minute
+	DefaultMultiKueueOrigin                             = "multikueue"
+	DefaultMultiKueueWorkerLostTimeout                  = 15 * time.Minute
 )
-
-func addDefaultingFuncs(scheme *runtime.Scheme) error {
-	scheme.AddTypeDefaultingFunc(&Configuration{}, func(obj interface{}) {
-		SetDefaults_Configuration(obj.(*Configuration))
-	})
-	return nil
-}
 
 func getOperatorNamespace() string {
 	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
@@ -73,10 +72,21 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if len(cfg.Health.HealthProbeBindAddress) == 0 {
 		cfg.Health.HealthProbeBindAddress = DefaultHealthProbeBindAddress
 	}
-	if cfg.LeaderElection != nil && cfg.LeaderElection.LeaderElect != nil &&
-		*cfg.LeaderElection.LeaderElect && len(cfg.LeaderElection.ResourceName) == 0 {
+
+	if cfg.LeaderElection == nil {
+		cfg.LeaderElection = &configv1alpha1.LeaderElectionConfiguration{}
+	}
+	if len(cfg.LeaderElection.ResourceName) == 0 {
 		cfg.LeaderElection.ResourceName = DefaultLeaderElectionID
 	}
+	if len(cfg.LeaderElection.ResourceLock) == 0 {
+		// Default to Lease as component-base still defaults to endpoint resources
+		// until core components migrate to using Leases. See k/k #80289 for more details.
+		cfg.LeaderElection.ResourceLock = resourcelock.LeasesResourceLock
+	}
+	// Use the default LeaderElectionConfiguration options
+	configv1alpha1.RecommendedDefaultLeaderElectionConfiguration(cfg.LeaderElection)
+
 	if cfg.InternalCertManagement == nil {
 		cfg.InternalCertManagement = &InternalCertManagement{}
 	}
@@ -111,12 +121,17 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			}
 			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
 		}
+		if cfg.WaitForPodsReady.RequeuingStrategy == nil || cfg.WaitForPodsReady.RequeuingStrategy.Timestamp == nil {
+			cfg.WaitForPodsReady.RequeuingStrategy = &RequeuingStrategy{
+				Timestamp: ptr.To(EvictionTimestamp),
+			}
+		}
 	}
 	if cfg.Integrations == nil {
 		cfg.Integrations = &Integrations{}
 	}
 	if cfg.Integrations.Frameworks == nil {
-		cfg.Integrations.Frameworks = []string{job.FrameworkName}
+		cfg.Integrations.Frameworks = []string{defaultJobFrameworkName}
 	}
 	if cfg.QueueVisibility == nil {
 		cfg.QueueVisibility = &QueueVisibility{}
@@ -150,5 +165,18 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	if cfg.Integrations.PodOptions.PodSelector == nil {
 		cfg.Integrations.PodOptions.PodSelector = &metav1.LabelSelector{}
+	}
+
+	if cfg.MultiKueue == nil {
+		cfg.MultiKueue = &MultiKueue{}
+	}
+	if cfg.MultiKueue.GCInterval == nil {
+		cfg.MultiKueue.GCInterval = &metav1.Duration{Duration: DefaultMultiKueueGCInterval}
+	}
+	if ptr.Deref(cfg.MultiKueue.Origin, "") == "" {
+		cfg.MultiKueue.Origin = ptr.To(DefaultMultiKueueOrigin)
+	}
+	if cfg.MultiKueue.WorkerLostTimeout == nil {
+		cfg.MultiKueue.WorkerLostTimeout = &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout}
 	}
 }

@@ -86,7 +86,8 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 			if err := wh.Default(context.Background(), wlCopy); err != nil {
 				t.Fatalf("Could not apply defaults: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantWl, *wlCopy); diff != "" {
+			if diff := cmp.Diff(tc.wantWl, *wlCopy,
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
 				t.Errorf("Obtained wrong defaults (-want,+got):\n%s", diff)
 			}
 		})
@@ -162,7 +163,7 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(statusPath.Child("admission", "clusterQueue"), nil, ""),
 			},
 		},
-		"should have a valid podSet name in status assigment": {
+		"should have a valid podSet name in status assignment": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				ReserveQuota(testingutil.MakeAdmission("cluster-queue", "@invalid").Obj()).
 				Obj(),
@@ -260,7 +261,7 @@ func TestValidateWorkload(t *testing.T) {
 				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "first"}, {Name: "third"}}},
 			).Obj(),
 			wantErr: field.ErrorList{
-				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, nil),
+				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			},
 		},
 		"matched names in podSetUpdates with names in podSets": {
@@ -346,7 +347,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("reclaimablePods").Key("ps1").Child("count"), nil, ""),
-				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, nil),
+				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, []string{}),
 			},
 		},
 		"invalid podSet minCount (negative)": {

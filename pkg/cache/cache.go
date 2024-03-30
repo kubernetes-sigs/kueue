@@ -208,7 +208,9 @@ func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[str
 	c.Lock()
 	defer c.Unlock()
 	c.admissionChecks[ac.Name] = AdmissionCheck{
-		Active: apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
+		Active:                       apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
+		Controller:                   ac.Spec.ControllerName,
+		SingleInstanceInClusterQueue: apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue),
 	}
 
 	return c.updateClusterQueues()
@@ -236,7 +238,7 @@ func (c *Cache) ClusterQueueReadiness(name string) (metav1.ConditionStatus, stri
 	if cq == nil {
 		return metav1.ConditionFalse, "NotFound", "ClusterQueue not found"
 	}
-	if cq != nil && cq.Status == active {
+	if cq.Status == active {
 		return metav1.ConditionTrue, "Ready", "Can admit new workloads"
 	}
 	reason, msg := cq.inactiveReason()
@@ -317,7 +319,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		if !workload.HasQuotaReservation(&w) {
+		if !workload.HasQuotaReservation(&w) || workload.IsFinished(&w) {
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])

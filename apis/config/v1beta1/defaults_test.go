@@ -24,8 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
-
-	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 const (
@@ -38,6 +36,14 @@ const (
 
 func TestSetDefaults_Configuration(t *testing.T) {
 	defaultCtrlManagerConfigurationSpec := ControllerManager{
+		LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+			LeaderElect:   ptr.To(true),
+			LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+			RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+			RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+			ResourceLock:  "leases",
+			ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
+		},
 		Webhook: ControllerWebhook{
 			Port: ptr.To(DefaultWebhookPort),
 		},
@@ -53,7 +59,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		Burst: ptr.To(DefaultClientConnectionBurst),
 	}
 	defaultIntegrations := &Integrations{
-		Frameworks: []string{job.FrameworkName},
+		Frameworks: []string{defaultJobFrameworkName},
 		PodOptions: &PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -75,7 +81,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	overwriteNamespaceIntegrations := &Integrations{
-		Frameworks: []string{job.FrameworkName},
+		Frameworks: []string{defaultJobFrameworkName},
 		PodOptions: &PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -88,6 +94,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			PodSelector: &metav1.LabelSelector{},
 		},
+	}
+
+	defaultMultiKueue := &MultiKueue{
+		GCInterval:        &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
+		Origin:            ptr.To(DefaultMultiKueueOrigin),
+		WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
 	}
 
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
@@ -112,6 +124,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"defaulting ControllerManager": {
@@ -138,8 +151,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:  ptr.To(true),
-						ResourceName: DefaultLeaderElectionID,
+						LeaderElect:   ptr.To(true),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  DefaultLeaderElectionID,
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -148,6 +165,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"should not default ControllerManager": {
@@ -163,8 +181,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:  ptr.To(true),
-						ResourceName: overwriteLeaderElectionID,
+						LeaderElect:   ptr.To(true),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  overwriteLeaderElectionID,
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -186,8 +208,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:  ptr.To(true),
-						ResourceName: overwriteLeaderElectionID,
+						LeaderElect:   ptr.To(true),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  overwriteLeaderElectionID,
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -196,6 +222,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"should not set LeaderElectionID": {
@@ -222,7 +249,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: ptr.To(false),
+						LeaderElect:   ptr.To(false),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -231,6 +263,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"defaulting InternalCertManagement": {
@@ -248,6 +281,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     overwriteNamespaceIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"should not default InternalCertManagement": {
@@ -266,6 +300,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     overwriteNamespaceIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"should not default values in custom ClientConnection": {
@@ -291,6 +326,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				Integrations:    overwriteNamespaceIntegrations,
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 		},
 		"should default empty custom ClientConnection": {
@@ -310,9 +346,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     overwriteNamespaceIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
-		"defaulting waitForPodsReady.timeout": {
+		"defaulting waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable: true,
@@ -326,6 +363,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable:         true,
 					BlockAdmission: ptr.To(true),
 					Timeout:        &podsReadyTimeoutTimeout,
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp: ptr.To(EvictionTimestamp),
+					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -335,6 +375,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"set waitForPodsReady.blockAdmission to false when enable is false": {
@@ -351,6 +392,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable:         false,
 					BlockAdmission: ptr.To(false),
 					Timeout:        &podsReadyTimeoutTimeout,
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp: ptr.To(EvictionTimestamp),
+					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -360,13 +404,17 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
-		"respecting provided waitForPodsReady.timeout": {
+		"respecting provided waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:  true,
 					Timeout: &podsReadyTimeoutOverwrite,
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp: ptr.To(CreationTimestamp),
+					},
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: ptr.To(false),
@@ -377,6 +425,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable:         true,
 					BlockAdmission: ptr.To(true),
 					Timeout:        &podsReadyTimeoutOverwrite,
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp: ptr.To(CreationTimestamp),
+					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -386,6 +437,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"integrations": {
@@ -409,6 +461,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					PodOptions: defaultIntegrations.PodOptions,
 				},
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 		},
 		"queue visibility": {
@@ -436,6 +489,60 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					ClusterQueues: &ClusterQueueVisibility{
 						MaxCount: 0,
 					},
+				},
+				MultiKueue: defaultMultiKueue,
+			},
+		},
+		"multiKueue": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				MultiKueue: &MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue: &MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+				},
+			},
+		},
+		"multiKueue GCInterval 0": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				MultiKueue: &MultiKueue{
+					GCInterval: &metav1.Duration{},
+					Origin:     ptr.To("multikueue-manager1"),
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue: &MultiKueue{
+					GCInterval:        &metav1.Duration{},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 15 * time.Minute},
 				},
 			},
 		},

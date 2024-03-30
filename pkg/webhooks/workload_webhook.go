@@ -50,7 +50,7 @@ func setupWebhookForWorkload(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 
@@ -75,6 +75,7 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 			wl.Spec.PodSets[i].MinCount = nil
 		}
 	}
+
 	return nil
 }
 
@@ -291,13 +292,13 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	for _, ps := range obj.Spec.PodSets {
 		names.Insert(ps.Name)
 	}
-	assigmentsPath := path.Child("podSetAssignments")
+	assignmentsPath := path.Child("podSetAssignments")
 	if names.Len() != len(admission.PodSetAssignments) {
-		allErrs = append(allErrs, field.Invalid(assigmentsPath, field.OmitValueType{}, "must have the same number of podSets as the spec"))
+		allErrs = append(allErrs, field.Invalid(assignmentsPath, field.OmitValueType{}, "must have the same number of podSets as the spec"))
 	}
 
 	for i, ps := range admission.PodSetAssignments {
-		psaPath := assigmentsPath.Index(i)
+		psaPath := assignmentsPath.Index(i)
 		if !names.Has(ps.Name) {
 			allErrs = append(allErrs, field.NotFound(psaPath.Child("name"), ps.Name))
 		}

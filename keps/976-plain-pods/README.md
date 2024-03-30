@@ -88,6 +88,9 @@ use of this API to implement queuing semantics for Pods.
 - Support for advanced Pod retry policies
 
   Kueue shouldn't re-implement core functionalities that are already available in the Job API.
+  In particular, Kueue does not re-create failed pods.
+  More specifically, in case of re-admission after preemption, it does not
+  re-create pods it deleted.
 
 - Tracking usage of Pods that were not queued through Kueue.
 
@@ -446,7 +449,7 @@ Note that fields like `env` and `command` can sometimes change among all the pod
 they don't influence scheduling, so they are safe to skip. `volumes` can influence scheduling, but
 they can be parameterized, like in StatefulSets, so we will ignore them for now.
 
-A sha256 of the reamining Pod spec will be used as a name for a Workload podSet. The count for the
+A sha256 of the remaining Pod spec will be used as a name for a Workload podSet. The count for the
 podSet will be the number of Pods that match the same sha256. The hash will be calculated by the
 webhook and stored as an annotation: `kueue.x-k8s.io/role-hash`.
 
@@ -501,7 +504,7 @@ Workload creation will fail.
 This generally shouldn't be a problem, unless multiple Pods (that should be considered the same
 from an admission perspective) have different label values or reference different volume claims.
 
-Based on user feedback, we can consider excluding certaing labels and volumes, or make it
+Based on user feedback, we can consider excluding certain labels and volumes, or make it
 configurable.
 
 #### Groups of pods where driver generates workers
@@ -552,7 +555,7 @@ Pods need to have finalizers so that we can reliably track how many of them run 
 able to determine when the Workload is Finished.
 
 The Pod reconciler will run in a "composable" mode: a mode where a Workload is composed of multiple
-objects. The `jobframework.Reconciler` will be reworked to accomodate this.
+objects. The `jobframework.Reconciler` will be reworked to accommodate this.
 
 After a Workload is admitted, each Pod that owns the workload enters the reconciliation loop.
 The reconciliation loop collects all the Pods that are not Failed and constructs an in-memory
@@ -562,8 +565,9 @@ in-memory Workload, then it is considered unmatching and the Workload is evicted
 In the Pod-group reconciler:
 1. If the Pod is not terminated and doesn't have a deletionTimestamp,
    create a Workload for the pod group if one does not exist.
-2. Remove Pod finalizers if the Pod is terminated and the Workload is finished, has a deletion
-   timestamp or is finished.
+2. Remove Pod finalizers if:
+  - The Pod is terminated and the Workload is finished or has a deletion timestamp.
+  - The Pod Failed and a valid replacement pod was created for it.
 3. Build the in-memory Workload. If its podset counters are greater than the stored Workload,
    then evict the Workload.
 4. For gated pods:
@@ -571,16 +575,15 @@ In the Pod-group reconciler:
 5. If the number of succeeded pods is equal to the admission count, mark the Workload as Finished
    and remove the finalizers from the Pods.
 
-Note that we are only removing Pod finalizers once the Workload is finished. This is a simple way of
-managing finalizers, but it might lead to too many Pods lingering in etcd for a long time after
-terminated.
-
 ### Retrying Failed Pods
 
 The Pod group will generally only be considered finished if all the Pods finish with a Succeeded
 phase.
 This allows the user to send replacement Pods when a Pod in the group fails or if the group is
 preempted. The replacement Pods can have any name, but they must point to the same pod group.
+Once a replacement Pod is created, and Kueue has added it as an owner of the Workload, the
+Failed pod will be finalized. If multiple Pods have Failed, a new Pod is assumed to replace 
+the Pod that failed first. 
 
 To declare that a group is failed, a user can execute one of the following actions:
 1. Issue a Delete for the Workload object. The controller would terminate all running Pods and
@@ -701,7 +704,7 @@ An alternative to the multiple annotations in the Pods would be for users to cre
 object before creating the Pods. The Pods would just have one annotation referencing the Workload
 name.
 
-While this would be a clean approach, this proposal is targetting users that don't have a CRD
+While this would be a clean approach, this proposal is targeting users that don't have a CRD
 wrapping their Pods, and adding one would be a bigger effort than adding annotations. Such amount
 of effort could be similar to migrating from plain Pods to the Job API, which is already supported.
 

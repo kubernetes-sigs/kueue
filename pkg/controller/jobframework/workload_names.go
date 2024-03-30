@@ -22,8 +22,8 @@ import (
 	"fmt"
 	"strings"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 const (
@@ -32,33 +32,26 @@ const (
 	maxPrefixLength = 252 - hashLength
 )
 
-func GetWorkloadNameForOwnerRef(owner *metav1.OwnerReference) (string, error) {
-	gv, err := schema.ParseGroupVersion(owner.APIVersion)
-	if err != nil {
-		return "", err
-	}
-	gvk := gv.WithKind(owner.Kind)
-	return GetWorkloadNameForOwnerWithGVK(owner.Name, gvk), nil
-}
-
-func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerGVK schema.GroupVersionKind) string {
+func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
 	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
 	if len(prefixedName) > maxPrefixLength {
 		prefixedName = prefixedName[:maxPrefixLength]
 	}
-	return prefixedName + "-" + getHash(ownerName, ownerGVK)[:hashLength]
+	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK)[:hashLength]
 }
 
-func getHash(ownerName string, gvk schema.GroupVersionKind) string {
+func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind) string {
 	h := sha1.New()
 	h.Write([]byte(gvk.Kind))
 	h.Write([]byte("\n"))
 	h.Write([]byte(gvk.Group))
 	h.Write([]byte("\n"))
 	h.Write([]byte(ownerName))
+	h.Write([]byte("\n"))
+	h.Write([]byte(ownerUID))
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func getOwnerKey(ownerGVK schema.GroupVersionKind) string {
+func GetOwnerKey(ownerGVK schema.GroupVersionKind) string {
 	return fmt.Sprintf(".metadata.ownerReferences[%s.%s]", ownerGVK.Group, ownerGVK.Kind)
 }

@@ -99,15 +99,18 @@ type JobWithPriorityClass interface {
 // are composed out of multiple API objects.
 type ComposableJob interface {
 	// Load loads all members of the composable job. If removeFinalizers == true, workload and job finalizers should be removed.
-	Load(ctx context.Context, c client.Client, key types.NamespacedName) (removeFinalizers bool, err error)
+	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error)
+	// Run unsuspends all members of the ComposableJob and injects the node affinity with podSet
+	// counts extracting from workload to all members of the ComposableJob.
+	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r record.EventRecorder, msg string) error
 	// ConstructComposableWorkload returns a new Workload that's assembled out of all members of the ComposableJob.
 	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error)
+	// ListChildWorkloads returns all workloads related to the composable job
+	ListChildWorkloads(ctx context.Context, c client.Client, parent types.NamespacedName) (*kueue.WorkloadList, error)
 	// FindMatchingWorkloads returns all related workloads, workload that matches the ComposableJob and duplicates that has to be deleted.
-	FindMatchingWorkloads(ctx context.Context, c client.Client) (match *kueue.Workload, toDelete []*kueue.Workload, err error)
-}
-
-func ParentWorkloadName(job GenericJob) string {
-	return job.Object().GetAnnotations()[constants.ParentWorkloadAnnotation]
+	FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (match *kueue.Workload, toDelete []*kueue.Workload, err error)
+	// Stop implements the custom stop procedure for ComposableJob
+	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) ([]client.Object, error)
 }
 
 func QueueName(job GenericJob) string {
@@ -128,4 +131,9 @@ func workloadPriorityClassName(job GenericJob) string {
 		return workloadPriorityClassLabel
 	}
 	return ""
+}
+
+func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
+	name, found := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]
+	return name, found
 }

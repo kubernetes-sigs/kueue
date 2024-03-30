@@ -18,8 +18,8 @@ package pod
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/validation"
@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -54,6 +55,9 @@ var (
 	groupNameLabelPath             = labelsPath.Key(GroupNameLabel)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(RetriableInGroupAnnotation)
+
+	errPodOptsTypeAssertion = errors.New("options are not of type PodIntegrationOptions")
+	errPodOptsNotFound      = errors.New("podIntegrationOptions not found in options")
 )
 
 type PodWebhook struct {
@@ -65,15 +69,16 @@ type PodWebhook struct {
 
 // SetupWebhook configures the webhook for pods.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
+	options := jobframework.ProcessOptions(opts...)
+	podOpts, err := getPodOptions(options.IntegrationOptions)
+	if err != nil {
+		return err
 	}
 	wh := &PodWebhook{
 		client:                     mgr.GetClient(),
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-		namespaceSelector:          options.PodNamespaceSelector,
-		podSelector:                options.PodSelector,
+		namespaceSelector:          podOpts.NamespaceSelector,
+		podSelector:                podOpts.PodSelector,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&corev1.Pod{}).
@@ -82,40 +87,31 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
+func getPodOptions(integrationOpts map[string]any) (configapi.PodIntegrationOptions, error) {
+	opts, ok := integrationOpts[corev1.SchemeGroupVersion.WithKind("Pod").String()]
+	if !ok {
+		return configapi.PodIntegrationOptions{}, errPodOptsNotFound
+	}
+	podOpts, ok := opts.(*configapi.PodIntegrationOptions)
+	if !ok {
+		return configapi.PodIntegrationOptions{}, fmt.Errorf("%w, got %T", errPodOptsTypeAssertion, opts)
+	}
+	return *podOpts, nil
+}
+
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 var _ webhook.CustomDefaulter = &PodWebhook{}
 
-func omitKueueLabels(l map[string]string) map[string]string {
-	result := map[string]string{}
-
-	for key, value := range l {
-		if !strings.HasPrefix(key, "kueue.x-k8s.io/") {
-			result[key] = value
-		}
-	}
-	return result
-}
-
 func containersShape(containers []corev1.Container) (result []map[string]interface{}) {
 	for _, c := range containers {
 		result = append(result, map[string]interface{}{
-			"image": c.Image,
 			"resources": map[string]interface{}{
 				"requests": c.Resources.Requests,
 			},
 			"ports": c.Ports,
 		})
-	}
-
-	return result
-}
-
-func volumesShape(volumes []corev1.Volume) (result []corev1.Volume) {
-	for _, v := range volumes {
-		v.Name = ""
-		result = append(result, v)
 	}
 
 	return result
@@ -137,7 +133,7 @@ func (p *Pod) addRoleHash() error {
 }
 
 func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	pod := fromObject(obj)
+	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Applying defaults")
 
@@ -186,7 +182,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			pod.pod.Spec.SchedulingGates = append(pod.pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: SchedulingGateName})
 		}
 
-		if pod.groupName() != "" {
+		if podGroupName(pod.pod) != "" {
 			if err := pod.addRoleHash(); err != nil {
 				return err
 			}
@@ -205,7 +201,7 @@ var _ webhook.CustomValidator = &PodWebhook{}
 func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
-	pod := fromObject(obj)
+	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Validating create")
 	allErrs := jobframework.ValidateCreateForQueueName(pod)
@@ -224,15 +220,15 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
-	oldPod := fromObject(oldObj)
-	newPod := fromObject(newObj)
+	oldPod := FromObject(oldObj)
+	newPod := FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&newPod.pod))
 	log.V(5).Info("Validating update")
 	allErrs := jobframework.ValidateUpdateForQueueName(oldPod, newPod)
 
 	allErrs = append(allErrs, validateManagedLabel(newPod)...)
 
-	allErrs = append(allErrs, validation.ValidateImmutableField(newPod.groupName(), oldPod.groupName(), groupNameLabelPath)...)
+	allErrs = append(allErrs, validation.ValidateImmutableField(podGroupName(newPod.pod), podGroupName(oldPod.pod), groupNameLabelPath)...)
 
 	allErrs = append(allErrs, validatePodGroupMetadata(newPod)...)
 
@@ -274,7 +270,7 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 
 	gtc, gtcExists := p.pod.GetAnnotations()[GroupTotalCountAnnotation]
 
-	if p.groupName() == "" {
+	if podGroupName(p.pod) == "" {
 		if gtcExists {
 			return append(allErrs, field.Required(
 				groupNameLabelPath,
@@ -304,7 +300,7 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 }
 
 func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.ErrorList {
-	if newPod.groupName() != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
+	if podGroupName(newPod.pod) != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
 		return field.ErrorList{
 			field.Forbidden(retriableInGroupAnnotationPath, "unretriable pod group can't be converted to retriable"),
 		}

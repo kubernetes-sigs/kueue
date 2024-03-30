@@ -35,10 +35,7 @@ type JobSetWebhook struct {
 
 // SetupJobSetWebhook configures the webhook for kubeflow JobSet.
 func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &JobSetWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
@@ -58,6 +55,7 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.V(5).Info("Applying defaults", "jobset", klog.KObj(jobSet))
+
 	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
 	return nil
 }

@@ -19,10 +19,10 @@ set -o nounset
 set -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-ROOT_DIR=$SOURCE_DIR/../../../..
-export KUSTOMIZE=$ROOT_DIR/bin/kustomize
-export GINKGO=$ROOT_DIR/bin/ginkgo
-export KIND=$ROOT_DIR/bin/kind
+ROOT_DIR="$SOURCE_DIR/../../../.."
+export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
+export GINKGO="$ROOT_DIR"/bin/ginkgo
+export KIND="$ROOT_DIR"/bin/kind
 
 function cleanup {
 	if [ $CREATE_KIND_CLUSTER == 'true' ]; then
@@ -44,7 +44,7 @@ function startup {
 		if [ ! -d "$ARTIFACTS" ]; then
 			mkdir -p "$ARTIFACTS"
 		fi
-		$KIND create cluster --name $KIND_CLUSTER_NAME --image $E2E_KIND_VERSION --config $SOURCE_DIR/kind-cluster.yaml --wait 15m -v 5 >$ARTIFACTS/kind-create.log 2>&1 ||
+		$KIND create cluster --name "$KIND_CLUSTER_NAME" --image "$E2E_KIND_VERSION" --config "$SOURCE_DIR/kind-cluster.yaml" --wait 15m -v 5 >"$ARTIFACTS"/kind-create.log 2>&1 ||
 			{
 				echo "unable to start the kind cluster "
 				cat $ARTIFACTS/kind-create.log

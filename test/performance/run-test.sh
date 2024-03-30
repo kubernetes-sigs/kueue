@@ -16,8 +16,7 @@ DEFAULT_EXPERIMENTS=(
 
 EXPERIMENTS=("${EXPERIMENTS[@]:=${DEFAULT_EXPERIMENTS[@]}}")
 
-KUBECONFIG=${KUBECONFIG:="$HOME/.kube/config"}
-export KUBECONFIG
+export KUBECONFIG=${KUBECONFIG:="$HOME/.kube/config"}
 
 PROVIDER=${PROVIDER:=gke}
 
@@ -78,8 +77,8 @@ for item in "${EXPERIMENTS[@]}"; do
     echo "Running an experiment with [$CL2_SMALL_JOBS, $CL2_MEDIUM_JOBS, $CL2_LARGE_JOBS, $CL2_JOB_RUNNING_TIME, $CL2_TEST_TIMEOUT, $cores, $memory]"
     if [[ "$USE_KUEUE" == true ]]; then
         cp prerequisites/cluster-queue.template prerequisites/cluster-queue.yaml        
-        yq -i e ".spec.resources[0].flavors[0].quota.min=$cores" prerequisites/cluster-queue.yaml
-        yq -i e ".spec.resources[1].flavors[0].quota.min=\"$memory\"" prerequisites/cluster-queue.yaml
+        yq -i e ".spec.resourceGroups[0].flavors[0].resources[0].nominalQuota=$cores" prerequisites/cluster-queue.yaml
+        yq -i e ".spec.resourceGroups[0].flavors[0].resources[1].nominalQuota=\"$memory\"" prerequisites/cluster-queue.yaml
         kubectl apply -f prerequisites/cluster-queue.yaml
     fi
     "$CL2_HOME_DIR/$CL2_BINARY_NAME" \

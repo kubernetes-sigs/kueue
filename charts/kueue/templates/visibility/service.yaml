@@ -1,6 +1,9 @@
+{{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}
 apiVersion: v1
 kind: Service
 metadata:
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
   name: '{{ include "kueue.fullname" . }}-visibility-server'
   namespace: '{{ .Release.Namespace }}'
 spec:
@@ -10,4 +13,5 @@ spec:
       protocol: TCP
       targetPort: 8082
   selector:
-    control-plane: controller-manager
+  {{- include "kueue.selectorLabels" . | nindent 4 }}
+{{- end }}

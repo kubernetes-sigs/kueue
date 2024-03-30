@@ -48,6 +48,7 @@ Selector labels
 {{- define "kueue.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "kueue.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: controller
 {{- end }}
 
 {{/*
@@ -72,5 +73,23 @@ FeatureGates
 {{- end }}
 {{- with .Values.controllerManager.featureGates }}
 - --feature-gates={{ $features | trimSuffix "," }}
+{{- end }}
+{{- end }}
+
+{{/*
+IsFeatureGateEnabled - outputs true if the feature gate .Feature is enabled in the .List
+Usage:
+  {{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}
+*/}}
+{{- define "kueue.isFeatureGateEnabled" -}}
+{{- $feature := .Feature }}
+{{- $enabled := false }}
+{{- range .List }}
+{{- if (and (eq .name $feature) (eq .enabled true)) }}
+{{- $enabled = true }}
+{{- end }}
+{{- end }}
+{{- if $enabled }}
+{{- $enabled -}}
 {{- end }}
 {{- end }}

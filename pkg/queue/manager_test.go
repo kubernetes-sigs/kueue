@@ -39,6 +39,11 @@ import (
 
 const headsTimeout = 3 * time.Second
 
+var cmpDump = []cmp.Option{
+	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+}
+
 // TestAddLocalQueueOrphans verifies that pods added before adding the queue are
 // present when the queue is added.
 func TestAddLocalQueueOrphans(t *testing.T) {
@@ -95,17 +100,17 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 		}
 	}
 
-	wantActiveWorkloads := map[string]sets.Set[string]{
-		"cq": sets.New("/a", "/b"),
+	wantActiveWorkloads := map[string][]string{
+		"cq": {"/a", "/b"},
 	}
-	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
+	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected active workloads after creating all objects (-want,+got):\n%s", diff)
 	}
 
 	// Recreating the ClusterQueue.
 	manager.DeleteClusterQueue(cq)
 	wantActiveWorkloads = nil
-	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
+	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected active workloads after deleting ClusterQueue (-want,+got):\n%s", diff)
 	}
 
@@ -161,7 +166,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 
 	// Put cq2 in the same cohort as cq1.
 	clusterQueues[1].Spec.Cohort = clusterQueues[0].Spec.Cohort
-	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1]); err != nil {
+	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1], true); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 
@@ -174,9 +179,9 @@ func TestUpdateClusterQueue(t *testing.T) {
 
 	// Verify all workloads are active after the update.
 	activeWorkloads := manager.Dump()
-	wantActiveWorkloads := map[string]sets.Set[string]{
-		"cq1": sets.New("default/a"),
-		"cq2": sets.New("default/b"),
+	wantActiveWorkloads := map[string][]string{
+		"cq1": []string{"default/a"},
+		"cq2": []string{"default/b"},
 	}
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
 		t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
@@ -220,7 +225,7 @@ func TestClusterQueueToActive(t *testing.T) {
 		t.Fatalf("Failed adding clusterQueue %v", err)
 	}
 
-	if err := manager.UpdateClusterQueue(ctx, runningCq); err != nil {
+	if err := manager.UpdateClusterQueue(ctx, runningCq, false); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 
@@ -315,16 +320,16 @@ func TestDeleteLocalQueue(t *testing.T) {
 		t.Fatalf("Could not create LocalQueue: %v", err)
 	}
 
-	wantActiveWorkloads := map[string]sets.Set[string]{
-		"cq": sets.New("/a"),
+	wantActiveWorkloads := map[string][]string{
+		"cq": {"/a"},
 	}
-	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
+	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected workloads after setup (-want,+got):\n%s", diff)
 	}
 
 	manager.DeleteLocalQueue(q)
 	wantActiveWorkloads = nil
-	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
+	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected workloads after deleting LocalQueue (-want,+got):\n%s", diff)
 	}
 }

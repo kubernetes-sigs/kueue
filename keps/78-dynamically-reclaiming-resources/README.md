@@ -87,7 +87,7 @@ the expected reclaimablePods should be:
 
 ##### To consider
 According to [kubernetes/enhancements](https://github.com/kubernetes/enhancements) the algorithm presented above might need to be reworked in order to account for:
-- [KEP-3939](https://github.com/kubernetes/enhancements/pull/3940) which adds a new field `terminating` to account for terminating pods, depending on `spec.RecreatePodsWhen`, when reclaimablePods are computed the new fiels needs to be taken into account.
+- [KEP-3939](https://github.com/kubernetes/enhancements/pull/3940) which adds a new field `terminating` to account for terminating pods, depending on `spec.RecreatePodsWhen`, when reclaimablePods are computed the new fields needs to be taken into account.
 - [KEP-3850](https://github.com/kubernetes/enhancements/pull/3967) which adds the ability for an index to fail. If an index fails, the resources previously reserved for it are no longer needed.
 
 ### API

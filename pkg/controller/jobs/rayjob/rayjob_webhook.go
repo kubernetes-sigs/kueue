@@ -39,10 +39,7 @@ type RayJobWebhook struct {
 
 // SetupRayJobWebhook configures the webhook for rayjobapi RayJob.
 func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &RayJobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
@@ -91,7 +88,7 @@ func (w *RayJobWebhook) validateCreate(job *rayjobapi.RayJob) field.ErrorList {
 			allErrors = append(allErrors, field.Invalid(specPath.Child("shutdownAfterJobFinishes"), spec.ShutdownAfterJobFinishes, "a kueue managed job should delete the cluster after finishing"))
 		}
 
-		// Should not want existing cluster. Keuue (workload) should be able to control the admission of the actual work, not only the trigger.
+		// Should not want existing cluster. Kueue (workload) should be able to control the admission of the actual work, not only the trigger.
 		if len(spec.ClusterSelector) > 0 {
 			allErrors = append(allErrors, field.Invalid(specPath.Child("clusterSelector"), spec.ClusterSelector, "a kueue managed job should not use an existing cluster"))
 		}

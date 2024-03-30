@@ -9,9 +9,9 @@ enablePrometheus: false
 enableCertManager: false
 # Customize controlerManager
 controllerManager:
- #featureGates:
- #  - name: PartialAdmission
- #    enabled: true
+  #featureGates:
+  #  - name: PartialAdmission
+  #    enabled: true
   kubeRbacProxy:
     image:
       repository: gcr.io/kubebuilder/kube-rbac-proxy
@@ -22,8 +22,6 @@ controllerManager:
   manager:
     image:
       repository: gcr.io/k8s-staging-kueue/kueue
-      # tag, if defined will use the given image tag, else Chart.AppVersion will be used
-      tag: main
       # This should be set to 'IfNotPresent' for released version      
       pullPolicy: Always
     resources:
@@ -70,10 +68,11 @@ managerConfig:
     controller:
       groupKindConcurrency:
         Job.batch: 5
+        Pod.: 5
+        Workload.kueue.x-k8s.io: 5
         LocalQueue.kueue.x-k8s.io: 1
         ClusterQueue.kueue.x-k8s.io: 1
         ResourceFlavor.kueue.x-k8s.io: 1
-        Workload.kueue.x-k8s.io: 1
     clientConnection:
       qps: 50
       burst: 100
@@ -90,6 +89,7 @@ managerConfig:
       - "batch/job"
       - "kubeflow.org/mpijob"
       - "ray.io/rayjob"
+      - "ray.io/raycluster"
       - "jobset.x-k8s.io/jobset"
       - "kubeflow.org/mxjob"
       - "kubeflow.org/paddlejob"    

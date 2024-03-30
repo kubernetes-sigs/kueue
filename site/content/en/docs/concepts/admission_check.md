@@ -45,7 +45,7 @@ Similarly to `ResourceFlavors`, if an `AdmissionCheck` is not found or its contr
 
 ### AdmissionCheckState
 
-AdmissionCheckState is the way the state of an AdmissionCkeck for a specific Workload is tracked.
+AdmissionCheckState is the way the state of an AdmissionCheck for a specific Workload is tracked.
 
 AdmissionCheckStates are listed in the Workload's `.status.admissionCheckStates` field.
 

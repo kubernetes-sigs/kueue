@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,17 +19,33 @@ package applyconfiguration
 
 import (
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	visibilityv1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1alpha1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
-	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1alpha1"
+	applyconfigurationvisibilityv1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1alpha1"
 )
 
 // ForKind returns an apply configuration type for the given GroupVersionKind, or nil if no
 // apply configuration type exists for the given GroupVersionKind.
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
-	// Group=kueue.x-k8s.io, Version=v1beta1
+	// Group=kueue.x-k8s.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("KubeConfig"):
+		return &kueuev1alpha1.KubeConfigApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueCluster"):
+		return &kueuev1alpha1.MultiKueueClusterApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueClusterSpec"):
+		return &kueuev1alpha1.MultiKueueClusterSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueClusterStatus"):
+		return &kueuev1alpha1.MultiKueueClusterStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueConfig"):
+		return &kueuev1alpha1.MultiKueueConfigApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueConfigSpec"):
+		return &kueuev1alpha1.MultiKueueConfigSpecApplyConfiguration{}
+
+		// Group=kueue.x-k8s.io, Version=v1beta1
 	case v1beta1.SchemeGroupVersion.WithKind("Admission"):
 		return &kueuev1beta1.AdmissionApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheck"):
@@ -42,6 +58,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.AdmissionCheckStateApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckStatus"):
 		return &kueuev1beta1.AdmissionCheckStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
+		return &kueuev1beta1.BorrowWithinCohortApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &kueuev1beta1.ClusterQueueApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueuePendingWorkload"):
@@ -82,6 +100,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ProvisioningRequestConfigSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ReclaimablePod"):
 		return &kueuev1beta1.ReclaimablePodApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("RequeueState"):
+		return &kueuev1beta1.RequeueStateApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ResourceFlavor"):
 		return &kueuev1beta1.ResourceFlavorApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ResourceFlavorSpec"):
@@ -102,14 +122,14 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.WorkloadStatusApplyConfiguration{}
 
 		// Group=visibility.kueue.x-k8s.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithKind("ClusterQueue"):
-		return &visibilityv1alpha1.ClusterQueueApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("LocalQueue"):
-		return &visibilityv1alpha1.LocalQueueApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("PendingWorkload"):
-		return &visibilityv1alpha1.PendingWorkloadApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
-		return &visibilityv1alpha1.PendingWorkloadsSummaryApplyConfiguration{}
+	case visibilityv1alpha1.SchemeGroupVersion.WithKind("ClusterQueue"):
+		return &applyconfigurationvisibilityv1alpha1.ClusterQueueApplyConfiguration{}
+	case visibilityv1alpha1.SchemeGroupVersion.WithKind("LocalQueue"):
+		return &applyconfigurationvisibilityv1alpha1.LocalQueueApplyConfiguration{}
+	case visibilityv1alpha1.SchemeGroupVersion.WithKind("PendingWorkload"):
+		return &applyconfigurationvisibilityv1alpha1.PendingWorkloadApplyConfiguration{}
+	case visibilityv1alpha1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
+		return &applyconfigurationvisibilityv1alpha1.PendingWorkloadsSummaryApplyConfiguration{}
 
 	}
 	return nil

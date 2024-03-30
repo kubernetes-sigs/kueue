@@ -13,10 +13,11 @@ leaderElection:
 controller:
   groupKindConcurrency:
     Job.batch: 5
+    Pod: 5
+    Workload.kueue.x-k8s.io: 5
     LocalQueue.kueue.x-k8s.io: 1
     ClusterQueue.kueue.x-k8s.io: 1
     ResourceFlavor.kueue.x-k8s.io: 1
-    Workload.kueue.x-k8s.io: 1
 clientConnection:
   qps: 50
   burst: 100
@@ -33,6 +34,7 @@ integrations:
   - "batch/job"
   - "kubeflow.org/mpijob"
   - "ray.io/rayjob"
+  - "ray.io/raycluster"
   - "jobset.x-k8s.io/jobset"
   - "kubeflow.org/mxjob"
   - "kubeflow.org/paddlejob"

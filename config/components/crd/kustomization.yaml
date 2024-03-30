@@ -9,6 +9,8 @@ resources:
 - bases/kueue.x-k8s.io_admissionchecks.yaml
 - bases/kueue.x-k8s.io_workloadpriorityclasses.yaml
 - bases/kueue.x-k8s.io_provisioningrequestconfigs.yaml
+- bases/kueue.x-k8s.io_multikueueconfigs.yaml
+- bases/kueue.x-k8s.io_multikueueclusters.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:

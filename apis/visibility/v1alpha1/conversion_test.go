@@ -74,7 +74,7 @@ func TestPendingWorkloadsOptions(t *testing.T) {
 				t.Fatal(err)
 			}
 			if d := cmp.Diff(actualParameters, tc.wantQueryParams); d != "" {
-				t.Fatalf("Unxpected serialization:\n%s", diff.ObjectGoPrintSideBySide(tc.wantQueryParams, actualParameters))
+				t.Fatalf("Unexpected serialization:\n%s", diff.ObjectGoPrintSideBySide(tc.wantQueryParams, actualParameters))
 			}
 
 			// query params -> versioned

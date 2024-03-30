@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -38,7 +38,7 @@ import (
 // clusterQueueBase is an incomplete base implementation of ClusterQueue
 // interface. It can be inherited and overwritten by other types.
 type clusterQueueBase struct {
-	heap              heap.Heap
+	heap              heap.Heap[workload.Info]
 	cohort            string
 	namespaceSelector labels.Selector
 	active            bool
@@ -47,7 +47,7 @@ type clusterQueueBase struct {
 	inadmissibleWorkloads map[string]*workload.Info
 
 	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
-	// popCycle and queueInadmissibleCycle are used to track when there is a requeueing
+	// popCycle and queueInadmissibleCycle are used to track when there is a requeuing
 	// of inadmissible workloads while a workload is being scheduled.
 	popCycle int64
 
@@ -55,15 +55,28 @@ type clusterQueueBase struct {
 	// QueueInadmissibleWorkloads is called.
 	queueInadmissibleCycle int64
 
+	lessFunc func(a, b *workload.Info) bool
+
 	rwm sync.RWMutex
+
+	clock clock.Clock
 }
 
-func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, b interface{}) bool) *clusterQueueBase {
+func workloadKey(i *workload.Info) string {
+	return workload.Key(i.Obj)
+}
+
+func newClusterQueueImpl(
+	lessFunc func(a, b *workload.Info) bool,
+	clock clock.Clock,
+) *clusterQueueBase {
 	return &clusterQueueBase{
-		heap:                   heap.New(keyFunc, lessFunc),
+		heap:                   heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
 		queueInadmissibleCycle: -1,
+		lessFunc:               lessFunc,
 		rwm:                    sync.RWMutex{},
+		clock:                  clock,
 	}
 }
 
@@ -106,6 +119,7 @@ func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
 		// to potentially become admissible, unless the Eviction status changed
 		// which can affect the workloads order in the queue.
 		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
+			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) {
 			c.inadmissibleWorkloads[key] = wInfo
@@ -114,7 +128,25 @@ func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
 		// otherwise move or update in place in the queue.
 		delete(c.inadmissibleWorkloads, key)
 	}
+	if c.heap.GetByKey(key) == nil && !c.backoffWaitingTimeExpired(wInfo) {
+		c.inadmissibleWorkloads[key] = wInfo
+		return
+	}
 	c.heap.PushOrUpdate(wInfo)
+}
+
+// backoffWaitingTimeExpired returns true if the current time is after the requeueAt.
+func (c *clusterQueueBase) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
+	if wInfo.Obj.Status.RequeueState == nil || wInfo.Obj.Status.RequeueState.RequeueAt == nil {
+		return true
+	}
+	if _, evictedByTimeout := workload.IsEvictedByPodsReadyTimeout(wInfo.Obj); !evictedByTimeout {
+		return true
+	}
+	// It needs to verify the requeueAt by "Equal" function
+	// since the "After" function evaluates the nanoseconds despite the metav1.Time is seconds level precision.
+	return c.clock.Now().After(wInfo.Obj.Status.RequeueState.RequeueAt.Time) ||
+		c.clock.Now().Equal(wInfo.Obj.Status.RequeueState.RequeueAt.Time)
 }
 
 func (c *clusterQueueBase) Delete(w *kueue.Workload) {
@@ -146,7 +178,8 @@ func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate b
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
-	if immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors() {
+	if c.backoffWaitingTimeExpired(wInfo) &&
+		(immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors()) {
 		// If the workload was inadmissible, move it back into the queue.
 		inadmissibleWl := c.inadmissibleWorkloads[key]
 		if inadmissibleWl != nil {
@@ -184,7 +217,7 @@ func (c *clusterQueueBase) QueueInadmissibleWorkloads(ctx context.Context, clien
 	for key, wInfo := range c.inadmissibleWorkloads {
 		ns := corev1.Namespace{}
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
-		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) {
+		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
 			inadmissibleWorkloads[key] = wInfo
 		} else {
 			moved = c.heap.PushIfNotPresent(wInfo) || moved
@@ -217,33 +250,31 @@ func (c *clusterQueueBase) Pop() *workload.Info {
 		return nil
 	}
 
-	info := c.heap.Pop()
-	return info.(*workload.Info)
+	return c.heap.Pop()
 }
 
-func (c *clusterQueueBase) Dump() (sets.Set[string], bool) {
+func (c *clusterQueueBase) Dump() ([]string, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	if c.heap.Len() == 0 {
 		return nil, false
 	}
-	elements := make(sets.Set[string], c.heap.Len())
-	for _, e := range c.heap.List() {
-		info := e.(*workload.Info)
-		elements.Insert(workload.Key(info.Obj))
+	elements := make([]string, c.heap.Len())
+	for i, info := range c.heap.List() {
+		elements[i] = workload.Key(info.Obj)
 	}
 	return elements, true
 }
 
-func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
+func (c *clusterQueueBase) DumpInadmissible() ([]string, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	if len(c.inadmissibleWorkloads) == 0 {
 		return nil, false
 	}
-	elements := make(sets.Set[string], len(c.inadmissibleWorkloads))
+	elements := make([]string, 0, len(c.inadmissibleWorkloads))
 	for _, info := range c.inadmissibleWorkloads {
-		elements.Insert(workload.Key(info.Obj))
+		elements = append(elements, workload.Key(info.Obj))
 	}
 	return elements, true
 }
@@ -251,7 +282,7 @@ func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
 func (c *clusterQueueBase) Snapshot() []*workload.Info {
 	elements := c.totalElements()
 	sort.Slice(elements, func(i, j int) bool {
-		return queueOrdering(elements[i], elements[j])
+		return c.lessFunc(elements[i], elements[j])
 	})
 	return elements
 }
@@ -259,11 +290,7 @@ func (c *clusterQueueBase) Snapshot() []*workload.Info {
 func (c *clusterQueueBase) Info(key string) *workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	info := c.heap.GetByKey(key)
-	if info == nil {
-		return nil
-	}
-	return info.(*workload.Info)
+	return c.heap.GetByKey(key)
 }
 
 func (c *clusterQueueBase) totalElements() []*workload.Info {
@@ -271,10 +298,7 @@ func (c *clusterQueueBase) totalElements() []*workload.Info {
 	defer c.rwm.RUnlock()
 	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
 	elements := make([]*workload.Info, 0, totalLen)
-	for _, e := range c.heap.List() {
-		info := e.(*workload.Info)
-		elements = append(elements, info)
-	}
+	elements = append(elements, c.heap.List()...)
 	for _, e := range c.inadmissibleWorkloads {
 		elements = append(elements, e)
 	}

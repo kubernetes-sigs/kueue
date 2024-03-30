@@ -65,11 +65,16 @@ E2E_TARGET ?= ./test/e2e/...
 E2E_KIND_VERSION ?= kindest/node:v1.28.0
 
 # E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
-E2E_K8S_VERSIONS ?= 1.24.15 1.25.11 1.26.6 1.27.3 1.28.0
+E2E_K8S_VERSIONS ?= 1.26.12 1.27.9 1.28.5 1.29.0
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
+
+# Number of processes to use during integration tests to run specs within a
+# suite in parallel. Suites still run sequentially. User may set this value to 1
+# to run without parallelism.
+INTEGRATION_NPROCS ?= 4
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -77,9 +82,21 @@ KIND_CLUSTER_NAME ?= kind
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+# Setting SED allows macos users to install GNU sed and use the latter
+# instead of the default BSD sed.
+SED ?= /usr/bin/sed
+
 version_pkg = sigs.k8s.io/kueue/pkg/version
 LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
 LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
+
+# Update these variables when preparing a new release or a release branch.
+# Then run `make prepare-release-branch`
+RELEASE_VERSION=v0.6.1
+RELEASE_BRANCH=main
+
+# JobSet Version
+JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
 
 .PHONY: all
 all: generate fmt vet build
@@ -115,10 +132,10 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 
 .PHONY: update-helm
 update-helm: manifests yq
-	./hack/update-helm.sh
+	SED=$(SED) ./hack/update-helm.sh
 
 .PHONY: generate
-generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
+generate: gomod-download controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 	./hack/update-codegen.sh $(GO_CMD)
 
@@ -162,30 +179,40 @@ test: gotestsum ## Run tests.
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd kf-training-operator-crd  cluster-autoscaler-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GINKGO) $(GINKGO_ARGS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
-test-e2e: kustomize ginkgo run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: kustomize ginkgo yq gomod-download jobset-operator-crd run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-multikueue-e2e
+test-multikueue-e2e: kustomize ginkgo yq gomod-download jobset-operator-crd run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
 
 E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
+MULTIKUEUE-E2E_TARGETS := $(addprefix run-test-multikueue-e2e-,${E2E_K8S_VERSIONS})
 .PHONY: test-e2e-all
-test-e2e-all: ginkgo $(E2E_TARGETS)
+test-e2e-all: ginkgo $(E2E_TARGETS) $(MULTIKUEUE-E2E_TARGETS)
 
 FORCE:
 
 run-test-e2e-%: K8S_VERSION = $(@:run-test-e2e-%=%)
 run-test-e2e-%: FORCE
 	@echo Running e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/e2e-test.sh
+
+run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
+run-test-multikueue-e2e-%: FORCE
+	@echo Running multikueue e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/multikueue-e2e-test.sh
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 15m0s
 
 .PHONY: verify
-verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm generate-apiref
-	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/content/en/docs/reference
+verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref prepare-release-branch
+	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/
 
 ##@ Build
 
@@ -195,15 +222,16 @@ build:
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	$(GO_CMD) run ./main.go
+	$(GO_CMD) run cmd/kueue/main.go
 
-# Build the container image
+# Build the multiplatform container image locally.
 .PHONY: image-local-build
 image-local-build:
 	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
 	$(MAKE) image-build PUSH=$(PUSH)
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
+# Build the multiplatform container image locally and push to repo.
 .PHONY: image-local-push
 image-local-push: PUSH=--push
 image-local-push: image-local-build
@@ -222,6 +250,7 @@ image-build:
 image-push: PUSH=--push
 image-push: image-build
 
+# Build an amd64 image that can be used for Kind E2E tests.
 .PHONY: kind-image-build
 kind-image-build: PLATFORMS=linux/amd64
 kind-image-build: IMAGE_BUILD_EXTRA_OPTS=--load
@@ -233,7 +262,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
+clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=gcr.io/k8s-staging-kueue/kueue:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -257,6 +286,10 @@ prometheus:
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
+.PHONY: site-server
+site-server: hugo
+	(cd site; $(HUGO) server)
+
 ##@ Release
 .PHONY: artifacts
 artifacts: kustomize yq helm
@@ -265,7 +298,9 @@ artifacts: kustomize yq helm
 	mkdir -p artifacts
 	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
 	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
+	$(KUSTOMIZE) build config/alpha-enabled -o artifacts/manifests-alpha-enabled.yaml
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
+	$(KUSTOMIZE) build config/visibility -o artifacts/visibility-api.yaml
 	@$(call clean-manifests)
 	# Update the image tag and policy
 	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REPO)" | .controllerManager.manager.image.tag = "$(GIT_TAG)" | .controllerManager.manager.image.pullPolicy = "IfNotPresent"' -i charts/kueue/values.yaml
@@ -273,19 +308,65 @@ artifacts: kustomize yq helm
 	$(HELM) package --version $(GIT_TAG) --app-version $(GIT_TAG) charts/kueue -d artifacts/
 	mv artifacts/kueue-$(GIT_TAG).tgz artifacts/kueue-chart-$(GIT_TAG).tgz
 	# Revert the image changes
-	$(YQ)  e  '.controllerManager.manager.image.repository = "$(STAGING_IMAGE_REGISTRY)/$(IMAGE_NAME)" | .controllerManager.manager.image.tag = "main" | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
+	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REGISTRY)/$(IMAGE_NAME)" | .controllerManager.manager.image.tag = "main" | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
+
+.PHONY: prepare-release-branch
+prepare-release-branch: yq kustomize
+	sed -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
+	@$(call clean-manifests)
 
 ##@ Tools
+
+# Build an image that can be used with kubectl debug
+# Developers don't need to build this image, as it will be available as gcr.io/k8s-staging-kueue/debug
+.PHONY: debug-image-push
+debug-image-push:
+	$(IMAGE_BUILD_CMD) -t $(IMAGE_REGISTRY)/debug:$(GIT_TAG) \
+		--platform=$(PLATFORMS) \
+		--push ./hack/debugpod
+
+# Build the importer binary
+.PHONY: importer-build
+importer-build:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/importer cmd/importer/main.go
+
+.PHONY: importer-image-build
+importer-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/importer:$(GIT_TAG) \
+		-t $(IMAGE_REGISTRY)/importer:$(RELEASE_BRANCH)-latest \
+		--platform=$(PLATFORMS) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		$(PUSH) \
+		-f ./cmd/importer/Dockerfile ./
+
+.PHONY: importer-image-push
+importer-image-push: PUSH=--push
+importer-image-push: importer-image-build
+
+# Build a docker local gcr.io/k8s-staging-kueue/importer image
+.PHONY: importer-image
+importer-image: PLATFORMS=linux/amd64
+importer-image: PUSH=--load
+importer-image: importer-image-build
+
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
 .PHONY: golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.54.2
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.56.2
 
 CONTROLLER_GEN = $(PROJECT_DIR)/bin/controller-gen
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.12.0
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen
+
+.PHONY: shell-lint
+shell-lint:
+	./hack/verify-shellcheck.sh
 
 KUSTOMIZE = $(PROJECT_DIR)/bin/kustomize
 .PHONY: kustomize
@@ -295,7 +376,7 @@ kustomize: ## Download kustomize locally if necessary.
 ENVTEST = $(PROJECT_DIR)/bin/setup-envtest
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20240320141353-395cfc7486e6
 
 GINKGO = $(PROJECT_DIR)/bin/ginkgo
 .PHONY: ginkgo
@@ -310,7 +391,7 @@ gotestsum: ## Download gotestsum locally if necessary.
 KIND = $(PROJECT_DIR)/bin/kind
 .PHONY: kind
 kind:
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.18.0
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.20.0
 
 YQ = $(PROJECT_DIR)/bin/yq
 .PHONY: yq
@@ -326,6 +407,11 @@ GENREF = $(PROJECT_DIR)/bin/genref
 .PHONY: genref
 genref: ## Download genref locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@v0.28.0
+
+HUGO = $(PROJECT_DIR)/bin/hugo
+.PHONY: hugo
+hugo:
+	@GOBIN=$(PROJECT_DIR)/bin CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@v0.124.1
 
 MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
@@ -352,7 +438,7 @@ jobset-operator-crd:
 	cp -f $(JOBSETROOT)/config/components/crd/bases/* $(PROJECT_DIR)/dep-crds/jobset-operator/
 
 
-CAROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler)
+CAROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler/apis)
 .PHONY: cluster-autoscaler-crd
 cluster-autoscaler-crd:
 	mkdir -p $(PROJECT_DIR)/dep-crds/cluster-autoscaler/

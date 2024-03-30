@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -90,8 +89,8 @@ type ClusterQueue interface {
 	// Dump produces a dump of the current workloads in the heap of
 	// this ClusterQueue. It returns false if the queue is empty,
 	// otherwise returns true.
-	Dump() (sets.Set[string], bool)
-	DumpInadmissible() (sets.Set[string], bool)
+	Dump() ([]string, bool)
+	DumpInadmissible() ([]string, bool)
 	// Snapshot returns a copy of the current workloads in the heap of
 	// this ClusterQueue.
 	Snapshot() []*workload.Info
@@ -103,16 +102,16 @@ type ClusterQueue interface {
 	Active() bool
 }
 
-var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue) (ClusterQueue, error){
+var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error){
 	kueue.StrictFIFO:     newClusterQueueStrictFIFO,
 	kueue.BestEffortFIFO: newClusterQueueBestEffortFIFO,
 }
 
-func newClusterQueue(cq *kueue.ClusterQueue) (ClusterQueue, error) {
+func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error) {
 	strategy := cq.Spec.QueueingStrategy
 	f, exist := registry[strategy]
 	if !exist {
 		return nil, fmt.Errorf("invalid QueueingStrategy %q", cq.Spec.QueueingStrategy)
 	}
-	return f(cq)
+	return f(cq, wo)
 }

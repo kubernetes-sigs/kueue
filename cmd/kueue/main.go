@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
+	"net/http"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -29,31 +29,33 @@ import (
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
+	"sigs.k8s.io/kueue/pkg/debugger"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -71,9 +73,8 @@ import (
 )
 
 var (
-	scheme            = runtime.NewScheme()
-	setupLog          = ctrl.Log.WithName("setup")
-	errPodIntegration = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
+	scheme   = runtime.NewScheme()
+	setupLog = ctrl.Log.WithName("setup")
 )
 
 func init() {
@@ -81,6 +82,7 @@ func init() {
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
 	// Add any additional framework integration types.
@@ -153,17 +155,18 @@ func main() {
 	}
 
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(blockForPodsReady(&cfg)))
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)))
 
 	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")
 		os.Exit(1)
 	}
+	debugger.NewDumper(cCache, queues).ListenForSignal(ctx)
 
 	serverVersionFetcher := setupServerVersionFetcher(mgr, kubeConfig)
 
-	setupProbeEndpoints(mgr)
+	setupProbeEndpoints(mgr, certsReady)
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
@@ -180,7 +183,7 @@ func main() {
 		go visibility.CreateAndStartVisibilityServer(queues, ctx)
 	}
 
-	setupScheduler(mgr, cCache, queues)
+	setupScheduler(mgr, cCache, queues, &cfg)
 
 	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctx); err != nil {
@@ -205,23 +208,23 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
-	err = jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
-		if isFrameworkEnabled(cfg, name) {
-			if err := cb.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-				return fmt.Errorf("integration %s: %w", name, err)
-			}
+	if features.Enabled(features.MultiKueue) {
+		if err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), *cfg.Namespace); err != nil {
+			setupLog.Error(err, "Could not setup multikueue indexer")
+			os.Exit(1)
 		}
-		return nil
-	})
-	return err
+	}
+
+	opts := []jobframework.Option{
+		jobframework.WithEnabledFrameworks(cfg.Integrations),
+	}
+	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
 func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
-	setupLog.Info("Waiting for certificate generation to complete")
-	<-certsReady
-	setupLog.Info("Certs ready")
+	cert.WaitForCertsReady(setupLog, certsReady)
 
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
@@ -243,7 +246,16 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		}
 	}
 
-	manageJobsWithoutQueueName := cfg.ManageJobsWithoutQueueName
+	if features.Enabled(features.MultiKueue) {
+		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
+			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
+			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
+			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
+		); err != nil {
+			setupLog.Error(err, "Could not setup MultiKueue controller")
+			os.Exit(1)
+		}
+	}
 
 	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
@@ -251,86 +263,56 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	}
 
 	opts := []jobframework.Option{
-		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
-		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
+		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
+		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
+		jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions),
+		jobframework.WithEnabledFrameworks(cfg.Integrations),
+		jobframework.WithManagerName(constants.KueueName),
 	}
-	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
-		log := setupLog.WithValues("jobFrameworkName", name)
-
-		if isFrameworkEnabled(cfg, name) {
-			gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
-			if err != nil {
-				return err
-			}
-			if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
-				if !meta.IsNoMatchError(err) {
-					return err
-				}
-				log.Info("No matching API server for job framework, skip to create controller and webhook")
-			} else {
-				if err = cb.NewReconciler(
-					mgr.GetClient(),
-					mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
-					opts...,
-				).SetupWithManager(mgr); err != nil {
-					log.Error(err, "Unable to create controller")
-					return err
-				}
-				if name == "pod" {
-					v := serverVersionFetcher.GetServerVersion()
-					if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
-						setupLog.Error(errPodIntegration,
-							"Failed to configure reconcilers",
-							"kubernetesVersion", v)
-						os.Exit(1)
-					}
-
-					opts = append(
-						opts,
-						jobframework.WithPodNamespaceSelector(cfg.Integrations.PodOptions.NamespaceSelector),
-						jobframework.WithPodSelector(cfg.Integrations.PodOptions.PodSelector),
-					)
-				}
-				if err = cb.SetupWebhook(mgr, opts...); err != nil {
-					log.Error(err, "Unable to create webhook")
-					return err
-				}
-				return nil
-			}
-		}
-		if err := noop.SetupWebhook(mgr, cb.JobType); err != nil {
-			log.Error(err, "Unable to create noop webhook")
-			return err
-		}
-		return nil
-	})
-	if err != nil {
+	if err := jobframework.SetupControllers(mgr, setupLog, opts...); err != nil {
+		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 }
 
 // setupProbeEndpoints registers the health endpoints
-func setupProbeEndpoints(mgr ctrl.Manager) {
+func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) {
 	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+
+	// Wait for the webhook server to be listening before advertising the
+	// Kueue replica as ready. This allows users to wait with sending the first
+	// requests, requiring webhooks, until the Kueue deployment is available, so
+	// that the early requests are not rejected during the Kueue's startup.
+	// We wrap the call to GetWebhookServer in a closure to delay calling
+	// the function, otherwise a not fully-initialized webhook server (without
+	// ready certs) fails the start of the manager.
+	if err := mgr.AddReadyzCheck("readyz", func(req *http.Request) error {
+		select {
+		case <-certsReady:
+			return mgr.GetWebhookServer().StartedChecker()(req)
+		default:
+			return errors.New("certificates are not ready")
+		}
+	}); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager) {
+func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *configapi.Configuration) {
 	sched := scheduler.New(
 		queues,
 		cCache,
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.AdmissionName),
+		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 	)
 	if err := mgr.Add(sched); err != nil {
 		setupLog.Error(err, "Unable to add scheduler to manager")
@@ -361,11 +343,15 @@ func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) *kubev
 }
 
 func blockForPodsReady(cfg *configapi.Configuration) bool {
-	return waitForPodsReady(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
+	return config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
 }
 
-func waitForPodsReady(cfg *configapi.Configuration) bool {
-	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
+func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.RequeuingTimestamp {
+	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.RequeuingStrategy != nil &&
+		cfg.WaitForPodsReady.RequeuingStrategy.Timestamp != nil {
+		return *cfg.WaitForPodsReady.RequeuingStrategy.Timestamp
+	}
+	return configapi.EvictionTimestamp
 }
 
 func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
@@ -396,13 +382,4 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
 
 	return options, cfg, nil
-}
-
-func isFrameworkEnabled(cfg *configapi.Configuration, name string) bool {
-	for _, framework := range cfg.Integrations.Frameworks {
-		if framework == name {
-			return true
-		}
-	}
-	return false
 }

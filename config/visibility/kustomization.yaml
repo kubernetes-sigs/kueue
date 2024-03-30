@@ -1,0 +1,12 @@
+# This overlay builds the visibility component to be used in combination
+# with other overlays.
+
+namespace: kueue-system
+namePrefix: kueue-
+
+commonLabels:
+  app.kubernetes.io/name: kueue
+  app.kubernetes.io/component: controller
+
+resources:
+- ../components/visibility
