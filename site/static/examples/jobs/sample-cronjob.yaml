@@ -17,7 +17,7 @@ spec:
           containers:
           - name: dummy-job
             image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
-            args: ["30s"]
+            args: ["10s"]
             resources:
               requests:
                 cpu: 1

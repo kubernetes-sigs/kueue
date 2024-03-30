@@ -1,5 +1,6 @@
 ---
 title: "Run A CronJob"
+linkTitle: "Kubernetes CronJobs"
 date: 2023-12-12
 weight: 5
 description: >
@@ -49,8 +50,10 @@ without Kueue. However, you must consider the following differences:
 - You have to set the Queue you want to submit the Job to. Use the
  `kueue.x-k8s.io/queue-name` label in `jobTemplate.metadata`
 - You should include the resource requests for each Job Pod.
+- You should set the [`spec.concurrencyPolicy`](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#concurrency-policy) to control the concurrency policy. The default is `Allow`. You can also set it to `Forbid` to prevent concurrent runs.
+- You should set the [`spec.startingDeadlineSeconds`](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#starting-deadline) to control the deadline for starting the Job. The default is no deadline.
 
-Here is a sample Job with three Pods that just sleep for a few seconds.
+Here is a sample CronJob with three Pods that just sleep for 10 seconds. The CronJob runs every minute.
 
 {{< include "examples/jobs/sample-cronjob.yaml" "yaml" >}}
 
