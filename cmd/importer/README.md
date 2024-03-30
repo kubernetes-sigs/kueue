@@ -31,15 +31,15 @@ The importer will perform following checks:
 - The LocalQueues involved in the import are using an existing ClusterQueue.
 - The ClusterQueues involved have at least one ResourceGroup using an existing ResourceFlavor. This ResourceFlavor is used when the importer creates the admission for the created workloads.
 
-The are two ways the mapping from a pod to a LocalQueue can be specified:
+There are two ways the mapping from a pod to a LocalQueue can be specified:
 
 #### Simple mapping
 
-It's done by specifying a label name and any number of <label-value>=<localQueue-name> a command line arguments eg.  `--queuelabel=src.lbl --queuemapping=src-val=user-queue,src-val2=user-queue2`.
+It's done by specifying a label name and any number of <label-value>=<localQueue-name> a command line arguments e.g.  `--queuelabel=src.lbl --queuemapping=src-val=user-queue,src-val2=user-queue2`.
 
 #### Advanced mapping
 
-It's done providing an yaml mapping file name as `--queuemapping-file` argument, it's expected content being:
+It's done providing a yaml mapping file name as `--queuemapping-file` argument, it's expected content being:
 
 ```yaml
 - match:
