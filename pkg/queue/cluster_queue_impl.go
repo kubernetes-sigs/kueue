@@ -60,6 +60,8 @@ type clusterQueueBase struct {
 
 	lessFunc func(a, b *workload.Info) bool
 
+	queueingStrategy kueue.QueueingStrategy
+
 	rwm sync.RWMutex
 
 	clock clock.Clock
@@ -86,6 +88,7 @@ func newClusterQueueImpl(
 func (c *clusterQueueBase) Update(apiCQ *kueue.ClusterQueue) error {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
+	c.queueingStrategy = apiCQ.Spec.QueueingStrategy
 	c.cohort = apiCQ.Spec.Cohort
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {
@@ -329,4 +332,11 @@ func (c *clusterQueueBase) Active() bool {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.active
+}
+
+func (cq *clusterQueueBase) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
+	if cq.queueingStrategy == kueue.StrictFIFO {
+		return cq.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
+	}
+	return cq.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination || reason == RequeueReasonPendingPreemption)
 }

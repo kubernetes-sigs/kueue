@@ -18,11 +18,12 @@ package queue
 
 import (
 	"context"
-	"fmt"
 
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -33,6 +34,10 @@ const (
 	RequeueReasonNamespaceMismatch     RequeueReason = "NamespaceMismatch"
 	RequeueReasonGeneric               RequeueReason = ""
 	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
+)
+
+var (
+	realClock = clock.RealClock{}
 )
 
 // ClusterQueue is an interface for a cluster queue to store workloads waiting
@@ -102,16 +107,30 @@ type ClusterQueue interface {
 	Active() bool
 }
 
-var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error){
-	kueue.StrictFIFO:     newClusterQueueStrictFIFO,
-	kueue.BestEffortFIFO: newClusterQueueBestEffortFIFO,
+func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (*clusterQueueBase, error) {
+	cqImpl := newClusterQueueImpl(queueOrderingFunc(wo), realClock)
+	err := cqImpl.Update(cq)
+	if err != nil {
+		return nil, err
+	}
+	return cqImpl, nil
 }
 
-func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error) {
-	strategy := cq.Spec.QueueingStrategy
-	f, exist := registry[strategy]
-	if !exist {
-		return nil, fmt.Errorf("invalid QueueingStrategy %q", cq.Spec.QueueingStrategy)
+// queueOrderingFunc returns a function used by the clusterQueue heap algorithm
+// to sort workloads. The function sorts workloads based on their priority.
+// When priorities are equal, it uses the workload's creation or eviction
+// time.
+func queueOrderingFunc(wo workload.Ordering) func(a, b *workload.Info) bool {
+	return func(a, b *workload.Info) bool {
+		p1 := utilpriority.Priority(a.Obj)
+		p2 := utilpriority.Priority(b.Obj)
+
+		if p1 != p2 {
+			return p1 > p2
+		}
+
+		tA := wo.GetQueueOrderTimestamp(a.Obj)
+		tB := wo.GetQueueOrderTimestamp(b.Obj)
+		return !tB.Before(tA)
 	}
-	return f(cq, wo)
 }
