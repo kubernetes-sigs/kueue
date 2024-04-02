@@ -2,7 +2,7 @@
 title: "Run A Kubernetes Job"
 linkTitle: "Kubernetes Jobs"
 date: 2022-02-14
-weight: 5
+weight: 4
 description: >
   Run a Job in a Kubernetes cluster with Kueue enabled.
 ---
