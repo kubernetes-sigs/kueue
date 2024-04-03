@@ -80,11 +80,11 @@ If Kueue needs to preempt the resized RayCluster, it would preempt it as a whole
 ## Design Details
 
 ### Workload Slices
-To support horizontal scaling of jobs, we will introduce the concept of a "Workload Slice”. A Workload Slice is a Workload object  with an owner reference to the original Workload for a job. Workload Slices represent per-replica changes to a job that were not initially accounted for when the job was created. **It's an internal state, not an extra CRD.**
+To support horizontal scaling of jobs, we will introduce the concept of a "Workload Slice”. A Workload Slice is a Workload object with an owner reference to the original Workload for a job. Workload Slices represent per-replica changes to a job that were not initially accounted for when the job was created. **It's an internal state, not an extra CRD.**
 
 The benefit of Workload Slices is that Kueue can evaluate admission on a per-replica basis without changing the existing semantics of the Workload API. Once a Workload Slice is admitted, it will be garbage collected and its resources will be aggregated into the admission status of the parent workload.
 - Workload Slices will be submitted to the same LocalQueue that's referenced by the top-level Workload. 
-- In MultiKueue, Workload Slices would go into the same cluster in a multi-cluster environment.
+- In MultiKueue, Workload Slices would go into both clusters (management and workload) in a multi-cluster environment.
 - Workload Slices will be created by Kueue and use identical PodTemplates (which is already enforced by Kuberay in the case for RayCluster).
 - Workload Slices will belong to the same resource flavor as the top-level Workload that was initially admitted.
 
