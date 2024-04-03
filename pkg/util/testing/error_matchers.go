@@ -76,26 +76,47 @@ func (matcher *isForbiddenErrorMatch) NegatedFailureMessage(actual interface{}) 
 	return format.Message(actual, "not to be Forbidden error")
 }
 
-func BeInvalidError() types.GomegaMatcher {
-	return &isInvalidErrorMatch{}
+type errorMatcher int
+
+const (
+	NotFoundError errorMatcher = iota
+	ForbiddenError
+	InvalidError
+)
+
+func (em errorMatcher) String() string {
+	return []string{"NotFoundError", "ForbiddenError", "InvalidError"}[em]
 }
 
-type isInvalidErrorMatch struct {
+type apiError func(error) bool
+
+func (em errorMatcher) IsApiError(err error) bool {
+	return []apiError{apierrors.IsNotFound, apierrors.IsForbidden, apierrors.IsInvalid}[em](err)
 }
 
-func (matcher *isInvalidErrorMatch) Match(actual interface{}) (success bool, err error) {
+type isErrorMatch struct {
+	name errorMatcher
+}
+
+func BeError(name errorMatcher) types.GomegaMatcher {
+	return &isErrorMatch{
+		name: name,
+	}
+}
+
+func (matcher *isErrorMatch) Match(actual interface{}) (success bool, err error) {
 	err, ok := actual.(error)
 	if !ok {
-		return false, fmt.Errorf("InvalidError expects an error")
+		return false, fmt.Errorf("%s expects an error", matcher.name.String())
 	}
 
-	return err != nil && apierrors.IsInvalid(err), nil
+	return err != nil && matcher.name.IsApiError(err), nil
 }
 
-func (matcher *isInvalidErrorMatch) FailureMessage(actual interface{}) (message string) {
-	return format.Message(actual, "to be a Invalid error")
+func (matcher *isErrorMatch) FailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, "to be a %s", matcher.name.String())
 }
 
-func (matcher *isInvalidErrorMatch) NegatedFailureMessage(actual interface{}) (message string) {
-	return format.Message(actual, "not to be Invalid error")
+func (matcher *isErrorMatch) NegatedFailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, "not to be %s", matcher.name.String())
 }
