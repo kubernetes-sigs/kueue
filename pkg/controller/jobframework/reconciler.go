@@ -389,14 +389,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if err != nil {
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
-					allErrs := err
 					// Mark the workload as finished with failure since the is no point to retry.
 					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinishedReason, err.Error(), constants.JobControllerName)
 					if errUpdateStatus != nil {
-						allErrs = errors.Join(err, errUpdateStatus)
-						log.Error(allErrs, "Could not mark Workload as finished after start failure")
+						log.Error(errUpdateStatus, "Updating workload status, on start failure %s", err.Error())
 					}
-					return ctrl.Result{}, allErrs
+					return ctrl.Result{}, errUpdateStatus
 				}
 			}
 			return ctrl.Result{}, err
