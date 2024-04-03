@@ -1,0 +1,23 @@
+title: 
+kep-number: 77
+authors:
+  - "@vicentefb"
+status: provisional
+creation-date: 2024-03-14
+reviewers:
+  - "@andrewsykim"
+  - "@alculquicondor"
+  - "@astefanutti"
+  - "@tenzen-y"
+approvers:
+  - "@alculquicondor"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.8"
+
+feature-gates:
+  - name: DynamicallySizedJobs
