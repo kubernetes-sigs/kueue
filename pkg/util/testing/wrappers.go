@@ -87,6 +87,11 @@ func (w *WorkloadWrapper) UID(uid types.UID) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Generation(num int64) *WorkloadWrapper {
+	w.ObjectMeta.Generation = num
+	return w
+}
+
 func (w *WorkloadWrapper) Name(name string) *WorkloadWrapper {
 	w.Workload.Name = name
 	return w

@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				Reason:  "ClusterQueueDoesNotExist",
 				Message: "Can't submit new workloads to clusterQueue",
 			},
-		}, ignoreConditionTimestamps))
+		}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 
 		ginkgo.By("Creating a clusterQueue")
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
@@ -119,7 +119,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				Reason:  "ClusterQueueIsInactive",
 				Message: "Can't submit new workloads to clusterQueue",
 			},
-		}, ignoreConditionTimestamps))
+		}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 
 		ginkgo.By("Creating resourceFlavors")
 		for _, rf := range resourceFlavors {
@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				Reason:  "Ready",
 				Message: "Can admit new workloads",
 			},
-		}, ignoreConditionTimestamps))
+		}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 		gomega.Eventually(func() []metav1.Condition {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
@@ -148,7 +148,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				Reason:  "Ready",
 				Message: "Can submit new workloads to clusterQueue",
 			},
-		}, ignoreConditionTimestamps))
+		}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 
 		ginkgo.By("Deleting a clusterQueue")
 		gomega.Expect(k8sClient.Delete(ctx, clusterQueue)).To(gomega.Succeed())
@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				Reason:  "ClusterQueueDoesNotExist",
 				Message: "Can't submit new workloads to clusterQueue",
 			},
-		}, ignoreConditionTimestamps))
+		}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 	})
 
 	ginkgo.It("Should update status when workloads are created", func() {
@@ -241,7 +241,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
-		}, ignoreConditionTimestamps))
+		}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 
 		ginkgo.By("Setting the workloads quota reservation")
 		for i, w := range workloads {
@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: fullUsage,
 			FlavorUsage:        emptyUsage,
-		}, ignoreConditionTimestamps))
+		}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 
 		ginkgo.By("Setting the workloads admission checks")
 		for _, w := range workloads {
@@ -316,7 +316,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: fullUsage,
 			FlavorUsage:        fullUsage,
-		}, ignoreConditionTimestamps))
+		}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 
 		ginkgo.By("Finishing workloads")
 		util.FinishWorkloads(ctx, k8sClient, workloads...)
@@ -335,6 +335,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
-		}, ignoreConditionTimestamps))
+		}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 	})
 })

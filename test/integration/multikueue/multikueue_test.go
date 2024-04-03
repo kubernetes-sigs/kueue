@@ -19,6 +19,8 @@ package multikueue
 import (
 	"time"
 
+	"sigs.k8s.io/kueue/test/util"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -39,7 +41,6 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("Multikueue", func() {
@@ -192,13 +193,13 @@ var _ = ginkgo.Describe("Multikueue", func() {
 							Status:  metav1.ConditionFalse,
 							Reason:  "BadConfig",
 							Message: `Cannot load the AdmissionChecks parameters: MultiKueueConfig.kueue.x-k8s.io "testing-config" not found`,
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.AdmissionChecksSingleInstanceInClusterQueue,
 							Status:  metav1.ConditionTrue,
 							Reason:  multikueue.SingleInstanceReason,
 							Message: multikueue.SingleInstanceMessage,
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -225,7 +226,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 						Status:  metav1.ConditionFalse,
 						Reason:  "NoUsableClusters",
 						Message: `Missing clusters: [testing-cluster]`,
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -245,7 +246,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 						Status:  metav1.ConditionFalse,
 						Reason:  "BadConfig",
 						Message: `Secret "testing-secret" not found`,
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -259,7 +260,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 						Status:  metav1.ConditionFalse,
 						Reason:  "NoUsableClusters",
 						Message: `Inactive clusters: [testing-cluster]`,
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -290,7 +291,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "Active",
 						Message: "Connected",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -304,7 +305,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "Active",
 						Message: "The admission check is active",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -380,7 +381,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Status:  metav1.ConditionTrue,
 					Reason:  "JobFinished",
 					Message: `Job finished successfully`,
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+				}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -457,7 +458,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Status:  metav1.ConditionTrue,
 					Reason:  "Admitted",
 					Message: "The workload is admitted",
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+				}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -501,7 +502,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Status:  metav1.ConditionTrue,
 					Reason:  "JobSetFinished",
 					Message: `JobSet finished successfully`,
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+				}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -636,7 +637,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Status:  metav1.ConditionTrue,
 					Reason:  "Admitted",
 					Message: "The workload is admitted",
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+				}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -662,7 +663,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Type:   kueuealpha.MultiKueueClusterActive,
 					Status: metav1.ConditionFalse,
 					Reason: "BadConfig",
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "Message", "LastTransitionTime")))
+				}, util.IgnoreConditionMessage, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 				disconnectedTime = activeCondition.LastTransitionTime.Time
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -699,7 +700,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Type:   kueuealpha.MultiKueueClusterActive,
 					Status: metav1.ConditionTrue,
 					Reason: "Active",
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "Message", "LastTransitionTime")))
+				}, util.IgnoreConditionMessage, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
 				disconnectedTime = activeCondition.LastTransitionTime.Time
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

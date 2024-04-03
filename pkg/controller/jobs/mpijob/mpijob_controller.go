@@ -164,10 +164,11 @@ func (j *MPIJob) Finished() (metav1.Condition, bool) {
 		message = "Job failed"
 	}
 	condition := metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  "JobFinished",
-		Message: message,
+		Type:               kueue.WorkloadFinished,
+		Status:             metav1.ConditionTrue,
+		Reason:             "JobFinished",
+		Message:            message,
+		ObservedGeneration: j.Generation,
 	}
 	return condition, finished
 }

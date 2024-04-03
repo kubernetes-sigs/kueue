@@ -2243,8 +2243,6 @@ func TestLastSchedulingContext(t *testing.T) {
 	}
 }
 
-var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
-
 func TestRequeueAndUpdate(t *testing.T) {
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
 	q1 := utiltesting.MakeLocalQueue("q1", "ns1").ClusterQueue(cq.Name).Obj()
@@ -2373,7 +2371,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			if err := cl.Get(ctx, client.ObjectKeyFromObject(w1), &updatedWl); err != nil {
 				t.Fatalf("Failed obtaining updated object: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
+			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 			}
 			// Make sure a second call doesn't make unnecessary updates.

@@ -328,6 +328,7 @@ func UpdateStatus(ctx context.Context,
 		LastTransitionTime: now,
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: wl.Generation,
 	}
 
 	newWl := BaseSSAWorkload(wl)
@@ -345,6 +346,7 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: wl.Generation,
 	}
 	changed := apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 	if wl.Status.Admission != nil {
@@ -391,6 +393,7 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		LastTransitionTime: metav1.Now(),
 		Reason:             "QuotaReserved",
 		Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue),
+		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
 
@@ -427,6 +430,7 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            message,
+		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }

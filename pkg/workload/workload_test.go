@@ -199,8 +199,6 @@ func TestNewInfo(t *testing.T) {
 	}
 }
 
-var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
-
 func TestUpdateWorkloadStatus(t *testing.T) {
 	cases := map[string]struct {
 		oldStatus  kueue.WorkloadStatus
@@ -253,7 +251,7 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			workload := utiltesting.MakeWorkload("foo", "bar").Obj()
+			workload := utiltesting.MakeWorkload("foo", "bar").Generation(1).Obj()
 			workload.Status = tc.oldStatus
 			cl := utiltesting.NewFakeClientSSAAsSM(workload)
 			ctx := context.Background()
@@ -265,7 +263,12 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			if err := cl.Get(ctx, client.ObjectKeyFromObject(workload), &updatedWl); err != nil {
 				t.Fatalf("Failed obtaining updated object: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
+			if diff := cmp.Diff(
+				tc.wantStatus,
+				updatedWl.Status,
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+				cmpopts.IgnoreFields(metav1.Condition{}, "ObservedGeneration"),
+			); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 			}
 		})

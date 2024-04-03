@@ -454,10 +454,11 @@ func (c *clustersReconciler) getKubeConfigFromPath(path string) ([]byte, bool, e
 
 func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealpha.MultiKueueCluster, active bool, reason, message string) error {
 	newCondition := metav1.Condition{
-		Type:    kueuealpha.MultiKueueClusterActive,
-		Status:  metav1.ConditionFalse,
-		Reason:  reason,
-		Message: message,
+		Type:               kueuealpha.MultiKueueClusterActive,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: cluster.Generation,
 	}
 	if active {
 		newCondition.Status = metav1.ConditionTrue

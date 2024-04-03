@@ -18,6 +18,9 @@ package util
 
 import (
 	"time"
+
+	"github.com/google/go-cmp/cmp/cmpopts"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -33,4 +36,10 @@ const (
 	StartUpTimeout     = 5 * time.Minute
 	ConsistentDuration = time.Second
 	Interval           = time.Millisecond * 250
+)
+
+var (
+	IgnoreConditionTimestamps         = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
+	IgnoreConditionObservedGeneration = cmpopts.IgnoreFields(metav1.Condition{}, "ObservedGeneration")
+	IgnoreConditionMessage            = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
 )

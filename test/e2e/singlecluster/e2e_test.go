@@ -28,6 +28,8 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/test/util"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -35,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
@@ -207,7 +208,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 							Type:   kueue.WorkloadFinished,
 							Status: metav1.ConditionTrue,
 							Reason: "JobFinished",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message"))))
+						}, util.IgnoreConditionMessage, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

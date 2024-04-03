@@ -288,10 +288,11 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	queue.Status.FlavorUsage = stats.AdmittedResources
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
-			Type:    kueue.LocalQueueActive,
-			Status:  conditionStatus,
-			Reason:  reason,
-			Message: msg,
+			Type:               kueue.LocalQueueActive,
+			Status:             conditionStatus,
+			Reason:             reason,
+			Message:            msg,
+			ObservedGeneration: queue.Generation,
 		})
 	}
 	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {
