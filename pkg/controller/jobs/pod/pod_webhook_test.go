@@ -33,6 +33,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
