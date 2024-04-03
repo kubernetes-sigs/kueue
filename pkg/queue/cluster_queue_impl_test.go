@@ -101,8 +101,8 @@ func Test_PushOrUpdate(t *testing.T) {
 			updatedWl := tc.workload.Clone().ResourceVersion("1").Obj()
 			cq.PushOrUpdate(workload.NewInfo(updatedWl))
 			newWl := cq.Pop()
-			if newWl != nil && cq.Pending() != 0 {
-				t.Error("failed to update a workload in ClusterQueue")
+			if newWl != nil && cq.Pending() != 1 {
+				t.Errorf("unexpected count of pending workloads (want=%d, got=%d)", 1, cq.Pending())
 			}
 			if diff := cmp.Diff(tc.wantWorkload, newWl, cmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected workloads in heap (-want,+got):\n%s", diff)
