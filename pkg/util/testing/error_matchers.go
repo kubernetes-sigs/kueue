@@ -90,7 +90,7 @@ func (em errorMatcher) String() string {
 
 type apiError func(error) bool
 
-func (em errorMatcher) IsApiError(err error) bool {
+func (em errorMatcher) isAPIError(err error) bool {
 	return []apiError{apierrors.IsNotFound, apierrors.IsForbidden, apierrors.IsInvalid}[em](err)
 }
 
@@ -98,7 +98,7 @@ type isErrorMatch struct {
 	name errorMatcher
 }
 
-func BeError(name errorMatcher) types.GomegaMatcher {
+func BeAPIError(name errorMatcher) types.GomegaMatcher {
 	return &isErrorMatch{
 		name: name,
 	}
@@ -110,7 +110,7 @@ func (matcher *isErrorMatch) Match(actual interface{}) (success bool, err error)
 		return false, fmt.Errorf("%s expects an error", matcher.name.String())
 	}
 
-	return err != nil && matcher.name.IsApiError(err), nil
+	return err != nil && matcher.name.isAPIError(err), nil
 }
 
 func (matcher *isErrorMatch) FailureMessage(actual interface{}) (message string) {
