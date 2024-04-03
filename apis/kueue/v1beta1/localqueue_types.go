@@ -25,10 +25,13 @@ import (
 // LocalQueueSpec defines the desired state of LocalQueue
 type LocalQueueSpec struct {
 	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"`
 }
 
 // ClusterQueueReference is the name of the ClusterQueue.
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ClusterQueueReference string
 
 // LocalQueueStatus defines the observed state of LocalQueue

@@ -7807,6 +7807,8 @@ spec:
                   clusterQueue:
                     description: clusterQueue is the name of the ClusterQueue that
                       admitted this workload.
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                   podSetAssignments:
                     description: PodSetAssignments hold the admission results for

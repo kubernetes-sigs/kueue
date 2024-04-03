@@ -586,26 +586,6 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /validate-kueue-x-k8s-io-v1beta1-localqueue
-    failurePolicy: Fail
-    name: vlocalqueue.kb.io
-    rules:
-      - apiGroups:
-          - kueue.x-k8s.io
-        apiVersions:
-          - v1beta1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - localqueues
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
         path: /validate-kueue-x-k8s-io-v1beta1-resourceflavor
     failurePolicy: Fail
     name: vresourceflavor.kb.io
