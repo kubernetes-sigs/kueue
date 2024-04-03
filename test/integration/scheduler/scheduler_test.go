@@ -929,7 +929,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
-	ginkgo.When("Using cohorts for fair-sharing", func() {
+	ginkgo.When("Using cohorts for sharing unused resources", func() {
 		var (
 			prodCQ *kueue.ClusterQueue
 			devCQ  *kueue.ClusterQueue
