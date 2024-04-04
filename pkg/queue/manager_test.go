@@ -460,7 +460,6 @@ func TestStatus(t *testing.T) {
 		}
 	}
 	for _, wl := range workloads {
-		wl := wl
 		manager.AddOrUpdateWorkload(&wl)
 	}
 

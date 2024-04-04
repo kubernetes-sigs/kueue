@@ -1,17 +1,20 @@
 # golangci-lint configuration file
 # see: https://golangci-lint.run/usage/configuration/
 
-# Options for analysis running
-run:
-  # Which dirs to skip: they won't be analyzed;
-  skip-dirs:
-    - bin
-
 # Settings of specific linters
 linters-settings:
   gocritic:
     enabled-checks:
       - dupImport
+    disabled-checks: # temporarily disabled checks, will fix them later
+      - appendAssign
+      - assignOp
+      - captLocal
+      - commentFormatting
+      - deprecatedComment
+      - elseif
+      - exitAfterDefer
+      - ifElseChain
   goimports:
     local-prefixes: sigs.k8s.io/kueue
   govet:
@@ -21,6 +24,7 @@ linters-settings:
 # Settings for enabling and disabling linters
 linters:
   enable:
+    - copyloopvar
     - dupword
     - ginkgolinter
     - gocritic
@@ -28,3 +32,13 @@ linters:
     - govet
     - misspell
     - unconvert
+
+# Settings related to issues
+issues:
+  # Which dirs to exclude: issues from them won't be reported
+  exclude-dirs:
+    - bin
+  # Show all issues from a linter
+  max-issues-per-linter: 0
+  # Show all issues with the same text
+  max-same-issues: 0
