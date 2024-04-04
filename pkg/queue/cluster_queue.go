@@ -92,9 +92,7 @@ func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (*ClusterQueu
 	return cqImpl, nil
 }
 
-func newClusterQueueImpl(wo workload.Ordering,
-	clock clock.Clock,
-) *ClusterQueue {
+func newClusterQueueImpl(wo workload.Ordering, clock clock.Clock) *ClusterQueue {
 	lessFunc := queueOrderingFunc(wo)
 	return &ClusterQueue{
 		heap:                   heap.New(workloadKey, lessFunc),
