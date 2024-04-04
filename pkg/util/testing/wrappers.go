@@ -627,6 +627,14 @@ func (c *ClusterQueueWrapper) StopPolicy(p kueue.StopPolicy) *ClusterQueueWrappe
 	return c
 }
 
+func (c *ClusterQueueWrapper) Label(k, v string) *ClusterQueueWrapper {
+	if c.Labels == nil {
+		c.Labels = make(map[string]string)
+	}
+	c.Labels[k] = v
+	return c
+}
+
 // Condition sets a condition on the ClusterQueue.
 func (c *ClusterQueueWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string) *ClusterQueueWrapper {
 	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{

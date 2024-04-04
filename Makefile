@@ -48,6 +48,7 @@ ifdef IMAGE_EXTRA_TAG
 IMAGE_BUILD_EXTRA_OPTS += -t $(IMAGE_EXTRA_TAG)
 endif
 
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ARTIFACTS ?= $(PROJECT_DIR)/bin
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -212,6 +213,51 @@ run-test-multikueue-e2e-%: FORCE
 	@echo Running multikueue e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/multikueue-e2e-test.sh
 
+SCALABILITY_RUNNER := $(ARTIFACTS)/scalability-runner
+.PHONY: scalability-runner
+scalability-runner:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/scalability/runner/main.go
+
+.PHONY: minimalkueue
+minimalkueue: 
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o  $(ARTIFACTS)/minimalkueue test/scalability/minimalkueue/main.go
+
+ifdef SCALABILITY_CPU_PROFILE
+SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
+endif
+
+ifdef SCALABILITY_KUEUE_LOGS
+SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
+endif
+
+SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/scalability/default_generator_config.yaml
+
+SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-scalability
+.PHONY: run-scalability
+run-scalability: envtest scalability-runner minimalkueue
+	mkdir -p $(SCALABILITY_RUN_DIR)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(SCALABILITY_RUNNER) \
+		--o $(SCALABILITY_RUN_DIR) \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
+		--minimalKueue=$(ARTIFACTS)/minimalkueue $(SCALABILITY_EXTRA_ARGS)
+
+.PHONY: test-scalability
+test-scalability: gotestsum run-scalability
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/scalability/checker  \
+		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
+		--range=$(PROJECT_DIR)/test/scalability/default_rangespec.yaml
+
+.PHONY: run-scalability-in-cluster
+run-scalability-in-cluster: envtest scalability-runner
+	mkdir -p $(ARTIFACTS)/run-scalability-in-cluster
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(SCALABILITY_RUNNER) \
+		--o $(ARTIFACTS)/run-scalability-in-cluster \
+		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
+		--qps=1000 --burst=2000 --timeout=15m
+
 .PHONY: ci-lint
 ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 15m0s
@@ -359,7 +405,6 @@ importer-image: PLATFORMS=linux/amd64
 importer-image: PUSH=--load
 importer-image: importer-image-build
 
-PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
 .PHONY: golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.

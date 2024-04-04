@@ -1,0 +1,31 @@
+- className: cohort
+  count: 5
+  queuesSets:
+  - className: cq
+    count: 6
+    nominalQuota: 20
+    borrowingLimit: 100
+    reclaimWithinCohort: Any
+    withinClusterQueue: LowerPriority
+    workloadsSets:
+    - count: 350
+      creationIntervalMs: 100
+      workloads:
+      - className: small
+        runtimeMs: 200
+        priority: 50
+        request: 1
+    - count: 100
+      creationIntervalMs: 500
+      workloads:
+      - className: medium
+        runtimeMs: 500
+        priority: 100
+        request: 5
+    - count: 50
+      creationIntervalMs: 1200
+      workloads:
+      - className: large
+        runtimeMs: 1000
+        priority: 200
+        request: 20
