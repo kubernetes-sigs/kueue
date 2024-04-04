@@ -556,7 +556,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			_, gotInadmissible := cq.(*clusterQueueBase).inadmissibleWorkloads[workload.Key(wl)]
+			_, gotInadmissible := cq.inadmissibleWorkloads[workload.Key(wl)]
 			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
@@ -829,7 +829,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			_, gotInadmissible := cq.(*clusterQueueBase).inadmissibleWorkloads[workload.Key(wl)]
+			_, gotInadmissible := cq.inadmissibleWorkloads[workload.Key(wl)]
 			if test.wantInadmissible != gotInadmissible {
 				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
 			}
