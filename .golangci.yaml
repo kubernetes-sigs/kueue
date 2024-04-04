@@ -21,6 +21,7 @@ linters-settings:
 # Settings for enabling and disabling linters
 linters:
   enable:
+    - dupword
     - ginkgolinter
     - gocritic
     - goimports
