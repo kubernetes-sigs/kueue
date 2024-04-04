@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -41,14 +42,7 @@ type Snapshot struct {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	updateUsage(wl, cq.Usage, -1)
-	if cq.Cohort != nil {
-		if features.Enabled(features.LendingLimit) {
-			updateCohortUsage(wl, cq, -1)
-		} else {
-			updateUsage(wl, cq.Cohort.Usage, -1)
-		}
-	}
+	cq.addOrRemoveWorkload(wl, -1)
 }
 
 // AddWorkload adds a workload from its corresponding ClusterQueue and
@@ -56,13 +50,19 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	updateUsage(wl, cq.Usage, 1)
-	if cq.Cohort != nil {
+	cq.addOrRemoveWorkload(wl, 1)
+}
+
+func (c *ClusterQueue) addOrRemoveWorkload(wl *workload.Info, m int64) {
+	updateFlavorUsage(wl, c.Usage, m)
+	updateResourceStats(wl, c.ResourceStats, m)
+	if c.Cohort != nil {
 		if features.Enabled(features.LendingLimit) {
-			updateCohortUsage(wl, cq, 1)
+			updateCohortUsage(wl, c, m)
 		} else {
-			updateUsage(wl, cq.Cohort.Usage, 1)
+			updateFlavorUsage(wl, c.Cohort.Usage, m)
 		}
+		updateResourceStats(wl, c.Cohort.ResourceStats, m)
 	}
 }
 
@@ -138,6 +138,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		FlavorFungibility:             c.FlavorFungibility,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
 		Usage:                         make(FlavorResourceQuantities, len(c.Usage)),
+		ResourceStats:                 make(ResourceStats, len(c.ResourceStats)),
 		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
@@ -149,6 +150,9 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 	}
 	if features.Enabled(features.LendingLimit) {
 		cc.GuaranteedQuota = c.GuaranteedQuota
+	}
+	for rName, rStats := range c.ResourceStats {
+		cc.ResourceStats[rName] = ptr.To(*rStats)
 	}
 
 	return cc
@@ -197,5 +201,18 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 			}
 			used[res] += val
 		}
+	}
+	if cohort.ResourceStats == nil {
+		cohort.ResourceStats = make(ResourceStats, len(c.ResourceStats))
+	}
+	for rName, rStats := range c.ResourceStats {
+		cohortRStats := cohort.ResourceStats[rName]
+		if cohortRStats == nil {
+			cohort.ResourceStats[rName] = ptr.To(*rStats)
+			continue
+		}
+		cohortRStats.Nominal += rStats.Nominal
+		cohortRStats.Lendable += rStats.Lendable
+		cohortRStats.Usage += rStats.Usage
 	}
 }

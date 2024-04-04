@@ -51,6 +51,9 @@ type clusterQueueBase struct {
 	// of inadmissible workloads while a workload is being scheduled.
 	popCycle int64
 
+	// inflight indicates the workload that was last popped by scheduler.
+	inflight *workload.Info
+
 	// queueInadmissibleCycle stores the popId at the time when
 	// QueueInadmissibleWorkloads is called.
 	queueInadmissibleCycle int64
@@ -113,6 +116,7 @@ func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
+	c.forgetInflightByKey(key)
 	oldInfo := c.inadmissibleWorkloads[key]
 	if oldInfo != nil {
 		// update in place if the workload was inadmissible and didn't change
@@ -153,6 +157,7 @@ func (c *clusterQueueBase) Delete(w *kueue.Workload) {
 	key := workload.Key(w)
 	delete(c.inadmissibleWorkloads, key)
 	c.heap.Delete(key)
+	c.forgetInflightByKey(key)
 }
 
 func (c *clusterQueueBase) DeleteFromLocalQueue(q *LocalQueue) {
@@ -178,6 +183,7 @@ func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate b
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
+	c.forgetInflightByKey(key)
 	if c.backoffWaitingTimeExpired(wInfo) &&
 		(immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors()) {
 		// If the workload was inadmissible, move it back into the queue.
@@ -200,6 +206,12 @@ func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate b
 	c.inadmissibleWorkloads[key] = wInfo
 
 	return true
+}
+
+func (c *clusterQueueBase) forgetInflightByKey(key string) {
+	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
+		c.inflight = nil
+	}
 }
 
 // QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
@@ -235,7 +247,11 @@ func (c *clusterQueueBase) Pending() int {
 }
 
 func (c *clusterQueueBase) PendingActive() int {
-	return c.heap.Len()
+	result := c.heap.Len()
+	if c.inflight != nil {
+		result += 1
+	}
+	return result
 }
 
 func (c *clusterQueueBase) PendingInadmissible() int {
@@ -247,10 +263,11 @@ func (c *clusterQueueBase) Pop() *workload.Info {
 	defer c.rwm.Unlock()
 	c.popCycle++
 	if c.heap.Len() == 0 {
+		c.inflight = nil
 		return nil
 	}
-
-	return c.heap.Pop()
+	c.inflight = c.heap.Pop()
+	return c.inflight
 }
 
 func (c *clusterQueueBase) Dump() ([]string, bool) {
@@ -301,6 +318,9 @@ func (c *clusterQueueBase) totalElements() []*workload.Info {
 	elements = append(elements, c.heap.List()...)
 	for _, e := range c.inadmissibleWorkloads {
 		elements = append(elements, e)
+	}
+	if c.inflight != nil {
+		elements = append(elements, c.inflight)
 	}
 	return elements
 }

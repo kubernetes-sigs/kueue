@@ -16,7 +16,7 @@ package raycluster
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	rayv1alpha1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			lookupKey := types.NamespacedName{Name: parentJob.Name, Namespace: ns.Name}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey, parentJob)).To(gomega.Succeed())
-				parentJob.Status.JobDeploymentStatus = rayv1alpha1.JobDeploymentStatusSuspended
+				parentJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusSuspended
 				g.Expect(k8sClient.Status().Update(ctx, parentJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

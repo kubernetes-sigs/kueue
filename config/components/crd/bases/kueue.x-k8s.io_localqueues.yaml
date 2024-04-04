@@ -58,7 +58,12 @@ spec:
               clusterQueue:
                 description: clusterQueue is a reference to a clusterQueue that backs
                   this localQueue.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
+                x-kubernetes-validations:
+                - message: field is immutable
+                  rule: self == oldSelf
             type: object
           status:
             description: LocalQueueStatus defines the observed state of LocalQueue
