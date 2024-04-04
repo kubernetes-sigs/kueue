@@ -1,22 +1,21 @@
 # KEP-1432: AdmissionChecks per ResouceFlavor
 
 <!-- toc -->
-- [KEP-1432: AdmissionChecks per ResouceFlavor](#kep-1432-admissionchecks-per-resouceflavor)
-  - [Summary](#summary)
-  - [Motivation](#motivation)
-    - [Goals](#goals)
-    - [Non-Goals](#non-goals)
-  - [Proposal](#proposal)
-    - [User Stories (Optional)](#user-stories-optional)
-      - [Story 1](#story-1)
-    - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-    - [Risks and Mitigations](#risks-and-mitigations)
-  - [Design Details](#design-details)
-    - [Test Plan](#test-plan)
-      - [Unit Tests](#unit-tests)
-      - [Integration tests](#integration-tests)
-  - [Drawbacks](#drawbacks)
-  - [Alternatives](#alternatives)
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [User Stories (Optional)](#user-stories-optional)
+    - [Story 1](#story-1)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+  - [Risks and Mitigations](#risks-and-mitigations)
+- [Design Details](#design-details)
+  - [Test Plan](#test-plan)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -47,8 +46,8 @@ As a user who has reserved machines at my cloud provider I would like to use the
 switch to spot machines, using ProvisioningRequest. It only makes sense to run Provisioning AdmissionCheck when the ResourceFlavor is Spot.
 
 ### Notes/Constraints/Caveats (Optional)
-User cannot define AdmissionChecks both at ClusterQueue and ResourceFlavor level. In case user defines both, the ClusterQueue
-should be inactive.
+User cannot define AdmissionChecks both at ClusterQueue and ResourceFlavor level. This will be validated by
+a ClusterQueue webhook.
 
 ### Risks and Mitigations
 
@@ -67,8 +66,7 @@ type FlavorQuotas struct {
 }
 ```
 
-At the same time, we want to preserve the existing `AdmissionChecks` field in `ClusterQueue` API. However, a Workload cannot have
-assigned `AdmissionChecks` both from `ClusterQueue` and `FlavorQuota` APIs.
+At the same time, we want to preserve the existing `AdmissionChecks` field in `ClusterQueue` API, with the constraints mentioned above.
 
 ### Test Plan
 
@@ -80,16 +78,15 @@ to implement this enhancement.
 
 - Test Workload's Controller's function that assigns AdmissionChecks to a Workload
 
-- Test Cache that checks ClusterQueue's status
+- Test the webhook that validates ClusterQueue when user defines AdmissionChecks at both ClusterQueue and ResourceFlavor
+level.
 
 
 #### Integration tests
 - Create 2 ResourceFlavors each with a different AdmissionCheck and test if a Workload contains the AdmissionCheck associated with one of the ResourceFlavors;
-- Create 2 AdmissionChecks: one associated with ResourceFlavor and the other with ClusterQueue. Test if a ClusterQueue is inactive
 - Create 2 ResourceFlavors, "reservation" and "spot" with an AdmissionCheck, and Workload that require "spot" Flavor. Check if the Workload contains the AdmissionCheck associated with "spot" Flavor.
 
 ## Drawbacks
-
 
 ## Alternatives
 Alternatively we could change `AdmissionChecks` API so it contained selector with a list of `ResourceFlavors` to which
