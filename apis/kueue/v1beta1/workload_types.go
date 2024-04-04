@@ -287,6 +287,13 @@ const (
 
 	// WorkloadEvicted means that the Workload was evicted by a ClusterQueue
 	WorkloadEvicted = "Evicted"
+
+	// WorkloadPreempted means that the Workload was preempted.
+	// The possible values of the reason field are "InClusterQueue", "InCohort".
+	// In the future more reasons can be introduced, including those conveying
+	// more detailed information. The more detailed reasons should be prefixed
+	// by one of the "base" reasons.
+	WorkloadPreempted = "Preempted"
 )
 
 const (

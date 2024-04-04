@@ -1466,7 +1466,7 @@ func TestSchedule(t *testing.T) {
 				func() { wg.Done() },
 			))
 			gotPreempted := sets.New[string]()
-			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload) error {
+			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
 				mu.Lock()
 				gotPreempted.Insert(workload.Key(w))
 				mu.Unlock()
@@ -2042,7 +2042,7 @@ func TestLastSchedulingContext(t *testing.T) {
 				func() { wg.Done() },
 			))
 			gotPreempted := sets.New[string]()
-			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload) error {
+			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload, _, _ string) error {
 				mu.Lock()
 				gotPreempted.Insert(workload.Key(w))
 				mu.Unlock()

@@ -39,7 +39,7 @@ import (
 )
 
 var (
-	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
+	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted, kueue.WorkloadPreempted}
 )
 
 type AssignmentClusterQueueState struct {
@@ -399,6 +399,22 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
+	//reset Preempted condition if present.
+	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
+		preemptedCond.Status = metav1.ConditionFalse
+		preemptedCond.LastTransitionTime = metav1.Now()
+	}
+}
+
+func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadPreempted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
 func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
