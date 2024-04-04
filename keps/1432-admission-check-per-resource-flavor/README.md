@@ -8,7 +8,6 @@
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
-  - [Story 2](#story-2)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -37,7 +36,7 @@ to a specific ResourceFlavor, so the whole mechanism is more flexible and expres
 
 ## Proposal
 
-Add new field to FlavorQuota API, so it contains a list of AdmissionChecks that  should run when a Workload
+Add a new field to FlavorQuota API, so it contains a list of AdmissionChecks that  should run when a Workload
 is admitted for this ResourceFlavor.
 
 ### User Stories (Optional)
@@ -46,15 +45,9 @@ is admitted for this ResourceFlavor.
 As a user who has reserved machines at my cloud provider I would like to use them first. If they are not obtainable then
 switch to spot machines, using ProvisioningRequest. It only makes sense to run Provisioning AdmissionCheck when the ResourceFlavor is Spot.
 
-### Story 2
-I would like to follow a similar approach as in an above story, but additionally I want to limit spending on a given
-ClusterQueue. I have created an in-house AdmissionCheck that checks if the budget is not exceeded. This check should run
-for all Workloads submitted to the ClusterQueue.
-
 ### Notes/Constraints/Caveats (Optional)
-All `AdmissionChecks` assigned to a Workload must have different controllers.
-This is because in case of having two AdmissionChecks with Provisioning controller, it would result in creating
-two ProvisioningRequests for the same Workload, which is wasteful.
+User cannot define AdmissionChecks both at ClusterQueue and ResourceFlavor level. In case user defines both, the ClusterQueue
+should be inactive.
 
 ### Risks and Mitigations
 
@@ -73,11 +66,8 @@ type FlavorQuotas struct {
 }
 ```
 
-At the same time, we want to preserve the existing `AdmissionChecks` field in `ClusterQueue` API. A Workload may have
+At the same time, we want to preserve the existing `AdmissionChecks` field in `ClusterQueue` API. However, a Workload cannot have
 assigned `AdmissionChecks` both from `ClusterQueue` and `FlavorQuota` APIs.
-
-This enables having default `AdmissionChecks` that apply to all Workloads submitted to a `ClusterQueue`, and more
-specific ones that apply only to Workloads using a specific `ResourceFlavor`.
 
 ### Test Plan
 
@@ -87,16 +77,19 @@ to implement this enhancement.
 
 #### Unit Tests
 
-Test Workload's Controller's function that assigns AdmissionChecks to a Workload
+- Test Workload's Controller's function that assigns AdmissionChecks to a Workload
+
+- Test Cache that checks ClusterQueue's status
+
 
 #### Integration tests
 - Create 2 ResourceFlavors each with a different AdmissionCheck and test if a Workload contains the AdmissionCheck associated with one of the ResourceFlavors;
-- Create 2 AdmissionChecks with different controllers, one associated with ResourceFlavor and the other with ClusterQueue. Test if a Workload contains both;
+- Create 2 AdmissionChecks: one associated with ResourceFlavor and the other with ClusterQueue. Test if a ClusterQueue is inactive
 
 ## Drawbacks
 
 
 ## Alternatives
 Alternatively we could change `AdmissionChecks` API so it contained selector with a list of `ResourceFlavors` to which
-it should be assigned. There are no strong pros or cons for either approach. We chose the current approach because we
-believe it is more intuitive for users.
+it should be assigned. However, this decreases the flexibility of the mechanism, as it would force users to use the same
+AdmissionChecks for ResourceFlavor regardless of the ClusterQueue where the Workload is submitted.
