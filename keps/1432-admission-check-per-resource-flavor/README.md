@@ -1,21 +1,22 @@
 # KEP-1432: AdmissionChecks per ResouceFlavor
 
 <!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-- [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1](#story-1)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-  - [Risks and Mitigations](#risks-and-mitigations)
-- [Design Details](#design-details)
-  - [Test Plan](#test-plan)
-    - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
-- [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
+- [KEP-1432: AdmissionChecks per ResouceFlavor](#kep-1432-admissionchecks-per-resouceflavor)
+  - [Summary](#summary)
+  - [Motivation](#motivation)
+    - [Goals](#goals)
+    - [Non-Goals](#non-goals)
+  - [Proposal](#proposal)
+    - [User Stories (Optional)](#user-stories-optional)
+      - [Story 1](#story-1)
+    - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+    - [Risks and Mitigations](#risks-and-mitigations)
+  - [Design Details](#design-details)
+    - [Test Plan](#test-plan)
+      - [Unit Tests](#unit-tests)
+      - [Integration tests](#integration-tests)
+  - [Drawbacks](#drawbacks)
+  - [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -85,6 +86,7 @@ to implement this enhancement.
 #### Integration tests
 - Create 2 ResourceFlavors each with a different AdmissionCheck and test if a Workload contains the AdmissionCheck associated with one of the ResourceFlavors;
 - Create 2 AdmissionChecks: one associated with ResourceFlavor and the other with ClusterQueue. Test if a ClusterQueue is inactive
+- Create 2 ResourceFlavors, "reservation" and "spot" with an AdmissionCheck, and Workload that require "spot" Flavor. Check if the Workload contains the AdmissionCheck associated with "spot" Flavor.
 
 ## Drawbacks
 
