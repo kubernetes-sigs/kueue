@@ -66,6 +66,7 @@ type JobReconciler struct {
 	record                     record.EventRecorder
 	manageJobsWithoutQueueName bool
 	waitForPodsReady           bool
+	labelKeysToCopy            []string
 }
 
 type Options struct {
@@ -76,6 +77,7 @@ type Options struct {
 	IntegrationOptions map[string]any
 	EnabledFrameworks  sets.Set[string]
 	ManagerName        string
+	LabelKeysToCopy    []string
 }
 
 // Option configures the reconciler.
@@ -140,6 +142,13 @@ func WithManagerName(n string) Option {
 	}
 }
 
+// WithLabelKeysToCopy
+func WithLabelKeysToCopy(n []string) Option {
+	return func(o *Options) {
+		o.LabelKeysToCopy = n
+	}
+}
+
 var defaultOptions = Options{}
 
 func NewReconciler(
@@ -153,6 +162,7 @@ func NewReconciler(
 		record:                     record,
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 		waitForPodsReady:           options.WaitForPodsReady,
+		labelKeysToCopy:            options.LabelKeysToCopy,
 	}
 }
 
@@ -786,6 +796,40 @@ func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
 	return nil
 }
 
+func (r *JobReconciler) getWorkloadLabels(ctx context.Context, job GenericJob) map[string]string {
+	log := ctrl.LoggerFrom(ctx)
+
+	jobLabels := job.Object().GetLabels()
+	workloadLabels := make(map[string]string)
+	for _, labelKey := range r.labelKeysToCopy {
+		if labelValue, found := jobLabels[labelKey]; found {
+			workloadLabels[labelKey] = labelValue
+		}
+	}
+
+	if cj, implements := job.(ComposableJob); implements {
+		workloads, err := cj.ListChildWorkloads(ctx, r.client, client.ObjectKeyFromObject(job.Object()))
+		if err == nil {
+			log.V(2).Info(
+				"Job is composed of multiple pods.", cj,
+				"Number of workloads: ", len(workloads.Items),
+			)
+			for idx, workload := range workloads.Items {
+				log.V(2).Info(
+					"Workload.", idx,
+					"labels: ", workload.Labels,
+				)
+				for _, labelKey := range r.labelKeysToCopy {
+					if labelValue, found := workload.Labels[labelKey]; found {
+						workloadLabels[labelKey] = labelValue
+					}
+				}
+			}
+		}
+	}
+	return workloadLabels
+}
+
 // constructWorkload will derive a workload from the corresponding job.
 func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -795,7 +839,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		if err != nil {
 			return nil, err
 		}
-
+		wl.Labels = r.getWorkloadLabels(ctx, job)
 		return wl, nil
 	}
 
@@ -805,7 +849,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()),
 			Namespace:   object.GetNamespace(),
-			Labels:      map[string]string{},
+			Labels:      r.getWorkloadLabels(ctx, job),
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
 			Annotations: admissioncheck.FilterProvReqAnnotations(job.Object().GetAnnotations()),
 		},

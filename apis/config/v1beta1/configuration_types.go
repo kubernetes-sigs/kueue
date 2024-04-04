@@ -301,6 +301,10 @@ type Integrations struct {
 	Frameworks []string `json:"frameworks,omitempty"`
 	// PodOptions defines kueue controller behaviour for pod objects
 	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
+
+	// A list of label keys that should be copied from job
+	// into the workload object
+	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 
 type PodIntegrationOptions struct {

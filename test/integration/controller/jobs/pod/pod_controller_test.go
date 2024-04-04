@@ -85,6 +85,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						},
 					},
 				}),
+				jobframework.WithLabelKeysToCopy([]string{"testKey"}),
 			))
 			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
@@ -509,12 +510,15 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Group("test-group").
 					GroupTotalCount("2").
 					Queue("test-queue").
+					Label("testOtherKey", "testOtherValue").
 					Obj()
 				pod2 := testingpod.MakePod("test-pod2", ns.Name).
 					Group("test-group").
 					GroupTotalCount("2").
 					Request(corev1.ResourceCPU, "1").
 					Queue("test-queue").
+					Label("testKey", "testValue1").
+					Label("testAnotherKey", "testAnotherValue").
 					Obj()
 				pod1LookupKey := client.ObjectKeyFromObject(pod1)
 				pod2LookupKey := client.ObjectKeyFromObject(pod2)
@@ -569,6 +573,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						},
 						wlConditionCmpOpts...,
 					))
+					gomega.Expect(createdWorkload.Labels).Should(gomega.Equal(map[string]string{"testKey": "testValue1"}))
 				})
 
 				ginkgo.By("checking that pod group is finalized when all pods in the group succeed", func() {
