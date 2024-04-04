@@ -701,7 +701,7 @@ subdomain in DNS (RFC 1123).</p>
 </td>
 <td>
    <p>QueueingStrategy indicates the queueing strategy of the workloads
-across the queues in this ClusterQueue. This field is immutable.
+across the queues in this ClusterQueue.
 Current Supported Strategies:</p>
 <ul>
 <li>StrictFIFO: workloads are ordered strictly by creation time.

@@ -21,7 +21,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -129,14 +128,9 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	return allErrs
 }
 
-// Since Kubernetes 1.25, we can use CEL validation rules to implement
-// a few common immutability patterns directly in the manifest for a CRD.
-// ref: https://kubernetes.io/blog/2022/09/29/enforce-immutability-using-cel/
-// We need to validate the spec.queueingStrategy immutable manually before Kubernetes 1.25.
 func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateClusterQueue(newObj)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueingStrategy, oldObj.Spec.QueueingStrategy, field.NewPath("spec", "queueingStrategy"))...)
 	return allErrs
 }
 

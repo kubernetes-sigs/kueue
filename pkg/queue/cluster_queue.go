@@ -32,12 +32,24 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/heap"
+	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// clusterQueueBase is an incomplete base implementation of ClusterQueue
-// interface. It can be inherited and overwritten by other types.
-type clusterQueueBase struct {
+type RequeueReason string
+
+const (
+	RequeueReasonFailedAfterNomination RequeueReason = "FailedAfterNomination"
+	RequeueReasonNamespaceMismatch     RequeueReason = "NamespaceMismatch"
+	RequeueReasonGeneric               RequeueReason = ""
+	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
+)
+
+var (
+	realClock = clock.RealClock{}
+)
+
+type ClusterQueue struct {
 	heap              heap.Heap[workload.Info]
 	cohort            string
 	namespaceSelector labels.Selector
@@ -60,6 +72,8 @@ type clusterQueueBase struct {
 
 	lessFunc func(a, b *workload.Info) bool
 
+	queueingStrategy kueue.QueueingStrategy
+
 	rwm sync.RWMutex
 
 	clock clock.Clock
@@ -69,11 +83,18 @@ func workloadKey(i *workload.Info) string {
 	return workload.Key(i.Obj)
 }
 
-func newClusterQueueImpl(
-	lessFunc func(a, b *workload.Info) bool,
-	clock clock.Clock,
-) *clusterQueueBase {
-	return &clusterQueueBase{
+func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (*ClusterQueue, error) {
+	cqImpl := newClusterQueueImpl(wo, realClock)
+	err := cqImpl.Update(cq)
+	if err != nil {
+		return nil, err
+	}
+	return cqImpl, nil
+}
+
+func newClusterQueueImpl(wo workload.Ordering, clock clock.Clock) *ClusterQueue {
+	lessFunc := queueOrderingFunc(wo)
+	return &ClusterQueue{
 		heap:                   heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
 		queueInadmissibleCycle: -1,
@@ -83,9 +104,11 @@ func newClusterQueueImpl(
 	}
 }
 
-func (c *clusterQueueBase) Update(apiCQ *kueue.ClusterQueue) error {
+// Update updates the properties of this ClusterQueue.
+func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
+	c.queueingStrategy = apiCQ.Spec.QueueingStrategy
 	c.cohort = apiCQ.Spec.Cohort
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {
@@ -96,11 +119,15 @@ func (c *clusterQueueBase) Update(apiCQ *kueue.ClusterQueue) error {
 	return nil
 }
 
-func (c *clusterQueueBase) Cohort() string {
+// Cohort returns the Cohort of this ClusterQueue.
+func (c *ClusterQueue) Cohort() string {
 	return c.cohort
 }
 
-func (c *clusterQueueBase) AddFromLocalQueue(q *LocalQueue) bool {
+// AddFromLocalQueue pushes all workloads belonging to this queue to
+// the ClusterQueue. If at least one workload is added, returns true,
+// otherwise returns false.
+func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	added := false
@@ -112,7 +139,9 @@ func (c *clusterQueueBase) AddFromLocalQueue(q *LocalQueue) bool {
 	return added
 }
 
-func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
+// PushOrUpdate pushes the workload to ClusterQueue.
+// If the workload is already present, updates with the new one.
+func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
@@ -140,7 +169,7 @@ func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
 }
 
 // backoffWaitingTimeExpired returns true if the current time is after the requeueAt.
-func (c *clusterQueueBase) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
+func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 	if wInfo.Obj.Status.RequeueState == nil || wInfo.Obj.Status.RequeueState.RequeueAt == nil {
 		return true
 	}
@@ -153,14 +182,17 @@ func (c *clusterQueueBase) backoffWaitingTimeExpired(wInfo *workload.Info) bool 
 		c.clock.Now().Equal(wInfo.Obj.Status.RequeueState.RequeueAt.Time)
 }
 
-func (c *clusterQueueBase) Delete(w *kueue.Workload) {
+// Delete removes the workload from ClusterQueue.
+func (c *ClusterQueue) Delete(w *kueue.Workload) {
 	key := workload.Key(w)
 	delete(c.inadmissibleWorkloads, key)
 	c.heap.Delete(key)
 	c.forgetInflightByKey(key)
 }
 
-func (c *clusterQueueBase) DeleteFromLocalQueue(q *LocalQueue) {
+// DeleteFromLocalQueue removes all workloads belonging to this queue from
+// the ClusterQueue.
+func (c *ClusterQueue) DeleteFromLocalQueue(q *LocalQueue) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	for _, w := range q.items {
@@ -179,7 +211,7 @@ func (c *clusterQueueBase) DeleteFromLocalQueue(q *LocalQueue) {
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
 // the workload will be pushed back to heap directly. Otherwise, the workload
 // will be put into the inadmissibleWorkloads.
-func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate bool) bool {
+func (c *ClusterQueue) requeueIfNotPresent(wInfo *workload.Info, immediate bool) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
@@ -208,7 +240,7 @@ func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate b
 	return true
 }
 
-func (c *clusterQueueBase) forgetInflightByKey(key string) {
+func (c *ClusterQueue) forgetInflightByKey(key string) {
 	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
 		c.inflight = nil
 	}
@@ -216,7 +248,7 @@ func (c *clusterQueueBase) forgetInflightByKey(key string) {
 
 // QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
 // If at least one workload is moved, returns true, otherwise returns false.
-func (c *clusterQueueBase) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
+func (c *ClusterQueue) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	c.queueInadmissibleCycle = c.popCycle
@@ -240,13 +272,16 @@ func (c *clusterQueueBase) QueueInadmissibleWorkloads(ctx context.Context, clien
 	return moved
 }
 
-func (c *clusterQueueBase) Pending() int {
+// Pending returns the total number of pending workloads.
+func (c *ClusterQueue) Pending() int {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.PendingActive() + c.PendingInadmissible()
 }
 
-func (c *clusterQueueBase) PendingActive() int {
+// PendingActive returns the number of active pending workloads,
+// workloads that are in the admission queue.
+func (c *ClusterQueue) PendingActive() int {
 	result := c.heap.Len()
 	if c.inflight != nil {
 		result += 1
@@ -254,11 +289,16 @@ func (c *clusterQueueBase) PendingActive() int {
 	return result
 }
 
-func (c *clusterQueueBase) PendingInadmissible() int {
+// PendingInadmissible returns the number of inadmissible pending workloads,
+// workloads that were already tried and are waiting for cluster conditions
+// to change to potentially become admissible.
+func (c *ClusterQueue) PendingInadmissible() int {
 	return len(c.inadmissibleWorkloads)
 }
 
-func (c *clusterQueueBase) Pop() *workload.Info {
+// Pop removes the head of the queue and returns it. It returns nil if the
+// queue is empty.
+func (c *ClusterQueue) Pop() *workload.Info {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	c.popCycle++
@@ -270,7 +310,10 @@ func (c *clusterQueueBase) Pop() *workload.Info {
 	return c.inflight
 }
 
-func (c *clusterQueueBase) Dump() ([]string, bool) {
+// Dump produces a dump of the current workloads in the heap of
+// this ClusterQueue. It returns false if the queue is empty,
+// otherwise returns true.
+func (c *ClusterQueue) Dump() ([]string, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	if c.heap.Len() == 0 {
@@ -283,7 +326,7 @@ func (c *clusterQueueBase) Dump() ([]string, bool) {
 	return elements, true
 }
 
-func (c *clusterQueueBase) DumpInadmissible() ([]string, bool) {
+func (c *ClusterQueue) DumpInadmissible() ([]string, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	if len(c.inadmissibleWorkloads) == 0 {
@@ -296,7 +339,9 @@ func (c *clusterQueueBase) DumpInadmissible() ([]string, bool) {
 	return elements, true
 }
 
-func (c *clusterQueueBase) Snapshot() []*workload.Info {
+// Snapshot returns a copy of the current workloads in the heap of
+// this ClusterQueue.
+func (c *ClusterQueue) Snapshot() []*workload.Info {
 	elements := c.totalElements()
 	sort.Slice(elements, func(i, j int) bool {
 		return c.lessFunc(elements[i], elements[j])
@@ -304,13 +349,15 @@ func (c *clusterQueueBase) Snapshot() []*workload.Info {
 	return elements
 }
 
-func (c *clusterQueueBase) Info(key string) *workload.Info {
+// Info returns workload.Info for the workload key.
+// Users of this method should not modify the returned object.
+func (c *ClusterQueue) Info(key string) *workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.heap.GetByKey(key)
 }
 
-func (c *clusterQueueBase) totalElements() []*workload.Info {
+func (c *ClusterQueue) totalElements() []*workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
@@ -325,8 +372,44 @@ func (c *clusterQueueBase) totalElements() []*workload.Info {
 	return elements
 }
 
-func (c *clusterQueueBase) Active() bool {
+// Returns true if the queue is active
+func (c *ClusterQueue) Active() bool {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.active
+}
+
+// RequeueIfNotPresent inserts a workload that was not
+// admitted back into the ClusterQueue. If the boolean is true,
+// the workloads should be put back in the queue immediately,
+// because we couldn't determine if the workload was admissible
+// in the last cycle. If the boolean is false, the implementation might
+// choose to keep it in temporary placeholder stage where it doesn't
+// compete with other workloads, until cluster events free up quota.
+// The workload should not be reinserted if it's already in the ClusterQueue.
+// Returns true if the workload was inserted.
+func (cq *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
+	if cq.queueingStrategy == kueue.StrictFIFO {
+		return cq.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
+	}
+	return cq.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination || reason == RequeueReasonPendingPreemption)
+}
+
+// queueOrderingFunc returns a function used by the clusterQueue heap algorithm
+// to sort workloads. The function sorts workloads based on their priority.
+// When priorities are equal, it uses the workload's creation or eviction
+// time.
+func queueOrderingFunc(wo workload.Ordering) func(a, b *workload.Info) bool {
+	return func(a, b *workload.Info) bool {
+		p1 := utilpriority.Priority(a.Obj)
+		p2 := utilpriority.Priority(b.Obj)
+
+		if p1 != p2 {
+			return p1 > p2
+		}
+
+		tA := wo.GetQueueOrderTimestamp(a.Obj)
+		tB := wo.GetQueueOrderTimestamp(b.Obj)
+		return !tB.Before(tA)
+	}
 }
