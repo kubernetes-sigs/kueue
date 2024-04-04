@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -105,32 +104,4 @@ type ClusterQueue interface {
 
 	// Returns true if the queue is active
 	Active() bool
-}
-
-func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (*clusterQueueBase, error) {
-	cqImpl := newClusterQueueImpl(queueOrderingFunc(wo), realClock)
-	err := cqImpl.Update(cq)
-	if err != nil {
-		return nil, err
-	}
-	return cqImpl, nil
-}
-
-// queueOrderingFunc returns a function used by the clusterQueue heap algorithm
-// to sort workloads. The function sorts workloads based on their priority.
-// When priorities are equal, it uses the workload's creation or eviction
-// time.
-func queueOrderingFunc(wo workload.Ordering) func(a, b *workload.Info) bool {
-	return func(a, b *workload.Info) bool {
-		p1 := utilpriority.Priority(a.Obj)
-		p2 := utilpriority.Priority(b.Obj)
-
-		if p1 != p2 {
-			return p1 > p2
-		}
-
-		tA := wo.GetQueueOrderTimestamp(a.Obj)
-		tB := wo.GetQueueOrderTimestamp(b.Obj)
-		return !tB.Before(tA)
-	}
 }

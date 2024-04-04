@@ -32,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/heap"
+	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -71,10 +72,19 @@ func workloadKey(i *workload.Info) string {
 	return workload.Key(i.Obj)
 }
 
-func newClusterQueueImpl(
-	lessFunc func(a, b *workload.Info) bool,
+func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error) {
+	cqImpl := newClusterQueueImpl(wo, realClock)
+	err := cqImpl.Update(cq)
+	if err != nil {
+		return nil, err
+	}
+	return cqImpl, nil
+}
+
+func newClusterQueueImpl(wo workload.Ordering,
 	clock clock.Clock,
 ) *clusterQueueBase {
+	lessFunc := queueOrderingFunc(wo)
 	return &clusterQueueBase{
 		heap:                   heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
@@ -339,4 +349,23 @@ func (cq *clusterQueueBase) RequeueIfNotPresent(wInfo *workload.Info, reason Req
 		return cq.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
 	}
 	return cq.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination || reason == RequeueReasonPendingPreemption)
+}
+
+// queueOrderingFunc returns a function used by the clusterQueue heap algorithm
+// to sort workloads. The function sorts workloads based on their priority.
+// When priorities are equal, it uses the workload's creation or eviction
+// time.
+func queueOrderingFunc(wo workload.Ordering) func(a, b *workload.Info) bool {
+	return func(a, b *workload.Info) bool {
+		p1 := utilpriority.Priority(a.Obj)
+		p2 := utilpriority.Priority(b.Obj)
+
+		if p1 != p2 {
+			return p1 > p2
+		}
+
+		tA := wo.GetQueueOrderTimestamp(a.Obj)
+		tB := wo.GetQueueOrderTimestamp(b.Obj)
+		return !tB.Before(tA)
+	}
 }

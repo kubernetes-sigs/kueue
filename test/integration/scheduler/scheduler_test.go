@@ -1724,7 +1724,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
-	ginkgo.FWhen("Queueing with StrictFIFO", func() {
+	ginkgo.When("Queueing with StrictFIFO", func() {
 		var (
 			clusterQueue *kueue.ClusterQueue
 			localQueue   *kueue.LocalQueue
@@ -1804,7 +1804,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.It("Should allow mutating the requeueingStrategy", func() {
 			var wl1, wl2, wl3 *kueue.Workload
-			ginkgo.By("Create two workloads", func() {
+			ginkgo.By("Create initial set of workloads, verify counters", func() {
 				wl1 = testing.MakeWorkload("wl1", ns.Name).Queue(localQueue.
 					Name).Request(corev1.ResourceCPU, "2").Priority(100).Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
@@ -1815,17 +1815,17 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					Name).Request(corev1.ResourceCPU, "1").Priority(1).Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 
-				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
-				util.ExpectPendingWorkloadsMetric(clusterQueue, 2, 0)
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 				gomega.Eventually(func() int32 {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 					return clusterQueue.Status.PendingWorkloads
 				}, util.Timeout, util.Interval).Should(gomega.Equal(int32(2)))
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 2, 0)
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 			})
 
-			ginkgo.By("Update the ClusterQueue to use the BestEffortFIFO strategy", func() {
+			ginkgo.By("Update the ClusterQueue to use the BestEffortFIFO strategy, verify the pending workload is counted as inadmissible", func() {
 				updatedCq := &kueue.ClusterQueue{}
 
 				gomega.Eventually(func() error {
@@ -1840,9 +1840,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 					return clusterQueue.Status.PendingWorkloads
 				}, util.Timeout, util.Interval).Should(gomega.Equal(int32(1)))
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
 			})
 
-			ginkgo.By("Update the ClusterQueue to use the StrictFIFO strategy again", func() {
+			ginkgo.By("Update the ClusterQueue to use the StrictFIFO strategy again, verify the pending workload is counted as active", func() {
 				updatedCq := &kueue.ClusterQueue{}
 
 				gomega.Eventually(func() error {
@@ -1857,10 +1859,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 					return clusterQueue.Status.PendingWorkloads
 				}, util.Timeout, util.Interval).Should(gomega.Equal(int32(1)))
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
 			})
 
 			var wl4 *kueue.Workload
-			ginkgo.By("Creating workload wl4", func() {
+			ginkgo.By("Creating workload wl4, verify the counter of pending workloads is incremented", func() {
 				wl4 = testing.MakeWorkload("wl4", ns.Name).Queue(localQueue.
 					Name).Request(corev1.ResourceCPU, "1").Priority(1).Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl4)).Should(gomega.Succeed())
@@ -1871,6 +1875,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 					return clusterQueue.Status.PendingWorkloads
 				}, util.Timeout, util.Interval).Should(gomega.Equal(int32(2)))
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 2, 0)
+				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
 			})
 
 			ginkgo.By("Mark all workloads as finished", func() {
