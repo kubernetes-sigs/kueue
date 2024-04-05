@@ -305,7 +305,7 @@ can admit Workloads with resources adding up to `9+1=10` CPUs.
 If, for a given flavor/resource, the `borrowingLimit` field is empty or null,
 a ClusterQueue can borrow up to the sum of nominal quotas from all the
 ClusterQueues in the cohort. So for the yamls listed above, `team-b-cq` can
-borrow `12+9` CPUs.
+use up to `12+9` CPUs.
 
 ### LendingLimit
 
@@ -365,7 +365,7 @@ then ClusterQueue `team-a-cq` can admit Workloads with resources
 adding up to `9+1=10` CPUs.
 
 If the `lendingLimit` field is not specified, a ClusterQueue can lend out
-all of its resources. In this case, `team-a-cq` can use up to `9+12` CPUs.
+all of its resources. In this case, `team-b-cq` can use up to `9+12` CPUs.
 
 ## Preemption
 
