@@ -22,16 +22,10 @@ controller:
 clientConnection:
   qps: 50
   burst: 100
-#pprofBindAddress: :8083
-#waitForPodsReady:
-#  enable: false
-#  timeout: 5m
-#  blockAdmission: false
-#  requeuingStrategy:
-#    timestamp: Eviction
-#    backoffLimitCount: null # null indicates infinite requeuing
-#    backoffBaseSeconds: 60
-#    backoffMaxSeconds: 3600
+#pprofBindAddress: :8082
+waitForPodsReady:
+  enable: true
+  blockAdmission: false
 #manageJobsWithoutQueueName: true
 #managedJobsNamespaceSelector:
 #  matchLabels:
