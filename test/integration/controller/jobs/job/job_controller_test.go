@@ -71,6 +71,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		cfg = fwk.Init()
 		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
 			jobframework.WithManageJobsWithoutQueueName(true),
+			jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 		))
 	})
 	ginkgo.AfterAll(func() {
@@ -108,6 +109,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			PriorityClass(priorityClassName).
 			SetAnnotation("provreq.kueue.x-k8s.io/ValidUntilSeconds", "0").
 			SetAnnotation("invalid-provreq-prefix/Foo", "Bar").
+			Label("toCopyKey", "toCopyValue").
+			Label("doNotCopyKey", "doNotCopyValue").
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
@@ -134,6 +137,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
 		gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
 		gomega.Expect(createdWorkload.Annotations).Should(gomega.Equal(map[string]string{"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0"}))
+
+		ginkgo.By("checking the workload gets assign correct labels")
+		gomega.Expect(createdWorkload.Labels["toCopyKey"]).Should(gomega.Equal("toCopyValue"))
+		gomega.Expect(createdWorkload.Labels).ShouldNot(gomega.ContainElement("doNotCopyValue"))
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		jobQueueName := "test-queue"

@@ -794,35 +794,12 @@ func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
 	return nil
 }
 
-func (r *JobReconciler) getWorkloadLabels(ctx context.Context, job GenericJob) map[string]string {
-	log := ctrl.LoggerFrom(ctx)
-
+func (r *JobReconciler) getWorkloadLabels(job GenericJob) map[string]string {
 	jobLabels := job.Object().GetLabels()
 	workloadLabels := make(map[string]string)
 	for _, labelKey := range r.labelKeysToCopy {
 		if labelValue, found := jobLabels[labelKey]; found {
 			workloadLabels[labelKey] = labelValue
-		}
-	}
-
-	if cj, implements := job.(ComposableJob); implements {
-		workloads, err := cj.ListChildWorkloads(ctx, r.client, client.ObjectKeyFromObject(job.Object()))
-		if err == nil {
-			log.V(2).Info(
-				"Job is composed of multiple pods.", cj,
-				"Number of workloads: ", len(workloads.Items),
-			)
-			for idx, workload := range workloads.Items {
-				log.V(2).Info(
-					"Workload.", idx,
-					"labels: ", workload.Labels,
-				)
-				for _, labelKey := range r.labelKeysToCopy {
-					if labelValue, found := workload.Labels[labelKey]; found {
-						workloadLabels[labelKey] = labelValue
-					}
-				}
-			}
 		}
 	}
 	return workloadLabels
@@ -833,11 +810,10 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 	log := ctrl.LoggerFrom(ctx)
 
 	if cj, implements := job.(ComposableJob); implements {
-		wl, err := cj.ConstructComposableWorkload(ctx, r.client, r.record)
+		wl, err := cj.ConstructComposableWorkload(ctx, r.client, r.record, r.labelKeysToCopy)
 		if err != nil {
 			return nil, err
 		}
-		wl.Labels = r.getWorkloadLabels(ctx, job)
 		return wl, nil
 	}
 
@@ -847,7 +823,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()),
 			Namespace:   object.GetNamespace(),
-			Labels:      r.getWorkloadLabels(ctx, job),
+			Labels:      r.getWorkloadLabels(job),
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
 			Annotations: admissioncheck.FilterProvReqAnnotations(job.Object().GetAnnotations()),
 		},
