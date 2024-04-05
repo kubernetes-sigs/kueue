@@ -112,6 +112,10 @@ metricsService:
       targetPort: https
   type: ClusterIP
 webhookService:
+  ipDualStack:
+    enabled: false
+    ipFamilies: ["IPv6", "IPv4"]
+    ipFamilyPolicy: "PreferDualStack"
   ports:
     - port: 443
       protocol: TCP
