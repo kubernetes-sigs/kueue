@@ -9,13 +9,13 @@
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-  - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
-- [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [AdmissionCheck API change](#admissioncheck-api-change)
+  - [FlavorQuota API change](#flavorquota-api-change)
 <!-- /toc -->
 
 ## Summary
@@ -36,8 +36,8 @@ to a specific ResourceFlavor, so the whole mechanism is more flexible and expres
 
 ## Proposal
 
-Add a new field to FlavorQuota API, so it contains a list of AdmissionChecks that  should run when a Workload
-is admitted for this ResourceFlavor.
+Add a new field to ClusterQueue API, so it contains a list of AdmissionChecks with associated ResourceFlavors.
+That way a user can define what AdmissionChecks should run for a particular ResourceFlavor.
 
 ### User Stories (Optional)
 
@@ -46,27 +46,31 @@ As a user who has reserved machines at my cloud provider I would like to use the
 switch to spot machines, using ProvisioningRequest. It only makes sense to run Provisioning AdmissionCheck when the ResourceFlavor is Spot.
 
 ### Notes/Constraints/Caveats (Optional)
-User cannot define AdmissionChecks both at ClusterQueue and ResourceFlavor level. This will be validated by
-a ClusterQueue webhook.
-
-### Risks and Mitigations
+User cannot define AdmissionChecks using both `.spec.AdmissionCheck` and `.spec.AdmissionCheckStrategy` fields. This will be validated by a webhook.
 
 ## Design Details
-We propose adding a new field to `FlavorQuota` API called `AdmissionChecks` in following manner:
+We propose adding a new field to `ClusterQueue` API called `AdmissionChecksStrategy` in following manner:
 
 ```
-type FlavorQuotas struct {
+type ClusterQueue struct {
 [...]
 
-  // admissionChecks is the list of AdmissionChecks that should run when the ResourceFlavor is used.
-  // The list consist of metav1.Names of AdmissionChecks.
-  // No two AdmissionChecks should have the same controller.
-  // +listType=set
-  AdmissionChecks []string `json:"admissionchecks"`
+  // admissionCheckStrategy is the list of AdmissionChecks that should run when a particular ResourceFlavor is used.
+  AdmissionCheckStrategy []AdmissionCheckStrategy
+}
+
+type AdmissionCheckStrategy struct {
+
+  	// name is an AdmissionCheck's metav1.Name
+    Name string
+
+    // forFlavors is a list of ResourceFlavors' metav1.Names that this AdmissionCheck should run for.
+    // if empty the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
+    OnFlavors []string
 }
 ```
 
-At the same time, we want to preserve the existing `AdmissionChecks` field in `ClusterQueue` API, with the constraints mentioned above.
+At the same time, we want to preserve the existing `AdmissionChecks` field in `ClusterQueue` API, with the constraints mentioned above for backward compatibility.
 
 ### Test Plan
 
@@ -75,20 +79,40 @@ existing tests to make this code solid enough prior to committing the changes ne
 to implement this enhancement.
 
 #### Unit Tests
-
 - Test Workload's Controller's function that assigns AdmissionChecks to a Workload
+- Test the webhook that validates ClusterQueue if user defines AdmissionChecks using `.spec.AdmissionCheck` and `.spec.AdmissionCheckStrategy`
 
-- Test the webhook that validates ClusterQueue when user defines AdmissionChecks at both ClusterQueue and ResourceFlavor
-level.
 
 
 #### Integration tests
-- Create 2 ResourceFlavors each with a different AdmissionCheck and test if a Workload contains the AdmissionCheck associated with one of the ResourceFlavors;
+- Create 2 AdmissionCheckStrategies each with a different AdmissionCheck and test if a Workload contains the AdmissionCheck associated with one of the ResourceFlavors;
 - Create 2 ResourceFlavors, "reservation" and "spot" with an AdmissionCheck, and Workload that require "spot" Flavor. Check if the Workload contains the AdmissionCheck associated with "spot" Flavor.
+- Create AdmissionCheckStrategy with an empty `OnFlavors` list and test if a Workload contains the AdmissionCheck.
 
-## Drawbacks
 
 ## Alternatives
-Alternatively we could change `AdmissionChecks` API so it contained selector with a list of `ResourceFlavors` to which
-it should be assigned. However, this decreases the flexibility of the mechanism, as it would force users to use the same
-AdmissionChecks for ResourceFlavor regardless of the ClusterQueue where the Workload is submitted.
+### AdmissionCheck API change
+Change `AdmissionCheck` API so it contains a selector with a list of `ResourceFlavors` to which
+it should be assigned.
+
+**Cons:**
+- Decreases the flexibility of the mechanism, as it would force users to use the same AdmissionChecks for ResourceFlavor regardless of the ClusterQueue where the Workload is submitted.
+
+### FlavorQuota API change
+
+Add a new field to `FlavorQuota` API, so it contains a list of AdmissionChecks that should run when a Workload
+is admitted for this ResourceFlavor.
+
+```
+type FlavorQuotas struct {
+[...]
+
+  // admissionChecks is the list of AdmissionChecks that should run when the ResourceFlavor is used.
+  // The list consist of metav1.Names of AdmissionChecks.
+  AdmissionChecks []string `json:"admissionChecks"`
+}
+```
+
+**Cons:**
+- Introduces AdmissionChecks fragmentation
+- Not as future proof as proposal
