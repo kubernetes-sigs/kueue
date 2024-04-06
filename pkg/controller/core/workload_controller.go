@@ -307,6 +307,10 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	log.V(3).Info("Workload is evicted due to admission checks")
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "At least one admission check is false")
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+	if err == nil {
+		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+		metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByAdmissionCheck)
+	}
 	return true, client.IgnoreNotFound(err)
 }
 
@@ -337,9 +341,16 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 		if queueStopPolicy != kueue.HoldAndDrain {
 			return false, nil
 		}
+		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+			log.V(3).Info("Workload is already evicted due to clusterQueue stopped.")
+			return false, nil
+		}
 		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", cqName))
 		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByClusterQueueStopped, "The ClusterQueue is stopped")
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+		if err == nil {
+			metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByClusterQueueStopped)
+		}
 		return true, client.IgnoreNotFound(err)
 	}
 
@@ -414,6 +425,10 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	}
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+	if err == nil {
+		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+		metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByPodsReadyTimeout)
+	}
 	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
