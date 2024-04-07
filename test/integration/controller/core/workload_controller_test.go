@@ -343,13 +343,13 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 							Status:  metav1.ConditionTrue,
 							Reason:  "AdmissionCheck",
 							Message: "At least one admission check is false",
-						}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,
 							Status:  metav1.ConditionTrue,
 							Reason:  "Admitted",
 							Message: "The workload is admitted",
-						}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -364,13 +364,13 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 							Status:  metav1.ConditionTrue,
 							Reason:  "AdmissionChecksRejected",
 							Message: "Admission checks [check1] are rejected",
-						}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,
 							Status:  metav1.ConditionFalse,
 							Reason:  "NoReservationNoChecks",
 							Message: "The workload has no reservation and not all checks ready",
-						}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

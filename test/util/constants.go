@@ -39,7 +39,7 @@ const (
 )
 
 var (
-	IgnoreConditionTimestamps         = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
-	IgnoreConditionObservedGeneration = cmpopts.IgnoreFields(metav1.Condition{}, "ObservedGeneration")
-	IgnoreConditionMessage            = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
+	IgnoreConditionTimestamps                      = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
+	IgnoreConditionTimestampsAndObservedGeneration = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
+	IgnoreConditionMessage                         = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
 )

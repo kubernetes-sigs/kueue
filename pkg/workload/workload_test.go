@@ -216,10 +216,11 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
-						Message: "didn't fit",
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "didn't fit",
+						ObservedGeneration: 1,
 					},
 				},
 			},
@@ -241,9 +242,10 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:   kueue.WorkloadQuotaReserved,
-						Status: metav1.ConditionTrue,
-						Reason: "Admitted",
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						ObservedGeneration: 1,
 					},
 				},
 			},
@@ -267,7 +269,6 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 				tc.wantStatus,
 				updatedWl.Status,
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-				cmpopts.IgnoreFields(metav1.Condition{}, "ObservedGeneration"),
 			); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 			}

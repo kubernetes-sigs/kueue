@@ -19,8 +19,6 @@ package mke2e
 import (
 	"os/exec"
 
-	"sigs.k8s.io/kueue/test/util"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -42,6 +40,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
@@ -222,7 +221,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "JobFinished",
 						Message: `Job finished successfully`,
-					}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -287,7 +286,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "Admitted",
 						Message: "The workload is admitted",
-					}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -315,7 +314,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "JobSetFinished",
 						Message: "JobSet finished successfully",
-					}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -339,7 +338,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Reason:  "AllJobsCompleted",
 						Message: "jobset completed successfully",
 					},
-					util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration)))
+					util.IgnoreConditionTimestampsAndObservedGeneration)))
 			})
 		})
 	})
@@ -363,7 +362,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Status: metav1.ConditionFalse,
 							Reason: "ClientConnectionFailed",
 						},
-						util.IgnoreConditionTimestamps, util.IgnoreConditionMessage, util.IgnoreConditionObservedGeneration)))
+						util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -384,7 +383,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Reason:  "Active",
 							Message: "Connected",
 						},
-						util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration)))
+						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

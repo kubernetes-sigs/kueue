@@ -30,7 +30,6 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -38,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -266,8 +264,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 		}, util.Timeout, util.Interval).Should(
 			gomega.BeComparableTo(
 				podsReadyTestSpec.BeforeCondition,
-				util.IgnoreConditionTimestamps,
-				util.IgnoreConditionObservedGeneration,
+				util.IgnoreConditionTimestampsAndObservedGeneration,
 			),
 		)
 	}
@@ -297,8 +294,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 	}, util.Timeout, util.Interval).Should(
 		gomega.BeComparableTo(
 			podsReadyTestSpec.WantCondition,
-			util.IgnoreConditionTimestamps,
-			util.IgnoreConditionObservedGeneration,
+			util.IgnoreConditionTimestampsAndObservedGeneration,
 		),
 	)
 }

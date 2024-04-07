@@ -1696,7 +1696,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
 					Message: "The ClusterQueue is stopped",
-				}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			})
 
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)

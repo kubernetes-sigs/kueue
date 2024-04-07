@@ -374,12 +374,12 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	return nil, nil
 }
 
-func (a *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) {
-	a.lock.RLock()
-	defer a.lock.RUnlock()
+func (c *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 
-	c, f := a.remoteClients[acName]
-	return c, f
+	rc, f := c.remoteClients[acName]
+	return rc, f
 }
 
 func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -464,7 +464,7 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealp
 		newCondition.Status = metav1.ConditionTrue
 	}
 
-	// if the condition is up to date
+	// if the condition is up-to-date
 	oldCondition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueuealpha.MultiKueueClusterActive)
 	if cmpConditionState(oldCondition, &newCondition) {
 		return nil

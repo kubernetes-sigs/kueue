@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "JobSetFinished",
 						Message: "JobSet finished successfully",
-					}, util.IgnoreConditionTimestamps, util.IgnoreConditionObservedGeneration))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
