@@ -797,6 +797,9 @@ func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
 func (r *JobReconciler) getWorkloadLabels(job GenericJob) map[string]string {
 	jobLabels := job.Object().GetLabels()
 	workloadLabels := make(map[string]string)
+	if r.labelKeysToCopy == nil {
+		return workloadLabels
+	}
 	for _, labelKey := range r.labelKeysToCopy {
 		if labelValue, found := jobLabels[labelKey]; found {
 			workloadLabels[labelKey] = labelValue
