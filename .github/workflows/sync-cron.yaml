@@ -53,3 +53,11 @@ jobs:
       status: open
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  vladikkuzn:
+    uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
+    with:
+      gh_repo: kubernetes-sigs/kueue
+      gh_user: vladikkuzn
+      status: open
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}

@@ -33,6 +33,7 @@ on:
           - oginskis
           - stuton
           - mbobrovskyi
+          - vladikkuzn
       status:
         description: 'Status'
         required: true
