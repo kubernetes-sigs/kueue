@@ -48,6 +48,10 @@ const (
 	failedUpdateLqStatusMsg = "Failed to retrieve localQueue status"
 )
 
+const (
+	clusterQueueIsInactiveReason = "ClusterQueueIsInactive"
+)
+
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
 	client     client.Client
@@ -107,7 +111,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, "Ready", "Can submit new workloads to clusterQueue")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, "ClusterQueueIsInactive", queueIsInactiveMsg)
+	err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, queueIsInactiveMsg)
 	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 

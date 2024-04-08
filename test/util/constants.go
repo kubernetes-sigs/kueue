@@ -42,4 +42,5 @@ var (
 	IgnoreConditionTimestamps                      = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 	IgnoreConditionTimestampsAndObservedGeneration = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
 	IgnoreConditionMessage                         = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
+	IgnoreObjectMetaResourceVersion                = cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")
 )

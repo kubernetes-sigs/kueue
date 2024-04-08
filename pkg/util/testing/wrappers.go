@@ -266,6 +266,16 @@ func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *
 	return w
 }
 
+func (w *WorkloadWrapper) Admission(admission *kueue.Admission) *WorkloadWrapper {
+	w.Status.Admission = admission
+	return w
+}
+
+func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWrapper {
+	w.Status.Conditions = conditions
+	return w
+}
+
 func (w *WorkloadWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
 	w.appendOwnerReference(gvk, name, uid, ptr.To(true), ptr.To(true))
 	return w
@@ -502,6 +512,24 @@ func (q *LocalQueueWrapper) ClusterQueue(c string) *LocalQueueWrapper {
 // PendingWorkloads updates the pendingWorkloads in status.
 func (q *LocalQueueWrapper) PendingWorkloads(n int32) *LocalQueueWrapper {
 	q.Status.PendingWorkloads = n
+	return q
+}
+
+// Condition sets a condition on the LocalQueue.
+func (q *LocalQueueWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string, generation int64) *LocalQueueWrapper {
+	apimeta.SetStatusCondition(&q.Status.Conditions, metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: generation,
+	})
+	return q
+}
+
+// Generation sets the generation of the LocalQueue.
+func (q *LocalQueueWrapper) Generation(num int64) *LocalQueueWrapper {
+	q.ObjectMeta.Generation = num
 	return q
 }
 

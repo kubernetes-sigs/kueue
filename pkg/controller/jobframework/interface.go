@@ -43,6 +43,7 @@ type GenericJob interface {
 	RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
+	// Observed generation of the workload is set by the jobframework.
 	Finished() (condition metav1.Condition, finished bool)
 	// PodSets will build workload podSets corresponding to the job.
 	PodSets() []kueue.PodSet

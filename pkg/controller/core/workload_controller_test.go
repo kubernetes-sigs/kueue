@@ -472,6 +472,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				Admitted(true).
 				RequeueState(ptr.To[int32](29), nil).
+				Generation(1).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -480,11 +481,13 @@ func TestReconcile(t *testing.T) {
 					Name:  "check",
 					State: kueue.CheckStateReady,
 				}).
+				Generation(1).
 				Condition(metav1.Condition{
-					Type:    kueue.WorkloadEvicted,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
-					Message: "Exceeded the PodsReady timeout ns/wl",
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
 				}).
 				// 1.41284738^(30-1) = 22530.0558
 				RequeueState(ptr.To[int32](30), ptr.To(metav1.NewTime(testStartTime.Add(22530*time.Second).Truncate(time.Second)))).

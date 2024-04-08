@@ -19,7 +19,6 @@ package core
 import (
 	"fmt"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -269,12 +268,11 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					return apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadFinished)
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
-					Type:               kueue.WorkloadFinished,
-					Status:             metav1.ConditionTrue,
-					Reason:             "AdmissionChecksRejected",
-					Message:            "Admission checks [check1] are rejected",
-					ObservedGeneration: createdWl.Generation,
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "AdmissionChecksRejected",
+					Message: "Admission checks [check1] are rejected",
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			})
 		})
 
@@ -315,12 +313,11 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					g.Expect(createdWl.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Admitted",
-						Message:            "The workload is admitted",
-						ObservedGeneration: createdWl.Generation,
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
