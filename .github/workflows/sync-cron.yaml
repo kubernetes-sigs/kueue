@@ -61,3 +61,11 @@ jobs:
       status: open
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  IrvingMg:
+    uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
+    with:
+      gh_repo: kubernetes-sigs/kueue
+      gh_user: IrvingMg
+      status: open
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
