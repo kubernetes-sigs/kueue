@@ -479,7 +479,13 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName); err != nil {
+		return err
+	}
+	if err := jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk); err != nil {
+		return err
+	}
+	return nil
 }
 
 func CanSupportIntegration(opts ...jobframework.Option) (bool, error) {
@@ -499,8 +505,8 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 	if groupName == "" {
 		podsInGroup.Items = append(podsInGroup.Items, *p.Object().(*corev1.Pod))
 	} else {
-		if err := c.List(ctx, &podsInGroup, client.MatchingLabels{
-			GroupNameLabel: groupName,
+		if err := c.List(ctx, &podsInGroup, client.MatchingFields{
+			PodGroupNameCacheKey: groupName,
 		}, client.InNamespace(p.pod.Namespace)); err != nil {
 			return err
 		}
@@ -614,8 +620,8 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 	// and update the expectations after we've retrieved active pods from the store.
 	p.satisfiedExcessPods = p.excessPodExpectations.Satisfied(ctrl.LoggerFrom(ctx), *key)
 
-	if err := c.List(ctx, &p.list, client.MatchingLabels{
-		GroupNameLabel: key.Name,
+	if err := c.List(ctx, &p.list, client.MatchingFields{
+		PodGroupNameCacheKey: key.Name,
 	}, client.InNamespace(key.Namespace)); err != nil {
 		return false, err
 	}
@@ -1210,7 +1216,7 @@ func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 
 func IsPodOwnerManagedByKueue(p *Pod) bool {
 	if owner := metav1.GetControllerOf(&p.pod); owner != nil {
-		return jobframework.IsOwnerManagedByKueue(owner) || (owner.Kind == "RayCluster" && (strings.HasPrefix(owner.APIVersion, "ray.io/v1alpha1") || strings.HasPrefix(owner.APIVersion, "ray.io/v1")))
+		return jobframework.IsOwnerManagedByKueue(owner)
 	}
 	return false
 }

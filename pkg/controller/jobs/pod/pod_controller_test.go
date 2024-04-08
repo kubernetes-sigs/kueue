@@ -41,6 +41,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -3695,9 +3696,9 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 			},
 			wantRes: false,
 		},
-		"ray.io/v1alpha1/RayCluster": {
+		"ray.io/v1/RayCluster": {
 			ownerReference: metav1.OwnerReference{
-				APIVersion: "ray.io/v1alpha1",
+				APIVersion: "ray.io/v1",
 				Controller: ptr.To(true),
 				Kind:       "RayCluster",
 			},
