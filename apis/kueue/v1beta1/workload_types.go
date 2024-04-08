@@ -285,7 +285,9 @@ const (
 	// ready or have succeeded.
 	WorkloadPodsReady = "PodsReady"
 
-	// WorkloadEvicted means that the Workload was evicted by a ClusterQueue
+	// WorkloadEvicted means that the Workload was evicted by a ClusterQueue.
+	// When a workload is preempted this condition is accompanied by the "Preempted"
+	// condition which contains a more detailed reason for the preemption.
 	WorkloadEvicted = "Evicted"
 
 	// WorkloadPreempted means that the Workload was preempted.

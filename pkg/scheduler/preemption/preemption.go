@@ -144,14 +144,14 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 				reason = "InCohort"
 			}
 
-			message := fmt.Sprintf("Preempted to accommodate the workload (UID: %s) in the %s", preemptor.Obj.UID, origin)
+			message := fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", preemptor.Obj.UID, origin)
 			err := p.applyPreemption(ctx, target.Obj, reason, message)
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
 				return
 			}
 
-			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.Obj))
+			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.Obj), "reason", reason, "message", message)
 			p.recorder.Eventf(target.Obj, corev1.EventTypeNormal, "Preempted", message)
 		} else {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.Obj))

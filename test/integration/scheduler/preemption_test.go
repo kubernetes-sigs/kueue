@@ -274,7 +274,57 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.FinishEvictionForWorkloads(ctx, k8sClient, alphaLowWl, betaMidWl)
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaMidWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, betaCQ.Name, betaHighWl)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, alphaLowWl, betaMidWl)
+
+			conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
+			ginkgo.By("Verify the Preempted condition", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(alphaLowWl), alphaLowWl)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadPreempted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "InClusterQueue",
+						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the ClusterQueue", alphaMidWl.UID),
+					}, conditionCmpOpts))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(betaMidWl), betaMidWl)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(betaMidWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadPreempted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "InCohort",
+						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the cohort", alphaMidWl.UID),
+					}, conditionCmpOpts))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify the Preempted condition on re-admission, as the preemptor is finished", func() {
+				util.FinishWorkloads(ctx, k8sClient, alphaMidWl)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaLowWl)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, betaCQ.Name, betaMidWl, betaHighWl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(alphaLowWl), alphaLowWl)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadPreempted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "InClusterQueue",
+						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the ClusterQueue", alphaMidWl.UID),
+					}, conditionCmpOpts))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(betaMidWl), betaMidWl)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(betaMidWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadPreempted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "InCohort",
+						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the cohort", alphaMidWl.UID),
+					}, conditionCmpOpts))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.It("Should not preempt Workloads in the cohort, if the ClusterQueue requires borrowing", func() {
@@ -406,104 +456,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaWl, gammaWl)
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, betaWls...)
-		})
-
-		ginkgo.It("Should add a dedicated Preempted condition indicating the preemption reason", func() {
-			cmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
-			var alphaLowWl, alphaMidWl, alphaHighWl, gammaHighWl *kueue.Workload
-			ginkgo.By("Create low-priority workload", func() {
-				alphaLowWl = testing.MakeWorkload("alpha-low", ns.Name).
-					Queue(alphaQ.Name).
-					Priority(lowPriority).
-					Request(corev1.ResourceCPU, "2").
-					Obj()
-				gomega.Expect(k8sClient.Create(ctx, alphaLowWl)).To(gomega.Succeed())
-
-				alphaMidWl = testing.MakeWorkload("alpha-mid", ns.Name).
-					Queue(alphaQ.Name).
-					Priority(midPriority).
-					Request(corev1.ResourceCPU, "4").
-					Obj()
-				gomega.Expect(k8sClient.Create(ctx, alphaMidWl)).To(gomega.Succeed())
-
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaMidWl, alphaLowWl)
-			})
-
-			ginkgo.By("Create high-priority workload that preempts the low-priority workload", func() {
-				alphaHighWl = testing.MakeWorkload("alpha-high", ns.Name).
-					Queue(alphaQ.Name).
-					Priority(highPriority).
-					Request(corev1.ResourceCPU, "2").
-					Obj()
-				gomega.Expect(k8sClient.Create(ctx, alphaHighWl)).To(gomega.Succeed())
-
-				util.FinishEvictionForWorkloads(ctx, k8sClient, alphaLowWl)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaMidWl, alphaHighWl)
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, alphaLowWl)
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(alphaLowWl), alphaLowWl)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadPreempted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "InClusterQueue",
-						Message: fmt.Sprintf("Preempted to accommodate the workload (UID: %s) in the ClusterQueue", alphaHighWl.UID),
-					}, cmpOpts))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Finish high-priority workload so that the preempted workload is re-admitted", func() {
-				util.FinishWorkloads(ctx, k8sClient, alphaHighWl)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaMidWl, alphaLowWl)
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(alphaLowWl), alphaLowWl)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadPreempted,
-						Status:  metav1.ConditionFalse,
-						Reason:  "InClusterQueue",
-						Message: fmt.Sprintf("Preempted to accommodate the workload (UID: %s) in the ClusterQueue", alphaHighWl.UID),
-					}, cmpOpts))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Submit high-priority workload in cohort that will preempt the low-priority workload", func() {
-				gammaHighWl = testing.MakeWorkload("gamma-high", ns.Name).
-					Queue(gammaQ.Name).
-					Priority(highPriority).
-					Request(corev1.ResourceCPU, "2").
-					Obj()
-				gomega.Expect(k8sClient.Create(ctx, gammaHighWl)).To(gomega.Succeed())
-
-				util.FinishEvictionForWorkloads(ctx, k8sClient, alphaLowWl)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaMidWl)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, gammaCQ.Name, gammaHighWl)
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(alphaLowWl), alphaLowWl)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadPreempted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "InCohort",
-						Message: fmt.Sprintf("Preempted to accommodate the workload (UID: %s) in the cohort", gammaHighWl.UID),
-					}, cmpOpts))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Finish high-priority workload so that the preempted workload is re-admitted", func() {
-				util.FinishWorkloads(ctx, k8sClient, gammaHighWl)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaMidWl, alphaLowWl)
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(alphaLowWl), alphaLowWl)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadPreempted,
-						Status:  metav1.ConditionFalse,
-						Reason:  "InCohort",
-						Message: fmt.Sprintf("Preempted to accommodate the workload (UID: %s) in the cohort", gammaHighWl.UID),
-					}, cmpOpts))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
 		})
 	})
 
