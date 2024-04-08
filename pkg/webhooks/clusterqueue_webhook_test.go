@@ -436,12 +436,10 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 		wantErr         field.ErrorList
 	}{
 		{
-			name:            "queueingStrategy cannot be updated",
+			name:            "queueingStrategy can be updated",
 			newClusterQueue: testingutil.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
 			oldClusterQueue: testingutil.MakeClusterQueue("cluster-queue").QueueingStrategy("StrictFIFO").Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "queueingStrategy"), nil, ""),
-			},
+			wantErr:         nil,
 		},
 		{
 			name:            "same queueingStrategy",

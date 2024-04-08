@@ -51,7 +51,7 @@ type ClusterQueueSpec struct {
 	Cohort string `json:"cohort,omitempty"`
 
 	// QueueingStrategy indicates the queueing strategy of the workloads
-	// across the queues in this ClusterQueue. This field is immutable.
+	// across the queues in this ClusterQueue.
 	// Current Supported Strategies:
 	//
 	// - StrictFIFO: workloads are ordered strictly by creation time.

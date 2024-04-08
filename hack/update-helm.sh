@@ -74,6 +74,10 @@ EOF
 search_service_line="spec:"
 replace_service_line=$(
   cat <<'EOF'
+  {{- if .Values.webhookService.ipDualStack.enabled }}
+  ipFamilies: {{ toYaml .Values.webhookService.ipDualStack.ipFamilies | nindent 4 }}
+  ipFamilyPolicy: {{ .Values.webhookService.ipDualStack.ipFamilyPolicy }}
+  {{- end }}
   type: {{ .Values.webhookService.type }}
   selector:
   {{- include "kueue.selectorLabels" . | nindent 4 }}

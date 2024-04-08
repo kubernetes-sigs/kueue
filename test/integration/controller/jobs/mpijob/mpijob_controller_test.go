@@ -907,7 +907,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
 			})
 
-			// backup the the node selectors
+			// backup the node selectors
 			originalNodeSelectors := nodeSelectors(createdJob)
 
 			ginkgo.By("create a localQueue", func() {
