@@ -118,6 +118,11 @@ spec:
                 maxItems: 8
                 type: array
                 x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: 'supported taint effect values: ''NoSchedule'', ''PreferNoSchedule'',
+                    ''NoExecute'''
+                  rule: self.all(x, x.effect in ['NoSchedule', 'PreferNoSchedule',
+                    'NoExecute'])
               tolerations:
                 description: |-
                   tolerations are extra tolerations that will be added to the pods admitted in
@@ -168,6 +173,23 @@ spec:
                 maxItems: 8
                 type: array
                 x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: operator must be Exists when 'key' is empty, which means
+                    'match all values and all keys'
+                  rule: 'self.all(x, !has(x.key) ? x.operator == ''Exists'' : true)'
+                - message: effect must be 'NoExecute' when 'tolerationSeconds' is
+                    set
+                  rule: 'self.all(x, has(x.tolerationSeconds) ? x.effect == ''NoExecute''
+                    : true)'
+                - message: 'supported toleration values: ''Equal''(default), ''Exists'''
+                  rule: self.all(x, !has(x.operator) || x.operator in ['Equal', 'Exists'])
+                - message: a value must be empty when 'operator' is 'Exists'
+                  rule: 'self.all(x, has(x.operator) && x.operator == ''Exists'' ?
+                    !has(x.value) : true)'
+                - message: 'supported taint effect values: ''NoSchedule'', ''PreferNoSchedule'',
+                    ''NoExecute'''
+                  rule: 'self.all(x, has(x.effect) ? x.effect in [''NoSchedule'',
+                    ''PreferNoSchedule'', ''NoExecute''] : true)'
             type: object
         type: object
     served: true

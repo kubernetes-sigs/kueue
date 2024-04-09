@@ -51,8 +51,24 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 	})
 
 	ginkgo.When("Creating a ResourceFlavor", func() {
+		ginkgo.It("Should be valid", func() {
+			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Label("foo", "bar").
+				Taint(corev1.Taint{
+					Key:    "spot",
+					Value:  "true",
+					Effect: corev1.TaintEffectNoSchedule,
+				}).Obj()
+			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).Should(gomega.Succeed())
+			defer func() {
+				var rf kueue.ResourceFlavor
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).Should(gomega.Succeed())
+				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
+				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
+				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			}()
+		})
 		ginkgo.It("Should have a finalizer", func() {
-			ginkgo.By("Creating a new resourceFlavor")
+			ginkgo.By("Creating a new empty resourceFlavor")
 			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Obj()
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).Should(gomega.Succeed())
 			defer func() {
@@ -69,17 +85,57 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		})
 	})
 
-	ginkgo.When("Creating a ResourceFlavor with invalid taints", func() {
-		ginkgo.It("Should fail to create", func() {
-			ginkgo.By("Creating a new resourceFlavor")
-			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Taint(corev1.Taint{
-				Key:    "@foo",
-				Value:  "bar",
-				Effect: corev1.TaintEffectNoSchedule,
-			}).Obj()
+	ginkgo.When("Creating a ResourceFlavor with invalid values", func() {
+		ginkgo.It("Should fail to create with invalid taints", func() {
+			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").
+				Taint(corev1.Taint{
+					Key: "skdajf",
+				}).
+				Taint(corev1.Taint{
+					Key:    "@foo",
+					Value:  "bar",
+					Effect: corev1.TaintEffectNoSchedule,
+				}).Obj()
+			err := k8sClient.Create(ctx, resourceFlavor)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError))
+		})
+		ginkgo.It("Should fail to create with invalid label name", func() {
+			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Label("@abc", "foo").Obj()
 			err := k8sClient.Create(ctx, resourceFlavor)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(errors.IsForbidden(err)).To(gomega.BeTrue(), "error: %v", err)
+		})
+		ginkgo.It("Should fail to create with invalid tolerations", func() {
+			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").
+				Toleration(corev1.Toleration{
+					Key:      "@abc",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Toleration(corev1.Toleration{
+					Key:      "abc",
+					Operator: corev1.TolerationOpExists,
+					Value:    "v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Toleration(corev1.Toleration{
+					Key:      "abc",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "v",
+					Effect:   corev1.TaintEffect("not-valid"),
+				}).
+				Toleration(corev1.Toleration{
+					Key:      "abc",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Obj()
+			err := k8sClient.Create(ctx, resourceFlavor)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError))
 		})
 	})
 
@@ -139,7 +195,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 			ginkgo.By("Updating the resourceFlavor with invalid labels")
 			err := k8sClient.Update(ctx, &created)
 			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(errors.IsForbidden(err)).To(gomega.BeTrue(), "error: %v", err)
+			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError))
 		})
 	})
 })
