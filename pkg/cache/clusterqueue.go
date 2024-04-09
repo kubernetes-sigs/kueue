@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -62,8 +63,11 @@ type ClusterQueue struct {
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	FlavorFungibility kueue.FlavorFungibility
-	AdmissionChecks   sets.Set[string]
-	Status            metrics.ClusterQueueStatus
+	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
+	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
+	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
+	AdmissionChecks map[string]sets.Set[string]
+	Status          metrics.ClusterQueueStatus
 	// GuaranteedQuota records how much resource quota the ClusterQueue reserved
 	// when feature LendingLimit is enabled and flavor's lendingLimit is not nil.
 	GuaranteedQuota FlavorResourceQuantities
@@ -199,7 +203,7 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
-	c.AdmissionChecks = sets.New(in.Spec.AdmissionChecks...)
+	c.AdmissionChecks = utilac.NewAdmissionChecks(in)
 
 	c.Usage = filterFlavorQuantities(c.Usage, in.Spec.ResourceGroups)
 	c.AdmittedUsage = filterFlavorQuantities(c.AdmittedUsage, in.Spec.ResourceGroups)

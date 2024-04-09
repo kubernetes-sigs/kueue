@@ -463,12 +463,20 @@ func TestClusterQueueUpdate(t *testing.T) {
 }
 
 func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
-	cq := utiltesting.MakeClusterQueue("cq").
+	cqWithAC := utiltesting.MakeClusterQueue("cq").
 		AdmissionChecks("check1", "check2", "check3").
+		Obj()
+
+	cqWithACStrategy := utiltesting.MakeClusterQueue("cq2").
+		AdmissionCheckStrategy(
+			*utiltesting.MakeAdmissionCheckStrategyRule("check1").Obj(),
+			*utiltesting.MakeAdmissionCheckStrategyRule("check2").Obj(),
+			*utiltesting.MakeAdmissionCheckStrategyRule("check3").Obj()).
 		Obj()
 
 	testcases := []struct {
 		name            string
+		cq              *kueue.ClusterQueue
 		cqStatus        metrics.ClusterQueueStatus
 		admissionChecks map[string]AdmissionCheck
 		wantStatus      metrics.ClusterQueueStatus
@@ -476,6 +484,28 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 	}{
 		{
 			name:     "Pending clusterQueue updated valid AC list",
+			cq:       cqWithAC,
+			cqStatus: pending,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: active,
+			wantReason: "Ready",
+		},
+		{
+			name:     "Pending clusterQueue with an AC strategy updated valid AC list",
+			cq:       cqWithACStrategy,
 			cqStatus: pending,
 			admissionChecks: map[string]AdmissionCheck{
 				"check1": {
@@ -496,6 +526,24 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		},
 		{
 			name:     "Active clusterQueue updated with not found AC",
+			cq:       cqWithAC,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue with an AC strategy updated with not found AC",
+			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[string]AdmissionCheck{
 				"check1": {
@@ -512,6 +560,28 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		},
 		{
 			name:     "Active clusterQueue updated with inactive AC",
+			cq:       cqWithAC,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     false,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue with an AC strategy updated with inactive AC",
+			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[string]AdmissionCheck{
 				"check1": {
@@ -532,6 +602,30 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		},
 		{
 			name:     "Active clusterQueue updated with duplicate single instance AC Controller",
+			cq:       cqWithAC,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:                       true,
+					Controller:                   "controller1",
+					SingleInstanceInClusterQueue: true,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:                       true,
+					Controller:                   "controller2",
+					SingleInstanceInClusterQueue: true,
+				},
+			},
+			wantStatus: pending,
+			wantReason: "MultipleSingleInstanceControllerChecks",
+		},
+		{
+			name:     "Active clusterQueue with an AC strategy updated with duplicate single instance AC Controller",
+			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[string]AdmissionCheck{
 				"check1": {
@@ -554,6 +648,28 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		},
 		{
 			name:     "Terminating clusterQueue updated with valid AC list",
+			cq:       cqWithAC,
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+		{
+			name:     "Terminating clusterQueue with an AC strategy updated with valid AC list",
+			cq:       cqWithACStrategy,
 			cqStatus: terminating,
 			admissionChecks: map[string]AdmissionCheck{
 				"check1": {
@@ -574,6 +690,24 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		},
 		{
 			name:     "Terminating clusterQueue updated with not found AC",
+			cq:       cqWithAC,
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+		{
+			name:     "Terminating clusterQueue with an AC strategy updated with not found AC",
+			cq:       cqWithACStrategy,
 			cqStatus: terminating,
 			admissionChecks: map[string]AdmissionCheck{
 				"check1": {
@@ -593,7 +727,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
-			cq, err := cache.newClusterQueue(cq)
+			cq, err := cache.newClusterQueue(tc.cq)
 			if err != nil {
 				t.Fatalf("failed to new clusterQueue %v", err)
 			}

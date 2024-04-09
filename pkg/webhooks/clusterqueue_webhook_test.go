@@ -57,6 +57,30 @@ func TestValidateClusterQueue(t *testing.T) {
 			},
 		},
 		{
+			name: "admissionChecks defined",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				AdmissionChecks("ac1").
+				Obj(),
+		},
+		{
+			name: "admissionCheckStrategy defined",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				AdmissionCheckStrategy(
+					*testingutil.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+				).Obj(),
+		},
+		{
+			name: "both admissionChecks and admissionCheckStrategy is defined",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				AdmissionChecks("ac1").
+				AdmissionCheckStrategy(
+					*testingutil.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+				).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath, "spec", "Either AdmissionChecks or AdmissionCheckStrategy can be set, but not both"),
+			},
+		},
+		{
 			name:         "in cohort",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Cohort("prod").Obj(),
 		},

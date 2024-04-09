@@ -98,9 +98,15 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:default={}
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
-	// admissionChecks lists the AdmissionChecks required by this ClusterQueue
+	// admissionChecks lists the AdmissionChecks required by this ClusterQueue.
+	// Cannot be used along with AdmissionCheckStrategy.
 	// +optional
 	AdmissionChecks []string `json:"admissionChecks,omitempty"`
+
+	// admissionCheckStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
+	// This property cannot be used in conjunction with the 'admissionChecks' property.
+	// +optional
+	AdmissionChecksStrategy AdmissionChecksStrategy `json:"admissionChecksStrategy,omitempty"`
 
 	// stopPolicy - if set to a value different from None, the ClusterQueue is considered Inactive, no new reservation being
 	// made.
@@ -115,6 +121,23 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
 	// +kubebuilder:default="None"
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
+}
+
+// AdmissionCheckStrategy defines a strategy for a AdmissionCheck.
+type AdmissionChecksStrategy struct {
+	// admissionChecks is a list of strategies for AdmissionChecks
+	AdmissionChecks []AdmissionCheckStrategyRule `json:"admissionChecks,omitempty"`
+}
+
+// AdmissionCheckStrategyRule defines rules for a single AdmissionCheck
+type AdmissionCheckStrategyRule struct {
+	// name is an AdmissionCheck's name.
+	Name string `json:"name"`
+
+	// onFlavors is a list of ResourceFlavors' names that this AdmissionCheck should run for.
+	// If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
+	// +optional
+	OnFlavors []ResourceFlavorReference `json:"onFlavors"`
 }
 
 type QueueingStrategy string

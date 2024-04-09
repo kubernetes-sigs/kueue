@@ -964,7 +964,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks:               sets.New("check1", "check2"),
+					AdmissionChecks: map[string]sets.Set[string]{
+						"check1": sets.New[string](),
+						"check2": sets.New[string](),
+					},
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
@@ -992,8 +995,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks:               sets.New("check1", "check2"),
-				},
+					AdmissionChecks: map[string]sets.Set[string]{
+						"check1": sets.New[string](),
+						"check2": sets.New[string](),
+					}},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
 		},
@@ -1021,8 +1026,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks:               sets.New("check1", "check2"),
-				},
+					AdmissionChecks: map[string]sets.Set[string]{
+						"check1": sets.New[string](),
+						"check2": sets.New[string](),
+					}},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
 		},
@@ -1050,8 +1057,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks:               sets.New("check1", "check2"),
-				},
+					AdmissionChecks: map[string]sets.Set[string]{
+						"check1": sets.New[string](),
+						"check2": sets.New[string](),
+					}},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
 		},
@@ -3385,45 +3394,61 @@ func messageOrEmpty(err error) string {
 }
 
 func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
-	admissionCheck1 := utiltesting.MakeAdmissionCheck("ac1").Obj()
-	admissionCheck2 := utiltesting.MakeAdmissionCheck("ac2").Obj()
+	checks := []*kueue.AdmissionCheck{
+		utiltesting.MakeAdmissionCheck("ac1").Obj(),
+		utiltesting.MakeAdmissionCheck("ac2").Obj(),
+		utiltesting.MakeAdmissionCheck("ac3").Obj(),
+	}
+
 	fooCq := utiltesting.MakeClusterQueue("fooCq").
-		AdmissionChecks(admissionCheck1.Name).
+		AdmissionChecks("ac1").
 		Obj()
 	barCq := utiltesting.MakeClusterQueue("barCq").Obj()
 	fizzCq := utiltesting.MakeClusterQueue("fizzCq").
-		AdmissionChecks(admissionCheck1.Name, admissionCheck2.Name).
+		AdmissionChecks("ac1", "ac2").
+		Obj()
+	strategyCq := utiltesting.MakeClusterQueue("strategyCq").
+		AdmissionCheckStrategy(
+			*utiltesting.MakeAdmissionCheckStrategyRule("ac1").Obj(),
+			*utiltesting.MakeAdmissionCheckStrategyRule("ac3").Obj()).
 		Obj()
 
 	cases := map[string]struct {
 		clusterQueues              []*kueue.ClusterQueue
 		wantInUseClusterQueueNames []string
+		check                      string
 	}{
 		"single clusterQueue with check in use": {
-			clusterQueues: []*kueue.ClusterQueue{
-				fooCq,
-			},
+			clusterQueues:              []*kueue.ClusterQueue{fooCq},
 			wantInUseClusterQueueNames: []string{fooCq.Name},
+			check:                      "ac1",
+		},
+		"single clusterQueue with AdmissionCheckStrategy in use": {
+			clusterQueues:              []*kueue.ClusterQueue{strategyCq},
+			wantInUseClusterQueueNames: []string{strategyCq.Name},
+			check:                      "ac3",
 		},
 		"single clusterQueue with no checks": {
-			clusterQueues: []*kueue.ClusterQueue{
-				barCq,
-			},
+			clusterQueues: []*kueue.ClusterQueue{barCq},
+			check:         "ac1",
 		},
 		"multiple clusterQueues with checks in use": {
 			clusterQueues: []*kueue.ClusterQueue{
 				fooCq,
 				barCq,
 				fizzCq,
+				strategyCq,
 			},
-			wantInUseClusterQueueNames: []string{fooCq.Name, fizzCq.Name},
+			wantInUseClusterQueueNames: []string{fooCq.Name, fizzCq.Name, strategyCq.Name},
+			check:                      "ac1",
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
-			cache.AddOrUpdateAdmissionCheck(admissionCheck1)
-			cache.AddOrUpdateAdmissionCheck(admissionCheck2)
+			for _, check := range checks {
+				cache.AddOrUpdateAdmissionCheck(check)
+			}
 
 			for _, cq := range tc.clusterQueues {
 				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
@@ -3431,11 +3456,11 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 				}
 			}
 
-			cqs := cache.ClusterQueuesUsingAdmissionCheck(admissionCheck1.Name)
+			cqs := cache.ClusterQueuesUsingAdmissionCheck(tc.check)
 			if diff := cmp.Diff(tc.wantInUseClusterQueueNames, cqs, cmpopts.SortSlices(func(a, b string) bool {
 				return a < b
 			})); len(diff) != 0 {
-				t.Errorf("Unexpected flavor is in use by clusterQueues (-want,+got):\n%s", diff)
+				t.Errorf("Unexpected AdmissionCheck is in use by clusterQueues (-want,+got):\n%s", diff)
 			}
 		})
 	}

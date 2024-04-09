@@ -54,10 +54,14 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.AdmissionCheckParametersReferenceApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckSpec"):
 		return &kueuev1beta1.AdmissionCheckSpecApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AdmissionChecksStrategy"):
+		return &kueuev1beta1.AdmissionChecksStrategyApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckState"):
 		return &kueuev1beta1.AdmissionCheckStateApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckStatus"):
 		return &kueuev1beta1.AdmissionCheckStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckStrategyRule"):
+		return &kueuev1beta1.AdmissionCheckStrategyRuleApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
 		return &kueuev1beta1.BorrowWithinCohortApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
