@@ -3472,6 +3472,38 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"reconciler returns error in case of label mismatch in pod group": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					Label("toCopyKey1", "toCopyValue1").
+					Label("dontCopyKey", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					Label("toCopyKey1", "otherValue").
+					Label("toCopyKey2", "toCopyValue2").
+					Label("dontCopyKey", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithLabelKeysToCopy([]string{"toCopyKey1", "toCopyKey2"}),
+			},
+			wantWorkloads: nil,
+			wantErr:       errPodGroupLabelsMismatch,
+		},
 	}
 
 	for name, tc := range testCases {
