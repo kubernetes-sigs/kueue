@@ -163,8 +163,8 @@ func TestReconciler(t *testing.T) {
 		// If true, the test will delete workloads before running reconcile
 		deleteWorkloads bool
 
-		wantEvents         []utiltesting.EventRecord
-		integrationOptions []jobframework.Option
+		wantEvents        []utiltesting.EventRecord
+		reconcilerOptions []jobframework.Option
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
@@ -3383,7 +3383,7 @@ func TestReconciler(t *testing.T) {
 				Queue("test-queue").
 				Obj()},
 			wantPods: nil,
-			integrationOptions: []jobframework.Option{
+			reconcilerOptions: []jobframework.Option{
 				jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3439,7 +3439,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantPods: nil,
-			integrationOptions: []jobframework.Option{
+			reconcilerOptions: []jobframework.Option{
 				jobframework.WithLabelKeysToCopy([]string{"toCopyKey1", "toCopyKey2"}),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3504,7 +3504,7 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := NewReconciler(kClient, recorder, tc.integrationOptions...)
+			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 			pReconciler := reconciler.(*Reconciler)
 			for _, e := range tc.excessPodsExpectations {
 				pReconciler.expectationsStore.ExpectUIDs(log, e.key, e.uids)
