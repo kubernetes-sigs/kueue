@@ -39,7 +39,7 @@ This proposal does not contain any form of validation or analysis of the labels 
 We want to do the following API change. The proposal is to add a field named `labelKeysToCopy` into the configuration API (under `Integrations`). This field will hold a list of keys of labels that should be copied. This configuration will be global in the sense that it will apply to all the job frameworks. Since the list `labelKeysToCopy` will be empty by default, this change will not affect the existing functionality. 
 
 A case that requires more attention is creating workloads from pod groups because in that case a single workload is based on multiple pods (each of which might have labels). We propose:
- * When a label from the `labelKeysToCopy` list will be present at some of the pods from the group and the value of this label on all these pods will be idential then this label will be copied into the workload. Note that we do not require that all the pods have the label but all that do have must have the same value.
+ * When a label from the `labelKeysToCopy` list will be present at some of the pods from the group and the value of this label on all these pods will be identical then this label will be copied into the workload. Note that we do not require that all the pods have the label but all that do have must have the same value.
  * When multiple pods from the group will have the label with different values, we will raise an exception.
 
 
@@ -49,7 +49,7 @@ None.
 
 ## Design Details
 
-We belive that the KEP is rather straightforward and the [Proposal](#proposal) section contains sufficient details of the implementation.
+We believe that the KEP is rather straightforward and the [Proposal](#proposal) section contains sufficient details of the implementation.
 
 ### Test Plan
 
@@ -87,11 +87,11 @@ The idea is to enhance the existing integrations tests to check if workload obje
 
 ## Implementation History
 
-* 2024-04-08 First draft 
+* 2024-04-08 First draft
 
 ## Drawbacks
 
-With this KEP some workload objects that previously succeeded could fail to be created if such workload is based on a pod group with mismatched labels  (i.e., pods in the same pod group having different label values for some label key that should be copied). This will only happen if a user explicitely configure this label key to be copied.
+With this KEP some workload objects that previously succeeded could fail to be created if such workload is based on a pod group with mismatched labels  (i.e., pods in the same pod group having different label values for some label key that should be copied). This will only happen if a user explicitly configures this label key to be copied.
 
 
 ## Alternatives
