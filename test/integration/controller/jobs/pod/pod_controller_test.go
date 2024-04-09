@@ -573,7 +573,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						},
 						wlConditionCmpOpts...,
 					))
-					ginkgo.By("checking the workload gets assign correct labels")
+					ginkgo.By("checking the workload gets assigned the correct labels")
 					gomega.Expect(createdWorkload.Labels["toCopyKey"]).Should(gomega.Equal("toCopyValue"))
 					gomega.Expect(createdWorkload.Labels).ShouldNot(gomega.ContainElement("doNotCopyValue"))
 				})
