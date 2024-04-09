@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -331,6 +332,8 @@ type clustersReconciler struct {
 	// watchEndedCh - an event chan used to request the reconciliation of the clusters for which the watch loop
 	// has ended (connection lost).
 	watchEndedCh chan event.GenericEvent
+
+	fsWatcher *KubeConfigFSWatcher
 }
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
@@ -499,7 +502,7 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string) *clustersReconciler {
+func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:     c,
 		configNamespace: namespace,
@@ -508,6 +511,7 @@ func newClustersReconciler(c client.Client, namespace string, gcInterval time.Du
 		gcInterval:      gcInterval,
 		origin:          origin,
 		watchEndedCh:    make(chan event.GenericEvent, eventChBufferSize),
+		fsWatcher:       fsWatcher,
 	}
 }
 
@@ -525,10 +529,69 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		},
 	}
 
+	fsWatcherHndl := handler.Funcs{
+		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+			// batch the events
+			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
+				Name: e.Object.GetName(),
+			}}, 100*time.Millisecond)
+		},
+	}
+
+	filterLog := mgr.GetLogger().WithName("MultiKueueCluster filter")
+	filter := predicate.Funcs{
+		CreateFunc: func(ce event.CreateEvent) bool {
+			if cluster, isCluster := ce.Object.(*kueuealpha.MultiKueueCluster); isCluster {
+				if cluster.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+					err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.KubeConfig.Location)
+					if err != nil {
+						filterLog.V(2).Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(cluster))
+					}
+				}
+			}
+			return true
+		},
+		UpdateFunc: func(ue event.UpdateEvent) bool {
+			clusterNew, isClusterNew := ue.ObjectNew.(*kueuealpha.MultiKueueCluster)
+			clusterOld, isClusterOld := ue.ObjectOld.(*kueuealpha.MultiKueueCluster)
+			if !isClusterNew || !isClusterOld {
+				return true
+			}
+
+			if clusterNew.Spec.KubeConfig.LocationType == kueuealpha.SecretLocationType && clusterOld.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+				err := c.fsWatcher.Remove(clusterOld.Name)
+				if err != nil {
+					filterLog.V(2).Error(err, "Remove FS watch", "cluster", klog.KObj(clusterOld))
+				}
+			}
+
+			if clusterNew.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+				err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.KubeConfig.Location)
+				if err != nil {
+					filterLog.V(2).Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(clusterNew))
+				}
+			}
+			return true
+		},
+		DeleteFunc: func(de event.DeleteEvent) bool {
+			if cluster, isCluster := de.Object.(*kueuealpha.MultiKueueCluster); isCluster {
+				if cluster.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+					err := c.fsWatcher.Remove(cluster.Name)
+					if err != nil {
+						filterLog.V(2).Error(err, "Remove FS watch", "cluster", klog.KObj(cluster))
+					}
+				}
+			}
+			return true
+		},
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueuealpha.MultiKueueCluster{}).
 		Watches(&corev1.Secret{}, &secretHandler{client: c.localClient}).
 		WatchesRawSource(&source.Channel{Source: c.watchEndedCh}, syncHndl).
+		WatchesRawSource(&source.Channel{Source: c.fsWatcher.reconcile}, fsWatcherHndl).
+		WithEventFilter(filter).
 		Complete(c)
 }
 

@@ -76,7 +76,13 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin)
+	fsWaatcher := newKubeConfigFSWatcher()
+	err = mgr.Add(fsWaatcher)
+	if err != nil {
+		return err
+	}
+
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWaatcher)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
