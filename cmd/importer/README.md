@@ -64,7 +64,7 @@ It's done providing a yaml mapping file name as `--queuemapping-file` argument, 
 
 #### Other flags
 
-After building the executable the full list of supported flags can be retrieve by:
+After building the executable the full list of supported flags can be retrieved by:
 
 ```bash
 ./bin/importer import help
@@ -99,7 +99,7 @@ Global Flags:
 
 ### Import
 
-After which, if `--dry-run=false` was specified, for each selected Pod the importer will:
+When running the importer, if `--dry-run=false` was specified, for each selected Pod the importer will:
 
 - Update the Pod's Kueue related labels.
 - Create a Workload associated with the Pod.
