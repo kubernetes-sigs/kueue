@@ -129,7 +129,7 @@ func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorL
 	return allErrors
 }
 
-// TODO: Remove this function when CEL validations are added to workload type
+// TODO(#463): Remove this function when CEL validations are added to workload type
 // validateTaintEffect is extracted from git.k8s.io/kubernetes/pkg/apis/core/validation/validation.go
 func validateTaintEffect(effect *corev1.TaintEffect, allowEmpty bool, fldPath *field.Path) field.ErrorList {
 	if !allowEmpty && len(*effect) == 0 {
