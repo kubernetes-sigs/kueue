@@ -1,3 +1,18 @@
+## v0.6.2
+
+Changes since `v0.6.1`:
+
+### Bug or Regression
+
+- Avoid unnecessary preemptions when there are multiple candidates for preemption with the same admission timestamp (#1880, @alculquicondor)
+- Fix Pods in Pod groups stuck with finalizers when deleted immediately after Succeeded (#1916, @alculquicondor)
+- Fix preemption to reclaim quota that is blocked by an earlier pending Workload from another ClusterQueue in the same cohort. (#1868, @alculquicondor)
+- Reduce number of Workload reconciliations due to wrong equality check. (#1917, @gabesaba)
+
+### Other (Cleanup or Flake)
+
+- Improve pod integration performance (#1953, @gabesaba)
+
 ## v0.6.1
 
 Changes Since `v0.6.0`:
