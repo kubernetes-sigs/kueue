@@ -62,6 +62,41 @@ It's done providing a yaml mapping file name as `--queuemapping-file` argument, 
 - The rules are evaluated in order.
 - `skip: true` can be used to ignore the pods matching a rule.
 
+#### Other flags
+
+After building the executable the full list of supported flags can be retrieve by:
+
+```bash
+./bin/importer import help
+```
+Sample output:
+
+```bash
+Usage:
+  importer import [flags]
+
+Flags:
+      --add-labels stringToString     additional label=value pairs to be added to the imported pods and created workloads (default [])
+      --burst int                     client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
+  -c, --concurrent-workers uint       number of concurrent import workers (default 8)
+      --dry-run                       don't import, check the config only (default true)
+  -h, --help                          help for import
+  -n, --namespace strings             target namespaces (at least one should be provided)
+      --qps float32                   client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
+      --queuelabel string             label used to identify the target local queue
+      --queuemapping stringToString   mapping from "queuelabel" label values to local queue names (default [])
+      --queuemapping-file string      yaml file containing extra mappings from "queuelabel" label values to local queue names
+
+Global Flags:
+  -v, --verbose count   verbosity (specify multiple times to increase the log level)
+
+```
+
+- At least one `namespace` needs to be specified
+- `queuelabel` and `queuemapping` should always be used together.
+- One and only one of `queuemapping` and `queuemapping-file` should always be provided.
+
+
 ### Import
 
 After which, if `--dry-run=false` was specified, for each selected Pod the importer will:
@@ -134,7 +169,13 @@ https://gcr.io/k8s-staging-kueue/importer, for example:
 Note: `dry-run` is set to `false` by default.
 
 4. Update the mapping configuration in `cmd/importer/run-in-cluster/mapping.yaml`
-5. Deploy the configuration:
+
+5. (Optional) Check your config by dry-running it locally e.g.
+```bash
+./bin/importer --dry-run=true <your-custom-flags> --queuemapping-file=cmd/importer/run-in-cluster/mapping.yaml
+```
+
+6. Deploy the configuration:
 
 ```bash
  kubectl apply -k cmd/importer/run-in-cluster/
