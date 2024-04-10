@@ -236,7 +236,6 @@ func validateImmutablePodSetUpdates(newObj, oldObj *kueue.Workload, basePath *fi
 	return allErrs
 }
 
-// TODO: Refactor this function when add CEL validations to workload type
 // validateTolerations is extracted from git.k8s.io/kubernetes/pkg/apis/core/validation/validation.go
 // we do not import it as dependency, see the comment:
 // https://github.com/kubernetes/kubernetes/issues/79384#issuecomment-505627280

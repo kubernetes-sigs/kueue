@@ -111,8 +111,6 @@ func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorL
 		if errs := validation.IsValidLabelValue(currTaint.Value); len(errs) != 0 {
 			allErrors = append(allErrors, field.Invalid(idxPath.Child("value"), currTaint.Value, strings.Join(errs, ";")))
 		}
-		// validate the taint effect
-		// allErrors = append(allErrors, validateTaintEffect(&currTaint.Effect, false, idxPath.Child("effect"))...)
 
 		// validate if taint is unique by <key, effect>
 		if len(uniqueTaints[currTaint.Effect]) > 0 && uniqueTaints[currTaint.Effect].Has(currTaint.Key) {
@@ -131,7 +129,7 @@ func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorL
 	return allErrors
 }
 
-// TODO: Remove this function when add CEL validations to workload type
+// TODO: Remove this function when CEL validations are added to workload type
 // validateTaintEffect is extracted from git.k8s.io/kubernetes/pkg/apis/core/validation/validation.go
 func validateTaintEffect(effect *corev1.TaintEffect, allowEmpty bool, fldPath *field.Path) field.ErrorList {
 	if !allowEmpty && len(*effect) == 0 {
