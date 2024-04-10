@@ -32,7 +32,8 @@ Currently the workloads do not "inherit" any of the labels of the jobs based on 
 * Copy the selected labels when creating the workload based on a job.
 
 ### Non-Goals
-This proposal does not contain any form of validation or analysis of the labels as they are going to be copied from one object to another.
+* This proposal does not contain any form of validation or analysis of the labels as they are going to be copied from one object to another.
+* This proposal only concerns copying of labels into newly created workloads. Updating the labels of an existing workload (for example if the label of the underlying job is changed) is out of scope of this proposal.
 
 ## Proposal
 
