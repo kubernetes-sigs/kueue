@@ -99,7 +99,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	PartialAdmission:            {Default: true, PreRelease: featuregate.Beta},
 	QueueVisibility:             {Default: false, PreRelease: featuregate.Alpha},
 	FlavorFungibility:           {Default: true, PreRelease: featuregate.Beta},
-	ProvisioningACC:             {Default: false, PreRelease: featuregate.Alpha},
+	ProvisioningACC:             {Default: true, PreRelease: featuregate.Beta},
 	VisibilityOnDemand:          {Default: false, PreRelease: featuregate.Alpha},
 	PrioritySortingWithinCohort: {Default: true, PreRelease: featuregate.Beta},
 	MultiKueue:                  {Default: false, PreRelease: featuregate.Alpha},
