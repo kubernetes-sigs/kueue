@@ -470,7 +470,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(true).
 				Obj(),
 			reconcilerOptions: []jobframework.Option{
-				jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
+				jobframework.WithLabelKeysToCopy([]string{"toCopyKey", "redundantToCopyKey"}),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("job", "ns").

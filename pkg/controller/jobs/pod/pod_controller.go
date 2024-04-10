@@ -79,7 +79,7 @@ var (
 	errIncorrectReconcileRequest = fmt.Errorf("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
 	errPodNoSupportKubeVersion   = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
-	errPodGroupLabelsMismatch    = errors.New("error when constructing workload: pods have different label values")
+	errPodGroupLabelsMismatch    = errors.New("constructing workload: pods have different label values")
 )
 
 func init() {
@@ -902,10 +902,10 @@ func (p *Pod) ensureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 
 func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, error) {
 	jobLabels := p.Object().GetLabels()
-	workloadLabels := make(map[string]string)
-	if labelKeysToCopy == nil {
-		return workloadLabels, nil
+	if len(labelKeysToCopy) == 0 {
+		return nil, nil
 	}
+	workloadLabels := make(map[string]string, len(labelKeysToCopy))
 	for _, labelKey := range labelKeysToCopy {
 		if labelValue, found := jobLabels[labelKey]; found {
 			workloadLabels[labelKey] = labelValue

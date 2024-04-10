@@ -518,7 +518,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Request(corev1.ResourceCPU, "1").
 					Queue("test-queue").
 					Label("toCopyKey", "toCopyValue").
-					Label("dontCopyKey", "dontCopyValue").
+					Label("dontCopyKey", "dontCopyAnotherValue").
 					Obj()
 				pod1LookupKey := client.ObjectKeyFromObject(pod1)
 				pod2LookupKey := client.ObjectKeyFromObject(pod2)

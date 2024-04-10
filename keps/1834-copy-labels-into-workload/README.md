@@ -38,6 +38,8 @@ This proposal does not contain any form of validation or analysis of the labels 
 
 We want to do the following API change. The proposal is to add a field named `labelKeysToCopy` into the configuration API (under `Integrations`). This field will hold a list of keys of labels that should be copied. This configuration will be global in the sense that it will apply to all the job frameworks. Since the list `labelKeysToCopy` will be empty by default, this change will not affect the existing functionality. 
 
+We will not require for all the labels with keys from `labelKeysToCopy` to be present at the job object. When some of the labels will not be present at the job object, this label will not be assigned to the created workload object.
+
 A case that requires more attention is creating workloads from pod groups because in that case a single workload is based on multiple pods (each of which might have labels). We propose:
  * When a label from the `labelKeysToCopy` list will be present at some of the pods from the group and the value of this label on all these pods will be identical then this label will be copied into the workload. Note that we do not require that all the pods have the label but all that do have must have the same value.
  * When multiple pods from the group will have the label with different values, we will raise an exception.
