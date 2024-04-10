@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 
 		ginkgo.It("Should not succeed Job when kubernetes less than 1.27 and sync completions annotation is enabled for indexed jobs", func() {
 			if v := serverVersionFetcher.GetServerVersion(); v.AtLeast(kubeversion.KubeVersion1_27) {
-				ginkgo.Skip("Kubernetes version is less then 1.27. Skip test...")
+				ginkgo.Skip("Kubernetes version is not less then 1.27. Skip test...")
 			}
 			j := testingjob.MakeJob("job-without-queue-name", ns.Name).
 				Parallelism(5).
