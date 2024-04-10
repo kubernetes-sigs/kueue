@@ -130,10 +130,12 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
+
+			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
 			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
@@ -153,7 +155,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("Create the pebuilt workload and the job adopting it", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
-					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).
 					BackoffLimit(0).
 					TerminationGracePeriod(1).
 					Obj()
@@ -287,7 +288,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			// Use a binary that ends.
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1s"}).
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Request("cpu", "500m").
 				Parallelism(3).
 				Completions(4).
@@ -295,6 +296,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
+			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
 			ginkgo.By("Wait for the job to start and check the updated Parallelism and Completions", func() {
 				jobKey := client.ObjectKeyFromObject(job)
 				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
@@ -362,7 +364,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should unsuspend a job only after all checks are cleared", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
@@ -414,6 +416,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
 			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
@@ -428,8 +431,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 		})
 
 		ginkgo.It("Should suspend a job when its checks become invalid", func() {
-			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
