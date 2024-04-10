@@ -43,9 +43,7 @@ func TestAPIs(t *testing.T) {
 		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
 	}
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t,
-		suiteName,
-	)
+	ginkgo.RunSpecs(t, suiteName)
 }
 
 var _ = ginkgo.BeforeSuite(func() {
