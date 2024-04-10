@@ -18,6 +18,7 @@ package preemption
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -50,7 +51,7 @@ type Preemptor struct {
 	workloadOrdering workload.Ordering
 
 	// stubs
-	applyPreemption func(context.Context, *kueue.Workload) error
+	applyPreemption func(context.Context, *kueue.Workload, string, string) error
 }
 
 func New(cl client.Client, workloadOrdering workload.Ordering, recorder record.EventRecorder) *Preemptor {
@@ -63,7 +64,7 @@ func New(cl client.Client, workloadOrdering workload.Ordering, recorder record.E
 	return p
 }
 
-func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload) error) {
+func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload, string, string) error) {
 	p.applyPreemption = f
 }
 
@@ -126,7 +127,7 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 }
 
 // IssuePreemptions marks the target workloads as evicted.
-func (p *Preemptor) IssuePreemptions(ctx context.Context, targets []*workload.Info, cq *cache.ClusterQueue) (int, error) {
+func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*workload.Info, cq *cache.ClusterQueue) (int, error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
@@ -135,18 +136,23 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, targets []*workload.In
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
 		if !meta.IsStatusConditionTrue(target.Obj.Status.Conditions, kueue.WorkloadEvicted) {
-			err := p.applyPreemption(ctx, target.Obj)
+
+			origin := "ClusterQueue"
+			reason := "InClusterQueue"
+			if cq.Name != target.ClusterQueue {
+				origin = "cohort"
+				reason = "InCohort"
+			}
+
+			message := fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", preemptor.Obj.UID, origin)
+			err := p.applyPreemption(ctx, target.Obj, reason, message)
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
 				return
 			}
 
-			origin := "ClusterQueue"
-			if cq.Name != target.ClusterQueue {
-				origin = "cohort"
-			}
-			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.Obj))
-			p.recorder.Eventf(target.Obj, corev1.EventTypeNormal, "Preempted", "Preempted by another workload in the %s", origin)
+			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.Obj), "reason", reason, "message", message)
+			p.recorder.Eventf(target.Obj, corev1.EventTypeNormal, "Preempted", message)
 		} else {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.Obj))
 		}
@@ -155,9 +161,10 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, targets []*workload.In
 	return int(successfullyPreempted), errCh.ReceiveError()
 }
 
-func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload) error {
+func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
 	w = w.DeepCopy()
-	workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, "Preempted to accommodate a higher priority Workload")
+	workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, message)
+	workload.SetPreemptedCondition(w, reason, message)
 	return workload.ApplyAdmissionStatus(ctx, p.client, w, false)
 }
 

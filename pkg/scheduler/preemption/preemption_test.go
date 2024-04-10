@@ -1087,7 +1087,7 @@ func TestPreemption(t *testing.T) {
 			scheme := runtime.NewScheme()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			preemptor := New(cl, workload.Ordering{}, recorder)
-			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload) error {
+			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload, _, _ string) error {
 				lock.Lock()
 				gotPreempted.Insert(workload.Key(w))
 				lock.Unlock()
@@ -1101,7 +1101,7 @@ func TestPreemption(t *testing.T) {
 			wlInfo.ClusterQueue = tc.targetCQ
 			targetClusterQueue := snapshot.ClusterQueues[wlInfo.ClusterQueue]
 			targets := preemptor.GetTargets(*wlInfo, tc.assignment, &snapshot)
-			preempted, err := preemptor.IssuePreemptions(ctx, targets, targetClusterQueue)
+			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, targetClusterQueue)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
 			}
