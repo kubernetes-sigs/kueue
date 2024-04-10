@@ -310,8 +310,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
-						Reason:  "InClusterQueue",
-						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the ClusterQueue", alphaMidWl.UID),
+						Reason:  "QuotaReserved",
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the ClusterQueue", alphaMidWl.UID),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -320,8 +320,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					g.Expect(apimeta.FindStatusCondition(betaMidWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
-						Reason:  "InCohort",
-						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the cohort", alphaMidWl.UID),
+						Reason:  "QuotaReserved",
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the cohort", alphaMidWl.UID),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

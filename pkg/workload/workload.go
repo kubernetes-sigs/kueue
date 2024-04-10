@@ -397,11 +397,15 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	//reset Evicted condition if present.
 	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
 		evictedCond.Status = metav1.ConditionFalse
+		evictedCond.Reason = "QuotaReserved"
+		evictedCond.Message = "Previously: " + evictedCond.Message
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
 	// reset Preempted condition if present.
 	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
 		preemptedCond.Status = metav1.ConditionFalse
+		preemptedCond.Reason = "QuotaReserved"
+		preemptedCond.Message = "Previously: " + preemptedCond.Message
 		preemptedCond.LastTransitionTime = metav1.Now()
 	}
 }
