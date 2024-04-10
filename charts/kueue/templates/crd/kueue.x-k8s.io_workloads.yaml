@@ -7843,6 +7843,8 @@ spec:
                           additionalProperties:
                             description: ResourceFlavorReference is the name of the
                               ResourceFlavor.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
                           description: Flavors are the flavors assigned to the workload
                             for each resource.

@@ -84,6 +84,8 @@ spec:
 
                   Validation of a cohort name is equivalent to that of object names:
                   subdomain in DNS (RFC 1123).
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
               flavorFungibility:
                 description: |-
@@ -259,6 +261,11 @@ spec:
                     - LowerOrNewerEqualPriority
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never
+                  rule: '!(has(self.reclaimWithinCohort) && self.reclaimWithinCohort
+                    == ''Never'' && has(self.borrowWithinCohort) &&  self.borrowWithinCohort.policy
+                    != ''Never'')'
               queueingStrategy:
                 default: BestEffortFIFO
                 description: |-
@@ -315,6 +322,8 @@ spec:
                               name of this flavor. The name should match the .metadata.name of a
                               ResourceFlavor. If a matching ResourceFlavor does not exist, the
                               ClusterQueue will have an Active condition set to False.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
                           resources:
                             description: |-
@@ -402,6 +411,10 @@ spec:
                   - coveredResources
                   - flavors
                   type: object
+                  x-kubernetes-validations:
+                  - message: flavors must have the same number of resources as the
+                      coveredResources
+                    rule: self.flavors.all(x, size(x.resources) == size(self.coveredResources))
                 maxItems: 16
                 type: array
                 x-kubernetes-list-type: atomic
@@ -424,6 +437,12 @@ spec:
                 - HoldAndDrain
                 type: string
             type: object
+            x-kubernetes-validations:
+            - message: resourceGroups[0].flavors[0].resources[0].borrowingLimit must
+                be nil when cohort is empty
+              rule: '(!has(self.cohort) || size(self.cohort) == 0) && has(self.resourceGroups)
+                ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r,
+                !has(r.borrowingLimit)))) : true'
           status:
             description: ClusterQueueStatus defines the observed state of ClusterQueue
             properties:
@@ -516,6 +535,8 @@ spec:
                   properties:
                     name:
                       description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
                     resources:
                       description: resources lists the quota usage for the resources
@@ -568,6 +589,8 @@ spec:
                   properties:
                     name:
                       description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
                     resources:
                       description: resources lists the quota usage for the resources

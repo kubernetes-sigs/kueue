@@ -116,31 +116,15 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	path := field.NewPath("spec")
 
 	var allErrs field.ErrorList
-	if len(cq.Spec.Cohort) != 0 {
-		allErrs = append(allErrs, validateNameReference(cq.Spec.Cohort, path.Child("cohort"))...)
-	}
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, cq.Spec.Cohort, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
-	if cq.Spec.Preemption != nil {
-		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
-	}
 	return allErrs
 }
 
 func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateClusterQueue(newObj)...)
-	return allErrs
-}
-
-func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	if preemption.ReclaimWithinCohort == kueue.PreemptionPolicyNever &&
-		preemption.BorrowWithinCohort != nil &&
-		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
-		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
-	}
 	return allErrs
 }
 
@@ -174,10 +158,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cohort string,
 }
 
 func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, cohort string, path *field.Path) field.ErrorList {
-	allErrs := validateNameReference(string(flavorQuotas.Name), path.Child("name"))
-	if len(flavorQuotas.Resources) != len(coveredResources) {
-		allErrs = append(allErrs, field.Invalid(path.Child("resources"), field.OmitValueType{}, "must have the same number of resources as the coveredResources"))
-	}
+	var allErrs field.ErrorList
 
 	for i, rq := range flavorQuotas.Resources {
 		if i >= len(coveredResources) {
@@ -191,7 +172,6 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 		if rq.BorrowingLimit != nil {
 			borrowingLimitPath := path.Child("borrowingLimit")
 			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, borrowingLimitPath)...)
-			allErrs = append(allErrs, validateLimit(*rq.BorrowingLimit, cohort, borrowingLimitPath)...)
 		}
 		if features.Enabled(features.LendingLimit) && rq.LendingLimit != nil {
 			lendingLimitPath := path.Child("lendingLimit")
