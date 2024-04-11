@@ -173,8 +173,8 @@ spec:
                     !has(x.value) : true)'
                 - message: 'supported taint effect values: ''NoSchedule'', ''PreferNoSchedule'',
                     ''NoExecute'''
-                  rule: 'self.all(x, has(x.effect) ? x.effect in [''NoSchedule'',
-                    ''PreferNoSchedule'', ''NoExecute''] : true)'
+                  rule: self.all(x, !has(x.effect) || x.effect in ['NoSchedule', 'PreferNoSchedule',
+                    'NoExecute'])
             type: object
         type: object
     served: true

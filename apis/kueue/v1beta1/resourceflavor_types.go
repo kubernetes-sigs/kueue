@@ -83,7 +83,7 @@ type ResourceFlavorSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self.all(x, has(x.tolerationSeconds) ? x.effect == 'NoExecute' : true)", message="effect must be 'NoExecute' when 'tolerationSeconds' is set"
 	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.operator) || x.operator in ['Equal', 'Exists'])", message="supported toleration values: 'Equal'(default), 'Exists'"
 	// +kubebuilder:validation:XValidation:rule="self.all(x, has(x.operator) && x.operator == 'Exists' ? !has(x.value) : true)", message="a value must be empty when 'operator' is 'Exists'"
-	// +kubebuilder:validation:XValidation:rule="self.all(x, has(x.effect) ? x.effect in ['NoSchedule', 'PreferNoSchedule', 'NoExecute'] : true)", message="supported taint effect values: 'NoSchedule', 'PreferNoSchedule', 'NoExecute'"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.effect) || x.effect in ['NoSchedule', 'PreferNoSchedule', 'NoExecute'])", message="supported taint effect values: 'NoSchedule', 'PreferNoSchedule', 'NoExecute'"
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
