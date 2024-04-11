@@ -901,13 +901,13 @@ func (p *Pod) ensureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 }
 
 func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, error) {
-	jobLabels := p.Object().GetLabels()
 	if len(labelKeysToCopy) == 0 {
 		return nil, nil
 	}
+	podLabels := p.Object().GetLabels()
 	workloadLabels := make(map[string]string, len(labelKeysToCopy))
 	for _, labelKey := range labelKeysToCopy {
-		if labelValue, found := jobLabels[labelKey]; found {
+		if labelValue, found := podLabels[labelKey]; found {
 			workloadLabels[labelKey] = labelValue
 		}
 	}

@@ -2,7 +2,7 @@ title: Copy labels into workload
 kep-number: 1834
 authors:
   - "@pajakd"
-status: draft
+status: implementable
 creation-date: 2024-04-08
 reviewers:
   - "@alculquicondor"

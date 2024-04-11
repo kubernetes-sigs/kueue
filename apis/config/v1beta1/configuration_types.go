@@ -308,7 +308,9 @@ type Integrations struct {
 	// constructed workload object will be created without this label. In the case
 	// of creating a workload from a composable job (pod group), if multiple objects
 	// have labels with some key form  the  list, the values of these labels must
-	// agree or otherwise the workload creation would fail.
+	// agree or otherwise the workload creation would fail. The labels are copied only
+	// during the workload creation and are not updated even if the labels of the
+	// underlying job are changed.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 

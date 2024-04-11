@@ -6,7 +6,7 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [Risks and Mitigations](#risks-and-mitigations)
+  - [Risks and Mitigations](#risks-and-mitigations)+
 - [Design Details](#design-details)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -43,7 +43,7 @@ We will not require for all the labels with keys from `labelKeysToCopy` to be pr
 
 A case that requires more attention is creating workloads from pod groups because in that case a single workload is based on multiple pods (each of which might have labels). We propose:
  * When a label from the `labelKeysToCopy` list will be present at some of the pods from the group and the value of this label on all these pods will be identical then this label will be copied into the workload. Note that we do not require that all the pods have the label but all that do have must have the same value.
- * When multiple pods from the group will have the label with different values, we will raise an exception.
+ * When multiple pods from the group will have the label with different values, we will raise an exception. The exception will be raised during the workload creation.
 
 
 ### Risks and Mitigations
@@ -52,8 +52,24 @@ None.
 
 ## Design Details
 
-We believe that the KEP is rather straightforward and the [Proposal](#proposal) section contains sufficient details of the implementation.
 
+The proposal contains a single modification to the API. We propose to add a new field `LabelKeysToCopy` to `Integrations` struct in the `Configuration` API. 
+``` go
+type Integrations struct {
+    ...
+	// A list of label keys that should be copied from the job into the workload
+	// object. We don't require the job to have all the labels from this list. If
+	// a job does not have some label with the given key from this list, the
+	// constructed workload object will be created without this label. In the case
+	// of creating a workload from a composable job (pod group), if multiple objects
+	// have labels with some key form  the  list, the values of these labels must
+	// agree or otherwise the workload creation would fail. The labels are copied only
+	// during the workload creation and are not updated even if the labels of the
+	// underlying job are changed.
+	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
+    ...
+}
+```
 ### Test Plan
 
 <!--
@@ -96,6 +112,7 @@ The idea is to enhance the existing integrations tests to check if workload obje
 
 With this KEP some workload objects that previously succeeded could fail to be created if such workload is based on a pod group with mismatched labels  (i.e., pods in the same pod group having different label values for some label key that should be copied). This will only happen if a user explicitly configures this label key to be copied.
 
+This proposal introduces the label copying only during the workload creation. If a user modifies labels on a running job, the modification will not be reflected on the workload object, which might be confusing.
 
 ## Alternatives
 
