@@ -85,60 +85,6 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		})
 	})
 
-	ginkgo.When("Creating a ResourceFlavor with invalid values", func() {
-		ginkgo.It("Should fail to create with invalid taints", func() {
-			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").
-				Taint(corev1.Taint{
-					Key: "skdajf",
-				}).
-				Taint(corev1.Taint{
-					Key:    "@foo",
-					Value:  "bar",
-					Effect: corev1.TaintEffectNoSchedule,
-				}).Obj()
-			err := k8sClient.Create(ctx, resourceFlavor)
-			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError))
-		})
-		ginkgo.It("Should fail to create with invalid label name", func() {
-			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Label("@abc", "foo").Obj()
-			err := k8sClient.Create(ctx, resourceFlavor)
-			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(errors.IsForbidden(err)).To(gomega.BeTrue(), "error: %v", err)
-		})
-		ginkgo.It("Should fail to create with invalid tolerations", func() {
-			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").
-				Toleration(corev1.Toleration{
-					Key:      "@abc",
-					Operator: corev1.TolerationOpEqual,
-					Value:    "v",
-					Effect:   corev1.TaintEffectNoSchedule,
-				}).
-				Toleration(corev1.Toleration{
-					Key:      "abc",
-					Operator: corev1.TolerationOpExists,
-					Value:    "v",
-					Effect:   corev1.TaintEffectNoSchedule,
-				}).
-				Toleration(corev1.Toleration{
-					Key:      "abc",
-					Operator: corev1.TolerationOpEqual,
-					Value:    "v",
-					Effect:   corev1.TaintEffect("not-valid"),
-				}).
-				Toleration(corev1.Toleration{
-					Key:      "abc",
-					Operator: corev1.TolerationOpEqual,
-					Value:    "v",
-					Effect:   corev1.TaintEffectNoSchedule,
-				}).
-				Obj()
-			err := k8sClient.Create(ctx, resourceFlavor)
-			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError))
-		})
-	})
-
 	ginkgo.DescribeTable("invalid number of properties", func(taintsCount int, nodeSelectorCount int, isInvalid bool) {
 		rf := testing.MakeResourceFlavor("resource-flavor")
 		for i := 0; i < taintsCount; i++ {
@@ -198,4 +144,66 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError))
 		})
 	})
+
+	ginkgo.DescribeTable("Validate resourceFlavor on creation", func(rf *kueue.ResourceFlavor, errorType int) {
+		err := k8sClient.Create(ctx, rf)
+		if err == nil {
+			defer func() {
+				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf, true)
+			}()
+		}
+		switch errorType {
+		case isForbidden:
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(testing.BeAPIError(testing.ForbiddenError), "error: %v", err)
+		case isInvalid:
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError), "error: %v", err)
+		default:
+			gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+		}
+	},
+		ginkgo.Entry("Should fail to create with invalid taints",
+			testing.MakeResourceFlavor("resource-flavor").
+				Taint(corev1.Taint{
+					Key: "skdajf",
+				}).
+				Taint(corev1.Taint{
+					Key:    "@foo",
+					Value:  "bar",
+					Effect: corev1.TaintEffectNoSchedule,
+				}).Obj(),
+			isInvalid),
+		ginkgo.Entry("Should fail to create with invalid label name",
+			testing.MakeResourceFlavor("resource-flavor").Label("@abc", "foo").Obj(),
+			isForbidden),
+		ginkgo.Entry("Should fail to create with invalid tolerations",
+			testing.MakeResourceFlavor("resource-flavor").
+				Toleration(corev1.Toleration{
+					Key:      "@abc",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Toleration(corev1.Toleration{
+					Key:      "abc",
+					Operator: corev1.TolerationOpExists,
+					Value:    "v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Toleration(corev1.Toleration{
+					Key:      "abc",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "v",
+					Effect:   corev1.TaintEffect("not-valid"),
+				}).
+				Toleration(corev1.Toleration{
+					Key:      "abc",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Obj(),
+			isInvalid),
+	)
 })
