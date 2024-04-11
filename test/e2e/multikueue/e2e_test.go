@@ -348,6 +348,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				cmd := exec.Command("docker", "network", "disconnect", "kind", "kind-worker1-control-plane")
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+
+				// Recreate the client to force disconnect
+				k8sWorker1Client = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
 			})
 
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
