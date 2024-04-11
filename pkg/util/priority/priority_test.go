@@ -135,7 +135,6 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 	}
 
 	for desc, tt := range tests {
-		tt := tt
 		t.Run(desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -200,7 +199,6 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 	}
 
 	for desc, tt := range tests {
-		tt := tt
 		t.Run(desc, func(t *testing.T) {
 			t.Parallel()
 
