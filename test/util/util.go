@@ -448,6 +448,15 @@ func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	}, Timeout, Interval).Should(gomega.Equal(v))
 }
 
+func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
+	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name)
+	gomega.EventuallyWithOffset(1, func() int {
+		v, err := testutil.GetCounterMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return int(v)
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
 func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.ClusterQueueStatus) {
 	for i, s := range metrics.CQStatuses {
 		var wantV float64
