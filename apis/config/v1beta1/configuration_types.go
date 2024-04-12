@@ -302,9 +302,9 @@ type Integrations struct {
 	// PodOptions defines kueue controller behaviour for pod objects
 	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
 
-	// A list of label keys that should be copied from the job into the workload
-	// object. It is not required for the job to have all the labels from this list. If
-	// a job does not have some label with the given key from this list, the
+	// labelKeysToCopy is a list of label keys that should be copied from the job into the
+	// workload object. It is not required for the job to have all the labels from this
+	// list. If a job does not have some label with the given key from this list, the
 	// constructed workload object will be created without this label. In the case
 	// of creating a workload from a composable job (pod group), if multiple objects
 	// have labels with some key from the list, the values of these labels must

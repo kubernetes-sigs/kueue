@@ -57,13 +57,13 @@ The proposal contains a single modification to the API. We propose to add a new 
 ``` go
 type Integrations struct {
     ...
-	// A list of label keys that should be copied from the job into the workload
-	// object. We don't require the job to have all the labels from this list. If
-	// a job does not have some label with the given key from this list, the
+	// labelKeysToCopy is a list of label keys that should be copied from the job into the 
+	// workload object. It is not required for the job to have all the labels from this 
+	// list. If a job does not have some label with the given key from this list, the
 	// constructed workload object will be created without this label. In the case
 	// of creating a workload from a composable job (pod group), if multiple objects
-	// have labels with some key form  the  list, the values of these labels must
-	// agree or otherwise the workload creation would fail. The labels are copied only
+	// have labels with some key from the list, the values of these labels must
+	// match or otherwise the workload creation would fail. The labels are copied only
 	// during the workload creation and are not updated even if the labels of the
 	// underlying job are changed.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`

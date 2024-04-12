@@ -483,7 +483,6 @@ func TestReconciler(t *testing.T) {
 						"toCopyKey":                  "toCopyValue"}).
 					Obj(),
 			},
-
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},

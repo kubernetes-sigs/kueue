@@ -94,3 +94,17 @@ func Keys[K comparable, V any, M ~map[K]V](m M) []K {
 	}
 	return ret
 }
+
+// Filter returns a sub-map containing only keys from the given list
+func FilterKeys[K comparable, V any, M ~map[K]V](m M, k []K) M {
+	if m == nil || len(k) == 0 {
+		return nil
+	}
+	ret := make(M, len(k))
+	for _, key := range k {
+		if v, found := m[key]; found {
+			ret[key] = v
+		}
+	}
+	return ret
+}

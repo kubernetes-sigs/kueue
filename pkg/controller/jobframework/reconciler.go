@@ -794,20 +794,6 @@ func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
 	return nil
 }
 
-func (r *JobReconciler) getWorkloadLabels(job GenericJob) map[string]string {
-	if len(r.labelKeysToCopy) == 0 {
-		return map[string]string{}
-	}
-	jobLabels := job.Object().GetLabels()
-	workloadLabels := make(map[string]string, len(r.labelKeysToCopy))
-	for _, labelKey := range r.labelKeysToCopy {
-		if labelValue, found := jobLabels[labelKey]; found {
-			workloadLabels[labelKey] = labelValue
-		}
-	}
-	return workloadLabels
-}
-
 // constructWorkload will derive a workload from the corresponding job.
 func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -826,7 +812,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()),
 			Namespace:   object.GetNamespace(),
-			Labels:      r.getWorkloadLabels(job),
+			Labels:      maps.FilterKeys(job.Object().GetLabels(), r.labelKeysToCopy),
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
 			Annotations: admissioncheck.FilterProvReqAnnotations(job.Object().GetAnnotations()),
 		},
@@ -835,7 +821,9 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 			QueueName: QueueName(job),
 		},
 	}
-
+	if wl.Labels == nil {
+		wl.Labels = make(map[string]string)
+	}
 	jobUid := string(job.Object().GetUID())
 	if errs := validation.IsValidLabelValue(jobUid); len(errs) == 0 {
 		wl.Labels[controllerconsts.JobUIDLabel] = jobUid

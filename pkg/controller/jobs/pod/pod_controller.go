@@ -904,16 +904,10 @@ func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, er
 	if len(labelKeysToCopy) == 0 {
 		return nil, nil
 	}
-	podLabels := p.Object().GetLabels()
-	workloadLabels := make(map[string]string, len(labelKeysToCopy))
 	if !p.isGroup {
-		for _, labelKey := range labelKeysToCopy {
-			if labelValue, found := podLabels[labelKey]; found {
-				workloadLabels[labelKey] = labelValue
-			}
-		}
-		return workloadLabels, nil
+		return maps.FilterKeys(p.Object().GetLabels(), labelKeysToCopy), nil
 	}
+	workloadLabels := make(map[string]string, len(labelKeysToCopy))
 	for _, pod := range p.list.Items {
 		for _, labelKey := range labelKeysToCopy {
 			labelValuePod, foundInPod := pod.Labels[labelKey]
