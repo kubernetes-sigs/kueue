@@ -569,6 +569,8 @@ func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
 }
 
 func (m *Manager) ClusterQueueFromLocalQueue(lqName string) (string, error) {
+	m.RLock()
+	defer m.RUnlock()
 	if lq, ok := m.localQueues[lqName]; ok {
 		return lq.ClusterQueue, nil
 	}
