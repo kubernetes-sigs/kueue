@@ -77,6 +77,7 @@ type ClusterQueueSpec struct {
 
 	// flavorFungibility defines whether a workload should try the next flavor
 	// before borrowing or preempting in the flavor being evaluated.
+	// +kubebuilder:default={}
 	FlavorFungibility *FlavorFungibility `json:"flavorFungibility,omitempty"`
 
 	// preemption describes policies to preempt Workloads from this ClusterQueue
@@ -94,6 +95,7 @@ type ClusterQueueSpec struct {
 	// The preemption algorithm tries to find a minimal set of Workloads to
 	// preempt to accomomdate the pending Workload, preempting Workloads with
 	// lower priority first.
+	// +kubebuilder:default={}
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
 	// admissionChecks lists the AdmissionChecks required by this ClusterQueue
@@ -388,6 +390,7 @@ type ClusterQueuePreemption struct {
 
 	// borrowWithinCohort provides configuration to allow preemption within
 	// cohort while borrowing.
+	// +kubebuilder:default={}
 	BorrowWithinCohort *BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
 
 	// withinClusterQueue determines whether a pending Workload that doesn't fit
