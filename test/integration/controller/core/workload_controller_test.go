@@ -18,7 +18,6 @@ package core
 
 import (
 	"fmt"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -26,7 +25,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -320,6 +318,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Message: "The workload is admitted",
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 			})
 
 			ginkgo.By("setting a rejected check conditions the workload should be evicted and admitted condition kept", func() {
