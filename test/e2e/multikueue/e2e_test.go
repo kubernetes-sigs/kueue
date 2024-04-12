@@ -17,7 +17,9 @@ limitations under the License.
 package mke2e
 
 import (
+	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -28,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -344,16 +347,18 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
+			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
+			podsListOptions := client.InNamespace("kueue-system")
+			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
+
 			ginkgo.By("Disconnecting worker1 container from the kind network", func() {
-				cmd := exec.Command("docker", "network", "disconnect", "kind", "kind-worker1-control-plane")
+				cmd := exec.Command("docker", "network", "disconnect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-
-				// Recreate the client to force disconnect
-				k8sWorker1Client = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.List(ctx, &corev1.PodList{}, podsListOptions)).NotTo(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
-
-			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
 
 			ginkgo.By("Waiting for the cluster do become inactive", func() {
 				readClient := &kueuealpha.MultiKueueCluster{}
@@ -370,12 +375,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Reconnecting worker1 container to the kind network", func() {
-				cmd := exec.Command("docker", "network", "connect", "kind", "kind-worker1-control-plane")
+				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-
-				// Recreate the client after connect
-				k8sWorker1Client = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.List(ctx, &corev1.PodList{}, podsListOptions)).To(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				time.Sleep(util.LongTimeout)
 			})
 
 			ginkgo.By("Waiting for the cluster do become active", func() {
