@@ -90,9 +90,11 @@ function kueue_deploy {
 function prepare_secrets {
     kubectl config use-context kind-${WORKER1_KIND_CLUSTER_NAME}
     source ${SOURCE_DIR}/create-multikueue-kubeconfig.sh ${ARTIFACTS}/worker1.kubeconfig
+    sed -i -E "s/server: .+/server: https:\/\/${WORKER1_KIND_CLUSTER_NAME}-control-plane:6443" ${ARTIFACTS}/worker1.kubeconfig
 
     kubectl config use-context kind-${WORKER2_KIND_CLUSTER_NAME}
     source ${SOURCE_DIR}/create-multikueue-kubeconfig.sh ${ARTIFACTS}/worker2.kubeconfig
+    sed -i -E "s/server: .+/server: https:\/\/${WORKER2_KIND_CLUSTER_NAME}-control-plane:6443" ${ARTIFACTS}/worker2.kubeconfig
 
     kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
     kubectl create secret generic multikueue1 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker1.kubeconfig

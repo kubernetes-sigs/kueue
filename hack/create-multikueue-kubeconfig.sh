@@ -126,6 +126,7 @@ CA_CERT=$(kubectl get -n ${NAMESPACE} secrets/${SA_SECRET_NAME} -o "jsonpath={.d
 # Extract cluster IP from the current context
 CURRENT_CONTEXT=$(kubectl config current-context)
 CURRENT_CLUSTER=$(kubectl config view -o jsonpath="{.contexts[?(@.name == \"${CURRENT_CONTEXT}\"})].context.cluster}")
+CURRENT_CLUSTER_ADDR=$(kubectl config view -o jsonpath="{.clusters[?(@.name == \"${CURRENT_CLUSTER}\"})].cluster.server}")
 
 echo "Writing kubeconfig in ${KUBECONFIG_OUT}"
 cat > ${KUBECONFIG_OUT} <<EOF
@@ -133,7 +134,7 @@ apiVersion: v1
 clusters:
 - cluster:
     certificate-authority-data: ${CA_CERT}
-    server: https://${CURRENT_CLUSTER/#kind-}-control-plane:6443
+    server: ${CURRENT_CLUSTER_ADDR}
   name: ${CURRENT_CLUSTER}
 contexts:
 - context:
