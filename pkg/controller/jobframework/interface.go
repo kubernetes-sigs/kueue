@@ -104,7 +104,7 @@ type ComposableJob interface {
 	// counts extracting from workload to all members of the ComposableJob.
 	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r record.EventRecorder, msg string) error
 	// ConstructComposableWorkload returns a new Workload that's assembled out of all members of the ComposableJob.
-	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error)
+	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error)
 	// ListChildWorkloads returns all workloads related to the composable job
 	ListChildWorkloads(ctx context.Context, c client.Client, parent types.NamespacedName) (*kueue.WorkloadList, error)
 	// FindMatchingWorkloads returns all related workloads, workload that matches the ComposableJob and duplicates that has to be deleted.

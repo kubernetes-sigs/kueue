@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -78,6 +79,7 @@ var (
 	errIncorrectReconcileRequest = fmt.Errorf("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
 	errPodNoSupportKubeVersion   = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
+	errPodGroupLabelsMismatch    = errors.New("constructing workload: pods have different label values")
 )
 
 func init() {
@@ -898,7 +900,30 @@ func (p *Pod) ensureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 	return nil
 }
 
-func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error) {
+func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, error) {
+	if len(labelKeysToCopy) == 0 {
+		return nil, nil
+	}
+	if !p.isGroup {
+		return maps.FilterKeys(p.Object().GetLabels(), labelKeysToCopy), nil
+	}
+	workloadLabels := make(map[string]string, len(labelKeysToCopy))
+	for _, pod := range p.list.Items {
+		for _, labelKey := range labelKeysToCopy {
+			labelValuePod, foundInPod := pod.Labels[labelKey]
+			labelValueWorkload, foundInWorkload := workloadLabels[labelKey]
+			if foundInPod && foundInWorkload && (labelValuePod != labelValueWorkload) {
+				return nil, errPodGroupLabelsMismatch
+			}
+			if foundInPod {
+				workloadLabels[labelKey] = labelValuePod
+			}
+		}
+	}
+	return workloadLabels, nil
+}
+
+func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error) {
 	object := p.Object()
 	log := ctrl.LoggerFrom(ctx)
 
@@ -934,7 +959,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		if err := controllerutil.SetControllerReference(object, wl, c.Scheme()); err != nil {
 			return nil, err
 		}
-
+		labelsToCopy, err := p.getWorkloadLabels(labelKeysToCopy)
+		if err != nil {
+			return nil, err
+		}
+		wl.Labels = maps.MergeKeepFirst(wl.Labels, labelsToCopy)
 		return wl, nil
 	}
 
@@ -988,7 +1017,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 			return nil, err
 		}
 	}
-
+	labelsToCopy, err := p.getWorkloadLabels(labelKeysToCopy)
+	if err != nil {
+		return nil, err
+	}
+	wl.Labels = maps.MergeKeepFirst(wl.Labels, labelsToCopy)
 	return wl, nil
 }
 

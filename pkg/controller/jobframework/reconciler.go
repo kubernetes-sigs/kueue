@@ -66,6 +66,7 @@ type JobReconciler struct {
 	record                     record.EventRecorder
 	manageJobsWithoutQueueName bool
 	waitForPodsReady           bool
+	labelKeysToCopy            []string
 }
 
 type Options struct {
@@ -76,6 +77,7 @@ type Options struct {
 	IntegrationOptions map[string]any
 	EnabledFrameworks  sets.Set[string]
 	ManagerName        string
+	LabelKeysToCopy    []string
 }
 
 // Option configures the reconciler.
@@ -140,6 +142,13 @@ func WithManagerName(n string) Option {
 	}
 }
 
+// WithLabelKeysToCopy
+func WithLabelKeysToCopy(n []string) Option {
+	return func(o *Options) {
+		o.LabelKeysToCopy = n
+	}
+}
+
 var defaultOptions = Options{}
 
 func NewReconciler(
@@ -153,6 +162,7 @@ func NewReconciler(
 		record:                     record,
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 		waitForPodsReady:           options.WaitForPodsReady,
+		labelKeysToCopy:            options.LabelKeysToCopy,
 	}
 }
 
@@ -789,11 +799,10 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 	log := ctrl.LoggerFrom(ctx)
 
 	if cj, implements := job.(ComposableJob); implements {
-		wl, err := cj.ConstructComposableWorkload(ctx, r.client, r.record)
+		wl, err := cj.ConstructComposableWorkload(ctx, r.client, r.record, r.labelKeysToCopy)
 		if err != nil {
 			return nil, err
 		}
-
 		return wl, nil
 	}
 
@@ -803,7 +812,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK()),
 			Namespace:   object.GetNamespace(),
-			Labels:      map[string]string{},
+			Labels:      maps.FilterKeys(job.Object().GetLabels(), r.labelKeysToCopy),
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
 			Annotations: admissioncheck.FilterProvReqAnnotations(job.Object().GetAnnotations()),
 		},
@@ -812,7 +821,9 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 			QueueName: QueueName(job),
 		},
 	}
-
+	if wl.Labels == nil {
+		wl.Labels = make(map[string]string)
+	}
 	jobUid := string(job.Object().GetUID())
 	if errs := validation.IsValidLabelValue(jobUid); len(errs) == 0 {
 		wl.Labels[controllerconsts.JobUIDLabel] = jobUid
