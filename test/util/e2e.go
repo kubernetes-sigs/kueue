@@ -73,25 +73,34 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 		Namespace: "kueue-system",
 		Name:      "kueue-controller-manager",
 	}
+
 	deployment := &appsv1.Deployment{}
-	pods := corev1.PodList{}
+	pods := &corev1.PodList{}
+
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) error {
 		g.Expect(k8sClient.Get(ctx, kcmKey, deployment)).To(gomega.Succeed())
-		g.Expect(k8sClient.List(ctx, &pods, client.InNamespace("kueue-system"), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
-		for _, pod := range pods.Items {
-			for _, cs := range pod.Status.ContainerStatuses {
-				if cs.RestartCount > 0 {
-					return gomega.StopTrying(fmt.Sprintf("%q in %q has restarted %d times", cs.Name, pod.Name, cs.RestartCount))
-				}
-			}
-		}
 		g.Expect(deployment.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
 			appsv1.DeploymentCondition{
 				Type:   appsv1.DeploymentAvailable,
 				Status: corev1.ConditionTrue,
 			},
 			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime"))))
-		return nil
 
+		g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kueue-system"), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+		g.Expect(deployment.Spec.Replicas).ShouldNot(gomega.BeNil())
+		g.Expect(pods.Items).Should(gomega.HaveLen(int(*deployment.Spec.Replicas)))
+
+		for _, pod := range pods.Items {
+			g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
+			for _, c := range pod.Status.Conditions {
+				g.Expect(c.Status).Should(gomega.Equal(corev1.ConditionTrue))
+			}
+			for _, cs := range pod.Status.ContainerStatuses {
+				g.Expect(cs.Started).ShouldNot(gomega.BeNil())
+				g.Expect(*cs.Started).Should(gomega.BeTrue())
+			}
+		}
+
+		return nil
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
 }

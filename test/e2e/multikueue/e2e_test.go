@@ -19,7 +19,6 @@ package mke2e
 import (
 	"fmt"
 	"os/exec"
-	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -348,7 +347,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
-			podsListOptions := client.InNamespace("kueue-system")
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
 
 			ginkgo.By("Disconnecting worker1 container from the kind network", func() {
@@ -356,7 +354,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sWorker1Client.List(ctx, &corev1.PodList{}, podsListOptions)).NotTo(gomega.Succeed())
+					g.Expect(k8sWorker1Client.List(ctx, &corev1.PodList{}, client.InNamespace("kueue-system"))).NotTo(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -378,10 +376,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sWorker1Client.List(ctx, &corev1.PodList{}, podsListOptions)).To(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-				time.Sleep(util.LongTimeout)
+				util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 			})
 
 			ginkgo.By("Waiting for the cluster do become active", func() {
