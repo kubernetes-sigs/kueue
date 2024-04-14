@@ -79,6 +79,7 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) error {
 		g.Expect(k8sClient.Get(ctx, kcmKey, deployment)).To(gomega.Succeed())
+		g.Expect(deployment.Spec.Replicas).ShouldNot(gomega.BeNil())
 		g.Expect(deployment.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
 			appsv1.DeploymentCondition{
 				Type:   appsv1.DeploymentAvailable,
@@ -87,7 +88,6 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime"))))
 
 		g.Expect(k8sClient.List(ctx, pods, client.InNamespace("kueue-system"), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
-		g.Expect(deployment.Spec.Replicas).ShouldNot(gomega.BeNil())
 		g.Expect(pods.Items).Should(gomega.HaveLen(int(*deployment.Spec.Replicas)))
 
 		for _, pod := range pods.Items {

@@ -18,8 +18,6 @@ package mke2e
 
 import (
 	"fmt"
-	"os/exec"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -29,9 +27,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-
+	"os/exec"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	"time"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -353,8 +352,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				cmd := exec.Command("docker", "network", "disconnect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+
+				podList := &corev1.PodList{}
+				podListOptions := client.InNamespace("kueue-system")
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sWorker1Client.List(ctx, &corev1.PodList{}, client.InNamespace("kueue-system"))).NotTo(gomega.Succeed())
+					g.Expect(k8sWorker1Client.List(ctx, podList, podListOptions)).NotTo(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -376,6 +378,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+
+				// Need to take some time to recover cluster
+				time.Sleep(util.LongTimeout)
 				util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 			})
 
