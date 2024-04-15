@@ -100,7 +100,7 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	if len(sameQueueCandidates) == len(candidates) {
 		// There is no possible preemption of workloads from other queues,
 		// so we'll try borrowing.
-		return minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, candidates, true, nil)
+		return minimalPreemptions(wlReq, cq, snapshot, resPerFlv, candidates, true, nil)
 	}
 
 	// There is a potential of preemption of workloads from the other queue in the
@@ -114,20 +114,20 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 		if borrowWithinCohort.MaxPriorityThreshold != nil && *borrowWithinCohort.MaxPriorityThreshold < *allowBorrowingBelowPriority {
 			allowBorrowingBelowPriority = ptr.To(*borrowWithinCohort.MaxPriorityThreshold + 1)
 		}
-		return minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, candidates, true, allowBorrowingBelowPriority)
+		return minimalPreemptions(wlReq, cq, snapshot, resPerFlv, candidates, true, allowBorrowingBelowPriority)
 	}
 
 	// Only try preemptions in the cohort, without borrowing, if the target clusterqueue is still
 	// under nominal quota for all resources.
 	if queueUnderNominalInAllRequestedResources(wlReq, cq) {
-		if targets := minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, candidates, false, nil); len(targets) > 0 {
+		if targets := minimalPreemptions(wlReq, cq, snapshot, resPerFlv, candidates, false, nil); len(targets) > 0 {
 			return targets
 		}
 	}
 
 	// Final attempt. This time only candidates from the same queue, but
 	// with borrowing.
-	return minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, sameQueueCandidates, true, nil)
+	return minimalPreemptions(wlReq, cq, snapshot, resPerFlv, sameQueueCandidates, true, nil)
 }
 
 // IssuePreemptions marks the target workloads as evicted.
@@ -180,7 +180,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-func minimalPreemptions(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
+func minimalPreemptions(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
 	// Simulate removing all candidates from the ClusterQueue and cohort.
 	var targets []*workload.Info
 	fits := false
