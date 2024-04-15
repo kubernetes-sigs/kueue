@@ -117,9 +117,9 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 		return minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, candidates, true, allowBorrowingBelowPriority)
 	}
 
-	// If the target queue is exhausted in any requested resource, then we skip
-	// the attempt of preemptions in the cohort, but without borrowing.
-	if !isQueueExhaustedInAnyRequestedResource(wlReq, cq) {
+	// Only try preemptions in the cohort, without borrowing, if the target clusterqueue is still
+	// under nominal quota for all resources.
+	if queueUnderNominalInAllRequestedResources(wlReq, cq) {
 		if targets := minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, candidates, false, nil); len(targets) > 0 {
 			return targets
 		}
@@ -396,8 +396,7 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 	return true
 }
 
-// is queue exhausted for any requested resource
-func isQueueExhaustedInAnyRequestedResource(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue) bool {
+func queueUnderNominalInAllRequestedResources(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue) bool {
 	for _, rg := range cq.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
 			flvReq, found := wlReq[flvQuotas.Name]
@@ -408,12 +407,12 @@ func isQueueExhaustedInAnyRequestedResource(wlReq cache.FlavorResourceQuantities
 			cqResUsage := cq.Usage[flvQuotas.Name]
 			for rName := range flvReq {
 				if cqResUsage[rName] >= flvQuotas.Resources[rName].Nominal {
-					return true
+					return false
 				}
 			}
 		}
 	}
-	return false
+	return true
 }
 
 // candidatesOrdering criteria:
