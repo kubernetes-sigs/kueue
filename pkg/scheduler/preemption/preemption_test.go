@@ -1136,7 +1136,7 @@ func TestPreemption(t *testing.T) {
 			}),
 			wantPreempted: sets.New("/a1", "/a2"),
 		},
-		"minimal preemptions when target queue is exhausted for two requested resources": {
+		"preemptions from cq when target queue is exhausted for two requested resources": {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("a1", "").
 					Priority(-2).
