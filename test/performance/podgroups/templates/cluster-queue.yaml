@@ -19,8 +19,8 @@ spec:
   resourceGroups:
     - coveredResources: ["pods"]
       flavors:
-        - name: "default"
+        - name: "pod-performance-resource-flavor"
           resources:
             - name: "pods"
-              nominalQuota: {{ (DivideInt .PodsAdmitted .NumQueues) }}
-              borrowingLimit: {{ (MultiplyInt .BorrowRatio (DivideInt .PodsAdmitted .NumQueues)) }}
+              nominalQuota: {{ (DivideInt .PodsTotalQuota .NumQueues) }}
+              borrowingLimit: {{ (MultiplyInt .BorrowRatio (DivideInt .PodsTotalQuota .NumQueues)) }}

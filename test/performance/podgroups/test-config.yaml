@@ -1,14 +1,13 @@
-# There is a total capacity for 100 pods, divided equally between 10 queues.
-# Each queue has quota for 10 pods, and may borrow up to 5 pods quota from its
-# cohort based on the borrow ratio.
-{{ $PODS_ADMITTED := 100 }}
+# The quota for 100 pods is divided equally between 10 queues. Each queue has
+# quota for 10 pods, and may borrow up to 5 pods quota from its cohort based on
+# the borrow ratio.
+{{ $PODS_TOTAL_QUOTA := 100 }}
 {{ $QUEUES := 10 }}
 {{ $COHORTS := 2 }}
 {{ $BORROW_RATIO := 0.5 }}
 
-# As each workload has 12 pods, borrowing is required for admission, as each
-# queue only has a nominal quota for 10 pods
-{{ $PODS := 1200 }}
+# The pods are distributed evenly among the workloads; 10 pods per workload.
+{{ $PODS := 1000 }}
 {{ $WORKLOADS := 100 }}
 
 {{ $CLUSTER_QUEUE_BASENAME := "pod-performance-cluster-queue" }}
@@ -36,7 +35,7 @@ steps:
         NumCohorts: {{ $COHORTS }}
         NumQueues: {{ $QUEUES }}
         BorrowRatio: {{ $BORROW_RATIO }}
-        PodsAdmitted: {{ $PODS_ADMITTED }}
+        PodsTotalQuota: {{ $PODS_TOTAL_QUOTA }}
 - name: Create local queues
   phases:
   - namespaceRange:
