@@ -16,7 +16,7 @@ patch manifests.yaml manifest.diff
 kubectl apply --server-side -f manifests.yaml
 ```
 
-Install the `Clusterloader2`:
+Install `Clusterloader2`:
   * checkout https://github.com/kubernetes/perf-tests
   * change to `clusterloader2` directory
   * run `go build -o clusterloader './cmd/'`
