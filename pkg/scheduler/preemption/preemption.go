@@ -90,17 +90,17 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, time.Now()))
 
 	sameQueueCandidates := candidatesOnlyFromQueue(candidates, wl.ClusterQueue)
+	wlReq := totalRequestsForAssignment(&wl, assignment)
 
 	// To avoid flapping, Kueue only allows preemption of workloads from the same
 	// queue if borrowing. Preemption of workloads from queues can happen only
 	// if not borrowing at the same time. Kueue prioritizes preemption of
 	// workloads from the other queues (that borrowed resources) first, before
 	// trying to preempt more own workloads and borrow at the same time.
-
 	if len(sameQueueCandidates) == len(candidates) {
 		// There is no possible preemption of workloads from other queues,
 		// so we'll try borrowing.
-		return minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true, nil)
+		return minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, candidates, true, nil)
 	}
 
 	// There is a potential of preemption of workloads from the other queue in the
@@ -114,24 +114,20 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 		if borrowWithinCohort.MaxPriorityThreshold != nil && *borrowWithinCohort.MaxPriorityThreshold < *allowBorrowingBelowPriority {
 			allowBorrowingBelowPriority = ptr.To(*borrowWithinCohort.MaxPriorityThreshold + 1)
 		}
-		return minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true, allowBorrowingBelowPriority)
+		return minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, candidates, true, allowBorrowingBelowPriority)
 	}
 
-	// the target queue is exhausted in all requested flavors, so preempting
-	// workloads from other cluster queues in the cohort is no help. so we
-	// only preempt workloads from the target cluster queue.
-	if isQueueExhaustedForAllRequestedFlavors(&wl, assignment, cq) {
-		return minimalPreemptions(&wl, assignment, snapshot, resPerFlv, sameQueueCandidates, true, nil)
+	// If the target queue is exhausted in any requested resource, then we skip
+	// the attempt of preemptions in the cohort, but without borrowing.
+	if !isQueueExhaustedInAnyRequestedResource(wlReq, cq) {
+		if targets := minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, candidates, false, nil); len(targets) > 0 {
+			return targets
+		}
 	}
 
-	targets := minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, false, nil)
-	if len(targets) == 0 {
-		// Another attempt. This time only candidates from the same queue, but
-		// with borrowing. The previous attempt didn't try borrowing and had broader
-		// scope of preemption.
-		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, sameQueueCandidates, true, nil)
-	}
-	return targets
+	// Final attempt. This time only candidates from the same queue, but
+	// with borrowing.
+	return minimalPreemptions(wlReq, cq, assignment, snapshot, resPerFlv, sameQueueCandidates, true, nil)
 }
 
 // IssuePreemptions marks the target workloads as evicted.
@@ -184,10 +180,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
-	wlReq := totalRequestsForAssignment(wl, assignment)
-	cq := snapshot.ClusterQueues[wl.ClusterQueue]
-
+func minimalPreemptions(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
 	// Simulate removing all candidates from the ClusterQueue and cohort.
 	var targets []*workload.Info
 	fits := false
@@ -403,9 +396,8 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 	return true
 }
 
-// is queue exhausted for all requested flavors
-func isQueueExhaustedForAllRequestedFlavors(wl *workload.Info, assignment flavorassigner.Assignment, cq *cache.ClusterQueue) bool {
-	wlReq := totalRequestsForAssignment(wl, assignment)
+// is queue exhausted for any requested resource
+func isQueueExhaustedInAnyRequestedResource(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue) bool {
 	for _, rg := range cq.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
 			flvReq, found := wlReq[flvQuotas.Name]
@@ -415,8 +407,7 @@ func isQueueExhaustedForAllRequestedFlavors(wl *workload.Info, assignment flavor
 			}
 			cqResUsage := cq.Usage[flvQuotas.Name]
 			for rName := range flvReq {
-				resource := flvQuotas.Resources[rName]
-				if cqResUsage[rName] >= resource.Nominal {
+				if cqResUsage[rName] >= flvQuotas.Resources[rName].Nominal {
 					return true
 				}
 			}
