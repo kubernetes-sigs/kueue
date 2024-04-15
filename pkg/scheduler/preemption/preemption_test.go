@@ -1090,7 +1090,7 @@ func TestPreemption(t *testing.T) {
 			wantPreempted:      nil,
 			enableLendingLimit: true,
 		},
-		"minimal preemptions when target queue is exhausted for the single requested resource": {
+		"preemptions from cq when target queue is exhausted for the single requested resource": {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("a1", "").
 					Priority(-2).
