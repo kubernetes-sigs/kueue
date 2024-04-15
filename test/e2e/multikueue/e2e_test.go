@@ -30,8 +30,6 @@ import (
 	"os/exec"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
-	"time"
-
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
@@ -353,6 +351,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 
+				k8sWorker1Client = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
+
 				podList := &corev1.PodList{}
 				podListOptions := client.InNamespace("kueue-system")
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -379,9 +379,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 
-				// Need to take some time to recover cluster
-				time.Sleep(util.LongTimeout)
-				util.WaitForKueueAvailability(ctx, k8sWorker1Client)
+				k8sWorker1Client = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
+
+				util.WaitForKueueAvailability(ctx, k8sWorker1Client, true)
 			})
 
 			ginkgo.By("Waiting for the cluster do become active", func() {

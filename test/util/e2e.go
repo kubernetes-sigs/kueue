@@ -68,7 +68,7 @@ func CreateVisibilityClient(user string) visibilityv1alpha1.VisibilityV1alpha1In
 	return visibilityClient
 }
 
-func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
+func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client, ignoreRestarts bool) {
 	kcmKey := types.NamespacedName{
 		Namespace: "kueue-system",
 		Name:      "kueue-controller-manager",
@@ -96,6 +96,9 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 				g.Expect(c.Status).Should(gomega.Equal(corev1.ConditionTrue))
 			}
 			for _, cs := range pod.Status.ContainerStatuses {
+				if !ignoreRestarts && cs.RestartCount > 0 {
+					return gomega.StopTrying(fmt.Sprintf("%q in %q has restarted %d times", cs.Name, pod.Name, cs.RestartCount))
+				}
 				g.Expect(cs.Started).ShouldNot(gomega.BeNil())
 				g.Expect(*cs.Started).Should(gomega.BeTrue())
 			}

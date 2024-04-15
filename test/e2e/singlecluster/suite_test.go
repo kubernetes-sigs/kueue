@@ -57,6 +57,6 @@ var _ = ginkgo.BeforeSuite(func() {
 	ctx = context.Background()
 
 	waitForAvailableStart := time.Now()
-	util.WaitForKueueAvailability(ctx, k8sClient)
+	util.WaitForKueueAvailability(ctx, k8sClient, false)
 	ginkgo.GinkgoLogr.Info("Kueue is Available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
 })
