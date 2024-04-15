@@ -22,13 +22,15 @@ Use the following metrics to monitor the health of the kueue controllers:
 
 Use the following metrics to monitor the status of your ClusterQueues:
 
-| Metric name | Type | Description | Labels |
-| ----------- | ---- | ----------- | ------ |
-| `kueue_pending_workloads` | Gauge | The number of pending workloads. | `cluster_queue`: the name of the ClusterQueue<br> `status`: possible values are `active` or `inadmissible` |
-| `kueue_admitted_workloads_total` | Counter | The total number of admitted workloads. | `cluster_queue`: the name of the ClusterQueue |
-| `kueue_admission_wait_time_seconds` | Histogram | The time between a Workload was created until it was admitted. | `cluster_queue`: the name of the ClusterQueue |
+| Metric name | Type | Description                                                                    | Labels |
+| ----------- | ---- |--------------------------------------------------------------------------------| ------ |
+| `kueue_pending_workloads` | Gauge | The number of pending workloads.                                               | `cluster_queue`: the name of the ClusterQueue<br> `status`: possible values are `active` or `inadmissible` |
+| `kueue_quota_reserved_workloads_total` | Counter | The total number of quota reserved workloads.                               | `cluster_queue`: the name of the ClusterQueue |
+| `kueue_quota_reserved_wait_time_seconds` | Histogram | The time between a Workload had quota reserved until it was admitted.                 | `cluster_queue`: the name of the ClusterQueue |
+| `kueue_admitted_workloads_total` | Counter | The total number of admitted workloads.                                        | `cluster_queue`: the name of the ClusterQueue |
+| `kueue_admission_wait_time_seconds` | Histogram | The time between a Workload was created until it was admitted.                 | `cluster_queue`: the name of the ClusterQueue |
 | `kueue_admitted_active_workloads` | Gauge | The number of admitted Workloads that are active (unsuspended and not finished) | `cluster_queue`: the name of the ClusterQueue |
-| `kueue_cluster_queue_status` | Gauge | Reports the status of the ClusterQueue | `cluster_queue`: The name of the ClusterQueue<br> `status`: Possible values are `pending`, `active` or `terminated`. For a ClusterQueue, the metric only reports a value of 1 for one of the statuses. |
+| `kueue_cluster_queue_status` | Gauge | Reports the status of the ClusterQueue                                         | `cluster_queue`: The name of the ClusterQueue<br> `status`: Possible values are `pending`, `active` or `terminated`. For a ClusterQueue, the metric only reports a value of 1 for one of the statuses. |
 
 ### Optional metrics
 
