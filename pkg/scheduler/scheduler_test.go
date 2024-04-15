@@ -1572,19 +1572,22 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					SimpleReserveQuota("eng-alpha", "on-demand", now).Obj(),
 				*utiltesting.MakeWorkload("gamma1", "eng-gamma").UID("gamma1").
-					Request(corev1.ResourceCPU, "50").
+					Request(corev1.ResourceCPU, "10").
 					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
 				*utiltesting.MakeWorkload("gamma2", "eng-gamma").UID("gamma2").
-					Request(corev1.ResourceCPU, "10").
+					Request(corev1.ResourceCPU, "20").
 					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
 				*utiltesting.MakeWorkload("gamma3", "eng-gamma").UID("gamma3").
-					Request(corev1.ResourceCPU, "10").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
+				*utiltesting.MakeWorkload("gamma4", "eng-gamma").UID("gamma4").
+					Request(corev1.ResourceCPU, "20").
 					SimpleReserveQuota("eng-gamma", "on-demand", now).Obj(),
 				*utiltesting.MakeWorkload("preemptor", "eng-beta").
 					Queue("main").
 					Request(corev1.ResourceCPU, "30").Obj(),
 			},
-			wantPreempted: sets.New("eng-alpha/alpha1", "eng-gamma/gamma2"),
+			wantPreempted: sets.New("eng-alpha/alpha1", "eng-gamma/gamma1"),
 			wantLeft: map[string][]string{
 				// Preemptor is not admitted in this cycle.
 				"eng-beta": {"eng-beta/preemptor"},
@@ -1595,9 +1598,10 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/alpha2":   *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 				"eng-alpha/alpha3":   *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 				"eng-alpha/alpha4":   *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
-				"eng-gamma/gamma1":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
-				"eng-gamma/gamma2":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
-				"eng-gamma/gamma3":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
+				"eng-gamma/gamma1":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
+				"eng-gamma/gamma2":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+				"eng-gamma/gamma3":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+				"eng-gamma/gamma4":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 			},
 		},
 	}
