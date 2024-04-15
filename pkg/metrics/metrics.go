@@ -103,7 +103,7 @@ The label 'result' can have the following values:
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "quota_reserved_wait_time_seconds",
-			Help:      "The time between a Workload was created until it was quota reserved, per 'cluster_queue'",
+			Help:      "The time between a Workload was created until it got quota reservation, per 'cluster_queue'",
 		}, []string{"cluster_queue"},
 	)
 
@@ -119,7 +119,7 @@ The label 'result' can have the following values:
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_wait_time_seconds",
-			Help:      "The time between a Workload had quota reserved until it was admitted, per 'cluster_queue'",
+			Help:      "The time from when a workload got the quota reservation until admission, per 'cluster_queue'",
 		}, []string{"cluster_queue"},
 	)
 
