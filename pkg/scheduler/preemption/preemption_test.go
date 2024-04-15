@@ -224,6 +224,34 @@ func TestPreemption(t *testing.T) {
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj(),
+		utiltesting.MakeClusterQueue("a").
+			Cohort("cohort-three").
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "2").
+				Resource(corev1.ResourceMemory, "2").
+				Obj(),
+			).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			}).
+			Obj(),
+		utiltesting.MakeClusterQueue("b").
+			Cohort("cohort-three").
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "2").
+				Resource(corev1.ResourceMemory, "2").
+				Obj(),
+			).
+			Obj(),
+		utiltesting.MakeClusterQueue("c").
+			Cohort("cohort-three").
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "2").
+				Resource(corev1.ResourceMemory, "2").
+				Obj(),
+			).
+			Obj(),
 	}
 	cases := map[string]struct {
 		admitted           []kueue.Workload
@@ -1061,6 +1089,205 @@ func TestPreemption(t *testing.T) {
 			}),
 			wantPreempted:      nil,
 			enableLendingLimit: true,
+		},
+		"preemptions from cq when target queue is exhausted for the single requested resource": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("a3", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b2", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b3", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Request(corev1.ResourceCPU, "2").
+				Priority(0).
+				Obj(),
+			targetCQ: "a",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: sets.New("/a1", "/a2"),
+		},
+		"preemptions from cq when target queue is exhausted for two requested resources": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("a3", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b2", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b3", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Assignment(corev1.ResourceMemory, "default", "1").Obj()).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceMemory, "2").
+				Priority(0).
+				Obj(),
+			targetCQ: "a",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: sets.New("/a1", "/a2"),
+		},
+		"preemptions from cq when target queue is exhausted for one requested resource, but not the other": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("a3", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b2", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b3", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceMemory, "2").
+				Priority(0).
+				Obj(),
+			targetCQ: "a",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: sets.New("/a1", "/a2"),
+		},
+		"allow preemption from other cluster queues if target cq is not exhausted for the requested resource": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("a").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b2", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b3", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b4", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b5", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b").Assignment(corev1.ResourceCPU, "default", "1").Obj()).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Request(corev1.ResourceCPU, "2").
+				Obj(),
+			targetCQ: "a",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: sets.New("/a1", "/b5"),
 		},
 	}
 	for name, tc := range cases {
