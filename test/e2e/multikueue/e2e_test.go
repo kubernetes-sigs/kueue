@@ -19,6 +19,7 @@ package mke2e
 import (
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -353,8 +354,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 
-				k8sWorker1Client = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
-
 				podList := &corev1.PodList{}
 				podListOptions := client.InNamespace("kueue-system")
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -381,8 +380,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 
-				k8sWorker1Client = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
-
+				// For some reason, after reconnecting the container to the network,
+				// when we try to get pods, we get it with the previous values (as before disconnect).
+				// Therefore, it takes some time for the cluster to restore them and we got actually values.
+				time.Sleep(util.LongTimeout)
 				util.WaitForKueueAvailability(ctx, k8sWorker1Client, true)
 			})
 
