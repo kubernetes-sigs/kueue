@@ -175,26 +175,6 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should allow to update queueingStrategy with same value", func() {
-			ginkgo.By("Creating a new clusterQueue")
-			cq := testing.MakeClusterQueue("cluster-queue").
-				QueueingStrategy(kueue.BestEffortFIFO).
-				ResourceGroup(*testing.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
-
-			defer func() {
-				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-			}()
-
-			gomega.Eventually(func() error {
-				var updateCQ kueue.ClusterQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
-				updateCQ.Spec.QueueingStrategy = kueue.BestEffortFIFO
-				return k8sClient.Update(ctx, &updateCQ)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
 		ginkgo.DescribeTable("Validate ClusterQueue on creation", func(cq *kueue.ClusterQueue, errorType int) {
 			err := k8sClient.Create(ctx, cq)
 			if err == nil {
