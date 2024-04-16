@@ -82,17 +82,21 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 	ginkgo.When("Scheduling workloads on clusterQueues", func() {
 		var (
-			prodClusterQ          *kueue.ClusterQueue
-			devClusterQ           *kueue.ClusterQueue
-			podsCountClusterQ     *kueue.ClusterQueue
-			podsCountOnlyClusterQ *kueue.ClusterQueue
-			preemptionClusterQ    *kueue.ClusterQueue
-			prodQueue             *kueue.LocalQueue
-			devQueue              *kueue.LocalQueue
-			podsCountQueue        *kueue.LocalQueue
-			podsCountOnlyQueue    *kueue.LocalQueue
-			preemptionQueue       *kueue.LocalQueue
-			cqsStopPolicy         *kueue.StopPolicy
+			admissionCheck1        *kueue.AdmissionCheck
+			admissionCheck2        *kueue.AdmissionCheck
+			prodClusterQ           *kueue.ClusterQueue
+			devClusterQ            *kueue.ClusterQueue
+			podsCountClusterQ      *kueue.ClusterQueue
+			podsCountOnlyClusterQ  *kueue.ClusterQueue
+			preemptionClusterQ     *kueue.ClusterQueue
+			admissionCheckClusterQ *kueue.ClusterQueue
+			prodQueue              *kueue.LocalQueue
+			devQueue               *kueue.LocalQueue
+			podsCountQueue         *kueue.LocalQueue
+			podsCountOnlyQueue     *kueue.LocalQueue
+			preemptionQueue        *kueue.LocalQueue
+			admissionCheckQueue    *kueue.LocalQueue
+			cqsStopPolicy          *kueue.StopPolicy
 		)
 
 		ginkgo.JustBeforeEach(func() {
@@ -100,6 +104,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, spotTaintedFlavor)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).To(gomega.Succeed())
 			cqsStopPolicy := ptr.Deref(cqsStopPolicy, kueue.None)
+
+			admissionCheck1 = testing.MakeAdmissionCheck("check1").ControllerName("ctrl").Obj()
+			gomega.Expect(k8sClient.Create(ctx, admissionCheck1)).Should(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck1, metav1.ConditionTrue)
+
+			admissionCheck2 = testing.MakeAdmissionCheck("check2").ControllerName("ctrl").Obj()
+			gomega.Expect(k8sClient.Create(ctx, admissionCheck2)).Should(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck2, metav1.ConditionTrue)
 
 			prodClusterQ = testing.MakeClusterQueue("prod-cq").
 				ResourceGroup(
@@ -152,6 +164,15 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, preemptionClusterQ)).Should(gomega.Succeed())
 
+			admissionCheckClusterQ = testing.MakeClusterQueue("admission-check-cq").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				AdmissionChecks("check1", "check2").
+				StopPolicy(cqsStopPolicy).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, admissionCheckClusterQ)).Should(gomega.Succeed())
+
 			prodQueue = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
 
@@ -166,6 +187,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			preemptionQueue = testing.MakeLocalQueue("preemption-queue", ns.Name).ClusterQueue(preemptionClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, preemptionQueue)).Should(gomega.Succeed())
+
+			admissionCheckQueue = testing.MakeLocalQueue("admission-check-queue", ns.Name).ClusterQueue(admissionCheckClusterQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, admissionCheckQueue)).Should(gomega.Succeed())
 		})
 
 		ginkgo.JustAfterEach(func() {
@@ -175,6 +199,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, podsCountClusterQ, true)
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, podsCountOnlyClusterQ, true)
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, preemptionClusterQ, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, admissionCheckClusterQ, true)
+			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, admissionCheck2, true)
+			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, admissionCheck1, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
@@ -385,6 +412,22 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl, secondWl)
 				util.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(preemptionClusterQ, 2)
+			})
+		})
+
+		ginkgo.It("Should admit workloads with admission checks", func() {
+			wl1 := testing.MakeWorkload("admission-check-wl1", ns.Name).
+				Queue(admissionCheckQueue.Name).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+
+			ginkgo.By("checking the first workload gets created and admitted", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, nil)
+				util.ExpectPendingWorkloadsMetric(admissionCheckClusterQ, 0, 0)
+				util.ExpectReservingActiveWorkloadsMetric(admissionCheckClusterQ, 1)
+				util.ExpectQuotaReservedWorkloadsTotalMetric(admissionCheckClusterQ, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(admissionCheckClusterQ, 0)
 			})
 		})
 
