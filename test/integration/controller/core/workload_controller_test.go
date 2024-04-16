@@ -274,6 +274,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					Reason:  "AdmissionChecksRejected",
 					Message: "Admission checks [check1] are rejected",
 				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 0)
 			})
 		})
 
