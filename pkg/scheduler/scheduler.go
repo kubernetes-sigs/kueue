@@ -535,14 +535,11 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set
 			waitTime := time.Since(waitStarted)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 			metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
-
 			if workload.IsAdmitted(newWorkload) {
 				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s ", admission.ClusterQueue)
 				metrics.AdmittedWorkload(admission.ClusterQueue, 0)
 			}
-
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
-
 			return
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
