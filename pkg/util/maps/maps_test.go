@@ -203,3 +203,81 @@ func TestMergeIntersect(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterKeys(t *testing.T) {
+	cases := map[string]struct {
+		m    map[string]int
+		k    []string
+		want map[string]int
+	}{
+		"nil m": {
+			m: nil,
+			k: []string{
+				"k1",
+			},
+			want: nil,
+		},
+		"nil k": {
+			m: map[string]int{
+				"v1": 1,
+			},
+			k:    nil,
+			want: nil,
+		},
+		"empty k": {
+			m: map[string]int{
+				"v1": 1,
+				"v2": 2,
+				"v3": 3,
+			},
+			k:    []string{},
+			want: nil,
+		},
+		"empty m": {
+			m:    map[string]int{},
+			k:    []string{"k1"},
+			want: map[string]int{},
+		},
+		"filter one": {
+			m: map[string]int{
+				"v1": 1,
+				"v2": 2,
+				"v3": 3,
+			},
+			k: []string{"v1", "v3"},
+			want: map[string]int{
+				"v1": 1,
+				"v3": 3,
+			},
+		},
+		"filter two": {
+			m: map[string]int{
+				"v1": 1,
+				"v2": 2,
+				"v3": 3,
+			},
+			k: []string{"v1"},
+			want: map[string]int{
+				"v1": 1,
+			},
+		},
+		"filter all": {
+			m: map[string]int{
+				"v1": 1,
+				"v2": 2,
+				"v3": 3,
+			},
+			k:    []string{"v4"},
+			want: map[string]int{},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := FilterKeys(tc.m, tc.k)
+			if diff := cmp.Diff(got, tc.want); diff != "" {
+				t.Errorf("Unexpected result, expecting %v", tc.want)
+			}
+		})
+	}
+}

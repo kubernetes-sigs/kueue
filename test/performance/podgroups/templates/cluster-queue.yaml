@@ -1,0 +1,26 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: {{ .Name }}
+  labels:
+    group: pod-performance-cluster-queue
+spec:
+  cohort: pod-performance-cohort-{{ (Mod .Index .NumCohorts) }}
+  flavorFungibility:
+    whenCanBorrow: Borrow
+    whenCanPreempt: Preempt
+  preemption:
+    borrowWithinCohort:
+      policy: Never
+    reclaimWithinCohort: Any
+    withinClusterQueue: LowerPriority
+  queueingStrategy: StrictFIFO
+  namespaceSelector: {}
+  resourceGroups:
+    - coveredResources: ["pods"]
+      flavors:
+        - name: "pod-performance-resource-flavor"
+          resources:
+            - name: "pods"
+              nominalQuota: {{ (DivideInt .PodsTotalQuota .NumQueues) }}
+              borrowingLimit: {{ (MultiplyInt .BorrowRatio (DivideInt .PodsTotalQuota .NumQueues)) }}

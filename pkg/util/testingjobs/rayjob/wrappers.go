@@ -159,3 +159,14 @@ func (j *JobWrapper) WorkloadPriorityClass(wpc string) *JobWrapper {
 	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
 	return j
 }
+
+// Generation sets the generation of the job.
+func (j *JobWrapper) Generation(num int64) *JobWrapper {
+	j.ObjectMeta.Generation = num
+	return j
+}
+
+// Clone returns a deep copy of the job.
+func (j *JobWrapper) Clone() *JobWrapper {
+	return &JobWrapper{*j.DeepCopy()}
+}

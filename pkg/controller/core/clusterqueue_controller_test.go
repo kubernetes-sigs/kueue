@@ -64,10 +64,11 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			wantCqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
-					Type:    kueue.ClusterQueueActive,
-					Status:  metav1.ConditionFalse,
-					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads; some flavors are not found",
+					Type:               kueue.ClusterQueueActive,
+					Status:             metav1.ConditionFalse,
+					Reason:             "FlavorNotFound",
+					Message:            "Can't admit new workloads; some flavors are not found",
+					ObservedGeneration: 1,
 				}},
 			},
 		},
@@ -87,10 +88,11 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			wantCqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
-					Type:    kueue.ClusterQueueActive,
-					Status:  metav1.ConditionTrue,
-					Reason:  "Ready",
-					Message: "Can admit new workloads",
+					Type:               kueue.ClusterQueueActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Ready",
+					Message:            "Can admit new workloads",
+					ObservedGeneration: 1,
 				}},
 			},
 		},
@@ -110,10 +112,11 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			wantCqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
-					Type:    kueue.ClusterQueueActive,
-					Status:  metav1.ConditionFalse,
-					Reason:  "Terminating",
-					Message: "Can't admit new workloads; clusterQueue is terminating",
+					Type:               kueue.ClusterQueueActive,
+					Status:             metav1.ConditionFalse,
+					Reason:             "Terminating",
+					Message:            "Can't admit new workloads; clusterQueue is terminating",
+					ObservedGeneration: 1,
 				}},
 			},
 		},
@@ -133,10 +136,11 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			wantCqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
-					Type:    kueue.ClusterQueueActive,
-					Status:  metav1.ConditionTrue,
-					Reason:  "Ready",
-					Message: "Can admit new workloads",
+					Type:               kueue.ClusterQueueActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Ready",
+					Message:            "Can admit new workloads",
+					ObservedGeneration: 1,
 				}},
 			},
 		},
@@ -157,10 +161,11 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			wantCqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items) + 1),
 				Conditions: []metav1.Condition{{
-					Type:    kueue.ClusterQueueActive,
-					Status:  metav1.ConditionTrue,
-					Reason:  "Ready",
-					Message: "Can admit new workloads",
+					Type:               kueue.ClusterQueueActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Ready",
+					Message:            "Can admit new workloads",
+					ObservedGeneration: 1,
 				}},
 			},
 		},
@@ -169,7 +174,9 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			cq := utiltesting.MakeClusterQueue(cqName).
-				QueueingStrategy(kueue.StrictFIFO).Obj()
+				QueueingStrategy(kueue.StrictFIFO).
+				Generation(1).
+				Obj()
 			cq.Status = tc.cqStatus
 			lq := utiltesting.MakeLocalQueue(lqName, "").
 				ClusterQueue(cqName).Obj()

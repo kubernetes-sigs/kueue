@@ -457,6 +457,41 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"when workload is created, it has correct labels set": {
+			job: *baseJobWrapper.Clone().
+				Label("toCopyKey", "toCopyValue").
+				Label("dontCopyKey", "dontCopyValue").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Label("toCopyKey", "toCopyValue").
+				Label("dontCopyKey", "dontCopyValue").
+				UID("test-uid").
+				Suspend(true).
+				Obj(),
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithLabelKeysToCopy([]string{"toCopyKey", "redundantToCopyKey"}),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("foo").
+					Priority(0).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+						"toCopyKey":                  "toCopyValue"}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, types.UID("test-uid")),
+				},
+			},
+		},
 		"when workload is admitted the PodSetUpdates are propagated to job": {
 			job: *baseJobWrapper.Clone().
 				Obj(),
@@ -1664,6 +1699,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
 					Admitted(true).
+					Generation(1).
 					Obj(),
 			},
 			wantJob: *baseJobWrapper.Clone().
@@ -1673,11 +1709,13 @@ func TestReconciler(t *testing.T) {
 				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "JobFinished",
-						Message: "Job finished successfully",
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             "JobFinished",
+						Message:            "Job finished successfully",
+						ObservedGeneration: 1,
 					}).
+					Generation(1).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{

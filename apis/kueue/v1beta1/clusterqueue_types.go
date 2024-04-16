@@ -23,6 +23,7 @@ import (
 )
 
 // ClusterQueueSpec defines the desired state of ClusterQueue
+// +kubebuilder:validation:XValidation:rule="!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
 type ClusterQueueSpec struct {
 	// resourceGroups describes groups of resources.
 	// Each resource group defines the list of resources and a list of flavors
@@ -48,6 +49,8 @@ type ClusterQueueSpec struct {
 	//
 	// Validation of a cohort name is equivalent to that of object names:
 	// subdomain in DNS (RFC 1123).
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 	Cohort string `json:"cohort,omitempty"`
 
 	// QueueingStrategy indicates the queueing strategy of the workloads
@@ -74,6 +77,7 @@ type ClusterQueueSpec struct {
 
 	// flavorFungibility defines whether a workload should try the next flavor
 	// before borrowing or preempting in the flavor being evaluated.
+	// +kubebuilder:default={}
 	FlavorFungibility *FlavorFungibility `json:"flavorFungibility,omitempty"`
 
 	// preemption describes policies to preempt Workloads from this ClusterQueue
@@ -91,6 +95,7 @@ type ClusterQueueSpec struct {
 	// The preemption algorithm tries to find a minimal set of Workloads to
 	// preempt to accomomdate the pending Workload, preempting Workloads with
 	// lower priority first.
+	// +kubebuilder:default={}
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
 	// admissionChecks lists the AdmissionChecks required by this ClusterQueue
@@ -134,6 +139,7 @@ const (
 	Hold         StopPolicy = "Hold"
 )
 
+// +kubebuilder:validation:XValidation:rule="self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"
 type ResourceGroup struct {
 	// coveredResources is the list of resources covered by the flavors in this
 	// group.
@@ -217,6 +223,8 @@ type ResourceQuota struct {
 }
 
 // ResourceFlavorReference is the name of the ResourceFlavor.
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ResourceFlavorReference string
 
 // ClusterQueueStatus defines the observed state of ClusterQueue
@@ -362,6 +370,7 @@ type FlavorFungibility struct {
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
 // ClusterQueue or the ClusterQueue's cohort.
+// +kubebuilder:validation:XValidation:rule="!(self.reclaimWithinCohort == 'Never' && has(self.borrowWithinCohort) &&  self.borrowWithinCohort.policy != 'Never')", message="reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"
 type ClusterQueuePreemption struct {
 	// reclaimWithinCohort determines whether a pending Workload can preempt
 	// Workloads from other ClusterQueues in the cohort that are using more than
@@ -381,6 +390,7 @@ type ClusterQueuePreemption struct {
 
 	// borrowWithinCohort provides configuration to allow preemption within
 	// cohort while borrowing.
+	// +kubebuilder:default={}
 	BorrowWithinCohort *BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
 
 	// withinClusterQueue determines whether a pending Workload that doesn't fit

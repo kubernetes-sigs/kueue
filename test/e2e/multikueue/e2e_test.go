@@ -221,7 +221,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "JobFinished",
 						Message: `Job finished successfully`,
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -250,6 +250,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 2 CPU in total, this jobset can only be admitted in worker 1.
 			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 				Queue(managerLq.Name).
+				ManagedBy(multikueue.ControllerName).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
@@ -286,7 +287,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "Admitted",
 						Message: "The workload is admitted",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -314,7 +315,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "JobSetFinished",
 						Message: "JobSet finished successfully",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -338,7 +339,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Reason:  "AllJobsCompleted",
 						Message: "jobset completed successfully",
 					},
-					cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					util.IgnoreConditionTimestampsAndObservedGeneration)))
 			})
 		})
 	})
@@ -362,7 +363,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Status: metav1.ConditionFalse,
 							Reason: "ClientConnectionFailed",
 						},
-						cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message"))))
+						util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -383,7 +384,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Reason:  "Active",
 							Message: "Connected",
 						},
-						cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

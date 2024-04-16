@@ -1,0 +1,25 @@
+title: Copy labels into workload
+kep-number: 1834
+authors:
+  - "@pajakd"
+status: implementable
+creation-date: 2024-04-08
+reviewers:
+  - "@alculquicondor"
+  - "@mimowo"
+approvers:
+  - "@alculquicondor"
+  - "@tenzen-y"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: beta
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.7"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.7"
+  beta: "v0.7"

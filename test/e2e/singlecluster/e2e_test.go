@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 							Type:   kueue.WorkloadFinished,
 							Status: metav1.ConditionTrue,
 							Reason: "JobFinished",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message"))))
+						}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

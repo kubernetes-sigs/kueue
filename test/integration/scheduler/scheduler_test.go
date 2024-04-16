@@ -17,7 +17,6 @@ limitations under the License.
 package scheduler
 
 import (
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -1787,7 +1786,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
 					Message: "The ClusterQueue is stopped",
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			})
 
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)

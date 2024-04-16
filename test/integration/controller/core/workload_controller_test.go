@@ -19,7 +19,6 @@ package core
 import (
 	"fmt"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -273,7 +272,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					Status:  metav1.ConditionTrue,
 					Reason:  "AdmissionChecksRejected",
 					Message: "Admission checks [check1] are rejected",
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 0)
 			})
@@ -320,7 +319,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Status:  metav1.ConditionTrue,
 						Reason:  "Admitted",
 						Message: "The workload is admitted",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
@@ -345,13 +344,13 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 							Status:  metav1.ConditionTrue,
 							Reason:  "AdmissionCheck",
 							Message: "At least one admission check is false",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,
 							Status:  metav1.ConditionTrue,
 							Reason:  "Admitted",
 							Message: "The workload is admitted",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -366,13 +365,13 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 							Status:  metav1.ConditionTrue,
 							Reason:  "AdmissionChecksRejected",
 							Message: "Admission checks [check1] are rejected",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,
 							Status:  metav1.ConditionFalse,
 							Reason:  "NoReservationNoChecks",
 							Message: "The workload has no reservation and not all checks ready",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

@@ -145,25 +145,26 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(kueue.PodSet{
-						Name:  "head",
-						Count: int32(1),
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								RestartPolicy: corev1.RestartPolicyNever,
-								Containers: []corev1.Container{
-									{
-										Name: "head-container",
-										Resources: corev1.ResourceRequirements{
-											Requests: make(corev1.ResourceList),
+					PodSets(
+						kueue.PodSet{
+							Name:  "head",
+							Count: int32(1),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									RestartPolicy: corev1.RestartPolicyNever,
+									Containers: []corev1.Container{
+										{
+											Name: "head-container",
+											Resources: corev1.ResourceRequirements{
+												Requests: make(corev1.ResourceList),
+											},
 										},
 									},
 								},
 							},
 						},
-					},
 						kueue.PodSet{
 							Name:  "workers-group-0",
 							Count: int32(1),
@@ -257,9 +258,11 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
+					Generation(1).
 					Condition(metav1.Condition{
-						Type:   kueue.WorkloadEvicted,
-						Status: metav1.ConditionTrue,
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: 1,
 					}).
 					Admitted(true).
 					Obj(),
@@ -302,21 +305,25 @@ func TestReconciler(t *testing.T) {
 							},
 						}).
 					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
+					Generation(1).
 					Condition(metav1.Condition{
-						Type:   kueue.WorkloadEvicted,
-						Status: metav1.ConditionTrue,
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: 1,
 					}).
 					Condition(metav1.Condition{
-						Type:   kueue.WorkloadQuotaReserved,
-						Status: metav1.ConditionFalse,
-						Reason: "Pending",
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						ObservedGeneration: 1,
 					}).
 					Admitted(true).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  "NoReservation",
-						Message: "The workload has no reservation",
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
 					}).
 					Obj(),
 			},

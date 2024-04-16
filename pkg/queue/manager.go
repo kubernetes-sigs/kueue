@@ -200,7 +200,6 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
-		w := w
 		if workload.HasQuotaReservation(&w) {
 			continue
 		}
@@ -570,6 +569,8 @@ func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
 }
 
 func (m *Manager) ClusterQueueFromLocalQueue(lqName string) (string, error) {
+	m.RLock()
+	defer m.RUnlock()
 	if lq, ok := m.localQueues[lqName]; ok {
 		return lq.ClusterQueue, nil
 	}
