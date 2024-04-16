@@ -38,10 +38,11 @@ func SyncAdmittedCondition(w *kueue.Workload) bool {
 		return false
 	}
 	newCondition := metav1.Condition{
-		Type:    kueue.WorkloadAdmitted,
-		Status:  metav1.ConditionTrue,
-		Reason:  "Admitted",
-		Message: "The workload is admitted",
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		Reason:             "Admitted",
+		Message:            "The workload is admitted",
+		ObservedGeneration: w.Generation,
 	}
 	switch {
 	case !hasReservation && !hasAllChecksReady:

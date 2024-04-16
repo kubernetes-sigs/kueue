@@ -972,6 +972,7 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 		Status:  conditionStatus,
 		Reason:  "PodsReady",
 		Message: message,
+		// ObservedGeneration is added via workload.UpdateStatus
 	}
 }
 

@@ -70,10 +70,11 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	log.V(2).Info("Reconcile AdmissionCheck")
 
 	newCondition := metav1.Condition{
-		Type:    kueue.AdmissionCheckActive,
-		Status:  metav1.ConditionTrue,
-		Reason:  "Active",
-		Message: "The admission check is active",
+		Type:               kueue.AdmissionCheckActive,
+		Status:             metav1.ConditionTrue,
+		Reason:             "Active",
+		Message:            "The admission check is active",
+		ObservedGeneration: ac.Generation,
 	}
 
 	if cfg, err := a.helper.ConfigFromRef(ctx, ac.Spec.Parameters); err != nil {
@@ -130,10 +131,11 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue) {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
-			Type:    kueue.AdmissionChecksSingleInstanceInClusterQueue,
-			Status:  metav1.ConditionTrue,
-			Reason:  SingleInstanceReason,
-			Message: SingleInstanceMessage,
+			Type:               kueue.AdmissionChecksSingleInstanceInClusterQueue,
+			Status:             metav1.ConditionTrue,
+			Reason:             SingleInstanceReason,
+			Message:            SingleInstanceMessage,
+			ObservedGeneration: ac.Generation,
 		})
 		needsUpdate = true
 	}

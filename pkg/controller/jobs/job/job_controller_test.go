@@ -1699,6 +1699,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
 					Admitted(true).
+					Generation(1).
 					Obj(),
 			},
 			wantJob: *baseJobWrapper.Clone().
@@ -1708,11 +1709,13 @@ func TestReconciler(t *testing.T) {
 				*baseWorkloadWrapper.Clone().
 					Admitted(true).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "JobFinished",
-						Message: "Job finished successfully",
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             "JobFinished",
+						Message:            "Job finished successfully",
+						ObservedGeneration: 1,
 					}).
+					Generation(1).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{

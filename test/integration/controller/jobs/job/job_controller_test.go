@@ -56,10 +56,6 @@ const (
 	childJobName      = jobName + "-child"
 )
 
-var (
-	ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
-)
-
 // +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -525,7 +521,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 								Status:  metav1.ConditionTrue,
 								Reason:  "JobFinished",
 								Message: "Job finished successfully",
-							}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+							}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -912,7 +908,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				gomega.Eventually(func() *metav1.Condition {
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.beforeCondition, ignoreConditionTimestamps))
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.beforeCondition, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}
 
 			ginkgo.By("Update the job status to simulate its progress towards completion")
@@ -937,7 +933,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			gomega.Eventually(func() *metav1.Condition {
 				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.wantCondition, ignoreConditionTimestamps))
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.wantCondition, util.IgnoreConditionTimestampsAndObservedGeneration))
 		},
 		ginkgo.Entry("No progress", podsReadyTestSpec{
 			wantCondition: &metav1.Condition{

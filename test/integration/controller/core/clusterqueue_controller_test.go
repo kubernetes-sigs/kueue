@@ -49,7 +49,6 @@ const (
 	flavorCPUArchB = "arch-b"
 )
 
-var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 var ignoreLastChangeTime = cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")
 var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 
@@ -205,7 +204,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Message: "Can't admit new workloads: FlavorNotFound",
 					},
 				},
-			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
 			// Workloads are inadmissible because ResourceFlavors don't exist here yet.
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 5)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
@@ -295,7 +294,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Message: "Can admit new workloads",
 					},
 				},
-			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 4)
 
@@ -329,7 +328,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Message: "Can admit new workloads",
 					},
 				},
-			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 4)
 
@@ -357,7 +356,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Message: "Can admit new workloads",
 					},
 				},
-			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 		})
@@ -388,7 +387,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Message: "Can't admit new workloads: FlavorNotFound",
 					},
 				},
-			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
 
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
@@ -414,7 +413,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Message: "Can't admit new workloads: FlavorNotFound",
 					},
 				},
-			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 		})
@@ -511,7 +510,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Name: resourceGPU,
 					}},
 				},
-			}, ignoreConditionTimestamps))
+			}, util.IgnoreConditionTimestamps))
 
 			ginkgo.By("Mark two workers as reclaimable", func() {
 				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})).To(gomega.Succeed())
@@ -548,7 +547,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 							Name: resourceGPU,
 						}},
 					},
-				}, ignoreConditionTimestamps))
+				}, util.IgnoreConditionTimestamps))
 			})
 
 			ginkgo.By("Mark all workers and a driver as reclaimable", func() {
@@ -585,7 +584,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 							Name: resourceGPU,
 						}},
 					},
-				}, ignoreConditionTimestamps))
+				}, util.IgnoreConditionTimestamps))
 			})
 
 			ginkgo.By("Finishing workload", func() {
@@ -657,7 +656,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads: FlavorNotFound",
 				},
-			}, ignoreConditionTimestamps))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 			ginkgo.By("One of flavors is not found")
 			cpuArchAFlavor = testing.MakeResourceFlavor(flavorCPUArchA).Obj()
@@ -673,7 +672,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads: FlavorNotFound",
 				},
-			}, ignoreConditionTimestamps))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 			ginkgo.By("All flavors are created")
 			cpuArchBFlavor = testing.MakeResourceFlavor(flavorCPUArchB).Obj()
@@ -689,7 +688,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				},
-			}, ignoreConditionTimestamps))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 		})
 
 		ginkgo.It("Should update status conditions when admission checks are created", func() {
@@ -713,7 +712,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Reason:  "CheckNotFoundOrInactive",
 					Message: "Can't admit new workloads: CheckNotFoundOrInactive",
 				},
-			}, ignoreConditionTimestamps))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 			ginkgo.By("One of the checks is not found")
 			check1 = testing.MakeAdmissionCheck("check1").ControllerName("ac-controller").Active(metav1.ConditionTrue).Obj()
@@ -730,7 +729,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Reason:  "CheckNotFoundOrInactive",
 					Message: "Can't admit new workloads: CheckNotFoundOrInactive",
 				},
-			}, ignoreConditionTimestamps))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 			ginkgo.By("One check is inactive")
 			check2 = testing.MakeAdmissionCheck("check2").ControllerName("ac-controller").Obj()
@@ -746,7 +745,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Reason:  "CheckNotFoundOrInactive",
 					Message: "Can't admit new workloads: CheckNotFoundOrInactive",
 				},
-			}, ignoreConditionTimestamps))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 			ginkgo.By("All checks are created")
 			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
@@ -761,7 +760,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				},
-			}, ignoreConditionTimestamps))
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 		})
 	})
 

@@ -650,10 +650,11 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
 	cq.Status.PendingWorkloadsStatus = r.getWorkloadsStatus(cq)
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
-		Type:    kueue.ClusterQueueActive,
-		Status:  conditionStatus,
-		Reason:  reason,
-		Message: msg,
+		Type:               kueue.ClusterQueueActive,
+		Status:             conditionStatus,
+		Reason:             reason,
+		Message:            msg,
+		ObservedGeneration: cq.Generation,
 	})
 	if !equality.Semantic.DeepEqual(cq.Status, oldStatus) {
 		return r.client.Status().Update(ctx, cq)
