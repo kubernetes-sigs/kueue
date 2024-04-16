@@ -565,6 +565,11 @@ func (c *ClusterQueueWrapper) Cohort(cohort string) *ClusterQueueWrapper {
 	return c
 }
 
+func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheckStrategyRule) *ClusterQueueWrapper {
+	c.Spec.AdmissionChecksStrategy.AdmissionChecks = acs
+	return c
+}
+
 // ResourceGroup adds a ResourceGroup with flavors.
 func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
 	rg := kueue.ResourceGroup{
@@ -806,6 +811,31 @@ func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
 			},
 		},
 	}
+}
+
+type AdmissionCheckStrategyRuleWrapper struct {
+	kueue.AdmissionCheckStrategyRule
+}
+
+func MakeAdmissionCheckStrategyRule(name string, flavors ...kueue.ResourceFlavorReference) *AdmissionCheckStrategyRuleWrapper {
+	if len(flavors) == 0 {
+		flavors = make([]kueue.ResourceFlavorReference, 0)
+	}
+	return &AdmissionCheckStrategyRuleWrapper{
+		AdmissionCheckStrategyRule: kueue.AdmissionCheckStrategyRule{
+			Name:      name,
+			OnFlavors: flavors,
+		},
+	}
+}
+
+func (acs *AdmissionCheckStrategyRuleWrapper) OnFlavors(flavors []kueue.ResourceFlavorReference) *AdmissionCheckStrategyRuleWrapper {
+	acs.AdmissionCheckStrategyRule.OnFlavors = flavors
+	return acs
+}
+
+func (acs *AdmissionCheckStrategyRuleWrapper) Obj() *kueue.AdmissionCheckStrategyRule {
+	return &acs.AdmissionCheckStrategyRule
 }
 
 func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *AdmissionCheckWrapper {

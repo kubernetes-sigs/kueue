@@ -24,6 +24,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
@@ -153,4 +154,19 @@ func FilterProvReqAnnotations(annotations map[string]string) map[string]string {
 		}
 	}
 	return res
+}
+
+// NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecks and .spec.AdmissionChecksStrategy
+func NewAdmissionChecks(cq *kueue.ClusterQueue) map[string]sets.Set[string] {
+	checks := make(map[string]sets.Set[string], len(cq.Spec.AdmissionChecks)+len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
+	for _, checkName := range cq.Spec.AdmissionChecks {
+		checks[checkName] = sets.New[string]()
+	}
+	for _, check := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+		checks[check.Name] = sets.New[string]()
+		for _, flavor := range check.OnFlavors {
+			checks[check.Name].Insert(string(flavor))
+		}
+	}
+	return checks
 }

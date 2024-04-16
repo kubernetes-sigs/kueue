@@ -21,6 +21,8 @@ package maps
 import (
 	"fmt"
 	"maps"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // Merge merges a and b while resolving the conflicts by calling commonKeyValue
@@ -107,4 +109,13 @@ func FilterKeys[K comparable, V any, M ~map[K]V](m M, k []K) M {
 		}
 	}
 	return ret
+}
+
+// DeepCopySets create a deep copy of map[string]Set which would otherwise be referenced
+func DeepCopySets[T comparable](src map[string]sets.Set[T]) map[string]sets.Set[T] {
+	copy := make(map[string]sets.Set[T], len(src))
+	for key, set := range src {
+		copy[key] = set.Clone()
+	}
+	return copy
 }

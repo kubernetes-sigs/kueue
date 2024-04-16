@@ -1633,6 +1633,9 @@ func TestSchedule(t *testing.T) {
 				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
 					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 				}
+				if err := cl.Create(ctx, &cq); err != nil {
+					t.Errorf("couldn't create the cluster queue: %v", err)
+				}
 			}
 			scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(tc.enableFairSharing))
 			gotScheduled := make(map[string]kueue.Admission)

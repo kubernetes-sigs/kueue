@@ -22,10 +22,13 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -36,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -542,4 +546,50 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 		return c.Update(ctx, wl)
 	}
 	return nil
+}
+
+// AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
+// ClusterQueue configuration and ResourceFlavors
+func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[string]sets.Set[string]) sets.Set[string] {
+	// If all admissionChecks should be run for all flavors we don't need to wait for Workload's Admission to be set.
+	// This is also the case if admissionChecks are specified with ClusterQueue.Spec.AdmissionChecks instead of
+	// ClusterQueue.Spec.AdmissionCheckStrategy
+	allFlavors := true
+	for _, flavors := range admissionChecks {
+		if len(flavors) != 0 {
+			allFlavors = false
+		}
+	}
+	if allFlavors {
+		return sets.New(utilmaps.Keys(admissionChecks)...)
+	}
+
+	// Kueue sets AdmissionChecks first based on ClusterQueue configuration and at this point Workload has no
+	// ResourceFlavors assigned, so we cannot match AdmissionChecks to ResourceFlavor.
+	// After Quota is reserved, another reconciliation happens and we can match AdmissionChecks to ResourceFlavors
+	if wl.Status.Admission == nil {
+		log.V(2).Info("Workload has no Admission", "Workload", klog.KObj(wl))
+		return nil
+	}
+
+	var assignedFlavors []kueue.ResourceFlavorReference
+	for _, podSet := range wl.Status.Admission.PodSetAssignments {
+		for _, flavor := range podSet.Flavors {
+			assignedFlavors = append(assignedFlavors, flavor)
+		}
+	}
+
+	acNames := sets.New[string]()
+	for acName, flavors := range admissionChecks {
+		if len(flavors) == 0 {
+			acNames.Insert(acName)
+			continue
+		}
+		for _, fName := range assignedFlavors {
+			if flavors.Has(string(fName)) {
+				acNames.Insert(acName)
+			}
+		}
+	}
+	return acNames
 }

@@ -59,11 +59,42 @@ spec:
             description: ClusterQueueSpec defines the desired state of ClusterQueue
             properties:
               admissionChecks:
-                description: admissionChecks lists the AdmissionChecks required by
-                  this ClusterQueue
+                description: |-
+                  admissionChecks lists the AdmissionChecks required by this ClusterQueue.
+                  Cannot be used along with AdmissionCheckStrategy.
                 items:
                   type: string
                 type: array
+              admissionChecksStrategy:
+                description: |-
+                  admissionCheckStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
+                  This property cannot be used in conjunction with the 'admissionChecks' property.
+                properties:
+                  admissionChecks:
+                    description: admissionChecks is a list of strategies for AdmissionChecks
+                    items:
+                      description: AdmissionCheckStrategyRule defines rules for a
+                        single AdmissionCheck
+                      properties:
+                        name:
+                          description: name is an AdmissionCheck's name.
+                          type: string
+                        onFlavors:
+                          description: |-
+                            onFlavors is a list of ResourceFlavors' names that this AdmissionCheck should run for.
+                            If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
+                          items:
+                            description: ResourceFlavorReference is the name of the
+                              ResourceFlavor.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          type: array
+                      required:
+                      - name
+                      type: object
+                    type: array
+                type: object
               cohort:
                 description: |-
                   cohort that this ClusterQueue belongs to. CQs that belong to the
