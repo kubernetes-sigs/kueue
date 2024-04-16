@@ -246,6 +246,7 @@ run-scalability: envtest scalability-runner minimalkueue
 .PHONY: test-scalability
 test-scalability: gotestsum run-scalability
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/scalability/checker  \
+		--summary=$(SCALABILITY_RUN_DIR)/summary.yaml \
 		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
 		--range=$(PROJECT_DIR)/test/scalability/default_rangespec.yaml
 

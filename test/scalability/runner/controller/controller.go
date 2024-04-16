@@ -73,7 +73,10 @@ var _ reconcile.Reconciler = (*reconciler)(nil)
 var _ predicate.Predicate = (*reconciler)(nil)
 
 func (r *reconciler) Create(ev event.CreateEvent) bool {
-	_, isWl := (ev.Object).(*kueue.Workload)
+	wl, isWl := (ev.Object).(*kueue.Workload)
+	if isWl {
+		r.recorder.RecordWorkloadState(wl)
+	}
 	return !isWl
 }
 
@@ -89,6 +92,8 @@ func (r *reconciler) Update(ev event.UpdateEvent) bool {
 	}
 	admitted := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	r.setAdmittedTime(wl.UID, admitted)
+
+	r.recorder.RecordWorkloadState(wl)
 
 	return admitted && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)
 }
@@ -155,12 +160,12 @@ func (r *reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	cqHandler := handler.Funcs{
 		CreateFunc: func(_ context.Context, ev event.CreateEvent, _ workqueue.RateLimitingInterface) {
 			if cq, isCq := ev.Object.(*kueue.ClusterQueue); isCq {
-				r.recorder.RecordCQStatus(cq)
+				r.recorder.RecordCQState(cq)
 			}
 		},
 		UpdateFunc: func(_ context.Context, ev event.UpdateEvent, _ workqueue.RateLimitingInterface) {
 			if cq, isCq := ev.ObjectNew.(*kueue.ClusterQueue); isCq {
-				r.recorder.RecordCQStatus(cq)
+				r.recorder.RecordCQState(cq)
 			}
 		},
 	}

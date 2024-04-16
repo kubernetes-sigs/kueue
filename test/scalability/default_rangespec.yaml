@@ -5,3 +5,11 @@ cmd:
   maxUserMs: 3600_000
   maxSysMs: 3600_000
   maxrss: 1024_000 #1000MiB
+
+clusterQueueClassesMinUsage:
+  cq: 10  #10%
+
+wlClassesMaxAvgTimeToAdmissionMs:
+  large: 3600_000 #1h
+  medium: 3600_000
+  small: 3600_000
