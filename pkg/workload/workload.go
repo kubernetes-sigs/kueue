@@ -437,7 +437,7 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
 
-	//reset Evicted condition if present.
+	// reset Evicted condition if present.
 	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.Reason = "QuotaReserved"

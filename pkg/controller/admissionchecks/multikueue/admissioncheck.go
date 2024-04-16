@@ -97,10 +97,8 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 			if err != nil {
 				missingClusters = append(missingClusters, clusterName)
-			} else {
-				if !apimeta.IsStatusConditionTrue(cluster.Status.Conditions, kueuealpha.MultiKueueClusterActive) {
-					inactiveClusters = append(inactiveClusters, clusterName)
-				}
+			} else if !apimeta.IsStatusConditionTrue(cluster.Status.Conditions, kueuealpha.MultiKueueClusterActive) {
+				inactiveClusters = append(inactiveClusters, clusterName)
 			}
 		}
 		unusableClustersCount := len(missingClusters) + len(inactiveClusters)

@@ -457,13 +457,14 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 
 			ctx = request.WithNamespace(ctx, tc.req.nsName)
 			info, err := pendingWorkloadsInLqRest.Get(ctx, tc.req.queueName, tc.req.queryParams)
-			if tc.wantErrMatch != nil {
+			switch {
+			case tc.wantErrMatch != nil:
 				if !tc.wantErrMatch(err) {
 					t.Errorf("Error differs: (-want,+got):\n%s", cmp.Diff(tc.wantResp.wantErr.Error(), err.Error()))
 				}
-			} else if err != nil {
+			case err != nil:
 				t.Error(err)
-			} else {
+			default:
 				pendingWorkloadsInfo := info.(*visibility.PendingWorkloadsSummary)
 				if diff := cmp.Diff(tc.wantResp.wantPendingWorkloads, pendingWorkloadsInfo.Items, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Pending workloads differ: (-want,+got):\n%s", diff)

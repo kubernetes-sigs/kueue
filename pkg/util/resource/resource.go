@@ -32,10 +32,8 @@ func mergeResourceList(a, b corev1.ResourceList, f resolveConflict) corev1.Resou
 	for k, vb := range b {
 		if va, exists := ret[k]; !exists {
 			ret[k] = vb.DeepCopy()
-		} else {
-			if f != nil {
-				ret[k] = f(va, vb)
-			}
+		} else if f != nil {
+			ret[k] = f(va, vb)
 		}
 	}
 	return ret
