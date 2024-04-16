@@ -358,7 +358,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
 			if s.enableFairSharing {
-				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShare(&w)
+				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(&w)
 			}
 		}
 		entries = append(entries, e)

@@ -268,7 +268,7 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 		candCQ := cqHeap.GetByKey(cand.ClusterQueue)
 		if candCQ == nil {
 			cq := snapshot.ClusterQueues[cand.ClusterQueue]
-			share, _ := cq.DominantResourceShare(nil)
+			share, _ := cq.DominantResourceShare()
 			candCQ = &candidateCQ{
 				cq:        cq,
 				share:     share,
@@ -281,7 +281,7 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 	}
 
 	nominatedCQ := snapshot.ClusterQueues[wl.ClusterQueue]
-	newNominatedShareValue, _ := nominatedCQ.DominantResourceShare(wl)
+	newNominatedShareValue, _ := nominatedCQ.DominantResourceShareWith(wl)
 	wlReq := totalRequestsForAssignment(wl, assignment)
 	var targets []*workload.Info
 	fits := false
@@ -296,10 +296,10 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 				fits = true
 				break
 			}
-			newNominatedShareValue, _ = nominatedCQ.DominantResourceShare(wl)
+			newNominatedShareValue, _ = nominatedCQ.DominantResourceShareWith(wl)
 			candCQ.workloads = candCQ.workloads[1:]
 			if len(candCQ.workloads) > 0 {
-				candCQ.share, _ = candCQ.cq.DominantResourceShare(nil)
+				candCQ.share, _ = candCQ.cq.DominantResourceShare()
 				cqHeap.PushIfNotPresent(candCQ)
 			}
 			continue

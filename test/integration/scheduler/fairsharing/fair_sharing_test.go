@@ -223,7 +223,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cqB, 5, 0)
 
 			ginkgo.By("Finishing eviction of 4 running workloads in cqA: shared quota is fair-shared")
-			finishEvictionofWorkloadsInCQ(cqA, 4)
+			finishEvictionOfWorkloadsInCQ(cqA, 4)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 4)
 
 			ginkgo.By("cq-c reclaims one unit, preemption happens in cq-a")
@@ -232,7 +232,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cqC, 1, 0)
 
 			ginkgo.By("Finishing eviction of 1 running workloads in the CQ with highest usage: cqA")
-			finishEvictionofWorkloadsInCQ(cqA, 1)
+			finishEvictionOfWorkloadsInCQ(cqA, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cqC, 1)
 		})
 	})
@@ -253,7 +253,7 @@ func finishRunningWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
 	gomega.ExpectWithOffset(1, finished).To(gomega.Equal(n), "Not enough workloads finished")
 }
 
-func finishEvictionofWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
+func finishEvictionOfWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
 	finished := sets.New[types.UID]()
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) int {
 		var wList kueue.WorkloadList

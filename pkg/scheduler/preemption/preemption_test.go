@@ -1347,7 +1347,7 @@ func TestPreemption(t *testing.T) {
 	}
 }
 
-func TestFairPreemption(t *testing.T) {
+func TestFairPreemptions(t *testing.T) {
 	now := time.Now()
 	flavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
@@ -1420,6 +1420,17 @@ func TestFairPreemption(t *testing.T) {
 			incoming:      unitWl.Clone().Name("c_incoming").Obj(),
 			targetCQ:      "c",
 			wantPreempted: sets.New("/b1"),
+		},
+		"can reclaim from queue using less, if taking the latest workload from user using the most isn't enough": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltesting.MakeWorkload("a2", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      utiltesting.MakeWorkload("c_incoming", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("a", "default", now).Obj(),
+			targetCQ:      "c",
+			wantPreempted: sets.New("/a1"), // attempts to preempt b1, but it's not enough.
 		},
 		"reclaim borrowable quota from user using the most": {
 			admitted: []kueue.Workload{

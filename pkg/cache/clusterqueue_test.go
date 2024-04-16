@@ -821,7 +821,7 @@ func TestDominantResourceShare(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			drValue, drName := tc.cq.DominantResourceShare(tc.workload)
+			drValue, drName := tc.cq.DominantResourceShareWith(tc.workload)
 			if drValue != tc.wantDRValue {
 				t.Errorf("DominantResourceShare(_) returned value %d, want %d", drValue, tc.wantDRValue)
 			}

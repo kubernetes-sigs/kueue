@@ -685,7 +685,11 @@ func (c *ClusterQueue) UsedCohortQuota(fName kueue.ResourceFlavorReference, rNam
 // provided by the ClusterQueue.
 // If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 // The function also returns the resource name that yielded this value.
-func (c *ClusterQueue) DominantResourceShare(w *workload.Info) (int, corev1.ResourceName) {
+func (c *ClusterQueue) DominantResourceShare() (int, corev1.ResourceName) {
+	return c.dominantResourceShare(nil, 1)
+}
+
+func (c *ClusterQueue) DominantResourceShareWith(w *workload.Info) (int, corev1.ResourceName) {
 	return c.dominantResourceShare(w, 1)
 }
 
