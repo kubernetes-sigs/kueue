@@ -429,6 +429,58 @@ Workloads as possible, preferring Workloads with these characteristics:
 - Workloads with the lowest priority.
 - Workloads that have been admitted more recently.
 
+### Preemption Algorithm
+
+The preemption algorithm has the following stages.
+
+#### Eligibility
+
+A workload is eligible for preemptions if it is eligible for preemptions for the
+selected resource flavor
+(see [FlavorFungibility](/docs/concepts/cluster_queue/#flavorfungibility)).
+
+A workload is only eligible to do preemptions in a given resource flavor if it
+fits fully within the nominal quota of the flavor. Alternatively, if
+ `borrowWithinCohort` is enabled, then any workloads requesting within the
+ cohort limits are eligible for preemptions.
+
+#### Candidates
+
+The list of peremption candidates is compiled as the list of workloads within
+the cluster queue, satisfying the `withinClusterQueue` policy, and workloads
+within the cohort which satisfy the `reclaimWithinCohort` policy.
+
+The list of candidates is sorted based on the following preference checks for
+tie-breaking:
+- workloads from other cluster queues
+- workloads with the lowest priority
+- workloads which run the shortest
+
+#### Targets
+
+The algorithm to qualify candidates as targets does the following steps:
+
+1. If all candidates belong to the target queue, then Kueue gradually qualifies
+candidates as targets until the workload can fit. The end result utilization
+might be the above nominal.
+
+2. If `borrowWithinCohort` is enabled, then all candidates are considered in
+order, respecting the `borrowWithinCohort.maxPriorityThreshold` threshold, until
+the workload can fit. The end result utilization might be above the nominal
+quota.
+
+3. If existing workloads are under nominal, then all candidates are considered
+in order. However, the final utilization cannot exceed the nominal quota.
+
+4. Only a subset of candidates from the target queue is considered, but the end
+result utilization is allowed to be above nominal.
+
+#### Optimization of targets set
+
+The last step of the algorithm is to optimize the set of targets. For this
+purpose Kueue greedily traverses the list of initial targets (in reverse) and
+removes these without which the workload still can be admitted.
+
 ## FlavorFungibility
 
 When there is not enough nominal quota of resources in a ResourceFlavor, the incoming Workload can borrow
