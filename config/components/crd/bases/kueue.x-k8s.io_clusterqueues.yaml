@@ -266,9 +266,8 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never
-                  rule: '!(has(self.reclaimWithinCohort) && self.reclaimWithinCohort
-                    == ''Never'' && has(self.borrowWithinCohort) &&  self.borrowWithinCohort.policy
-                    != ''Never'')'
+                  rule: '!(self.reclaimWithinCohort == ''Never'' && has(self.borrowWithinCohort)
+                    &&  self.borrowWithinCohort.policy != ''Never'')'
               queueingStrategy:
                 default: BestEffortFIFO
                 description: |-
@@ -442,9 +441,8 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: borrowingLimit must be nil when cohort is empty
-              rule: '(!has(self.cohort) || size(self.cohort) == 0) && has(self.resourceGroups)
-                ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r,
-                !has(r.borrowingLimit)))) : true'
+              rule: '!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg,
+                rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true'
           status:
             description: ClusterQueueStatus defines the observed state of ClusterQueue
             properties:

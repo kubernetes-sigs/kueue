@@ -23,7 +23,7 @@ import (
 )
 
 // ClusterQueueSpec defines the desired state of ClusterQueue
-// +kubebuilder:validation:XValidation:rule="(!has(self.cohort) || size(self.cohort) == 0) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
+// +kubebuilder:validation:XValidation:rule="!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
 type ClusterQueueSpec struct {
 	// resourceGroups describes groups of resources.
 	// Each resource group defines the list of resources and a list of flavors
@@ -370,7 +370,7 @@ type FlavorFungibility struct {
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
 // ClusterQueue or the ClusterQueue's cohort.
-// +kubebuilder:validation:XValidation:rule="!(has(self.reclaimWithinCohort) && self.reclaimWithinCohort == 'Never' && has(self.borrowWithinCohort) &&  self.borrowWithinCohort.policy != 'Never')", message="reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"
+// +kubebuilder:validation:XValidation:rule="!(self.reclaimWithinCohort == 'Never' && has(self.borrowWithinCohort) &&  self.borrowWithinCohort.policy != 'Never')", message="reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"
 type ClusterQueuePreemption struct {
 	// reclaimWithinCohort determines whether a pending Workload can preempt
 	// Workloads from other ClusterQueues in the cohort that are using more than
