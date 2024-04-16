@@ -36,10 +36,6 @@ metadata:
 
 If the JobSet is submitted to a queue using [MultiKueue](/docs/concepts/multikueue) its `spec.managedBy` field needs to be set to `kueue.x-k8s.io/multikueue`.
 
-```yaml
-    alpha.jobset.sigs.k8s.io/managed-by: kueue
-```
-
 ### c. Configure the resource needs
 
 The resource needs of the workload can be configured in the `spec.replicatedJobs`. Should also be taken into account that number of replicas, [parallelism](https://kubernetes.io/docs/concepts/workloads/controllers/job/#parallel-jobs) and completions affect the resource calculations. 
