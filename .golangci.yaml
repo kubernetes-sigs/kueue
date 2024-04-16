@@ -11,7 +11,6 @@ linters-settings:
       - assignOp
       - captLocal
       - commentFormatting
-      - deprecatedComment
       - elseif
       - exitAfterDefer
       - ifElseChain
@@ -38,6 +37,12 @@ issues:
   # Which dirs to exclude: issues from them won't be reported
   exclude-dirs:
     - bin
+  # Excluding configuration per-path, per-linter, per-text and per-source
+  exclude-rules:
+    - linters:
+      - staticcheck
+      # TODO(#768): Drop when incrementing the API version.
+      text: "SA1019: constants.QueueAnnotation is deprecated"
   # Show all issues from a linter
   max-issues-per-linter: 0
   # Show all issues with the same text
