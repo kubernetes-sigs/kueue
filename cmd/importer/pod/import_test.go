@@ -83,11 +83,11 @@ func TestImportNamespace(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		pods         []corev1.Pod
-		clusteQueues []kueue.ClusterQueue
-		localQueues  []kueue.LocalQueue
-		mapping      util.MappingRules
-		addLabels    map[string]string
+		pods          []corev1.Pod
+		clusterQueues []kueue.ClusterQueue
+		localQueues   []kueue.LocalQueue
+		mapping       util.MappingRules
+		addLabels     map[string]string
 
 		wantPods      []corev1.Pod
 		wantWorkloads []kueue.Workload
@@ -112,7 +112,7 @@ func TestImportNamespace(t *testing.T) {
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
 			},
-			clusteQueues: []kueue.ClusterQueue{
+			clusterQueues: []kueue.ClusterQueue{
 				*baseClusterQueue.Obj(),
 			},
 
@@ -145,7 +145,7 @@ func TestImportNamespace(t *testing.T) {
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
 			},
-			clusteQueues: []kueue.ClusterQueue{
+			clusterQueues: []kueue.ClusterQueue{
 				*baseClusterQueue.Obj(),
 			},
 			addLabels: map[string]string{
@@ -171,7 +171,7 @@ func TestImportNamespace(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			podsList := corev1.PodList{Items: tc.pods}
-			cqList := kueue.ClusterQueueList{Items: tc.clusteQueues}
+			cqList := kueue.ClusterQueueList{Items: tc.clusterQueues}
 			lqList := kueue.LocalQueueList{Items: tc.localQueues}
 
 			builder := utiltesting.NewClientBuilder().

@@ -323,7 +323,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			cRec.remoteClients["worker1"] = w1remoteClient
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
-			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaulWorkerLostTimeout)
+			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultWorkerLostTimeout)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}})
 			if gotErr != nil {
