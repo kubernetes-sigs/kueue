@@ -106,7 +106,7 @@ type ClusterQueueSpec struct {
 	// admissionCheckStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
 	// This property cannot be used in conjunction with the 'admissionChecks' property.
 	// +optional
-	AdmissionChecksStrategy AdmissionChecksStrategy `json:"admissionChecksStrategy,omitempty"`
+	AdmissionChecksStrategy *AdmissionChecksStrategy `json:"admissionChecksStrategy,omitempty"`
 
 	// stopPolicy - if set to a value different from None, the ClusterQueue is considered Inactive, no new reservation being
 	// made.
@@ -137,7 +137,7 @@ type AdmissionCheckStrategyRule struct {
 	// onFlavors is a list of ResourceFlavors' names that this AdmissionCheck should run for.
 	// If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
 	// +optional
-	OnFlavors []ResourceFlavorReference `json:"onFlavors"`
+	OnFlavors []ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 
 type QueueingStrategy string

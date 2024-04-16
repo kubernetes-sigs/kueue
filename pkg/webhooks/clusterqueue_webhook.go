@@ -127,7 +127,7 @@ func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Pa
 
 func validateCQAdmissionChecks(spec *kueue.ClusterQueueSpec, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	if len(spec.AdmissionChecksStrategy.AdmissionChecks) != 0 && len(spec.AdmissionChecks) != 0 {
+	if spec.AdmissionChecksStrategy != nil && len(spec.AdmissionChecks) != 0 {
 		allErrs = append(allErrs, field.Invalid(path, spec, "Either AdmissionChecks or AdmissionCheckStrategy can be set, but not both"))
 	}
 

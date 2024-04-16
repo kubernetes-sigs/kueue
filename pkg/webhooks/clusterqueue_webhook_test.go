@@ -73,9 +73,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			name: "both admissionChecks and admissionCheckStrategy is defined",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
 				AdmissionChecks("ac1").
-				AdmissionCheckStrategy(
-					*testingutil.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
-				).Obj(),
+				AdmissionCheckStrategy().Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(specPath, "spec", "Either AdmissionChecks or AdmissionCheckStrategy can be set, but not both"),
 			},

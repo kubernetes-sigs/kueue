@@ -157,15 +157,17 @@ func FilterProvReqAnnotations(annotations map[string]string) map[string]string {
 }
 
 // NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecks and .spec.AdmissionChecksStrategy
-func NewAdmissionChecks(cq *kueue.ClusterQueue) map[string]sets.Set[string] {
-	checks := make(map[string]sets.Set[string], len(cq.Spec.AdmissionChecks)+len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
-	for _, checkName := range cq.Spec.AdmissionChecks {
-		checks[checkName] = sets.New[string]()
-	}
-	for _, check := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
-		checks[check.Name] = sets.New[string]()
-		for _, flavor := range check.OnFlavors {
-			checks[check.Name].Insert(string(flavor))
+func NewAdmissionChecks(cq *kueue.ClusterQueue) map[string]sets.Set[kueue.ResourceFlavorReference] {
+	var checks map[string]sets.Set[kueue.ResourceFlavorReference]
+	if cq.Spec.AdmissionChecksStrategy != nil {
+		checks = make(map[string]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
+		for _, check := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+			checks[check.Name] = sets.New[kueue.ResourceFlavorReference](check.OnFlavors...)
+		}
+	} else {
+		checks = make(map[string]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecks))
+		for _, checkName := range cq.Spec.AdmissionChecks {
+			checks[checkName] = sets.New[kueue.ResourceFlavorReference]()
 		}
 	}
 	return checks

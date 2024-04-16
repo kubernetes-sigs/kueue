@@ -566,6 +566,9 @@ func (c *ClusterQueueWrapper) Cohort(cohort string) *ClusterQueueWrapper {
 }
 
 func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheckStrategyRule) *ClusterQueueWrapper {
+	if c.Spec.AdmissionChecksStrategy == nil {
+		c.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{}
+	}
 	c.Spec.AdmissionChecksStrategy.AdmissionChecks = acs
 	return c
 }
