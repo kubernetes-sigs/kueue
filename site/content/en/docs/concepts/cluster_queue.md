@@ -452,9 +452,9 @@ within the cohort which satisfy the `reclaimWithinCohort` policy.
 
 The list of candidates is sorted based on the following preference checks for
 tie-breaking:
-- workloads from other cluster queues
-- workloads with the lowest priority
-- workloads which run the shortest
+- workloads from other cluster queues,
+- workloads with the lowest priority,
+- workloads which got admitted the most recently.
 
 #### Targets
 
