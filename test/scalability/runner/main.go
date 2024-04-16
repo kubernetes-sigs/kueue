@@ -327,7 +327,6 @@ func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string,
 func startRecorder(ctx context.Context, errCh chan<- error, wg *sync.WaitGroup, genDone <-chan struct{}, recordTimeout time.Duration) (*recorder.Recorder, error) {
 	defer wg.Done()
 	log := ctrl.LoggerFrom(ctx).WithName("Start recorder")
-	//TODO: make the timeout an arg
 	recorder := recorder.New(recordTimeout)
 	wg.Add(1)
 	go func() {
