@@ -34,7 +34,7 @@ metadata:
 
 ### b. MultiKueue
 
-If the JobSet is submitted to a queue using [MultiKueue](/docs/concepts/multikueue) its `spec.managedBy` field needs to be set to `kueue.x-k8s.io/multikueue`.
+If the JobSet is submitted to a queue using [MultiKueue](/docs/concepts/multikueue) its `spec.managedBy` field needs to be set to `kueue.x-k8s.io/multikueue`. Otherwise the its workload will be marked as `Finished` with an error indicating this cause.
 
 ### c. Configure the resource needs
 
