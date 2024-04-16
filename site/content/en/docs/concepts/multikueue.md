@@ -59,7 +59,7 @@ There is an ongoing effort to overcome these limitations by adding the possibili
 
 ### JobSet
 
-Since unsuspending a JobSet in the manager cluster will lead to its local execution and updating the status of a local JobSet could conflict with its main controller, MultiKueue expects the JobSets submitted to a ClusterQueue using it to have `spec.managedBy` set to `kueue.x-k8s.io/multikueue`. The JobSet `managedBy` field is available since JobSet v0.5.0.
+MultiKueue expects the JobSets, submitted to a ClusterQueue using a MultiKueue admission check, to have `spec.managedBy` set to `kueue.x-k8s.io/multikueue`. The JobSet `managedBy` field is available since JobSet v0.5.0.
 
 ## Submitting Jobs
 In a [configured MultiKueue environment](/docs/tasks/manage/setup_multikueue), you can submit any MultiKueue supported job to the Manager cluster, targeting a ClusterQueue configured for Multikueue.

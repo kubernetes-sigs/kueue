@@ -73,10 +73,10 @@ type jobAdapter interface {
 	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
 	// suspended and not start the execution locally.
 	KeepAdmissionCheckPending() bool
-	// IsJobManagedByKueue returns
-	// a bool indicating if the job object identified by key is managed by kueue and can be delegated.
-	// a reason message
-	// any API error encountered during the check
+	// IsJobManagedByKueue returns:
+	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
+	// - a reason indicating why the job is not managed by Kueue
+	// - any API error encountered during the check
 	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
 }
 

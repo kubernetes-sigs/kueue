@@ -34,7 +34,7 @@ metadata:
 
 ### b. MultiKueue
 
-If the JobSet is submitted to a queue using [MultiKueue](/docs/concepts/multikueue) one additional label needs to be specified.
+If the JobSet is submitted to a queue using [MultiKueue](/docs/concepts/multikueue) its `spec.managedBy` field needs to be set to `kueue.x-k8s.io/multikueue`.
 
 ```yaml
     alpha.jobset.sigs.k8s.io/managed-by: kueue
