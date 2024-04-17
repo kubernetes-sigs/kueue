@@ -34,9 +34,14 @@ spec:
       jsonPath: .spec.queueName
       name: Queue
       type: string
-    - description: Name of the ClusterQueue that admitted this workload
+    - description: Name of the ClusterQueue where the workload is reserving quota
       jsonPath: .status.admission.clusterQueue
-      name: Admitted by
+      name: Reserving in
+      type: string
+    - description: Admission status
+      jsonPath: .status.conditions[?(@.type=='Admitted')].status
+      name: Admitted
+      priority: 10
       type: string
     - description: Time this workload was created
       jsonPath: .metadata.creationTimestamp
