@@ -61,20 +61,20 @@ outside of the suborganization.
 
 * When enforcing fair sharing, ignore workload priorities unless:
 
-** The workload's priority is above admin-defined high priority. Super high
+   * The workload's priority is above admin-defined high priority. Super high
 priority workloads overrule fair sharing and are treated according to KEP [#1337](https://github.com/kubernetes-sigs/kueue/tree/main/keps/1337-preempt-within-cohort-while-borrowing).
 
-** There is a need to preempt some non top priority workload from a ClusterQueue.
+   * There is a need to preempt some non top priority workload from a ClusterQueue.
 Then the lowest priority workloads from a CQ that is over its fair share should
 be selected for preemption.
 
 * The mechanism should be compatible with all existing or proposed Kueue features,
 in particular:
 
-** Borrowing limits 
-** Lending limits
-** Guaranteed/nominal quota
-** Hierarchical cohorts
+   * Borrowing limits 
+   * Lending limits
+   * Guaranteed/nominal quota
+   * Hierarchical cohorts
 
 * Fair sharing should not limit Kueue scalability. Kueue, with fair sharing enabled,
 should be able to handle >1k ClusterQueues, >100 Cohorts and >10k workloads (that
