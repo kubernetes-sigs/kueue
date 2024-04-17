@@ -77,7 +77,7 @@ $ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers
 }
 ```
 
-If your cluster queue does not have a definition for the _requests_ the job cannot be admitted. For the job above you would want to ensure that you've defined "cpu" under `resoujrceGroups`, as shown below:
+If your cluster queue does not have a definition for the _requests_ the job cannot be admitted. For the job above you would want to ensure that you've defined "cpu" under `resourceGroups`, as shown below:
 
 
 ```yaml
