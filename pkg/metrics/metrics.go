@@ -104,7 +104,7 @@ The label 'result' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "quota_reserved_to_admission_wait_time_seconds",
 			Help:      "The time between a Workload was created until it got quota reservation, per 'cluster_queue'",
-			Buckets:   append([]float64{1}, prometheus.ExponentialBuckets(2.5, 2, 13)...),
+			Buckets:   generateExponentialBuckets(14),
 		}, []string{"cluster_queue"},
 	)
 
@@ -121,7 +121,7 @@ The label 'result' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "admission_wait_time_seconds",
 			Help:      "The time from when a workload got the quota reservation until admission, per 'cluster_queue'",
-			Buckets:   append([]float64{1}, prometheus.ExponentialBuckets(2.5, 2, 13)...),
+			Buckets:   generateExponentialBuckets(14),
 		}, []string{"cluster_queue"},
 	)
 
@@ -193,6 +193,10 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
 	)
 )
+
+func generateExponentialBuckets(count int) []float64 {
+	return append([]float64{1}, prometheus.ExponentialBuckets(2.5, 2, count-1)...)
+}
 
 func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
 	AdmissionAttemptsTotal.WithLabelValues(string(result)).Inc()
