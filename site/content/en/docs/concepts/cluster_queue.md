@@ -449,7 +449,7 @@ tie-breaking:
 
 #### Targets
 
-The algorithm qualifies the candidates as targets using the following heuristics:
+The algorithm qualifies the candidates as preemption targets using the following heuristics:
 
 1. If all candidates belong to the target queue, then Kueue greedily
 qualifies candidates until the incoming Workload can fit, allowing for borrowing.
