@@ -19,6 +19,11 @@ controllerManager:
       tag: v0.8.0
       # This should be set to 'IfNotPresent' for released version
       pullPolicy: IfNotPresent
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false
+      capabilities:
+        drop: ["ALL"]
   manager:
     image:
       repository: gcr.io/k8s-staging-kueue/kueue
@@ -33,8 +38,13 @@ controllerManager:
         memory: 512Mi
     podSecurityContext:
       runAsNonRoot: true
+      seccompProfile:
+        type: "RuntimeDefault"
     containerSecurityContext:
       allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false
+      capabilities:
+        drop: ["ALL"]
   replicas: 1
   imagePullSecrets: []
   readinessProbe:

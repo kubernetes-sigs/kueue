@@ -77,7 +77,7 @@ spec:
           protocol: TCP
         resources: {}
         securityContext:
-          {{- toYaml .Values.controllerManager.manager.containerSecurityContext | nindent 10 }}
+          {{- toYaml .Values.controllerManager.kubeRbacProxy.containerSecurityContext | nindent 10 }}
       securityContext:
         {{- toYaml .Values.controllerManager.manager.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "kueue.fullname" . }}-controller-manager
