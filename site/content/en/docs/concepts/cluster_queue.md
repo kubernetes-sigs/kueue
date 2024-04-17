@@ -424,6 +424,9 @@ The fields above do the following:
 Note that an incoming Workload can preempt Workloads both within the
 ClusterQueue and the cohort.
 
+Kueue implements heuristics to preempt as few Workloads as possible.
+Below we present a more detailed description of the algorithm.
+
 ### Preemption Algorithm overview
 
 An incoming Workload, which does not fit within the free capacity, is eligible
@@ -431,15 +434,6 @@ for preemptions, within a flavor of the target queue, when one of the following
 is true:
 - the requests of the Workload are below the flavor's nominal quota, or
 - `borrowWithinCohort` is enabled.
-
-Kueue implements heuristics to preempt as few Workloads as possible, preferring
-Workloads with these characteristics:
-
-- Workloads belonging to ClusterQueues that are borrowing quota.
-- Workloads with the lowest priority.
-- Workloads that have been admitted more recently.
-
-Below we present a more detailed description of the algorithm.
 
 #### Candidates
 
