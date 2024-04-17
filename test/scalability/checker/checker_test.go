@@ -65,16 +65,16 @@ func TestScalability(t *testing.T) {
 
 	t.Run("CommandStats", func(t *testing.T) {
 		if cmdStats.WallMs > rangeSpec.Cmd.MaxWallMs {
-			t.Errorf("Wall time %dms is grater than maximum expected %dms", cmdStats.WallMs, rangeSpec.Cmd.MaxWallMs)
+			t.Errorf("Wall time %dms is greater than maximum expected %dms", cmdStats.WallMs, rangeSpec.Cmd.MaxWallMs)
 		}
 		if cmdStats.UserMs > rangeSpec.Cmd.MaxUserMs {
-			t.Errorf("User time %dms is grater than maximum expected %dms", cmdStats.UserMs, rangeSpec.Cmd.MaxUserMs)
+			t.Errorf("User time %dms is greater than maximum expected %dms", cmdStats.UserMs, rangeSpec.Cmd.MaxUserMs)
 		}
 		if cmdStats.SysMs > rangeSpec.Cmd.MaxSysMs {
-			t.Errorf("Sys time %dms is grater than maximum expected %dms", cmdStats.SysMs, rangeSpec.Cmd.MaxSysMs)
+			t.Errorf("Sys time %dms is greater than maximum expected %dms", cmdStats.SysMs, rangeSpec.Cmd.MaxSysMs)
 		}
 		if cmdStats.Maxrss > int64(rangeSpec.Cmd.Maxrss) {
-			t.Errorf("Maxrss %dKib is grater than maximum expected %dKib", cmdStats.Maxrss, rangeSpec.Cmd.Maxrss)
+			t.Errorf("Maxrss %dKib is greater than maximum expected %dKib", cmdStats.Maxrss, rangeSpec.Cmd.Maxrss)
 		}
 	})
 }

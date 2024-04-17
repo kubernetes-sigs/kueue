@@ -43,8 +43,7 @@ import (
 )
 
 type reconciler struct {
-	client client.Client
-	// todo add the recorder here
+	client        client.Client
 	atLock        sync.RWMutex
 	admissionTime map[types.UID]time.Time
 	recorder      *recorder.Recorder

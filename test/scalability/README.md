@@ -1,6 +1,6 @@
 # Scalability test
 
-Is a test meant to detect regressions int the Kueue's overall scheduling capabilities. 
+Is a test meant to detect regressions in the Kueue's overall scheduling capabilities. 
 
 # Components
 In order to achieve this the following components are used:

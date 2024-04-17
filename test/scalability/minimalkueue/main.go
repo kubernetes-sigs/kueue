@@ -121,7 +121,7 @@ func mainWithExitCode() int {
 	}
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
-		log.Error(err, "Unable to created manager")
+		log.Error(err, "Unable to create manager")
 		return 1
 	}
 
