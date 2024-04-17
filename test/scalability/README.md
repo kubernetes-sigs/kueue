@@ -33,7 +33,7 @@ Checks the results of a scalability against a set of expected value defined as [
 make run-scalability-in-cluster
 ```
 
-Will run a scalability scenario against an existing cluster (connectable by the hosts default kubeconfig), and store the resulting artifacts are stored in `$(PROJECT_DIR)/bin/run-scalability-in-cluster`.
+Will run a scalability scenario against an existing cluster (connectable by the host's default kubeconfig), and store the resulting artifacts are stored in `$(PROJECT_DIR)/bin/run-scalability-in-cluster`.
 
 The generation config to be used can be set in `SCALABILITY_GENERATOR_CONFIG` by default using `$(PROJECT_DIR)/test/scalability/default_generator_config.yaml`
 
