@@ -467,7 +467,7 @@ target Cluster Queue, until the incoming Workload can fit, allowing for borrowin
 
 The last step of the algorithm is to optimize the set of targets. For this
 purpose Kueue greedily traverses the list of initial targets (in reverse) and
-removes these without which the incoming Workload still can be admitted.
+removes them from the list of targets if the incoming Workload still can be admitted when they are accounted back for quota usage.
 
 ## FlavorFungibility
 
