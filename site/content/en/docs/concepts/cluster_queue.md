@@ -443,7 +443,7 @@ cohort which satisfy the `reclaimWithinCohort` policy.
 
 The list of candidates is sorted based on the following preference checks for
 tie-breaking:
-- Workloads from other borrowing queues in the cohort,
+- Workloads from borrowing queues in the cohort,
 - Workloads with the lowest priority,
 - Workloads which got admitted the most recently.
 
