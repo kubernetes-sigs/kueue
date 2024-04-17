@@ -441,20 +441,20 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
 
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name)
-	gomega.EventuallyWithOffset(1, func() int {
-		v, err := testutil.GetCounterMetricValue(metric)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
-		return int(v)
-	}, Timeout, Interval).Should(gomega.Equal(v))
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		count, err := testutil.GetCounterMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(count)).Should(gomega.Equal(v))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name)
-	gomega.EventuallyWithOffset(1, func() int {
-		v, err := testutil.GetCounterMetricValue(metric)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
-		return int(v)
-	}, Timeout, Interval).Should(gomega.Equal(v))
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		count, err := testutil.GetCounterMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(count)).Should(gomega.Equal(v))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.ClusterQueueStatus) {
