@@ -1522,6 +1522,33 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: sets.New("/a_low", "/b1"),
 		},
+		"preempt huge workload if there is no other option, as long as the target CQ gets a lower share": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "9").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New("/b1"),
+		},
+		"can't preempt huge workload if the incoming is also huge": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "9").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "7").Obj(),
+			targetCQ: "a",
+		},
+		"preempt from target and others even if over nominal": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1_low", "").Priority(-1).Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("a2_low", "").Priority(-1).Request(corev1.ResourceCPU, "1").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New("/a1_low", "/b1"),
+		},
 		"workloads under priority threshold can always be preempted": {
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
