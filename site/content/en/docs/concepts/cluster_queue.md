@@ -466,7 +466,7 @@ without borrowing.
 target Cluster Queue, until the incoming Workload can fit, allowing for borrowing.
 
 The last step of the algorithm is to optimize the set of targets. For this
-purpose Kueue greedily traverses the list of initial targets (in reverse) and
+purpose Kueue greedily traverses the list of initial targets in reverse and
 removes them from the list of targets if the incoming Workload still can be admitted when they are accounted back for quota usage.
 
 ## FlavorFungibility
