@@ -422,64 +422,58 @@ The fields above do the following:
   - `LowerOrNewerEqualPriority`: only preempt Workloads in the ClusterQueue that either have a lower priority than the pending workload or equal priority and are newer than the pending workload.
 
 Note that an incoming Workload can preempt Workloads both within the
-ClusterQueue and the cohort. Kueue implements heuristics to preempt as few
-Workloads as possible, preferring Workloads with these characteristics:
+ClusterQueue and the cohort.
+
+### Preemption Algorithm overview
+
+An incoming Workload, which does not fit within the free capacity, is eligible
+for preemptions, within a flavor of the target queue, when one of the following
+is true:
+- the requests of the Workload are below the flavor's nominal quota, or
+- `borrowWithinCohort` is enabled.
+
+Kueue implements heuristics to preempt as few Workloads as possible, preferring
+Workloads with these characteristics:
 
 - Workloads belonging to ClusterQueues that are borrowing quota.
 - Workloads with the lowest priority.
 - Workloads that have been admitted more recently.
 
-### Preemption Algorithm
-
-The preemption algorithm has the following stages.
-
-#### Eligibility
-
-A workload is eligible for preemptions if it is eligible for preemptions for the
-selected resource flavor
-(see [FlavorFungibility](/docs/concepts/cluster_queue/#flavorfungibility)).
-
-A workload is only eligible to do preemptions in a given resource flavor if it
-fits fully within the nominal quota of the flavor. Alternatively, if
- `borrowWithinCohort` is enabled, then any workloads requesting within the
- cohort limits are eligible for preemptions.
+Below we present a more detailed description of the algorithm.
 
 #### Candidates
 
-The list of peremption candidates is compiled as the list of workloads within
-the cluster queue, satisfying the `withinClusterQueue` policy, and workloads
-within the cohort which satisfy the `reclaimWithinCohort` policy.
+The list of preemption candidates is compiled from Workloads within the Cluster
+Queue satisfying the `withinClusterQueue` policy, and Workloads within the
+cohort which satisfy the `reclaimWithinCohort` policy.
 
 The list of candidates is sorted based on the following preference checks for
 tie-breaking:
-- workloads from other cluster queues,
-- workloads with the lowest priority,
-- workloads which got admitted the most recently.
+- Workloads from other borrowing queues in the cohort,
+- Workloads with the lowest priority,
+- Workloads which got admitted the most recently.
 
 #### Targets
 
-The algorithm to qualify candidates as targets does the following steps:
+The algorithm qualifies the candidates as targets using the following heuristics:
 
-1. If all candidates belong to the target queue, then Kueue gradually qualifies
-candidates as targets until the workload can fit. The end result utilization
-might be the above nominal.
+1. If all candidates belong to the target queue, then Kueue greedily
+qualifies candidates until the incoming Workload can fit, allowing for borrowing.
 
-2. If `borrowWithinCohort` is enabled, then all candidates are considered in
-order, respecting the `borrowWithinCohort.maxPriorityThreshold` threshold, until
-the workload can fit. The end result utilization might be above the nominal
-quota.
+2. If `borrowWithinCohort` is enabled, then Kueue greedily qualifies
+candidates (respecting the `borrowWithinCohort.maxPriorityThreshold` threshold),
+until the incoming Workload can fit, allowing for borrowing.
 
-3. If existing workloads are under nominal, then all candidates are considered
-in order. However, the final utilization cannot exceed the nominal quota.
+3. If the current usage of the target queue is below nominal quota, then
+Kueue greedily qualifies the candidates, until the incoming workload can fit
+without borrowing.
 
-4. Only a subset of candidates from the target queue is considered, but the end
-result utilization is allowed to be above nominal.
-
-#### Optimization of targets set
+4. Kueue tries to greedily qualifies a subset of candidates which belong to the
+target Cluster Queue, until the incoming Workload can fit, allowing for borrowing.
 
 The last step of the algorithm is to optimize the set of targets. For this
 purpose Kueue greedily traverses the list of initial targets (in reverse) and
-removes these without which the workload still can be admitted.
+removes these without which the incoming Workload still can be admitted.
 
 ## FlavorFungibility
 
