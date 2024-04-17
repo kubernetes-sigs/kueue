@@ -449,25 +449,29 @@ tie-breaking:
 
 #### Targets
 
-The algorithm qualifies the candidates as preemption targets using the following heuristics:
+The algorithm qualifies the candidates as preemption targets using the heuristics
+below:
 
 1. If all candidates belong to the target queue, then Kueue greedily
-qualifies candidates until the incoming Workload can fit, allowing for borrowing.
+qualifies candidates until the incoming Workload can fit, allowing the usage of
+the ClusterQueue to be above the nominal quota, up to the `borrowingLimit`.
+This is referred as "borrowing" in the points below.
 
 2. If `borrowWithinCohort` is enabled, then Kueue greedily qualifies
 candidates (respecting the `borrowWithinCohort.maxPriorityThreshold` threshold),
 until the incoming Workload can fit, allowing for borrowing.
 
 3. If the current usage of the target queue is below nominal quota, then
-Kueue greedily qualifies the candidates, until the incoming workload can fit
-without borrowing.
+Kueue greedily qualifies the candidates, until the incoming workload can fit,
+disallowing for borrowing.
 
 4. Kueue tries to greedily qualifies a subset of candidates which belong to the
 target Cluster Queue, until the incoming Workload can fit, allowing for borrowing.
 
 The last step of the algorithm is to optimize the set of targets. For this
 purpose Kueue greedily traverses the list of initial targets in reverse and
-removes them from the list of targets if the incoming Workload still can be admitted when they are accounted back for quota usage.
+removes them from the list of targets if the incoming Workload still can be
+admitted when they are accounted back for quota usage.
 
 ## FlavorFungibility
 
