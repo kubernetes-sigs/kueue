@@ -492,6 +492,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 
 			prFailed := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Failed)
 			prProvisioned := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
+			prAccepted := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Accepted)
 			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl), "check", check, "prName", pr.Name, "failed", prFailed, "accepted", prProvisioned)
 
 			switch {
@@ -516,6 +517,12 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 					// add the pod podSetUpdates
 					checkState.PodSetUpdates = podSetUpdates(wl, pr)
 				}
+			case prAccepted:
+				provisionedStatus := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned)
+				updated = true
+				checkState.State = kueue.CheckStatePending
+				checkState.Message = provisionedStatus.Message
+				
 			default:
 				if checkState.State != kueue.CheckStatePending {
 					updated = true
