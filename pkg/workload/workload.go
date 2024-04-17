@@ -550,7 +550,7 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 
 // AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
 // ClusterQueue configuration and ResourceFlavors
-func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[string]sets.Set[string]) sets.Set[string] {
+func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[string]sets.Set[kueue.ResourceFlavorReference]) sets.Set[string] {
 	// If all admissionChecks should be run for all flavors we don't need to wait for Workload's Admission to be set.
 	// This is also the case if admissionChecks are specified with ClusterQueue.Spec.AdmissionChecks instead of
 	// ClusterQueue.Spec.AdmissionCheckStrategy
@@ -586,7 +586,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 			continue
 		}
 		for _, fName := range assignedFlavors {
-			if flavors.Has(string(fName)) {
+			if flavors.Has(fName) {
 				acNames.Insert(acName)
 			}
 		}

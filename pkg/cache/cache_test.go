@@ -964,9 +964,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks: map[string]sets.Set[string]{
-						"check1": sets.New[string](),
-						"check2": sets.New[string](),
+					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
+						"check1": sets.New[kueue.ResourceFlavorReference](),
+						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
 				},
 			},
@@ -995,9 +995,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks: map[string]sets.Set[string]{
-						"check1": sets.New[string](),
-						"check2": sets.New[string](),
+					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
+						"check1": sets.New[kueue.ResourceFlavorReference](),
+						"check2": sets.New[kueue.ResourceFlavorReference](),
 					}},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
@@ -1026,9 +1026,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks: map[string]sets.Set[string]{
-						"check1": sets.New[string](),
-						"check2": sets.New[string](),
+					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
+						"check1": sets.New[kueue.ResourceFlavorReference](),
+						"check2": sets.New[kueue.ResourceFlavorReference](),
 					}},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
@@ -1057,9 +1057,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					AdmissionChecks: map[string]sets.Set[string]{
-						"check1": sets.New[string](),
-						"check2": sets.New[string](),
+					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
+						"check1": sets.New[kueue.ResourceFlavorReference](),
+						"check2": sets.New[kueue.ResourceFlavorReference](),
 					}},
 			},
 			wantCohorts: map[string]sets.Set[string]{},

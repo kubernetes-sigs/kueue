@@ -143,7 +143,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
 		Status:                        c.Status,
-		AdmissionChecks:               utilmaps.DeepCopySets[string](c.AdmissionChecks),
+		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
 	}
 
 	for fName, rUsage := range c.Usage {

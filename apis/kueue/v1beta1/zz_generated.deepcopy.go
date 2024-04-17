@@ -399,7 +399,11 @@ func (in *ClusterQueueSpec) DeepCopyInto(out *ClusterQueueSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	in.AdmissionChecksStrategy.DeepCopyInto(&out.AdmissionChecksStrategy)
+	if in.AdmissionChecksStrategy != nil {
+		in, out := &in.AdmissionChecksStrategy, &out.AdmissionChecksStrategy
+		*out = new(AdmissionChecksStrategy)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.StopPolicy != nil {
 		in, out := &in.StopPolicy, &out.StopPolicy
 		*out = new(StopPolicy)
