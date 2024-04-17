@@ -151,14 +151,13 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			ginkgo.By("adding an additional admission check to the clusterqueue", func() {
 				createdQueue := kueue.ClusterQueue{}
 				queueKey := client.ObjectKeyFromObject(clusterQueue)
-				gomega.Expect(k8sClient.Get(ctx, queueKey, &createdQueue)).To(gomega.Succeed())
-				createdQueue.Spec.AdmissionChecksStrategy.AdmissionChecks = []kueue.AdmissionCheckStrategyRule{
-					*testing.MakeAdmissionCheckStrategyRule("check1", kueue.ResourceFlavorReference(flavorOnDemand)).Obj(),
-					*testing.MakeAdmissionCheckStrategyRule("check2", kueue.ResourceFlavorReference(reservationFlavor)).Obj(),
-					*testing.MakeAdmissionCheckStrategyRule("check3").Obj()}
-				gomega.Expect(k8sClient.Update(ctx, &createdQueue)).To(gomega.Succeed())
-
 				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, queueKey, &createdQueue)).To(gomega.Succeed())
+					createdQueue.Spec.AdmissionChecksStrategy.AdmissionChecks = []kueue.AdmissionCheckStrategyRule{
+						*testing.MakeAdmissionCheckStrategyRule("check1", kueue.ResourceFlavorReference(flavorOnDemand)).Obj(),
+						*testing.MakeAdmissionCheckStrategyRule("check2", kueue.ResourceFlavorReference(reservationFlavor)).Obj(),
+						*testing.MakeAdmissionCheckStrategyRule("check3").Obj()}
+					g.Expect(k8sClient.Update(ctx, &createdQueue)).To(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					checks := slices.Map(updatedWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 					g.Expect(checks).Should(gomega.ConsistOf("check1", "check3"))
@@ -166,20 +165,19 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			})
 
 			ginkgo.By("marking the checks as passed", func() {
-				gomega.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
-					Name:    "check1",
-					State:   kueue.CheckStateReady,
-					Message: "check successfully passed",
-				})
-				workload.SetAdmissionCheckState(&updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
-					Name:    "check3",
-					State:   kueue.CheckStateReady,
-					Message: "check successfully passed",
-				})
-				gomega.Expect(k8sClient.Status().Update(ctx, &updatedWl)).Should(gomega.Succeed())
-
 				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					workload.SetAdmissionCheckState(&updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateReady,
+						Message: "check successfully passed",
+					})
+					workload.SetAdmissionCheckState(&updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check3",
+						State:   kueue.CheckStateReady,
+						Message: "check successfully passed",
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(&updatedWl)).Should(gomega.BeTrue(), "should have been admitted")
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
