@@ -66,6 +66,7 @@ When you submit a job that has a resource request, for example:
 
 ```bash
 $ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers[0].resources
+```
 ```console
 {
   "limits": {
