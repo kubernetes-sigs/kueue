@@ -429,7 +429,7 @@ Below we present a more detailed description of the algorithm.
 
 ### Preemption Algorithm overview
 
-An incoming Workload, which does not fit within the free capacity, is eligible
+An incoming Workload, which does not fit within the unused quota, is eligible
 for preemptions, within a flavor of the target queue, when one of the following
 is true:
 - the requests of the Workload are below the flavor's nominal quota, or
