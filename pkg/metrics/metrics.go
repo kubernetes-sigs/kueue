@@ -102,7 +102,7 @@ The label 'result' can have the following values:
 	quotaReservedWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
-			Name:      "quota_reserved_wait_time_seconds",
+			Name:      "quota_reserved_to_admission_wait_time_seconds",
 			Help:      "The time between a Workload was created until it got quota reservation, per 'cluster_queue'",
 		}, []string{"cluster_queue"},
 	)
@@ -215,10 +215,10 @@ func ReportPendingWorkloads(cqName string, active, inadmissible int) {
 func ClearQueueSystemMetrics(cqName string) {
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
-	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
-	admissionWaitTime.DeleteLabelValues(cqName)
 	QuotaReservedWorkloadsTotal.DeleteLabelValues(cqName)
 	quotaReservedWaitTime.DeleteLabelValues(cqName)
+	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
+	admissionWaitTime.DeleteLabelValues(cqName)
 }
 
 func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
@@ -315,11 +315,11 @@ func Register() {
 	metrics.Registry.MustRegister(
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
-		QuotaReservedWorkloadsTotal,
-		quotaReservedWaitTime,
 		PendingWorkloads,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
+		QuotaReservedWorkloadsTotal,
+		quotaReservedWaitTime,
 		AdmittedWorkloadsTotal,
 		admissionWaitTime,
 		ClusterQueueResourceUsage,
