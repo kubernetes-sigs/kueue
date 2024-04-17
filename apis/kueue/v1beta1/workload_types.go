@@ -330,9 +330,10 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type=string,description="Name of the queue this workload was submitted to"
-// +kubebuilder:printcolumn:name="Admitted by",JSONPath=".status.admission.clusterQueue",type=string,description="Name of the ClusterQueue that admitted this workload"
-// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Time this workload was created"
+// +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type="string",priority=0,description="Name of the queue this workload was submitted to"
+// +kubebuilder:printcolumn:name="Reserving in",JSONPath=".status.admission.clusterQueue",type="string",priority=0,description="Name of the ClusterQueue where the workload is reserving quota"
+// +kubebuilder:printcolumn:name="Admitted",JSONPath=".status.conditions[?(@.type=='Admitted')].status",type="string",priority=10,description="Admission status"
+// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",priority=0,description="Time this workload was created"
 // +kubebuilder:resource:shortName={wl}
 
 // Workload is the Schema for the workloads API
