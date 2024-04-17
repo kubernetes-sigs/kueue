@@ -60,45 +60,6 @@ Job is called `my-job` in the `my-namespace` namespace.
    job-my-job-19797   user-queue   cluster-queue   9m45s
    ```
 
-## Does my cluster-queue match the job resource requests?
-
-When you submit a job that has a resource request, for example:
-
-```bash
-$ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers[0].resources
-```
-```console
-{
-  "limits": {
-    "cpu": "2"
-  },
-  "requests": {
-    "cpu": "2"
-  }
-}
-```
-
-If your cluster queue does not have a definition for the _requests_ the job cannot be admitted. For the job above you would want to ensure that you've defined "cpu" under `resourceGroups`, as shown below:
-
-
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ClusterQueue
-metadata:
-  name: "cluster-queue"
-spec:
-  namespaceSelector: {}
-  resourceGroups:
-  - coveredResources: ["cpu"]
-    flavors:
-    - name: "default-flavor"
-      resources:
-      - name: "cpu"
-        nominalQuota: 40
-```
-
-Generally speaking, if you find that workloads are not admitted, a good debugging strategy is to check that you've covered resources that are requested, and then carefully describe each of the job and workload, along with looking at logs for kueue. You can typically find a log or condition message that gives a hint to why the queue is not moving.
-
 ## Is my Job running?
 
 To know whether your Job is running, look for the value of the `.spec.suspend` field, by
@@ -171,6 +132,44 @@ status:
     status: "False"
     type: QuotaReserved
 ```
+
+### Does my ClusterQueue have the resource requests that the job requires?
+
+When you submit a job that has a resource request, for example:
+
+```bash
+$ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers[0].resources
+```
+```console
+{
+  "limits": {
+    "cpu": "2"
+  },
+  "requests": {
+    "cpu": "2"
+  }
+}
+```
+
+If your ClusterQueue does not have a definition for the `requests`, Kueue cannot admit the job. For the job above, you should define `cpu` quotas under `resourceGroups`. A ClusterQueue defining `cpu` quota looks like the following:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 40
+```
+
+See [resources groups](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#resource-groups) for more information.
 
 ### Unattempted Workload
 
