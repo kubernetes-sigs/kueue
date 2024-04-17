@@ -38,10 +38,70 @@ spec:
     name: prov-test-config
 ```
 
-### ClusterQueue admissionChecks
+### Usage
 
-Once defined, an AdmissionCheck can be referenced in the ClusterQueues' spec. All Workloads associated with the queue need to be evaluated by the AdmissionCheck's controller before being admitted.
+Once defined, an AdmissionCheck can be referenced in the ClusterQueue's spec. All Workloads associated with the queue need to be evaluated by the AdmissionCheck's controller before being admitted.
 Similarly to `ResourceFlavors`, if an `AdmissionCheck` is not found or its controller has not marked it as `Active`, the ClusterQueue will be marked as Inactive.
+
+There are two ways of referencing AdmissionChecks in the ClusterQueue's spec:
+
+- `.spec.admissionChecks` - is the list of AdmissionChecks that will be run for all Workloads submitted to the ClusterQueue
+- `.spec.admissionCheckStrategy` - wraps the list of `AdmissionCheckStrategyRules` that give you more flexibility. It allows you to both run an AdmissionCheck for all Workloads or to associate an AdmissionCheck
+with a specific ResourceFlavor. To specify ResourceFlavors that an AdmissionCheck should run for use the `admissionCheckStrategyRule.onFlavors` field, and if you want to run AdmissionCheck for all Workloads, simply leave the field empty.
+
+See examples below:
+
+Using `.spec.AdmissionChecks`
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  namespaceSelector: {} # match all.
+  resourceGroups:
+  - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+      - name: "memory"
+        nominalQuota: 36Gi
+      - name: "nvidia.com/gpu"
+        nominalQuota: 9
+  admissionChecks:
+  - sample-prov
+```
+
+Using `.spec.AdmissionCheckStrategy`
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  admissionCheckStrategy:
+    admissionChecks:
+    - name: "sample-prov"           # Name of the AdmissionCheck to be run
+      onFlavors: ["default-flavor"] # This AdmissionCheck will only run for Workloads that use default-flavor
+    - name: "sample-prov-2"
+      onFlavors: []                 # This AdmissionCheck will run for all Workloads regardless of a used ResourceFlavor
+  namespaceSelector: {} # match all.
+  resourceGroups:
+  - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+      - name: "memory"
+        nominalQuota: 36Gi
+      - name: "nvidia.com/gpu"
+        nominalQuota: 9
+```
+
 
 ### AdmissionCheckState
 
