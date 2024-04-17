@@ -64,6 +64,7 @@ func TestAssignFlavors(t *testing.T) {
 		wantRepMode        FlavorAssignmentMode
 		wantAssignment     Assignment
 		enableLendingLimit bool
+		enableFairSharing  bool
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -2263,6 +2264,122 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			enableLendingLimit: true,
 		},
+		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Any": {
+			enableFairSharing: true,
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "12").
+					Obj(),
+			},
+			clusterQueue: cache.ClusterQueue{
+				Preemption: kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				},
+				Cohort: &cache.Cohort{
+					Usage: cache.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 10_000},
+					},
+					RequestableResources: cache.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 12_000},
+						"two": {corev1.ResourceCPU: 12_000},
+					},
+				},
+				FlavorFungibility: kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.Preempt,
+				},
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "one",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourceCPU: {Nominal: 0},
+						},
+					}, {
+						Name: "two",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourceCPU: {Nominal: 12000},
+						},
+					}},
+				}},
+			},
+			wantRepMode: Preempt,
+			wantAssignment: Assignment{
+				Borrowing: true,
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
+					},
+					Status: &Status{
+						reasons: []string{"insufficient unused quota in cohort for cpu in flavor one, 10 more needed"},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("12"),
+					},
+					Count: 1,
+				}},
+				Usage: cache.FlavorResourceQuantities{
+					"one": {corev1.ResourceCPU: 12000},
+				},
+			},
+		},
+		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohor=Never": {
+			enableFairSharing: true,
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "12").
+					Obj(),
+			},
+			clusterQueue: cache.ClusterQueue{
+				Preemption: kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+				},
+				Cohort: &cache.Cohort{
+					Usage: cache.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 10_000},
+					},
+					RequestableResources: cache.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 12_000},
+						"two": {corev1.ResourceCPU: 12_000},
+					},
+				},
+				FlavorFungibility: kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.Preempt,
+				},
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "one",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourceCPU: {Nominal: 0},
+						},
+					}, {
+						Name: "two",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourceCPU: {Nominal: 12_000},
+						},
+					}},
+				}},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "two", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("12"),
+					},
+					Count: 1,
+				}},
+				Usage: cache.FlavorResourceQuantities{
+					"two": {corev1.ResourceCPU: 12_000},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2286,7 +2403,7 @@ func TestAssignFlavors(t *testing.T) {
 			}
 			tc.clusterQueue.UpdateWithFlavors(resourceFlavors)
 			tc.clusterQueue.UpdateRGByResource()
-			flvAssigner := New(wlInfo, &tc.clusterQueue, resourceFlavors)
+			flvAssigner := New(wlInfo, &tc.clusterQueue, resourceFlavors, tc.enableFairSharing)
 			assignment := flvAssigner.Assign(log, nil)
 			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)

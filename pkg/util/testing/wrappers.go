@@ -130,6 +130,24 @@ func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
 	return w
 }
 
+// SimpleReserveQuota reserves the quota for all the requested resources in one flavor.
+// It assumes one podset with one container.
+func (w *WorkloadWrapper) SimpleReserveQuota(cq, flavor string, now time.Time) *WorkloadWrapper {
+	admission := MakeAdmission(cq, w.Spec.PodSets[0].Name)
+	resReq := make(corev1.ResourceList)
+	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
+	for res, val := range w.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests {
+		val.Mul(int64(w.Spec.PodSets[0].Count))
+		resReq[res] = val
+		flavors[res] = kueue.ResourceFlavorReference(flavor)
+	}
+	admission.PodSetAssignments[0].Count = ptr.To(w.Spec.PodSets[0].Count)
+	admission.PodSetAssignments[0].Flavors = flavors
+	admission.PodSetAssignments[0].ResourceUsage = resReq
+
+	return w.ReserveQuotaAt(admission.Obj(), now)
+}
+
 // ReserveQuota sets workload admission and adds a "QuotaReserved" status condition
 func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
 	return w.ReserveQuotaAt(a, time.Now())

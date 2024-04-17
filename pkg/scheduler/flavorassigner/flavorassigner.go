@@ -228,16 +228,18 @@ type FlavorAssignment struct {
 }
 
 type FlavorAssigner struct {
-	wl              *workload.Info
-	cq              *cache.ClusterQueue
-	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	wl                *workload.Info
+	cq                *cache.ClusterQueue
+	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	enableFairSharing bool
 }
 
-func New(wl *workload.Info, cq *cache.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) *FlavorAssigner {
+func New(wl *workload.Info, cq *cache.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool) *FlavorAssigner {
 	return &FlavorAssigner{
-		wl:              wl,
-		cq:              cq,
-		resourceFlavors: resourceFlavors,
+		wl:                wl,
+		cq:                cq,
+		resourceFlavors:   resourceFlavors,
+		enableFairSharing: enableFairSharing,
 	}
 }
 
@@ -563,7 +565,7 @@ func (a *FlavorAssigner) fitsResourceQuota(fName kueue.ResourceFlavorReference, 
 		cohortAvailable = a.cq.RequestableCohortQuota(fName, rName)
 	}
 
-	if a.cq.Preemption.BorrowWithinCohort != nil && a.cq.Preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
+	if a.canPreemptWhileBorrowing() {
 		// when preemption with borrowing is enabled, we can succeed to admit the
 		// workload if preemption is used.
 		if (rQuota.BorrowingLimit == nil || val <= rQuota.Nominal+*rQuota.BorrowingLimit) && val <= cohortAvailable {
@@ -597,6 +599,11 @@ func (a *FlavorAssigner) fitsResourceQuota(fName kueue.ResourceFlavorReference, 
 	}
 	status.append(msg)
 	return mode, borrow, &status
+}
+
+func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
+	return (a.cq.Preemption.BorrowWithinCohort != nil && a.cq.Preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever) ||
+		(a.enableFairSharing && a.cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever)
 }
 
 func filterRequestedResources(req workload.Requests, allowList sets.Set[corev1.ResourceName]) workload.Requests {
