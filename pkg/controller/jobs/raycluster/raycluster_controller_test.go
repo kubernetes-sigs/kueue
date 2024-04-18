@@ -325,6 +325,12 @@ func TestReconciler(t *testing.T) {
 						Message:            "The workload has no reservation",
 						ObservedGeneration: 1,
 					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Pending",
+						ObservedGeneration: 1,
+					}).
 					Obj(),
 			},
 		},

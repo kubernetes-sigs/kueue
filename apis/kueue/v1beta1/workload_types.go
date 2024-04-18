@@ -302,6 +302,11 @@ const (
 	// more detailed information. The more detailed reasons should be prefixed
 	// by one of the "base" reasons.
 	WorkloadPreempted = "Preempted"
+
+	// WorkloadRequeued means that the Workload was requeued.
+	// The possible reasons for this condition are:
+	// - On setting QuotaReserved=False
+	WorkloadRequeued = "Requeued"
 )
 
 const (

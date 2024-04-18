@@ -39,7 +39,13 @@ import (
 )
 
 var (
-	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted, kueue.WorkloadPreempted}
+	admissionManagedConditions = []string{
+		kueue.WorkloadQuotaReserved,
+		kueue.WorkloadEvicted,
+		kueue.WorkloadAdmitted,
+		kueue.WorkloadPreempted,
+		kueue.WorkloadRequeued,
+	}
 )
 
 type AssignmentClusterQueueState struct {
@@ -336,10 +342,14 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
-// UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false and clears
-// the admission.
+// UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
+// the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
 func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) bool {
+	if HasQuotaReservation(wl) {
+		SetRequeuedCondition(wl, reason, message)
+	}
+
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
@@ -359,6 +369,19 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		changed = true
 	}
 	return changed
+}
+
+// SetRequeuedCondition sets the WorkloadRequeued condition to true
+func SetRequeuedCondition(wl *kueue.Workload, reason string, message string) {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadRequeued,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: wl.Generation,
+	}
+	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that

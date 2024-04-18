@@ -178,10 +178,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 		if workload.IsAdmitted(&wl) {
-			c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			waitTime := time.Since(c.LastTransitionTime.Time)
-			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, waitTime.Seconds())
-			metrics.AdmittedWorkload(kueue.ClusterQueueReference(cqName), waitTime)
+			queuedTime := wl.CreationTimestamp.Time
+			if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); c != nil {
+				queuedTime = c.LastTransitionTime.Time
+			}
+			queuedWaitTime := time.Since(queuedTime)
+			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			quotaReservedWaitTime := time.Since(quotaReservedCondition.LastTransitionTime.Time)
+			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
+			metrics.AdmittedWorkload(kueue.ClusterQueueReference(cqName), queuedWaitTime)
+			metrics.AdmissionChecksWaitTime(kueue.ClusterQueueReference(cqName), quotaReservedWaitTime)
 		}
 		return ctrl.Result{}, nil
 	}
