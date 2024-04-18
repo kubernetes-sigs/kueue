@@ -109,12 +109,12 @@ func (e *WLEvent) GetEventInfo() string {
 type WLState struct {
 	Id int
 	types.NamespacedName
-	ClassName      string
-	FirstEventTime time.Time
-	MSToAdmitted   int64
-	MSToFinished   int64
-	EvictionCount  int32
-	LastEvent      *WLEvent
+	ClassName        string
+	FirstEventTime   time.Time
+	TimeToAdmitMs    int64
+	TimeToFinishedMs int64
+	EvictionCount    int32
+	LastEvent        *WLEvent
 }
 
 var WLStateCsvHeader = []string{
@@ -133,8 +133,8 @@ func (wls *WLState) CsvRecord() []string {
 		wls.ClassName,
 		wls.Namespace,
 		wls.Name,
-		strconv.FormatInt(wls.MSToAdmitted, 10),
-		strconv.FormatInt(wls.MSToFinished, 10),
+		strconv.FormatInt(wls.TimeToAdmitMs, 10),
+		strconv.FormatInt(wls.TimeToFinishedMs, 10),
 		strconv.FormatInt(int64(wls.EvictionCount), 10),
 	}
 }
@@ -201,7 +201,7 @@ func (r *Recorder) recordWLEvent(ev *WLEvent) {
 	}
 
 	if ev.Admitted && !state.LastEvent.Admitted {
-		state.MSToAdmitted = ev.Time.Sub(state.FirstEventTime).Milliseconds()
+		state.TimeToAdmitMs = ev.Time.Sub(state.FirstEventTime).Milliseconds()
 	}
 
 	if ev.Evicted && !state.LastEvent.Evicted {
@@ -209,7 +209,7 @@ func (r *Recorder) recordWLEvent(ev *WLEvent) {
 	}
 
 	if ev.Finished && !state.LastEvent.Finished {
-		state.MSToFinished = ev.Time.Sub(state.FirstEventTime).Milliseconds()
+		state.TimeToFinishedMs = ev.Time.Sub(state.FirstEventTime).Milliseconds()
 	}
 
 	state.LastEvent = ev
@@ -319,14 +319,14 @@ func (r *Recorder) WriteSummary(path string) error {
 		if class, found := summary.WorkloadClasses[wlState.ClassName]; !found {
 			summary.WorkloadClasses[wlState.ClassName] = &WorkloadsClassSummary{
 				Count:                  1,
-				totalTimeToAdmissionMs: wlState.MSToAdmitted,
-				totalTimeToFinishMs:    wlState.MSToFinished,
+				totalTimeToAdmissionMs: wlState.TimeToAdmitMs,
+				totalTimeToFinishMs:    wlState.TimeToFinishedMs,
 				TotalEvictions:         wlState.EvictionCount,
 			}
 		} else {
 			class.Count++
-			class.totalTimeToAdmissionMs += wlState.MSToAdmitted
-			class.totalTimeToFinishMs += wlState.MSToFinished
+			class.totalTimeToAdmissionMs += wlState.TimeToAdmitMs
+			class.totalTimeToFinishMs += wlState.TimeToFinishedMs
 			class.TotalEvictions += wlState.EvictionCount
 		}
 	}
