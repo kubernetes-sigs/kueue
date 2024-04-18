@@ -41,6 +41,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -162,7 +163,8 @@ func TestReconciler(t *testing.T) {
 		// If true, the test will delete workloads before running reconcile
 		deleteWorkloads bool
 
-		wantEvents []utiltesting.EventRecord
+		wantEvents        []utiltesting.EventRecord
+		reconcilerOptions []jobframework.Option
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
@@ -3370,6 +3372,138 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"workload is created with correct labels for a single pod": {
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				Label("kueue.x-k8s.io/managed", "true").
+				Label("toCopyKey", "toCopyValue").
+				Label("dontCopyKey", "dontCopyValue").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Queue("test-queue").
+				Obj()},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithLabelKeysToCopy([]string{"toCopyKey", "keyAbsentInThePod"}),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							Obj(),
+					).
+					Queue("test-queue").
+					Priority(0).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+						"toCopyKey":                  "toCopyValue",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()),
+				},
+			},
+		},
+		"workload is created with correct labels for pod group": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					Label("toCopyKey1", "toCopyValue1").
+					Label("dontCopyKey", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					Label("toCopyKey1", "toCopyValue1").
+					Label("toCopyKey2", "toCopyValue2").
+					Label("dontCopyKey", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithLabelKeysToCopy([]string{"toCopyKey1", "toCopyKey2"}),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							Obj(),
+					).
+					Queue("user-queue").
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Annotations(map[string]string{
+						"kueue.x-k8s.io/is-group-workload": "true"}).
+					Labels(map[string]string{
+						"toCopyKey1": "toCopyValue1",
+						"toCopyKey2": "toCopyValue2",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"reconciler returns error in case of label mismatch in pod group": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					Label("toCopyKey1", "toCopyValue1").
+					Label("dontCopyKey", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					Label("toCopyKey1", "otherValue").
+					Label("toCopyKey2", "toCopyValue2").
+					Label("dontCopyKey", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithLabelKeysToCopy([]string{"toCopyKey1", "toCopyKey2"}),
+			},
+			wantWorkloads: nil,
+			wantErr:       errPodGroupLabelsMismatch,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -3402,7 +3536,7 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := NewReconciler(kClient, recorder)
+			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 			pReconciler := reconciler.(*Reconciler)
 			for _, e := range tc.excessPodsExpectations {
 				pReconciler.expectationsStore.ExpectUIDs(log, e.key, e.uids)
@@ -3594,9 +3728,9 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 			},
 			wantRes: false,
 		},
-		"ray.io/v1alpha1/RayCluster": {
+		"ray.io/v1/RayCluster": {
 			ownerReference: metav1.OwnerReference{
-				APIVersion: "ray.io/v1alpha1",
+				APIVersion: "ray.io/v1",
 				Controller: ptr.To(true),
 				Kind:       "RayCluster",
 			},

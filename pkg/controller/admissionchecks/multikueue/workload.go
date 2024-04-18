@@ -73,6 +73,11 @@ type jobAdapter interface {
 	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
 	// suspended and not start the execution locally.
 	KeepAdmissionCheckPending() bool
+	// IsJobManagedByKueue returns:
+	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
+	// - a reason indicating why the job is not managed by Kueue
+	// - any API error encountered during the check
+	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
 }
 
 type wlGroup struct {
@@ -135,7 +140,7 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
 		if err := g.remoteClients[cluster].client.Update(ctx, remWl); err != nil {
-			return fmt.Errorf("removing remote workloads finalizeer: %w", err)
+			return fmt.Errorf("removing remote workloads finalizer: %w", err)
 		}
 	}
 
@@ -159,17 +164,52 @@ func (a *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	// 1. use a finalizer
 	// 2. try to trigger the remote deletion from an event filter.
 
-	grp, err := a.readGroup(ctx, wl)
+	mkAc, err := a.multikueueAC(ctx, wl)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
-	if grp == nil {
+	if mkAc == nil || mkAc.State == kueue.CheckStateRejected {
 		log.V(2).Info("Skip Workload")
 		return reconcile.Result{}, nil
 	}
 
+	adapter, owner := a.adapter(wl)
+	if adapter == nil {
+		// Reject the workload since there is no chance for it to run.
+		var rejectionMessage string
+		if owner != nil {
+			rejectionMessage = fmt.Sprintf("No multikueue adapter found for owner kind %q", schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind).String())
+		} else {
+			rejectionMessage = "No multikueue adapter found"
+		}
+		return reconcile.Result{}, a.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
+	}
+
+	managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, a.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if !managed {
+		return reconcile.Result{}, a.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+	}
+
+	grp, err := a.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	return a.reconcileGroup(ctx, grp)
+}
+
+func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
+	acs.State = status
+	acs.Message = message
+	acs.LastTransitionTime = metav1.NewTime(time.Now())
+	wlPatch := workload.BaseSSAWorkload(wl)
+	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
+	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
 }
 
 func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (map[string]*remoteClient, error) {
@@ -192,8 +232,8 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (m
 	return clients, nil
 }
 
-func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*wlGroup, error) {
-	relevantChecks, err := admissioncheck.FilterForController(ctx, a.client, local.Status.AdmissionChecks, ControllerName)
+func (w *wlReconciler) multikueueAC(ctx context.Context, local *kueue.Workload) (*kueue.AdmissionCheckState, error) {
+	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, local.Status.AdmissionChecks, ControllerName)
 	if err != nil {
 		return nil, err
 	}
@@ -201,33 +241,30 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 	if len(relevantChecks) == 0 {
 		return nil, nil
 	}
+	return workload.FindAdmissionCheck(local.Status.AdmissionChecks, relevantChecks[0]), nil
+}
 
-	rClients, err := a.remoteClientsForAC(ctx, relevantChecks[0])
-	if err != nil {
-		return nil, fmt.Errorf("admission check %q: %w", relevantChecks[0], err)
-	}
-
-	// Lookup the adapter.
-	var adapter jobAdapter
-	controllerKey := types.NamespacedName{}
+func (w *wlReconciler) adapter(local *kueue.Workload) (jobAdapter, *metav1.OwnerReference) {
 	if controller := metav1.GetControllerOf(local); controller != nil {
 		adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
-		adapter = adapters[adapterKey]
-		controllerKey.Namespace = local.Namespace
-		controllerKey.Name = controller.Name
+		return adapters[adapterKey], controller
 	}
+	return nil, nil
+}
 
-	if adapter == nil {
-		return nil, nil
+func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName string, adapter jobAdapter, controllerName string) (*wlGroup, error) {
+	rClients, err := a.remoteClientsForAC(ctx, acName)
+	if err != nil {
+		return nil, fmt.Errorf("admission check %q: %w", acName, err)
 	}
 
 	grp := wlGroup{
 		local:         local,
 		remotes:       make(map[string]*kueue.Workload, len(rClients)),
 		remoteClients: rClients,
-		acName:        relevantChecks[0],
+		acName:        acName,
 		jobAdapter:    adapter,
-		controllerKey: controllerKey,
+		controllerKey: types.NamespacedName{Name: controllerName, Namespace: local.Namespace},
 	}
 
 	for remote, rClient := range rClients {
@@ -261,12 +298,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if !workload.HasQuotaReservation(group.local) && acs.State == kueue.CheckStateRetry {
-			acs.State = kueue.CheckStatePending
-			acs.Message = "Requeued"
-			acs.LastTransitionTime = metav1.NewTime(time.Now())
-			wlPatch := workload.BaseSSAWorkload(group.local)
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-			errs = append(errs, a.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership))
+			errs = append(errs, a.updateACS(ctx, group.local, acs, kueue.CheckStatePending, "Requeued"))
 		}
 
 		return reconcile.Result{}, errors.Join(errs...)

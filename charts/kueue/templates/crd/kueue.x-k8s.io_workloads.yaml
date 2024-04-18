@@ -36,9 +36,13 @@ spec:
       jsonPath: .spec.queueName
       name: Queue
       type: string
-    - description: Name of the ClusterQueue that admitted this workload
+    - description: Name of the ClusterQueue where the workload is reserving quota
       jsonPath: .status.admission.clusterQueue
-      name: Admitted by
+      name: Reserved in
+      type: string
+    - description: Admission status
+      jsonPath: .status.conditions[?(@.type=='Admitted')].status
+      name: Admitted
       type: string
     - description: Time this workload was created
       jsonPath: .metadata.creationTimestamp
@@ -7822,6 +7826,8 @@ spec:
                   clusterQueue:
                     description: clusterQueue is the name of the ClusterQueue that
                       admitted this workload.
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                   podSetAssignments:
                     description: PodSetAssignments hold the admission results for
@@ -7841,6 +7847,8 @@ spec:
                           additionalProperties:
                             description: ResourceFlavorReference is the name of the
                               ResourceFlavor.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
                           description: Flavors are the flavors assigned to the workload
                             for each resource.

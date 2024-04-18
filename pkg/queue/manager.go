@@ -66,7 +66,7 @@ type Manager struct {
 
 	client        client.Client
 	statusChecker StatusChecker
-	clusterQueues map[string]ClusterQueue
+	clusterQueues map[string]*ClusterQueue
 	localQueues   map[string]*LocalQueue
 
 	snapshotsMutex sync.RWMutex
@@ -87,7 +87,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		client:         client,
 		statusChecker:  checker,
 		localQueues:    make(map[string]*LocalQueue),
-		clusterQueues:  make(map[string]ClusterQueue),
+		clusterQueues:  make(map[string]*ClusterQueue),
 		cohorts:        make(map[string]sets.Set[string]),
 		snapshotsMutex: sync.RWMutex{},
 		snapshots:      make(map[string][]kueue.ClusterQueuePendingWorkload, 0),
@@ -200,7 +200,6 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
-		w := w
 		if workload.HasQuotaReservation(&w) {
 			continue
 		}
@@ -431,7 +430,7 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 // 1. delete events for any admitted workload in the cohort.
 // 2. add events of any cluster queue in the cohort.
 // 3. update events of any cluster queue in the cohort.
-func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq ClusterQueue) bool {
+func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq *ClusterQueue) bool {
 	cohort := cq.Cohort()
 	if cohort == "" {
 		return cq.QueueInadmissibleWorkloads(ctx, m.client)
@@ -535,7 +534,7 @@ func (m *Manager) Broadcast() {
 	m.cond.Broadcast()
 }
 
-func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
+func (m *Manager) reportPendingWorkloads(cqName string, cq *ClusterQueue) {
 	active := cq.PendingActive()
 	inadmissible := cq.PendingInadmissible()
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
@@ -555,7 +554,7 @@ func (m *Manager) GetClusterQueueNames() []string {
 	return clusterQueueNames
 }
 
-func (m *Manager) getClusterQueue(cqName string) ClusterQueue {
+func (m *Manager) getClusterQueue(cqName string) *ClusterQueue {
 	m.RLock()
 	defer m.RUnlock()
 	return m.clusterQueues[cqName]
@@ -570,6 +569,8 @@ func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
 }
 
 func (m *Manager) ClusterQueueFromLocalQueue(lqName string) (string, error) {
+	m.RLock()
+	defer m.RUnlock()
 	if lq, ok := m.localQueues[lqName]; ok {
 		return lq.ClusterQueue, nil
 	}

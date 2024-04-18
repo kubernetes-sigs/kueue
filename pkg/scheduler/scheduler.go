@@ -60,20 +60,23 @@ const (
 )
 
 type Scheduler struct {
+	enableFairSharing bool
+
 	queues                  *queue.Manager
 	cache                   *cache.Cache
 	client                  client.Client
 	recorder                record.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
+	workloadOrdering        workload.Ordering
+
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
-
-	workloadOrdering workload.Ordering
 }
 
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
+	enableFairSharing           bool
 }
 
 // Option configures the reconciler.
@@ -91,6 +94,12 @@ func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 	}
 }
 
+func WithFairSharing(enable bool) Option {
+	return func(o *options) {
+		o.enableFairSharing = enable
+	}
+}
+
 func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -100,11 +109,12 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 	}
 	s := &Scheduler{
+		enableFairSharing:       options.enableFairSharing,
 		queues:                  queues,
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder),
+		preemptor:               preemption.New(cl, wo, recorder, options.enableFairSharing),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 	}
@@ -149,7 +159,7 @@ func (cu *cohortsUsage) add(cohort string, assignment cache.FlavorResourceQuanti
 }
 
 func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
-	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
+	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b cache.ResourceQuantities) cache.ResourceQuantities {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
@@ -192,8 +202,9 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 4. Sort entries based on borrowing, priorities (if enabled) and timestamps.
 	sort.Sort(entryOrdering{
-		entries:          entries,
-		workloadOrdering: s.workloadOrdering,
+		enableFairSharing: s.enableFairSharing,
+		entries:           entries,
+		workloadOrdering:  s.workloadOrdering,
 	})
 
 	// 5. Admit entries, ensuring that no more than one workload gets
@@ -237,7 +248,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			if len(e.preemptionTargets) != 0 {
 				// If preemptions are issued, the next attempt should try all the flavors.
 				e.LastAssignment = nil
-				preempted, err := s.preemptor.IssuePreemptions(ctx, e.preemptionTargets, cq)
+				preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets, cq)
 				if err != nil {
 					log.Error(err, "Failed to preempt workloads")
 				}
@@ -266,7 +277,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
 		e.status = nominated
-		if err := s.admit(ctx, e, cq.AdmissionChecks); err != nil {
+		if err := s.admit(ctx, e, cq); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 		if cq.Cohort != nil {
@@ -305,11 +316,13 @@ type entry struct {
 	// workload.Info holds the workload from the API as well as resource usage
 	// and flavors assigned.
 	workload.Info
-	assignment        flavorassigner.Assignment
-	status            entryStatus
-	inadmissibleMsg   string
-	requeueReason     queue.RequeueReason
-	preemptionTargets []*workload.Info
+	dominantResourceShare int
+	dominantResourceName  corev1.ResourceName
+	assignment            flavorassigner.Assignment
+	status                entryStatus
+	inadmissibleMsg       string
+	requeueReason         queue.RequeueReason
+	preemptionTargets     []*workload.Info
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -344,6 +357,9 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
+			if s.enableFairSharing {
+				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(&w)
+			}
 		}
 		entries = append(entries, e)
 	}
@@ -389,7 +405,7 @@ type partialAssignment struct {
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
 	cq := snap.ClusterQueues[wl.ClusterQueue]
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.enableFairSharing)
 	fullAssignment := flvAssigner.Assign(log, nil)
 	var faPreemtionTargets []*workload.Info
 
@@ -490,7 +506,7 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set[string]) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueue) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
@@ -499,7 +515,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set
 	}
 
 	workload.SetQuotaReservation(newWorkload, admission)
-	if workload.HasAllChecks(newWorkload, mustHaveChecks) {
+	if workload.HasAllChecks(newWorkload, workload.AdmissionChecksForWorkload(log, newWorkload, cq.AdmissionChecks)) {
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(newWorkload)
 	}
@@ -545,8 +561,9 @@ func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload
 }
 
 type entryOrdering struct {
-	entries          []entry
-	workloadOrdering workload.Ordering
+	enableFairSharing bool
+	entries           []entry
+	workloadOrdering  workload.Ordering
 }
 
 func (e entryOrdering) Len() int {
@@ -572,7 +589,12 @@ func (e entryOrdering) Less(i, j int) bool {
 		return !aBorrows
 	}
 
-	// 2. Higher priority first if not disabled.
+	// 2. Fair share, if enabled.
+	if e.enableFairSharing && a.dominantResourceShare != b.dominantResourceShare {
+		return a.dominantResourceShare < b.dominantResourceShare
+	}
+
+	// 3. Higher priority first if not disabled.
 	if features.Enabled(features.PrioritySortingWithinCohort) {
 		p1 := priority.Priority(a.Obj)
 		p2 := priority.Priority(b.Obj)
@@ -581,7 +603,7 @@ func (e entryOrdering) Less(i, j int) bool {
 		}
 	}
 
-	// 3. FIFO.
+	// 4. FIFO.
 	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)

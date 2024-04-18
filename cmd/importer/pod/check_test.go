@@ -43,11 +43,11 @@ func TestCheckNamespace(t *testing.T) {
 	baseClusterQueue := utiltesting.MakeClusterQueue("cq1")
 
 	cases := map[string]struct {
-		pods         []corev1.Pod
-		clusteQueues []kueue.ClusterQueue
-		localQueues  []kueue.LocalQueue
-		mapping      util.MappingRules
-		flavors      []kueue.ResourceFlavor
+		pods          []corev1.Pod
+		clusterQueues []kueue.ClusterQueue
+		localQueues   []kueue.LocalQueue
+		mapping       util.MappingRules
+		flavors       []kueue.ResourceFlavor
 
 		wantError error
 	}{
@@ -113,7 +113,7 @@ func TestCheckNamespace(t *testing.T) {
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
 			},
-			clusteQueues: []kueue.ClusterQueue{
+			clusterQueues: []kueue.ClusterQueue{
 				*baseClusterQueue.Obj(),
 			},
 			wantError: util.ErrCQInvalid,
@@ -136,7 +136,7 @@ func TestCheckNamespace(t *testing.T) {
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
 			},
-			clusteQueues: []kueue.ClusterQueue{
+			clusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("cq1").ResourceGroup(*utiltesting.MakeFlavorQuotas("rf1").Resource(corev1.ResourceCPU, "1").Obj()).Obj(),
 			},
 			flavors: []kueue.ResourceFlavor{
@@ -148,7 +148,7 @@ func TestCheckNamespace(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			podsList := corev1.PodList{Items: tc.pods}
-			cqList := kueue.ClusterQueueList{Items: tc.clusteQueues}
+			cqList := kueue.ClusterQueueList{Items: tc.clusterQueues}
 			lqList := kueue.LocalQueueList{Items: tc.localQueues}
 			rfList := kueue.ResourceFlavorList{Items: tc.flavors}
 

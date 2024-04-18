@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -38,8 +38,8 @@ var (
 
 func TestValidateDefault(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob    *rayjobapi.RayJob
-		newJob    *rayjobapi.RayJob
+		oldJob    *rayv1.RayJob
+		newJob    *rayv1.RayJob
 		manageAll bool
 	}{
 		"unmanaged": {
@@ -88,11 +88,11 @@ func TestValidateDefault(t *testing.T) {
 }
 
 func TestValidateCreate(t *testing.T) {
-	worker := rayjobapi.WorkerGroupSpec{}
-	bigWorkerGroup := []rayjobapi.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
+	worker := rayv1.WorkerGroupSpec{}
+	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
 
 	testcases := map[string]struct {
-		job       *rayjobapi.RayJob
+		job       *rayv1.RayJob
 		manageAll bool
 		wantErr   error
 	}{
@@ -147,7 +147,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"worker group uses head name": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
-				WithWorkerGroups(rayjobapi.WorkerGroupSpec{
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
 					GroupName: headGroupPodSetName,
 				}).
 				Obj(),
@@ -172,8 +172,8 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob    *rayjobapi.RayJob
-		newJob    *rayjobapi.RayJob
+		oldJob    *rayv1.RayJob
+		newJob    *rayv1.RayJob
 		manageAll bool
 		wantErr   error
 	}{

@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -78,6 +79,7 @@ var (
 	errIncorrectReconcileRequest = fmt.Errorf("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
 	errPodNoSupportKubeVersion   = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
+	errPodGroupLabelsMismatch    = errors.New("constructing workload: pods have different label values")
 )
 
 func init() {
@@ -477,7 +479,13 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName); err != nil {
+		return err
+	}
+	if err := jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk); err != nil {
+		return err
+	}
+	return nil
 }
 
 func CanSupportIntegration(opts ...jobframework.Option) (bool, error) {
@@ -497,8 +505,8 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 	if groupName == "" {
 		podsInGroup.Items = append(podsInGroup.Items, *p.Object().(*corev1.Pod))
 	} else {
-		if err := c.List(ctx, &podsInGroup, client.MatchingLabels{
-			GroupNameLabel: groupName,
+		if err := c.List(ctx, &podsInGroup, client.MatchingFields{
+			PodGroupNameCacheKey: groupName,
 		}, client.InNamespace(p.pod.Namespace)); err != nil {
 			return err
 		}
@@ -612,8 +620,8 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 	// and update the expectations after we've retrieved active pods from the store.
 	p.satisfiedExcessPods = p.excessPodExpectations.Satisfied(ctrl.LoggerFrom(ctx), *key)
 
-	if err := c.List(ctx, &p.list, client.MatchingLabels{
-		GroupNameLabel: key.Name,
+	if err := c.List(ctx, &p.list, client.MatchingFields{
+		PodGroupNameCacheKey: key.Name,
 	}, client.InNamespace(key.Namespace)); err != nil {
 		return false, err
 	}
@@ -892,7 +900,30 @@ func (p *Pod) ensureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 	return nil
 }
 
-func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error) {
+func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, error) {
+	if len(labelKeysToCopy) == 0 {
+		return nil, nil
+	}
+	if !p.isGroup {
+		return maps.FilterKeys(p.Object().GetLabels(), labelKeysToCopy), nil
+	}
+	workloadLabels := make(map[string]string, len(labelKeysToCopy))
+	for _, pod := range p.list.Items {
+		for _, labelKey := range labelKeysToCopy {
+			labelValuePod, foundInPod := pod.Labels[labelKey]
+			labelValueWorkload, foundInWorkload := workloadLabels[labelKey]
+			if foundInPod && foundInWorkload && (labelValuePod != labelValueWorkload) {
+				return nil, errPodGroupLabelsMismatch
+			}
+			if foundInPod {
+				workloadLabels[labelKey] = labelValuePod
+			}
+		}
+	}
+	return workloadLabels, nil
+}
+
+func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error) {
 	object := p.Object()
 	log := ctrl.LoggerFrom(ctx)
 
@@ -928,7 +959,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		if err := controllerutil.SetControllerReference(object, wl, c.Scheme()); err != nil {
 			return nil, err
 		}
-
+		labelsToCopy, err := p.getWorkloadLabels(labelKeysToCopy)
+		if err != nil {
+			return nil, err
+		}
+		wl.Labels = maps.MergeKeepFirst(wl.Labels, labelsToCopy)
 		return wl, nil
 	}
 
@@ -982,7 +1017,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 			return nil, err
 		}
 	}
-
+	labelsToCopy, err := p.getWorkloadLabels(labelKeysToCopy)
+	if err != nil {
+		return nil, err
+	}
+	wl.Labels = maps.MergeKeepFirst(wl.Labels, labelsToCopy)
 	return wl, nil
 }
 
@@ -1171,7 +1210,7 @@ func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 
 func IsPodOwnerManagedByKueue(p *Pod) bool {
 	if owner := metav1.GetControllerOf(&p.pod); owner != nil {
-		return jobframework.IsOwnerManagedByKueue(owner) || (owner.Kind == "RayCluster" && strings.HasPrefix(owner.APIVersion, "ray.io/v1alpha1"))
+		return jobframework.IsOwnerManagedByKueue(owner)
 	}
 	return false
 }

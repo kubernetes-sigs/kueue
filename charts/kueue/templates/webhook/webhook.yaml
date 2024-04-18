@@ -222,14 +222,14 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /mutate-ray-io-v1alpha1-rayjob
+        path: /mutate-ray-io-v1-rayjob
     failurePolicy: Fail
     name: mrayjob.kb.io
     rules:
       - apiGroups:
           - ray.io
         apiVersions:
-          - v1alpha1
+          - v1
         operations:
           - CREATE
         resources:
@@ -526,39 +526,19 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /validate-ray-io-v1alpha1-rayjob
+        path: /validate-ray-io-v1-rayjob
     failurePolicy: Fail
     name: vrayjob.kb.io
     rules:
       - apiGroups:
           - ray.io
         apiVersions:
-          - v1alpha1
+          - v1
         operations:
           - CREATE
           - UPDATE
         resources:
           - rayjobs
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
-        path: /validate-kueue-x-k8s-io-v1beta1-admissioncheck
-    failurePolicy: Fail
-    name: vadmissioncheck.kb.io
-    rules:
-      - apiGroups:
-          - kueue.x-k8s.io
-        apiVersions:
-          - v1beta1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - admissionchecks
     sideEffects: None
   - admissionReviewVersions:
       - v1
@@ -579,26 +559,6 @@ webhooks:
           - UPDATE
         resources:
           - clusterqueues
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
-        path: /validate-kueue-x-k8s-io-v1beta1-localqueue
-    failurePolicy: Fail
-    name: vlocalqueue.kb.io
-    rules:
-      - apiGroups:
-          - kueue.x-k8s.io
-        apiVersions:
-          - v1beta1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - localqueues
     sideEffects: None
   - admissionReviewVersions:
       - v1

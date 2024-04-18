@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -285,13 +286,13 @@ func TestSyncCheckStates(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotStates, gotShouldChange := syncAdmissionCheckConditions(tc.states, tc.list)
+			gotStates, gotShouldChange := syncAdmissionCheckConditions(tc.states, sets.New(tc.list...))
 
 			if tc.wantChange != gotShouldChange {
 				t.Errorf("Unexpected should change, want=%v", tc.wantChange)
 			}
 
-			opts := []cmp.Option{}
+			var opts []cmp.Option
 			if tc.ignoreTransitionTime {
 				opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"))
 			}
@@ -309,6 +310,7 @@ var (
 			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion", "Status.RequeueState.RequeueAt",
 		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 	}
 )
@@ -317,11 +319,61 @@ func TestReconcile(t *testing.T) {
 	testStartTime := time.Now()
 	cases := map[string]struct {
 		workload       *kueue.Workload
+		cq             *kueue.ClusterQueue
+		lq             *kueue.LocalQueue
 		wantWorkload   *kueue.Workload
 		wantError      error
 		wantEvents     []utiltesting.EventRecord
 		reconcilerOpts []Option
 	}{
+		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				Queue("queue").
+				Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				AdmissionCheckStrategy(
+					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
+				Obj(),
+			lq: utiltesting.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				Queue("queue").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:  "ac1",
+						State: kueue.CheckStatePending,
+					},
+					kueue.AdmissionCheckState{
+						Name:  "ac2",
+						State: kueue.CheckStatePending,
+					}).
+				Obj(),
+		},
+		"assign Admission Checks from ClusterQueue.spec.AdmissionChecks": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				Queue("queue").
+				Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				AdmissionChecks("ac1", "ac2").
+				Obj(),
+			lq: utiltesting.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				Queue("queue").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:  "ac1",
+						State: kueue.CheckStatePending,
+					},
+					kueue.AdmissionCheckState{
+						Name:  "ac2",
+						State: kueue.CheckStatePending,
+					}).
+				Obj(),
+		},
 		"admit": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -472,6 +524,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				Admitted(true).
 				RequeueState(ptr.To[int32](29), nil).
+				Generation(1).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -480,11 +533,13 @@ func TestReconcile(t *testing.T) {
 					Name:  "check",
 					State: kueue.CheckStateReady,
 				}).
+				Generation(1).
 				Condition(metav1.Condition{
-					Type:    kueue.WorkloadEvicted,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
-					Message: "Exceeded the PodsReady timeout ns/wl",
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
 				}).
 				// 1.41284738^(30-1) = 22530.0558
 				RequeueState(ptr.To[int32](30), ptr.To(metav1.NewTime(testStartTime.Add(22530*time.Second).Truncate(time.Second)))).
@@ -543,6 +598,18 @@ func TestReconcile(t *testing.T) {
 			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
 			defer ctxCancel()
+
+			if tc.cq != nil {
+				if err := cl.Create(ctx, tc.cq); err != nil {
+					t.Errorf("couldn't create the cluster queue: %v", err)
+				}
+				if err := qManager.AddClusterQueue(ctx, tc.cq); err != nil {
+					t.Errorf("couldn't add the cluster queue to the cache: %v", err)
+				}
+				if err := qManager.AddLocalQueue(ctx, tc.lq); err != nil {
+					t.Errorf("couldn't add the local queue to the cache: %v", err)
+				}
+			}
 
 			_, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)})
 

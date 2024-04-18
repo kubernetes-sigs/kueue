@@ -78,7 +78,7 @@ Events:
 ## Why did my Pod disappear?
 
 When you enable [preemption](/docs/concepts/cluster_queue/#preemption), Kueue might preempt Pods
-to accomodate higher priority jobs or reclaim quota. Preemption is implemented via `DELETE` calls,
+to accommodate higher priority jobs or reclaim quota. Preemption is implemented via `DELETE` calls,
 the standard way of terminating a Pod in Kubernetes.
 
 When using single Pods, Kubernetes will delete Workload object along with the Pod, as there is

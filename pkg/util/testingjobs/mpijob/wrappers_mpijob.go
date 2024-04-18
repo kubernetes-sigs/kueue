@@ -156,3 +156,9 @@ func (j *MPIJobWrapper) PodLabel(replicaType kubeflow.MPIReplicaType, k, v strin
 	j.Spec.MPIReplicaSpecs[replicaType].Template.Labels[k] = v
 	return j
 }
+
+// Generation sets the generation of the job.
+func (j *MPIJobWrapper) Generation(num int64) *MPIJobWrapper {
+	j.ObjectMeta.Generation = num
+	return j
+}

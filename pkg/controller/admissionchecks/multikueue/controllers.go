@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	defaultGCInterval       = time.Minute
-	defaultOrigin           = "multikueue"
-	defaulWorkerLostTimeout = 5 * time.Minute
+	defaultGCInterval        = time.Minute
+	defaultOrigin            = "multikueue"
+	defaultWorkerLostTimeout = 5 * time.Minute
 )
 
 type SetupOptions struct {
@@ -64,7 +64,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
 		origin:            defaultOrigin,
-		workerLostTimeout: defaulWorkerLostTimeout,
+		workerLostTimeout: defaultWorkerLostTimeout,
 	}
 
 	for _, o := range opts {

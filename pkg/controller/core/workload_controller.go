@@ -17,11 +17,14 @@ limitations under the License.
 package core
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
+	gocmp "github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -49,7 +52,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
-	"sigs.k8s.io/kueue/pkg/util/slices"
+	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -253,17 +257,18 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 }
 
 func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cqName string) (bool, error) {
-	// because we need to react to API cluster queue events, the list of checks from a cache can lead to race conditions
-	queue := kueue.ClusterQueue{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &queue); err != nil {
+	log := ctrl.LoggerFrom(ctx)
+
+	// because we need to react to API cluster cq events, the list of checks from a cache can lead to race conditions
+	cq := kueue.ClusterQueue{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &cq); err != nil {
 		return false, err
 	}
 
-	queueAdmissionChecks := queue.Spec.AdmissionChecks
-	newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, queueAdmissionChecks)
+	admissionChecks := workload.AdmissionChecksForWorkload(log, wl, utilac.NewAdmissionChecks(&cq))
+	newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, admissionChecks)
 	if shouldUpdate {
-		log := ctrl.LoggerFrom(ctx)
-		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "admissionChecks", queueAdmissionChecks)
+		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "admissionChecks", admissionChecks)
 		wl.Status.AdmissionChecks = newChecks
 		err := r.client.Status().Update(ctx, wl)
 		return true, client.IgnoreNotFound(err)
@@ -306,14 +311,14 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	return false, nil
 }
 
-func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, queueChecks []string) ([]kueue.AdmissionCheckState, bool) {
-	if len(queueChecks) == 0 {
+func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionChecks sets.Set[string]) ([]kueue.AdmissionCheckState, bool) {
+	if len(admissionChecks) == 0 {
 		return nil, len(conds) > 0
 	}
 
 	shouldUpdate := false
-	currentChecks := slices.ToRefMap(conds, func(c *kueue.AdmissionCheckState) string { return c.Name })
-	for _, t := range queueChecks {
+	currentChecks := utilslices.ToRefMap(conds, func(c *kueue.AdmissionCheckState) string { return c.Name })
+	for t := range admissionChecks {
 		if _, found := currentChecks[t]; !found {
 			workload.SetAdmissionCheckState(&conds, kueue.AdmissionCheckState{
 				Name:  t,
@@ -324,18 +329,20 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, queueChecks
 	}
 
 	// if the workload conditions length is bigger, then some cleanup should be done
-	if len(conds) > len(queueChecks) {
-		newConds := make([]kueue.AdmissionCheckState, 0, len(queueChecks))
-		queueChecksSet := sets.New(queueChecks...)
+	if len(conds) > len(admissionChecks) {
+		newConds := make([]kueue.AdmissionCheckState, 0, len(admissionChecks))
 		shouldUpdate = true
 		for i := range conds {
 			c := &conds[i]
-			if queueChecksSet.Has(c.Name) {
+			if admissionChecks.Has(c.Name) {
 				newConds = append(newConds, *c)
 			}
 		}
 		conds = newConds
 	}
+	slices.SortFunc(conds, func(state1, state2 kueue.AdmissionCheckState) int {
+		return cmp.Compare(state1.Name, state2.Name)
+	})
 	return conds, shouldUpdate
 }
 
@@ -749,7 +756,8 @@ func (w *workloadCqHandler) Update(ctx context.Context, ev event.UpdateEvent, wq
 	}
 
 	if !newCq.DeletionTimestamp.IsZero() ||
-		!slices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) ||
+		!utilslices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) ||
+		!gocmp.Equal(oldCq.Spec.AdmissionChecksStrategy, newCq.Spec.AdmissionChecksStrategy) ||
 		!ptr.Equal(oldCq.Spec.StopPolicy, newCq.Spec.StopPolicy) {
 		w.queueReconcileForWorkloads(ctx, newCq.Name, wq)
 	}

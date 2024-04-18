@@ -168,6 +168,7 @@ func (j *MPIJob) Finished() (metav1.Condition, bool) {
 		Status:  metav1.ConditionTrue,
 		Reason:  "JobFinished",
 		Message: message,
+		// ObservedGeneration is added via Update status by the job framework
 	}
 	return condition, finished
 }

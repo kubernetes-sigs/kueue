@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +33,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -120,11 +121,11 @@ func TestDefault(t *testing.T) {
 			namespaceSelector: defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				OwnerReference("parent-ray-cluster", rayjobapi.GroupVersion.WithKind("RayCluster")).
+				OwnerReference("parent-ray-cluster", rayv1.GroupVersion.WithKind("RayCluster")).
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
-				OwnerReference("parent-ray-cluster", rayjobapi.GroupVersion.WithKind("RayCluster")).
+				OwnerReference("parent-ray-cluster", rayv1.GroupVersion.WithKind("RayCluster")).
 				Obj(),
 		},
 		"pod with owner managed by kueue (MPIJob)": {

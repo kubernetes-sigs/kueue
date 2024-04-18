@@ -460,7 +460,6 @@ func TestStatus(t *testing.T) {
 		}
 	}
 	for _, wl := range workloads {
-		wl := wl
 		manager.AddOrUpdateWorkload(&wl)
 	}
 
@@ -1096,7 +1095,7 @@ func TestHeadsCancelled(t *testing.T) {
 
 // popNamesFromCQ pops all the workloads from the clusterQueue and returns
 // the keyed names in the order they are popped.
-func popNamesFromCQ(cq ClusterQueue) []string {
+func popNamesFromCQ(cq *ClusterQueue) []string {
 	var names []string
 	for w := cq.Pop(); w != nil; w = cq.Pop() {
 		names = append(names, workload.Key(w.Obj))
