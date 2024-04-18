@@ -36,9 +36,6 @@ type event interface {
 	GetEventInfo() string
 }
 
-type CQStatus struct {
-}
-
 type CQEvent struct {
 	Time      time.Time
 	Name      string
