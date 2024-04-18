@@ -256,7 +256,7 @@ func restoreSnapshot(snapshot *cache.Snapshot, targets []*workload.Info) {
 }
 
 func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*workload.Info {
-	cqHeap := cqHeapFromCandidates(candidates, snapshot)
+	cqHeap := cqHeapFromCandidates(candidates, false, snapshot)
 	nominatedCQ := snapshot.ClusterQueues[wl.ClusterQueue]
 	newNominatedShareValue, _ := nominatedCQ.DominantResourceShareWith(wl)
 	wlReq := totalRequestsForAssignment(wl, assignment)
@@ -308,27 +308,21 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 	}
 	if !fits {
 		// Try rule S2-b in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
-		// if rule S2-A was not enough.
-		cqHeap = cqHeapFromCandidates(retryCandidates, snapshot)
+		// if rule S2-a was not enough.
+		cqHeap = cqHeapFromCandidates(retryCandidates, true, snapshot)
 
 		for cqHeap.Len() > 0 && !fits {
 			candCQ := cqHeap.Pop()
-			for i, candWl := range candCQ.workloads {
-				if newNominatedShareValue < candCQ.share {
-					snapshot.RemoveWorkload(candWl)
-					targets = append(targets, candWl)
-					if workloadFits(wlReq, nominatedCQ, true) {
-						fits = true
-						break
-					}
-					candCQ.workloads = candCQ.workloads[i+1:]
-					if len(candCQ.workloads) > 0 && cqIsBorrowing(candCQ.cq, resPerFlv) {
-						candCQ.share, _ = candCQ.cq.DominantResourceShare()
-						cqHeap.PushIfNotPresent(candCQ)
-					}
-					// Might need to pick a different CQ due to changing values.
-					break
+			if newNominatedShareValue < candCQ.share {
+				// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
+				candWl := candCQ.workloads[0]
+				snapshot.RemoveWorkload(candWl)
+				targets = append(targets, candWl)
+				if workloadFits(wlReq, nominatedCQ, true) {
+					fits = true
 				}
+				// No requeueing because there doesn't seem to be an scenario where
+				// it's possible to apply rule S2-b more than once in a CQ.
 			}
 		}
 
@@ -348,7 +342,7 @@ type candidateCQ struct {
 	share     int
 }
 
-func cqHeapFromCandidates(candidates []*workload.Info, snapshot *cache.Snapshot) *heap.Heap[candidateCQ] {
+func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot *cache.Snapshot) *heap.Heap[candidateCQ] {
 	cqHeap := heap.New(
 		func(c *candidateCQ) string {
 			return c.cq.Name
@@ -368,7 +362,7 @@ func cqHeapFromCandidates(candidates []*workload.Info, snapshot *cache.Snapshot)
 				workloads: []*workload.Info{cand},
 			}
 			_ = cqHeap.PushIfNotPresent(candCQ)
-		} else {
+		} else if !firstOnly {
 			candCQ.workloads = append(candCQ.workloads, cand)
 		}
 	}

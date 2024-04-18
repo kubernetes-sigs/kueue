@@ -1538,6 +1538,15 @@ func TestFairPreemptions(t *testing.T) {
 			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "7").Obj(),
 			targetCQ: "a",
 		},
+		"can't preempt 2 smaller workloads if the incoming is huge": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b3", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "6").Obj(),
+			targetCQ: "a",
+		},
 		"preempt from target and others even if over nominal": {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("a1_low", "").Priority(-1).Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
@@ -1548,6 +1557,47 @@ func TestFairPreemptions(t *testing.T) {
 			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New("/a1_low", "/b1"),
+		},
+		"prefer to preempt workloads that don't make the target CQ have the biggest share": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b3", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("c1", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "3.5").Obj(),
+			targetCQ: "a",
+			// It would have been possible to preempt "/b1" under rule S2-b, but S2-1 was possible first.
+			wantPreempted: sets.New("/b2"),
+		},
+		"preempt from different cluster queues if the end result has a smaller max share": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "2.5").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("c1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("c", "default", now).Obj(),
+				*utiltesting.MakeWorkload("c2", "").Request(corev1.ResourceCPU, "2.5").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "3.5").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New("/b1", "/c1"),
+		},
+		"scenario above does not flap": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "3.5").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "2.5").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("c2", "").Request(corev1.ResourceCPU, "2.5").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("b_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ: "b",
+		},
+		"cannot preempt if it would make the candidate CQ go under nominal after preempting one element": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("c1", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ: "a",
 		},
 		"workloads under priority threshold can always be preempted": {
 			admitted: []kueue.Workload{
