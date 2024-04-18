@@ -28,7 +28,6 @@ spec:
     - description: Admission status
       jsonPath: .status.conditions[?(@.type=='Admitted')].status
       name: Admitted
-      priority: 10
       type: string
     - description: Time this workload was created
       jsonPath: .metadata.creationTimestamp
