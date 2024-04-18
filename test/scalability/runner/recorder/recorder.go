@@ -32,10 +32,6 @@ import (
 	"sigs.k8s.io/kueue/test/scalability/runner/generator"
 )
 
-type event interface {
-	GetEventInfo() string
-}
-
 type CQEvent struct {
 	Time      time.Time
 	Name      string
@@ -50,10 +46,6 @@ type CQEvent struct {
 	ReservingWorkloads int32
 	AdmittedWorkloads  int32
 	Active             bool
-}
-
-func (e *CQEvent) GetEventInfo() string {
-	return ""
 }
 
 type CQState struct {
@@ -99,10 +91,6 @@ type WLEvent struct {
 	Finished  bool
 }
 
-func (e *WLEvent) GetEventInfo() string {
-	return ""
-}
-
 type WLState struct {
 	Id int
 	types.NamespacedName
@@ -146,7 +134,8 @@ type Store struct {
 type Recorder struct {
 	maxRecording time.Duration
 	running      atomic.Bool
-	evChan       chan event
+	cqEvChan     chan *CQEvent
+	wlEvChan     chan *WLEvent
 
 	Store Store
 }
@@ -155,7 +144,8 @@ func New(maxRecording time.Duration) *Recorder {
 	return &Recorder{
 		maxRecording: maxRecording,
 		running:      atomic.Bool{},
-		evChan:       make(chan event, 10),
+		cqEvChan:     make(chan *CQEvent, 10),
+		wlEvChan:     make(chan *WLEvent, 10),
 		Store: Store{
 			CQ: make(CQStore),
 			WL: make(WLStore),
@@ -210,16 +200,6 @@ func (r *Recorder) recordWLEvent(ev *WLEvent) {
 	}
 
 	state.LastEvent = ev
-}
-
-func (r *Recorder) record(ev event) {
-	switch v := ev.(type) {
-	case *CQEvent:
-		r.recordCQEvent(v)
-	case *WLEvent:
-		r.recordWLEvent(v)
-	}
-
 }
 
 func (r *Recorder) expectMoreEvents() bool {
@@ -420,11 +400,13 @@ func (r *Recorder) Run(ctx context.Context, genDone <-chan struct{}) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case ev := <-r.evChan:
-			r.record(ev)
+		case ev := <-r.cqEvChan:
+			r.recordCQEvent(ev)
 			if generateDone.Load() && !r.expectMoreEvents() {
 				return nil
 			}
+		case ev := <-r.wlEvChan:
+			r.recordWLEvent(ev)
 		}
 	}
 }
@@ -433,7 +415,7 @@ func (r *Recorder) RecordWorkloadState(wl *kueue.Workload) {
 	if !r.running.Load() {
 		return
 	}
-	r.evChan <- &WLEvent{
+	r.wlEvChan <- &WLEvent{
 		Time: time.Now(),
 		NamespacedName: types.NamespacedName{
 			Namespace: wl.Namespace,
@@ -465,7 +447,7 @@ func (r *Recorder) RecordCQState(cq *kueue.ClusterQueue) {
 		cpuQuota = cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.MilliValue()
 	}
 
-	r.evChan <- &CQEvent{
+	r.cqEvChan <- &CQEvent{
 		Time:      time.Now(),
 		Name:      cq.Name,
 		ClassName: cq.Labels[generator.ClassLabel],
