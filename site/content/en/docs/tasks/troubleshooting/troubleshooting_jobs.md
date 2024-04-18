@@ -41,8 +41,8 @@ Job is called `my-job` in the `my-namespace` namespace.
    The output looks like the following:
 
    ```
-   NAME               QUEUE        ADMITTED BY     AGE
-   job-my-job-19797   user-queue   cluster-queue   9m45s
+   NAME               QUEUE         RESERVED IN   ADMITTED   AGE
+   job-my-job-19797   user-queue    cluster-queue True       9m45s
    ```
 
 3. You can list all of the workloads in the same namespace of your job and identify the one
@@ -56,8 +56,8 @@ Job is called `my-job` in the `my-namespace` namespace.
    The output looks like the following:
 
    ```
-   NAME               QUEUE        ADMITTED BY     AGE
-   job-my-job-19797   user-queue   cluster-queue   9m45s
+   NAME               QUEUE         RESERVED IN   ADMITTED   AGE
+   job-my-job-19797   user-queue    cluster-queue True       9m45s
    ```
 
 ## Is my Job running?

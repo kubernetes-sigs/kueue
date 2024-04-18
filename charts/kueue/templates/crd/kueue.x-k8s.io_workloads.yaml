@@ -38,7 +38,7 @@ spec:
       type: string
     - description: Name of the ClusterQueue where the workload is reserving quota
       jsonPath: .status.admission.clusterQueue
-      name: Reserving in
+      name: Reserved in
       type: string
     - description: Admission status
       jsonPath: .status.conditions[?(@.type=='Admitted')].status
