@@ -60,7 +60,7 @@ func SetupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 			}
 			gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
 			if err != nil {
-				return fmt.Errorf("%s: %w: %w", fwkNamePrefix, errFailedMappingResource, err)
+				return fmt.Errorf("%s: %s: %w", fwkNamePrefix, errFailedMappingResource, err)
 			}
 			if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
 				if !meta.IsNoMatchError(err) {
