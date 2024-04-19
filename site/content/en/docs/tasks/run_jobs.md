@@ -76,8 +76,8 @@ kubectl -n default get workloads
 The output will be similar to the following:
 
 ```shell
-NAME               QUEUE         ADMITTED BY     AGE
-sample-job-sl4bm   user-queue                    1s
+NAME               QUEUE         RESERVED IN   ADMITTED   AGE
+sample-job-sl4bm   user-queue                             1s
 ```
 
 ## 3. (Optional) Monitor the status of the workload
@@ -123,8 +123,8 @@ kubectl -n default get workloads
 The output is similar to the following:
 
 ```shell
-NAME               QUEUE         ADMITTED BY     AGE
-sample-job-sl4bm   user-queue    cluster-queue   45s
+NAME               QUEUE         RESERVED IN   ADMITTED   AGE
+sample-job-sl4bm   user-queue    cluster-queue True       1s
 ```
 
 To view the event for the Workload admission, run the following command:
