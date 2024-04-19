@@ -53,3 +53,4 @@ patches:
 - path: mutating_webhook_patch.yaml
 - path: validating_webhook_patch.yaml
 - path: clusterqueue_viewer_role_patch.yaml
+- path: remove_default_namespace.yaml
