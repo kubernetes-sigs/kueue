@@ -533,7 +533,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			default:
 				updated = updated || updateCheckState(&checkState, kueue.CheckStatePending)
 			}
-			if prAccepted && !prFailed && !prProvisioned {
+			if prAccepted && !prFailed {
 				updated = updated || updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
 			}
 		}
