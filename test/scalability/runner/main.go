@@ -196,6 +196,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	err = recorder.WriteSummary(path.Join(*outputDir, "summary.yaml"))
+	if err != nil {
+		log.Error(err, "Writing summary")
+		os.Exit(1)
+	}
+	err = recorder.WriteCQCsv(path.Join(*outputDir, "cqStates.csv"))
+	if err != nil {
+		log.Error(err, "Writing cq csv")
+		os.Exit(1)
+	}
+	err = recorder.WriteWLCsv(path.Join(*outputDir, "wlStates.csv"))
+	if err != nil {
+		log.Error(err, "Writing wl csv")
+		os.Exit(1)
+	}
+
 	if *minimalKueuePath == "" {
 		c, err := client.New(cfg, client.Options{Scheme: scheme})
 		if err != nil {
