@@ -361,7 +361,7 @@ func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot 
 				share:     share,
 				workloads: []*workload.Info{cand},
 			}
-			_ = cqHeap.PushIfNotPresent(candCQ)
+			cqHeap.PushOrUpdate(candCQ)
 		} else if !firstOnly {
 			candCQ.workloads = append(candCQ.workloads, cand)
 		}

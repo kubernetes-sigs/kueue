@@ -1533,9 +1533,9 @@ func TestFairPreemptions(t *testing.T) {
 		"can't preempt huge workload if the incoming is also huge": {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("a", "default", now).Obj(),
-				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "9").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "7").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "7").Obj(),
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "5").Obj(),
 			targetCQ: "a",
 		},
 		"can't preempt 2 smaller workloads if the incoming is huge": {
@@ -1567,7 +1567,7 @@ func TestFairPreemptions(t *testing.T) {
 			},
 			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "3.5").Obj(),
 			targetCQ: "a",
-			// It would have been possible to preempt "/b1" under rule S2-b, but S2-1 was possible first.
+			// It would have been possible to preempt "/b1" under rule S2-b, but S2-a was possible first.
 			wantPreempted: sets.New("/b2"),
 		},
 		"preempt from different cluster queues if the end result has a smaller max share": {
