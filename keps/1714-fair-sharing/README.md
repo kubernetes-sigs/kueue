@@ -206,10 +206,12 @@ The value function is a variation of DRF (see
 [1](https://amplab.cs.berkeley.edu/wp-content/uploads/2011/06/Dominant-Resource-Fairness-Fair-Allocation-of-Multiple-Resource-Types.pdf),
 [2](https://dash.harvard.edu/bitstream/handle/1/11956916/Parkes_BeyondDominant.pdf;jsessionid=AC0D06C2CC07C693BD42008D7AE25D99?sequence=1)):
 
-For a given resource r provided by a ClusterQueue or cohort c, we calculate T_r as the total
-requests consumed by the Workloads for that resource in that CQ or cohort, independent of the
-flavor, that are above the nominal quota. The value for a resource is the ratio of T_r and the
-total nominal quotas (or lendingLimits, if defined) in the hierarchy of the parent of C.
+For a given resource _r_ provided by a ClusterQueue or cohort _c_, we calculate $T_r$ as the
+total requests consumed by the Workloads for resource _r_ in that CQ or cohort,
+that are above the nominal quota, added up for all flavors.
+The value for a resource is the ratio of $T_r$ and the total nominal quotas
+(or lendingLimits, if defined) for the resource _r_, added up for all flavors,
+in the hierarchy of the parent of _c_.
 
 Note that the share value for a suborganization (a node in the tree) is independent of the 
 share value for its children. In other words, the calculation of the share value only 
