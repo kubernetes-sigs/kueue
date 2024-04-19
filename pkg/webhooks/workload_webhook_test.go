@@ -17,7 +17,6 @@ limitations under the License.
 package webhooks
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -38,61 +37,6 @@ const (
 	testWorkloadName      = "test-workload"
 	testWorkloadNamespace = "test-ns"
 )
-
-func TestWorkloadWebhookDefault(t *testing.T) {
-	cases := map[string]struct {
-		wl     kueue.Workload
-		wantWl kueue.Workload
-	}{
-		"add default podSet name": {
-			wl: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{
-						{},
-					},
-				},
-			},
-			wantWl: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{
-						{Name: "main"},
-					},
-				},
-			},
-		},
-		"don't set podSetName if multiple": {
-			wl: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{
-						{},
-						{},
-					},
-				},
-			},
-			wantWl: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{
-						{},
-						{},
-					},
-				},
-			},
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			wh := &WorkloadWebhook{}
-			wlCopy := tc.wl.DeepCopy()
-			if err := wh.Default(context.Background(), wlCopy); err != nil {
-				t.Fatalf("Could not apply defaults: %v", err)
-			}
-			if diff := cmp.Diff(tc.wantWl, *wlCopy,
-				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
-				t.Errorf("Obtained wrong defaults (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
 
 func TestValidateWorkload(t *testing.T) {
 	specPath := field.NewPath("spec")

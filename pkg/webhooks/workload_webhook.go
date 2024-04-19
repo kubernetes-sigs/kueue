@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -43,38 +42,8 @@ type WorkloadWebhook struct{}
 func setupWebhookForWorkload(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kueue.Workload{}).
-		WithDefaulter(&WorkloadWebhook{}).
 		WithValidator(&WorkloadWebhook{}).
 		Complete()
-}
-
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
-
-var _ webhook.CustomDefaulter = &WorkloadWebhook{}
-
-// Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	wl := obj.(*kueue.Workload)
-	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
-	log.V(5).Info("Applying defaults", "workload", klog.KObj(wl))
-
-	// Only when we have one podSet and its name is empty,
-	// we'll set it to the default name `main`.
-	if len(wl.Spec.PodSets) == 1 {
-		podSet := &wl.Spec.PodSets[0]
-		if len(podSet.Name) == 0 {
-			podSet.Name = kueue.DefaultPodSetName
-		}
-	}
-
-	// drop minCounts if PartialAdmission is not enabled
-	if !features.Enabled(features.PartialAdmission) {
-		for i := range wl.Spec.PodSets {
-			wl.Spec.PodSets[i].MinCount = nil
-		}
-	}
-
-	return nil
 }
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta1-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta1,name=vworkload.kb.io,admissionReviewVersions=v1

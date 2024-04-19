@@ -273,25 +273,6 @@ webhooks:
         resources:
           - resourceflavors
     sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
-        path: /mutate-kueue-x-k8s-io-v1beta1-workload
-    failurePolicy: Fail
-    name: mworkload.kb.io
-    rules:
-      - apiGroups:
-          - kueue.x-k8s.io
-        apiVersions:
-          - v1beta1
-        operations:
-          - CREATE
-        resources:
-          - workloads
-    sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration

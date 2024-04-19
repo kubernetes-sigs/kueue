@@ -118,9 +118,10 @@ type PodSetAssignment struct {
 // +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
 type PodSet struct {
 	// name is the PodSet name.
+	// +kubebuilder:default=main
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
 
 	// template is the Pod template.
 	//

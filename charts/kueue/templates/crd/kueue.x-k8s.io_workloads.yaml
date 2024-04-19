@@ -114,6 +114,7 @@ spec:
                       minimum: 1
                       type: integer
                     name:
+                      default: main
                       description: name is the PodSet name.
                       maxLength: 63
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
@@ -7767,7 +7768,6 @@ spec:
                       type: object
                   required:
                   - count
-                  - name
                   - template
                   type: object
                   x-kubernetes-validations:
