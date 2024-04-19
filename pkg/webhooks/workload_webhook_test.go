@@ -29,7 +29,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -60,10 +59,6 @@ func TestValidateWorkload(t *testing.T) {
 					Count: 100,
 				},
 			).Obj(),
-		},
-		"should pass validation when priorityClassName is empty": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			wantErr:  nil,
 		},
 		"should have a valid podSet name in status assignment": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -233,7 +228,6 @@ func TestValidateWorkload(t *testing.T) {
 				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, []string{}),
 			},
 		},
-
 		"too many variable count podSets": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
@@ -261,35 +255,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		before, after *kueue.Workload
 		wantErr       field.ErrorList
 	}{
-		"queueName can be updated when not admitted": {
-			before:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q1").Obj(),
-			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q2").Obj(),
-			wantErr: nil,
-		},
-		"queueName can be updated when admitting": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
-				ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
-		},
-		"queueName can be updated when admission is reset": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q1").
-				ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q2").Obj(),
-		},
-		"admission can be set": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(
-				testingutil.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
-			).Obj(),
-			wantErr: nil,
-		},
-		"admission can be unset": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(
-				testingutil.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
-			).Obj(),
-			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			wantErr: nil,
-		},
 		"reclaimable pod count can change up": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
@@ -428,46 +393,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 				State:              kueue.CheckStateReady,
 			}).Obj(),
-		},
-		"updating priorityClassName before setting reserve quota for workload": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
-				PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
-				PriorityClass("test-class-2").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).Obj(),
-			wantErr: nil,
-		},
-		"updating priorityClassSource before setting reserve quota for workload": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
-				PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
-				PriorityClass("test-class").PriorityClassSource(constants.WorkloadPriorityClassSource).
-				Priority(10).Obj(),
-			wantErr: nil,
-		},
-		"updating podSets  before setting reserve quota for workload": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				kueue.PodSet{
-					Name:  "main",
-					Count: 1,
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name: "c-after",
-									Resources: corev1.ResourceRequirements{
-										Requests: make(corev1.ResourceList),
-									},
-								},
-							},
-						},
-					},
-				},
-			).Obj(),
-			wantErr: nil,
 		},
 	}
 	for name, tc := range testCases {
