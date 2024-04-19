@@ -133,6 +133,44 @@ status:
     type: QuotaReserved
 ```
 
+### Does my ClusterQueue have the resource requests that the job requires?
+
+When you submit a job that has a resource request, for example:
+
+```bash
+$ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers[0].resources
+```
+```console
+{
+  "limits": {
+    "cpu": "2"
+  },
+  "requests": {
+    "cpu": "2"
+  }
+}
+```
+
+If your ClusterQueue does not have a definition for the `requests`, Kueue cannot admit the job. For the job above, you should define `cpu` quotas under `resourceGroups`. A ClusterQueue defining `cpu` quota looks like the following:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 40
+```
+
+See [resources groups](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#resource-groups) for more information.
+
 ### Unattempted Workload
 
 When using a [ClusterQueue](/docs/concepts/cluster_queue) with the `StrictFIFO`
