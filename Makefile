@@ -230,6 +230,14 @@ ifdef SCALABILITY_KUEUE_LOGS
 SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
 endif
 
+ifdef SCALABILITY_SCRAPE_INTERVAL
+SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeInterval=$(SCALABILITY_SCRAPE_INTERVAL)
+endif
+
+ifdef SCALABILITY_SCRAPE_URL
+SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeURL=$(SCALABILITY_SCRAPE_URL)
+endif
+
 SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/scalability/default_generator_config.yaml
 
 SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-scalability
@@ -241,7 +249,7 @@ run-scalability: envtest scalability-runner minimalkueue
 		--o $(SCALABILITY_RUN_DIR) \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
-		--minimalKueue=$(ARTIFACTS)/minimalkueue $(SCALABILITY_EXTRA_ARGS)
+		--minimalKueue=$(ARTIFACTS)/minimalkueue $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: test-scalability
 test-scalability: gotestsum run-scalability
@@ -257,7 +265,7 @@ run-scalability-in-cluster: envtest scalability-runner
 	$(SCALABILITY_RUNNER) \
 		--o $(ARTIFACTS)/run-scalability-in-cluster \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
-		--qps=1000 --burst=2000 --timeout=15m
+		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: ci-lint
 ci-lint: golangci-lint

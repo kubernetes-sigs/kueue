@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"runtime/pprof"
@@ -41,12 +42,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 )
 
 var (
 	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+
+	metricsPort = flag.Int("metricsPort", 0, "metrics serving port")
 )
 
 var (
@@ -119,6 +123,12 @@ func mainWithExitCode() int {
 			BindAddress: "0",
 		},
 	}
+
+	if *metricsPort > 0 {
+		options.Metrics.BindAddress = fmt.Sprintf(":%d", *metricsPort)
+		metrics.Register()
+	}
+
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
 		log.Error(err, "Unable to create manager")

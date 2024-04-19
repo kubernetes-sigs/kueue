@@ -37,6 +37,8 @@ Will run a scalability scenario against an existing cluster (connectable by the 
 
 The generation config to be used can be set in `SCALABILITY_GENERATOR_CONFIG` by default using `$(PROJECT_DIR)/test/scalability/default_generator_config.yaml`
 
+Setting `SCALABILITY_SCRAPE_INTERVAL` to an interval value and `SCALABILITY_SCRAPE_URL` to an URL exposing kueue's metrics will cause the scalability runner to scrape that URL every interval and store the results in `$(PROJECT_DIR)/bin/run-scalability-in-cluster/metricsDump.tgz`.
+
 Check [installation guide](https://kueue.sigs.k8s.io/docs/installation) for cluster and [observability](https://kueue.sigs.k8s.io/docs/installation/#add-metrics-scraping-for-prometheus-operator).
 
 ## Run with minimalkueue
@@ -54,6 +56,8 @@ The generation config to be used can be set in `SCALABILITY_GENERATOR_CONFIG` by
 Setting `SCALABILITY_CPU_PROFILE=1` will generate a cpuprofile of minimalkueue in `$(PROJECT_DIR)/bin/run-scalability/minimalkueue.cpu.prof`
 
 Setting `SCALABILITY_KUEUE_LOGS=1` will save the logs of minimalkueue in  `$(PROJECT_DIR)/bin/run-scalability/minimalkueue.out.log` and  `$(PROJECT_DIR)/bin/run-scalability/minimalkueue.err.log`
+
+Setting `SCALABILITY_SCRAPE_INTERVAL` to an interval value (e.g. `1s`) will expose the metrics of `minimalkueue` and have them collected by the scalability runner in `$(PROJECT_DIR)/bin/run-scalability/metricsDump.tgz` every interval. 
 
 ## Run scalability test
 
