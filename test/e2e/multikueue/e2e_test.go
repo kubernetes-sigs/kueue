@@ -19,7 +19,6 @@ package mke2e
 import (
 	"fmt"
 	"os/exec"
-	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -346,6 +345,16 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
+			worker1Cq2 := utiltesting.MakeClusterQueue("q2").
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas(worker1Flavor.Name).
+						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceMemory, "1G").
+						Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sWorker1Client.Create(ctx, worker1Cq2)).Should(gomega.Succeed())
+
 			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
 
@@ -379,12 +388,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				gomega.Expect(util.DeleteClusterQueue(ctx, k8sWorker1Client, worker1Cq2)).ToNot(gomega.HaveOccurred())
 
-				// For some reason, after reconnecting the container to the network,
-				// when we try to get pods, we get it with the previous values (as before disconnect).
-				// Therefore, it takes some time for the cluster to restore them and we got actually values.
-				time.Sleep(util.LongTimeout)
-				util.WaitForKueueAvailability(ctx, k8sWorker1Client, true)
+				var cq kueue.ClusterQueue
+				gomega.Eventually(func() error {
+					return k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(worker1Cq2), &cq)
+				}, util.LongTimeout, util.Interval).Should(utiltesting.BeNotFoundError())
 			})
 
 			ginkgo.By("Waiting for the cluster do become active", func() {
@@ -399,7 +408,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Message: "Connected",
 						},
 						cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
