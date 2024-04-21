@@ -292,12 +292,13 @@ func (j *Job) Finished() (metav1.Condition, bool) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadFinished,
 		Status:             metav1.ConditionTrue,
-		Reason:             "JobFinished",
+		Reason:             kueue.WorkloadFinishedReasonSucceeded,
 		Message:            "Job finished successfully",
 		ObservedGeneration: j.Generation,
 	}
 	if conditionType == batchv1.JobFailed {
 		condition.Message = "Job failed"
+		condition.Reason = kueue.WorkloadFinishedReasonFailed
 	}
 
 	return condition, finished

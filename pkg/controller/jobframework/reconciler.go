@@ -636,7 +636,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		err := workload.UpdateStatus(ctx, r.client, wl,
 			kueue.WorkloadFinished,
 			metav1.ConditionTrue,
-			"OutOfSync",
+			kueue.WorkloadFinishedReasonOutOfSync,
 			"The prebuilt workload is out of sync with its user job",
 			constants.JobControllerName)
 		return false, err

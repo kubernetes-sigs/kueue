@@ -151,7 +151,7 @@ func (j *JobSet) Finished() (metav1.Condition, bool) {
 		condition := metav1.Condition{
 			Type:    kueue.WorkloadFinished,
 			Status:  metav1.ConditionTrue,
-			Reason:  "JobSetFinished",
+			Reason:  kueue.WorkloadFinishedReasonSucceeded,
 			Message: "JobSet finished successfully",
 		}
 		return condition, true
@@ -160,7 +160,7 @@ func (j *JobSet) Finished() (metav1.Condition, bool) {
 		condition := metav1.Condition{
 			Type:    kueue.WorkloadFinished,
 			Status:  metav1.ConditionTrue,
-			Reason:  "JobSetFinished",
+			Reason:  kueue.WorkloadFinishedReasonFailed,
 			Message: "JobSet failed",
 		}
 		return condition, true

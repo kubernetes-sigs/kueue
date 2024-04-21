@@ -220,7 +220,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  "JobFinished",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: `Job finished successfully`,
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
@@ -314,7 +314,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  "JobSetFinished",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "JobSet finished successfully",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())

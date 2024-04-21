@@ -160,13 +160,15 @@ func (j *MPIJob) Finished() (metav1.Condition, bool) {
 	}
 
 	message := "Job finished successfully"
+	reason := kueue.WorkloadFinishedReasonSucceeded
 	if conditionType == kubeflow.JobFailed {
 		message = "Job failed"
+		reason = kueue.WorkloadFinishedReasonFailed
 	}
 	condition := metav1.Condition{
 		Type:    kueue.WorkloadFinished,
 		Status:  metav1.ConditionTrue,
-		Reason:  "JobFinished",
+		Reason:  reason,
 		Message: message,
 		// ObservedGeneration is added via Update status by the job framework
 	}

@@ -207,7 +207,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		log.V(3).Info("Workload has Rejected admission checks, Finish with failure")
 		err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished,
 			metav1.ConditionTrue,
-			"AdmissionChecksRejected",
+			kueue.WorkloadFinishedReasonAdmissionChecksRejected,
 			fmt.Sprintf("Admission checks %v are rejected", rejectedChecks),
 			constants.KueueName)
 		if err == nil {

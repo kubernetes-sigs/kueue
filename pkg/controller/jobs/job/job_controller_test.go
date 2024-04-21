@@ -1717,7 +1717,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
-						Reason:             "JobFinished",
+						Reason:             kueue.WorkloadFinishedReasonSucceeded,
 						Message:            "Job finished successfully",
 						ObservedGeneration: 1,
 					}).

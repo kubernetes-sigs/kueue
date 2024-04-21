@@ -161,10 +161,15 @@ func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 }
 
 func (j *RayCluster) Finished() (metav1.Condition, bool) {
+	reason := kueue.WorkloadFinishedReasonSucceeded
+	if j.Status.State == rayv1.Failed {
+		reason = kueue.WorkloadFinishedReasonFailed
+	}
+
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadFinished,
 		Status:             metav1.ConditionFalse,
-		Reason:             string(j.Status.State),
+		Reason:             reason,
 		Message:            j.Status.Reason,
 		ObservedGeneration: j.Generation,
 	}

@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  "JobSetFinished",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "JobSet finished successfully",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())

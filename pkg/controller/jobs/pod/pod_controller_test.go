@@ -387,7 +387,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    "Finished",
 						Status:  "True",
-						Reason:  "JobFinished",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Job finished successfully",
 					}).
 					Obj(),
@@ -439,7 +439,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    "Finished",
 						Status:  "True",
-						Reason:  "JobFinished",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Job finished successfully",
 					}).
 					Obj(),
@@ -906,7 +906,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    "Finished",
 						Status:  "True",
-						Reason:  "JobFinished",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Pods succeeded: 2/2.",
 					}).
 					Obj(),
@@ -1074,7 +1074,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    "Finished",
 						Status:  "True",
-						Reason:  "JobFinished",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Pods succeeded: 1/2. Pods failed: 1/2",
 					}).
 					Obj(),
@@ -1093,7 +1093,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    "Finished",
 						Status:  "True",
-						Reason:  "JobFinished",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Pods succeeded: 1/2. Pods failed: 1/2",
 					}).
 					Obj(),
@@ -1497,7 +1497,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    "Finished",
 						Status:  "True",
-						Reason:  "JobFinished",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Pods succeeded: 2/2.",
 					}).
 					Obj(),
@@ -2117,7 +2117,7 @@ func TestReconciler(t *testing.T) {
 						metav1.Condition{
 							Type:    kueue.WorkloadFinished,
 							Status:  metav1.ConditionTrue,
-							Reason:  "JobFinished",
+							Reason:  kueue.WorkloadFinishedReasonSucceeded,
 							Message: "Pods succeeded: 1/3.",
 						},
 					).
@@ -3704,7 +3704,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 			metav1.Condition{
 				Type:    kueue.WorkloadFinished,
 				Status:  metav1.ConditionTrue,
-				Reason:  "JobFinished",
+				Reason:  kueue.WorkloadFinishedReasonSucceeded,
 				Message: "Job finished successfully",
 			},
 		).

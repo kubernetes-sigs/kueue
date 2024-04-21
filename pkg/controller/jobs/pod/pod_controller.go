@@ -322,7 +322,7 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 	condition := metav1.Condition{
 		Type:    kueue.WorkloadFinished,
 		Status:  metav1.ConditionTrue,
-		Reason:  "JobFinished",
+		Reason:  kueue.WorkloadFinishedReasonSucceeded,
 		Message: "Job finished successfully",
 	}
 
@@ -332,6 +332,7 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 
 		if ph == corev1.PodFailed {
 			condition.Message = "Job failed"
+			condition.Reason = kueue.WorkloadFinishedReasonFailed
 		}
 
 		return condition, finished

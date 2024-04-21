@@ -519,7 +519,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							gomega.BeComparableTo(metav1.Condition{
 								Type:    kueue.WorkloadFinished,
 								Status:  metav1.ConditionTrue,
-								Reason:  "JobFinished",
+								Reason:  kueue.WorkloadFinishedReasonSucceeded,
 								Message: "Job finished successfully",
 							}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
