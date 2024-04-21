@@ -66,14 +66,8 @@ function kind_load {
 
 
     # JOBSET SETUP
-    # MANAGER
-    # Only install the CRDs and not the controller to be able to
-    # have JobSets admitted without execution in the manager cluster.
-    kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
-    kubectl apply --server-side -f ${JOBSET_CRDS}/*
-
-    #WORKERS
     docker pull registry.k8s.io/jobset/jobset:$JOBSET_VERSION
+    install_jobset $MANAGER_KIND_CLUSTER_NAME
     install_jobset $WORKER1_KIND_CLUSTER_NAME
     install_jobset $WORKER2_KIND_CLUSTER_NAME
     fi

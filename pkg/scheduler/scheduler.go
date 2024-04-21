@@ -114,7 +114,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder),
+		preemptor:               preemption.New(cl, wo, recorder, options.enableFairSharing),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 	}
@@ -248,7 +248,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			if len(e.preemptionTargets) != 0 {
 				// If preemptions are issued, the next attempt should try all the flavors.
 				e.LastAssignment = nil
-				preempted, err := s.preemptor.IssuePreemptions(ctx, e.preemptionTargets, cq)
+				preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets, cq)
 				if err != nil {
 					log.Error(err, "Failed to preempt workloads")
 				}
@@ -277,7 +277,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
 		e.status = nominated
-		if err := s.admit(ctx, e, cq.AdmissionChecks); err != nil {
+		if err := s.admit(ctx, e, cq); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 		if cq.Cohort != nil {
@@ -358,7 +358,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
 			if s.enableFairSharing {
-				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShare(&w)
+				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(&w)
 			}
 		}
 		entries = append(entries, e)
@@ -405,7 +405,7 @@ type partialAssignment struct {
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
 	cq := snap.ClusterQueues[wl.ClusterQueue]
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.enableFairSharing)
 	fullAssignment := flvAssigner.Assign(log, nil)
 	var faPreemtionTargets []*workload.Info
 
@@ -506,7 +506,7 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set[string]) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueue) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
@@ -515,7 +515,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set
 	}
 
 	workload.SetQuotaReservation(newWorkload, admission)
-	if workload.HasAllChecks(newWorkload, mustHaveChecks) {
+	if workload.HasAllChecks(newWorkload, workload.AdmissionChecksForWorkload(log, newWorkload, cq.AdmissionChecks)) {
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(newWorkload)
 	}

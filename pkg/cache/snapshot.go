@@ -143,8 +143,9 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
 		Status:                        c.Status,
-		AdmissionChecks:               c.AdmissionChecks.Clone(),
+		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
 	}
+
 	for fName, rUsage := range c.Usage {
 		cc.Usage[fName] = maps.Clone(rUsage)
 	}

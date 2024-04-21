@@ -172,6 +172,8 @@ spec:
                   properties:
                     name:
                       description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
                     resources:
                       description: resources lists the quota usage for the resources
@@ -213,6 +215,8 @@ spec:
                   properties:
                     name:
                       description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
                     resources:
                       description: resources lists the quota usage for the resources

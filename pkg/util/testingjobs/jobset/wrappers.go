@@ -161,3 +161,8 @@ func (j *JobSetWrapper) Condition(c metav1.Condition) *JobSetWrapper {
 	apimeta.SetStatusCondition(&j.Status.Conditions, c)
 	return j
 }
+
+func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
+	j.Spec.ManagedBy = &c
+	return j
+}

@@ -87,6 +87,12 @@ func (w *WorkloadWrapper) UID(uid types.UID) *WorkloadWrapper {
 	return w
 }
 
+// Generation sets the generation of the Workload.
+func (w *WorkloadWrapper) Generation(num int64) *WorkloadWrapper {
+	w.ObjectMeta.Generation = num
+	return w
+}
+
 func (w *WorkloadWrapper) Name(name string) *WorkloadWrapper {
 	w.Workload.Name = name
 	return w
@@ -122,6 +128,24 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
 	w.Spec.Active = ptr.To(a)
 	return w
+}
+
+// SimpleReserveQuota reserves the quota for all the requested resources in one flavor.
+// It assumes one podset with one container.
+func (w *WorkloadWrapper) SimpleReserveQuota(cq, flavor string, now time.Time) *WorkloadWrapper {
+	admission := MakeAdmission(cq, w.Spec.PodSets[0].Name)
+	resReq := make(corev1.ResourceList)
+	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
+	for res, val := range w.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests {
+		val.Mul(int64(w.Spec.PodSets[0].Count))
+		resReq[res] = val
+		flavors[res] = kueue.ResourceFlavorReference(flavor)
+	}
+	admission.PodSetAssignments[0].Count = ptr.To(w.Spec.PodSets[0].Count)
+	admission.PodSetAssignments[0].Flavors = flavors
+	admission.PodSetAssignments[0].ResourceUsage = resReq
+
+	return w.ReserveQuotaAt(admission.Obj(), now)
 }
 
 // ReserveQuota sets workload admission and adds a "QuotaReserved" status condition
@@ -257,6 +281,16 @@ func (w *WorkloadWrapper) Label(k, v string) *WorkloadWrapper {
 
 func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {
 	w.Status.AdmissionChecks = checks
+	return w
+}
+
+func (w *WorkloadWrapper) Admission(admission *kueue.Admission) *WorkloadWrapper {
+	w.Status.Admission = admission
+	return w
+}
+
+func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWrapper {
+	w.Status.Conditions = conditions
 	return w
 }
 
@@ -499,6 +533,24 @@ func (q *LocalQueueWrapper) PendingWorkloads(n int32) *LocalQueueWrapper {
 	return q
 }
 
+// Condition sets a condition on the LocalQueue.
+func (q *LocalQueueWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string, generation int64) *LocalQueueWrapper {
+	apimeta.SetStatusCondition(&q.Status.Conditions, metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: generation,
+	})
+	return q
+}
+
+// Generation sets the generation of the LocalQueue.
+func (q *LocalQueueWrapper) Generation(num int64) *LocalQueueWrapper {
+	q.ObjectMeta.Generation = num
+	return q
+}
+
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 
@@ -528,6 +580,14 @@ func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 // Cohort sets the borrowing cohort.
 func (c *ClusterQueueWrapper) Cohort(cohort string) *ClusterQueueWrapper {
 	c.Spec.Cohort = cohort
+	return c
+}
+
+func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheckStrategyRule) *ClusterQueueWrapper {
+	if c.Spec.AdmissionChecksStrategy == nil {
+		c.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{}
+	}
+	c.Spec.AdmissionChecksStrategy.AdmissionChecks = acs
 	return c
 }
 
@@ -587,11 +647,21 @@ func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *Clus
 	return c
 }
 
+// StopPolicy sets the stop policy.
 func (c *ClusterQueueWrapper) StopPolicy(p kueue.StopPolicy) *ClusterQueueWrapper {
 	c.Spec.StopPolicy = &p
 	return c
 }
 
+func (c *ClusterQueueWrapper) Label(k, v string) *ClusterQueueWrapper {
+	if c.Labels == nil {
+		c.Labels = make(map[string]string)
+	}
+	c.Labels[k] = v
+	return c
+}
+
+// Condition sets a condition on the ClusterQueue.
 func (c *ClusterQueueWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string) *ClusterQueueWrapper {
 	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
 		Type:    conditionType,
@@ -599,6 +669,12 @@ func (c *ClusterQueueWrapper) Condition(conditionType string, status metav1.Cond
 		Reason:  reason,
 		Message: message,
 	})
+	return c
+}
+
+// Generation sets the generation of the ClusterQueue.
+func (c *ClusterQueueWrapper) Generation(num int64) *ClusterQueueWrapper {
+	c.ObjectMeta.Generation = num
 	return c
 }
 
@@ -766,6 +842,31 @@ func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
 	}
 }
 
+type AdmissionCheckStrategyRuleWrapper struct {
+	kueue.AdmissionCheckStrategyRule
+}
+
+func MakeAdmissionCheckStrategyRule(name string, flavors ...kueue.ResourceFlavorReference) *AdmissionCheckStrategyRuleWrapper {
+	if len(flavors) == 0 {
+		flavors = make([]kueue.ResourceFlavorReference, 0)
+	}
+	return &AdmissionCheckStrategyRuleWrapper{
+		AdmissionCheckStrategyRule: kueue.AdmissionCheckStrategyRule{
+			Name:      name,
+			OnFlavors: flavors,
+		},
+	}
+}
+
+func (acs *AdmissionCheckStrategyRuleWrapper) OnFlavors(flavors []kueue.ResourceFlavorReference) *AdmissionCheckStrategyRuleWrapper {
+	acs.AdmissionCheckStrategyRule.OnFlavors = flavors
+	return acs
+}
+
+func (acs *AdmissionCheckStrategyRuleWrapper) Obj() *kueue.AdmissionCheckStrategyRule {
+	return &acs.AdmissionCheckStrategyRule
+}
+
 func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *AdmissionCheckWrapper {
 	apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
 		Type:    kueue.AdmissionCheckActive,
@@ -778,6 +879,12 @@ func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *Admissio
 
 func (ac *AdmissionCheckWrapper) Condition(cond metav1.Condition) *AdmissionCheckWrapper {
 	apimeta.SetStatusCondition(&ac.Status.Conditions, cond)
+	return ac
+}
+
+// Generation sets the generation of the AdmissionCheck.
+func (ac *AdmissionCheckWrapper) Generation(num int64) *AdmissionCheckWrapper {
+	ac.ObjectMeta.Generation = num
 	return ac
 }
 
@@ -795,12 +902,13 @@ func (ac *AdmissionCheckWrapper) Parameters(apigroup, kind, name string) *Admiss
 	return ac
 }
 
-func (ac *AdmissionCheckWrapper) SingleInstanceInClusterQueue(singleInstance bool, reason, message string) *AdmissionCheckWrapper {
+func (ac *AdmissionCheckWrapper) SingleInstanceInClusterQueue(singleInstance bool, reason, message string, observedGeneration int64) *AdmissionCheckWrapper {
 	cond := metav1.Condition{
-		Type:    kueue.AdmissionChecksSingleInstanceInClusterQueue,
-		Status:  metav1.ConditionTrue,
-		Reason:  reason,
-		Message: message,
+		Type:               kueue.AdmissionChecksSingleInstanceInClusterQueue,
+		Status:             metav1.ConditionTrue,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: observedGeneration,
 	}
 	if !singleInstance {
 		cond.Status = metav1.ConditionFalse
@@ -888,13 +996,20 @@ func (mkc *MultiKueueClusterWrapper) KubeConfig(LocationType kueuealpha.Location
 	return mkc
 }
 
-func (mkc *MultiKueueClusterWrapper) Active(state metav1.ConditionStatus, reason, message string) *MultiKueueClusterWrapper {
+func (mkc *MultiKueueClusterWrapper) Active(state metav1.ConditionStatus, reason, message string, generation int64) *MultiKueueClusterWrapper {
 	cond := metav1.Condition{
-		Type:    kueuealpha.MultiKueueClusterActive,
-		Status:  state,
-		Reason:  reason,
-		Message: message,
+		Type:               kueuealpha.MultiKueueClusterActive,
+		Status:             state,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: generation,
 	}
 	apimeta.SetStatusCondition(&mkc.Status.Conditions, cond)
+	return mkc
+}
+
+// Generation sets the generation of the MultiKueueCluster.
+func (mkc *MultiKueueClusterWrapper) Generation(num int64) *MultiKueueClusterWrapper {
+	mkc.ObjectMeta.Generation = num
 	return mkc
 }

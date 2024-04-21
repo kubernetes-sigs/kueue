@@ -23,6 +23,7 @@ import (
 )
 
 // ClusterQueueSpec defines the desired state of ClusterQueue
+// +kubebuilder:validation:XValidation:rule="!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
 type ClusterQueueSpec struct {
 	// resourceGroups describes groups of resources.
 	// Each resource group defines the list of resources and a list of flavors
@@ -48,6 +49,8 @@ type ClusterQueueSpec struct {
 	//
 	// Validation of a cohort name is equivalent to that of object names:
 	// subdomain in DNS (RFC 1123).
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 	Cohort string `json:"cohort,omitempty"`
 
 	// QueueingStrategy indicates the queueing strategy of the workloads
@@ -74,6 +77,7 @@ type ClusterQueueSpec struct {
 
 	// flavorFungibility defines whether a workload should try the next flavor
 	// before borrowing or preempting in the flavor being evaluated.
+	// +kubebuilder:default={}
 	FlavorFungibility *FlavorFungibility `json:"flavorFungibility,omitempty"`
 
 	// preemption describes policies to preempt Workloads from this ClusterQueue
@@ -91,11 +95,18 @@ type ClusterQueueSpec struct {
 	// The preemption algorithm tries to find a minimal set of Workloads to
 	// preempt to accomomdate the pending Workload, preempting Workloads with
 	// lower priority first.
+	// +kubebuilder:default={}
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
-	// admissionChecks lists the AdmissionChecks required by this ClusterQueue
+	// admissionChecks lists the AdmissionChecks required by this ClusterQueue.
+	// Cannot be used along with AdmissionCheckStrategy.
 	// +optional
 	AdmissionChecks []string `json:"admissionChecks,omitempty"`
+
+	// admissionCheckStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
+	// This property cannot be used in conjunction with the 'admissionChecks' property.
+	// +optional
+	AdmissionChecksStrategy *AdmissionChecksStrategy `json:"admissionChecksStrategy,omitempty"`
 
 	// stopPolicy - if set to a value different from None, the ClusterQueue is considered Inactive, no new reservation being
 	// made.
@@ -110,6 +121,23 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
 	// +kubebuilder:default="None"
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
+}
+
+// AdmissionCheckStrategy defines a strategy for a AdmissionCheck.
+type AdmissionChecksStrategy struct {
+	// admissionChecks is a list of strategies for AdmissionChecks
+	AdmissionChecks []AdmissionCheckStrategyRule `json:"admissionChecks,omitempty"`
+}
+
+// AdmissionCheckStrategyRule defines rules for a single AdmissionCheck
+type AdmissionCheckStrategyRule struct {
+	// name is an AdmissionCheck's name.
+	Name string `json:"name"`
+
+	// onFlavors is a list of ResourceFlavors' names that this AdmissionCheck should run for.
+	// If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
+	// +optional
+	OnFlavors []ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 
 type QueueingStrategy string
@@ -134,6 +162,7 @@ const (
 	Hold         StopPolicy = "Hold"
 )
 
+// +kubebuilder:validation:XValidation:rule="self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"
 type ResourceGroup struct {
 	// coveredResources is the list of resources covered by the flavors in this
 	// group.
@@ -217,6 +246,8 @@ type ResourceQuota struct {
 }
 
 // ResourceFlavorReference is the name of the ResourceFlavor.
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ResourceFlavorReference string
 
 // ClusterQueueStatus defines the observed state of ClusterQueue
@@ -362,6 +393,7 @@ type FlavorFungibility struct {
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
 // ClusterQueue or the ClusterQueue's cohort.
+// +kubebuilder:validation:XValidation:rule="!(self.reclaimWithinCohort == 'Never' && has(self.borrowWithinCohort) &&  self.borrowWithinCohort.policy != 'Never')", message="reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"
 type ClusterQueuePreemption struct {
 	// reclaimWithinCohort determines whether a pending Workload can preempt
 	// Workloads from other ClusterQueues in the cohort that are using more than
@@ -381,6 +413,7 @@ type ClusterQueuePreemption struct {
 
 	// borrowWithinCohort provides configuration to allow preemption within
 	// cohort while borrowing.
+	// +kubebuilder:default={}
 	BorrowWithinCohort *BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
 
 	// withinClusterQueue determines whether a pending Workload that doesn't fit

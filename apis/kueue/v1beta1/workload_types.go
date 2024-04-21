@@ -285,8 +285,23 @@ const (
 	// ready or have succeeded.
 	WorkloadPodsReady = "PodsReady"
 
-	// WorkloadEvicted means that the Workload was evicted by a ClusterQueue
+	// WorkloadEvicted means that the Workload was evicted. The possible reasons
+	// for this condition are:
+	// - "Preempted": the workload was preempted
+	// - "PodsReadyTimeout": the workload exceeded the PodsReady timeout
+	// - "AdmissionCheck": at least one admission check transitioned to False
+	// - "ClusterQueueStopped": the ClusterQueue is stopped
+	// - "InactiveWorkload": the workload has spec.active set to false
+	// When a workload is preempted, this condition is accompanied by the "Preempted"
+	// condition which contains a more detailed reason for the preemption.
 	WorkloadEvicted = "Evicted"
+
+	// WorkloadPreempted means that the Workload was preempted.
+	// The possible values of the reason field are "InClusterQueue", "InCohort".
+	// In the future more reasons can be introduced, including those conveying
+	// more detailed information. The more detailed reasons should be prefixed
+	// by one of the "base" reasons.
+	WorkloadPreempted = "Preempted"
 )
 
 const (
@@ -315,9 +330,10 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type=string,description="Name of the queue this workload was submitted to"
-// +kubebuilder:printcolumn:name="Admitted by",JSONPath=".status.admission.clusterQueue",type=string,description="Name of the ClusterQueue that admitted this workload"
-// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Time this workload was created"
+// +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type="string",description="Name of the queue this workload was submitted to"
+// +kubebuilder:printcolumn:name="Reserved in",JSONPath=".status.admission.clusterQueue",type="string",description="Name of the ClusterQueue where the workload is reserving quota"
+// +kubebuilder:printcolumn:name="Admitted",JSONPath=".status.conditions[?(@.type=='Admitted')].status",type="string",description="Admission status"
+// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
 // +kubebuilder:resource:shortName={wl}
 
 // Workload is the Schema for the workloads API

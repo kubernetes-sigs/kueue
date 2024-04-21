@@ -52,7 +52,7 @@ const (
 
 var (
 	wlConditionCmpOpts = []cmp.Option{
-		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Reason", "Message"),
+		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Reason", "Message", "ObservedGeneration"),
 	}
 )
 
@@ -85,6 +85,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						},
 					},
 				}),
+				jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 			))
 			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
@@ -509,12 +510,15 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Group("test-group").
 					GroupTotalCount("2").
 					Queue("test-queue").
+					Label("dontCopyKey", "dontCopyValue").
 					Obj()
 				pod2 := testingpod.MakePod("test-pod2", ns.Name).
 					Group("test-group").
 					GroupTotalCount("2").
 					Request(corev1.ResourceCPU, "1").
 					Queue("test-queue").
+					Label("toCopyKey", "toCopyValue").
+					Label("dontCopyKey", "dontCopyAnotherValue").
 					Obj()
 				pod1LookupKey := client.ObjectKeyFromObject(pod1)
 				pod2LookupKey := client.ObjectKeyFromObject(pod2)
@@ -569,6 +573,9 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						},
 						wlConditionCmpOpts...,
 					))
+					ginkgo.By("Checking the workload gets assigned the correct labels.")
+					gomega.Expect(createdWorkload.Labels["toCopyKey"]).Should(gomega.Equal("toCopyValue"))
+					gomega.Expect(createdWorkload.Labels).ShouldNot(gomega.ContainElement("doNotCopyValue"))
 				})
 
 				ginkgo.By("checking that pod group is finalized when all pods in the group succeed", func() {

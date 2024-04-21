@@ -61,20 +61,20 @@ outside of the suborganization.
 
 * When enforcing fair sharing, ignore workload priorities unless:
 
-** The workload's priority is above admin-defined high priority. Super high
+   * The workload's priority is above admin-defined high priority. Super high
 priority workloads overrule fair sharing and are treated according to KEP [#1337](https://github.com/kubernetes-sigs/kueue/tree/main/keps/1337-preempt-within-cohort-while-borrowing).
 
-** There is a need to preempt some non top priority workload from a ClusterQueue.
+   * There is a need to preempt some non top priority workload from a ClusterQueue.
 Then the lowest priority workloads from a CQ that is over its fair share should
 be selected for preemption.
 
 * The mechanism should be compatible with all existing or proposed Kueue features,
 in particular:
 
-** Borrowing limits 
-** Lending limits
-** Guaranteed/nominal quota
-** Hierarchical cohorts
+   * Borrowing limits 
+   * Lending limits
+   * Guaranteed/nominal quota
+   * Hierarchical cohorts
 
 * Fair sharing should not limit Kueue scalability. Kueue, with fair sharing enabled,
 should be able to handle >1k ClusterQueues, >100 Cohorts and >10k workloads (that
@@ -287,12 +287,12 @@ function that returns a value of the borrowed capacity.
 
 For each workload z in y we check whether if:
 
-[S2-a] value of AlmostLCA(y,x) without z is still higher than value of AlmostLCA(x,y)
-with admitted workload x. Y’s sub-orgs will still be better than X’s sub-org after we
+[S2-a] value of AlmostLCA(y,x) **without z** is still higher (or equal) than value of AlmostLCA(x,y)
+with admitted workload w. Y’s sub-orgs will still be better than X’s sub-org after we
 preempt z and admit w, thus z is a reasonable candidate to re-balance fair sharing.
 
 
-[S2-b] value of AlmostLCA(y,x) is strictly higher than AlmostLCA(x,y) with admitted workload x.
+[S2-b] value of AlmostLCA(y,x) (with z) is strictly higher than AlmostLCA(x,y) with admitted workload w.
 Here the case is that Y’s sub-org is greedy, and doesn’t allow smaller requests on the
 x’s size. If no other preemption option is possible inside any other CQ, z should be
 considered for preemption. Maybe y has a smaller workload that could be admitted, and

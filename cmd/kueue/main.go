@@ -269,6 +269,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions),
 		jobframework.WithEnabledFrameworks(cfg.Integrations),
 		jobframework.WithManagerName(constants.KueueName),
+		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
 	}
 	if err := jobframework.SetupControllers(mgr, setupLog, opts...); err != nil {
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())

@@ -17,7 +17,6 @@ limitations under the License.
 package e2e
 
 import (
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -107,7 +106,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "JobSetFinished",
 						Message: "JobSet finished successfully",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

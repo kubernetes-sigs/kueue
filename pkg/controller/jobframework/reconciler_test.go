@@ -114,6 +114,7 @@ func TestProcessOptions(t *testing.T) {
 				WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
 					PodSelector: &metav1.LabelSelector{},
 				}),
+				WithLabelKeysToCopy([]string{"toCopyKey"}),
 			},
 			wantOpts: Options{
 				ManageJobsWithoutQueueName: true,
@@ -124,6 +125,7 @@ func TestProcessOptions(t *testing.T) {
 						PodSelector: &metav1.LabelSelector{},
 					},
 				},
+				LabelKeysToCopy: []string{"toCopyKey"},
 			},
 		},
 		"a single option is passed": {
@@ -143,6 +145,7 @@ func TestProcessOptions(t *testing.T) {
 				WaitForPodsReady:           false,
 				KubeServerVersion:          nil,
 				IntegrationOptions:         nil,
+				LabelKeysToCopy:            nil,
 			},
 		},
 	}

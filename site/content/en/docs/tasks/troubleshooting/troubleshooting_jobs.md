@@ -41,8 +41,8 @@ Job is called `my-job` in the `my-namespace` namespace.
    The output looks like the following:
 
    ```
-   NAME               QUEUE        ADMITTED BY     AGE
-   job-my-job-19797   user-queue   cluster-queue   9m45s
+   NAME               QUEUE         RESERVED IN   ADMITTED   AGE
+   job-my-job-19797   user-queue    cluster-queue True       9m45s
    ```
 
 3. You can list all of the workloads in the same namespace of your job and identify the one
@@ -56,8 +56,8 @@ Job is called `my-job` in the `my-namespace` namespace.
    The output looks like the following:
 
    ```
-   NAME               QUEUE        ADMITTED BY     AGE
-   job-my-job-19797   user-queue   cluster-queue   9m45s
+   NAME               QUEUE         RESERVED IN   ADMITTED   AGE
+   job-my-job-19797   user-queue    cluster-queue True       9m45s
    ```
 
 ## Is my Job running?
@@ -132,6 +132,44 @@ status:
     status: "False"
     type: QuotaReserved
 ```
+
+### Does my ClusterQueue have the resource requests that the job requires?
+
+When you submit a job that has a resource request, for example:
+
+```bash
+$ kubectl get jobs job-0-9-size-6 -o json | jq -r .spec.template.spec.containers[0].resources
+```
+```console
+{
+  "limits": {
+    "cpu": "2"
+  },
+  "requests": {
+    "cpu": "2"
+  }
+}
+```
+
+If your ClusterQueue does not have a definition for the `requests`, Kueue cannot admit the job. For the job above, you should define `cpu` quotas under `resourceGroups`. A ClusterQueue defining `cpu` quota looks like the following:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 40
+```
+
+See [resources groups](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#resource-groups) for more information.
 
 ### Unattempted Workload
 

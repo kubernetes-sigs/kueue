@@ -166,6 +166,7 @@ func (j *RayJob) Finished() (metav1.Condition, bool) {
 		Status:  metav1.ConditionTrue,
 		Reason:  string(j.Status.JobStatus),
 		Message: j.Status.Message,
+		// ObservedGeneration is added via Update status by the job framework
 	}
 
 	return condition, j.Status.JobStatus == rayv1.JobStatusFailed || j.Status.JobStatus == rayv1.JobStatusSucceeded

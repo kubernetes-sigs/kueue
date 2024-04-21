@@ -63,23 +63,6 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 	if !controllerutil.ContainsFinalizer(cq, kueue.ResourceInUseFinalizerName) {
 		controllerutil.AddFinalizer(cq, kueue.ResourceInUseFinalizerName)
 	}
-	if cq.Spec.Preemption == nil {
-		cq.Spec.Preemption = &kueue.ClusterQueuePreemption{
-			WithinClusterQueue:  kueue.PreemptionPolicyNever,
-			ReclaimWithinCohort: kueue.PreemptionPolicyNever,
-		}
-	}
-	if cq.Spec.Preemption.BorrowWithinCohort == nil {
-		cq.Spec.Preemption.BorrowWithinCohort = &kueue.BorrowWithinCohort{
-			Policy: kueue.BorrowWithinCohortPolicyNever,
-		}
-	}
-	if cq.Spec.FlavorFungibility == nil {
-		cq.Spec.FlavorFungibility = &kueue.FlavorFungibility{
-			WhenCanBorrow:  kueue.Borrow,
-			WhenCanPreempt: kueue.TryNextFlavor,
-		}
-	}
 	return nil
 }
 
@@ -116,12 +99,10 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	path := field.NewPath("spec")
 
 	var allErrs field.ErrorList
-	if len(cq.Spec.Cohort) != 0 {
-		allErrs = append(allErrs, validateNameReference(cq.Spec.Cohort, path.Child("cohort"))...)
-	}
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, cq.Spec.Cohort, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
+	allErrs = append(allErrs, validateCQAdmissionChecks(&cq.Spec, path)...)
 	if cq.Spec.Preemption != nil {
 		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
 	}
@@ -141,6 +122,15 @@ func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Pa
 		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
 	}
+	return allErrs
+}
+
+func validateCQAdmissionChecks(spec *kueue.ClusterQueueSpec, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if spec.AdmissionChecksStrategy != nil && len(spec.AdmissionChecks) != 0 {
+		allErrs = append(allErrs, field.Invalid(path, spec, "Either AdmissionChecks or AdmissionCheckStrategy can be set, but not both"))
+	}
+
 	return allErrs
 }
 
@@ -174,10 +164,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cohort string,
 }
 
 func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, cohort string, path *field.Path) field.ErrorList {
-	allErrs := validateNameReference(string(flavorQuotas.Name), path.Child("name"))
-	if len(flavorQuotas.Resources) != len(coveredResources) {
-		allErrs = append(allErrs, field.Invalid(path.Child("resources"), field.OmitValueType{}, "must have the same number of resources as the coveredResources"))
-	}
+	var allErrs field.ErrorList
 
 	for i, rq := range flavorQuotas.Resources {
 		if i >= len(coveredResources) {
@@ -191,7 +178,6 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 		if rq.BorrowingLimit != nil {
 			borrowingLimitPath := path.Child("borrowingLimit")
 			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, borrowingLimitPath)...)
-			allErrs = append(allErrs, validateLimit(*rq.BorrowingLimit, cohort, borrowingLimitPath)...)
 		}
 		if features.Enabled(features.LendingLimit) && rq.LendingLimit != nil {
 			lendingLimitPath := path.Child("lendingLimit")

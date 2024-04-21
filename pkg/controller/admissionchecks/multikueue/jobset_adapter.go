@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -65,6 +66,9 @@ func (b *jobsetAdapter) SyncJob(ctx context.Context, localClient client.Client, 
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 
+	// set the manager
+	remoteJob.Spec.ManagedBy = ptr.To(jobset.JobSetControllerName)
+
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
@@ -79,6 +83,19 @@ func (b *jobsetAdapter) DeleteRemoteObject(ctx context.Context, remoteClient cli
 
 func (b *jobsetAdapter) KeepAdmissionCheckPending() bool {
 	return false
+}
+
+func (b *jobsetAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	js := jobset.JobSet{}
+	err := c.Get(ctx, key, &js)
+	if err != nil {
+		return false, "", err
+	}
+	jobsetControllerName := ptr.Deref(js.Spec.ManagedBy, "")
+	if jobsetControllerName != ControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", ControllerName, jobsetControllerName), nil
+	}
+	return true, "", nil
 }
 
 var _ multiKueueWatcher = (*jobsetAdapter)(nil)

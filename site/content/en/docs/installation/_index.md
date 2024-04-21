@@ -229,7 +229,8 @@ The currently supported features are:
 | `MultiKueue` | `false` | Alpha | 0.6 | |
 | `PartialAdmission` | `false` | Alpha | 0.4 | 0.4 |
 | `PartialAdmission` | `true` | Beta | 0.5 |  |
-| `ProvisioningACC` | `false` | Alpha | 0.5 |  |
+| `ProvisioningACC` | `false` | Alpha | 0.5 | 0.6 |
+| `ProvisioningACC` | `true` | Beta | 0.7 |  |
 | `QueueVisibility` | `false` | Alpha | 0.5 |  |
 | `VisibilityOnDemand` | `false` | Alpha | 0.6 | |
 | `PrioritySortingWithinCohort` | `true` | Beta | 0.6 |  |

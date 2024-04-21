@@ -50,6 +50,8 @@ type AdmissionCheckSpec struct {
 	// controllerName is name of the controller which will actually perform
 	// the checks. This is the name with which controller identifies with,
 	// not necessarily a K8S Pod or Deployment name. Cannot be empty.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	ControllerName string `json:"controllerName"`
 
 	// RetryDelayMinutes specifies how long to keep the workload suspended
@@ -67,10 +69,16 @@ type AdmissionCheckSpec struct {
 
 type AdmissionCheckParametersReference struct {
 	// ApiGroup is the group for the resource being referenced.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 	APIGroup string `json:"apiGroup"`
 	// Kind is the type of the resource being referenced.
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern="^(?i)[a-z]([-a-z0-9]*[a-z0-9])?$"
 	Kind string `json:"kind"`
 	// Name is the name of the resource being referenced.
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
 	Name string `json:"name"`
 }
 

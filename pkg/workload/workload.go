@@ -22,10 +22,13 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -36,10 +39,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
-	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
+	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted, kueue.WorkloadPreempted}
 )
 
 type AssignmentClusterQueueState struct {
@@ -328,6 +332,7 @@ func UpdateStatus(ctx context.Context,
 		LastTransitionTime: now,
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: wl.Generation,
 	}
 
 	newWl := BaseSSAWorkload(wl)
@@ -345,6 +350,7 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: wl.Generation,
 	}
 	changed := apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 	if wl.Status.Admission != nil {
@@ -391,14 +397,34 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		LastTransitionTime: metav1.Now(),
 		Reason:             "QuotaReserved",
 		Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue),
+		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
 
 	//reset Evicted condition if present.
 	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
 		evictedCond.Status = metav1.ConditionFalse
+		evictedCond.Reason = "QuotaReserved"
+		evictedCond.Message = "Previously: " + evictedCond.Message
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
+	// reset Preempted condition if present.
+	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
+		preemptedCond.Status = metav1.ConditionFalse
+		preemptedCond.Reason = "QuotaReserved"
+		preemptedCond.Message = "Previously: " + preemptedCond.Message
+		preemptedCond.LastTransitionTime = metav1.Now()
+	}
+}
+
+func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
+	condition := metav1.Condition{
+		Type:    kueue.WorkloadPreempted,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
 func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
@@ -408,6 +434,7 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            message,
+		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
@@ -519,4 +546,50 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 		return c.Update(ctx, wl)
 	}
 	return nil
+}
+
+// AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
+// ClusterQueue configuration and ResourceFlavors
+func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[string]sets.Set[kueue.ResourceFlavorReference]) sets.Set[string] {
+	// If all admissionChecks should be run for all flavors we don't need to wait for Workload's Admission to be set.
+	// This is also the case if admissionChecks are specified with ClusterQueue.Spec.AdmissionChecks instead of
+	// ClusterQueue.Spec.AdmissionCheckStrategy
+	allFlavors := true
+	for _, flavors := range admissionChecks {
+		if len(flavors) != 0 {
+			allFlavors = false
+		}
+	}
+	if allFlavors {
+		return sets.New(utilmaps.Keys(admissionChecks)...)
+	}
+
+	// Kueue sets AdmissionChecks first based on ClusterQueue configuration and at this point Workload has no
+	// ResourceFlavors assigned, so we cannot match AdmissionChecks to ResourceFlavor.
+	// After Quota is reserved, another reconciliation happens and we can match AdmissionChecks to ResourceFlavors
+	if wl.Status.Admission == nil {
+		log.V(2).Info("Workload has no Admission", "Workload", klog.KObj(wl))
+		return nil
+	}
+
+	var assignedFlavors []kueue.ResourceFlavorReference
+	for _, podSet := range wl.Status.Admission.PodSetAssignments {
+		for _, flavor := range podSet.Flavors {
+			assignedFlavors = append(assignedFlavors, flavor)
+		}
+	}
+
+	acNames := sets.New[string]()
+	for acName, flavors := range admissionChecks {
+		if len(flavors) == 0 {
+			acNames.Insert(acName)
+			continue
+		}
+		for _, fName := range assignedFlavors {
+			if flavors.Has(fName) {
+				acNames.Insert(acName)
+			}
+		}
+	}
+	return acNames
 }

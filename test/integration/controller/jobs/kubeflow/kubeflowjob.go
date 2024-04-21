@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -31,7 +30,6 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -39,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -48,10 +45,6 @@ const (
 	priorityClassName = "test-priority-class"
 	priorityValue     = 10
 	jobQueueName      = "test-queue"
-)
-
-var (
-	ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 )
 
 type PodsReadyTestSpec struct {
@@ -268,7 +261,12 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 		gomega.EventuallyWithOffset(1, func() *metav1.Condition {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
-		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.BeforeCondition, ignoreConditionTimestamps))
+		}, util.Timeout, util.Interval).Should(
+			gomega.BeComparableTo(
+				podsReadyTestSpec.BeforeCondition,
+				util.IgnoreConditionTimestampsAndObservedGeneration,
+			),
+		)
 	}
 
 	ginkgo.By("Update the job status to simulate its progress towards completion")
@@ -293,7 +291,12 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 	gomega.EventuallyWithOffset(1, func() *metav1.Condition {
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
-	}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.WantCondition, ignoreConditionTimestamps))
+	}, util.Timeout, util.Interval).Should(
+		gomega.BeComparableTo(
+			podsReadyTestSpec.WantCondition,
+			util.IgnoreConditionTimestampsAndObservedGeneration,
+		),
+	)
 }
 
 func ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, clusterQueue *kueue.ClusterQueue, podSetsResources []PodSetsResource) {

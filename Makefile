@@ -30,7 +30,7 @@ GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/gi
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
-PLATFORMS ?= linux/amd64,linux/arm64
+PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
@@ -48,6 +48,7 @@ ifdef IMAGE_EXTRA_TAG
 IMAGE_BUILD_EXTRA_OPTS += -t $(IMAGE_EXTRA_TAG)
 endif
 
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ARTIFACTS ?= $(PROJECT_DIR)/bin
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -56,16 +57,16 @@ BUILDER_IMAGE ?= golang:$(GO_VERSION)
 CGO_ENABLED ?= 0
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.28
+ENVTEST_K8S_VERSION ?= 1.29
 
 INTEGRATION_TARGET ?= ./test/integration/...
 
 E2E_TARGET ?= ./test/e2e/...
 
-E2E_KIND_VERSION ?= kindest/node:v1.28.0
+E2E_KIND_VERSION ?= kindest/node:v1.29.2
 
 # E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
-E2E_K8S_VERSIONS ?= 1.26.12 1.27.9 1.28.5 1.29.0
+E2E_K8S_VERSIONS ?= 1.27.11 1.28.7 1.29.2
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
@@ -98,7 +99,7 @@ LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.6.1
+RELEASE_VERSION=v0.6.2
 RELEASE_BRANCH=main
 
 # JobSet Version
@@ -211,6 +212,51 @@ run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
 run-test-multikueue-e2e-%: FORCE
 	@echo Running multikueue e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/multikueue-e2e-test.sh
+
+SCALABILITY_RUNNER := $(ARTIFACTS)/scalability-runner
+.PHONY: scalability-runner
+scalability-runner:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/scalability/runner/main.go
+
+.PHONY: minimalkueue
+minimalkueue: 
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o  $(ARTIFACTS)/minimalkueue test/scalability/minimalkueue/main.go
+
+ifdef SCALABILITY_CPU_PROFILE
+SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
+endif
+
+ifdef SCALABILITY_KUEUE_LOGS
+SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
+endif
+
+SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/scalability/default_generator_config.yaml
+
+SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-scalability
+.PHONY: run-scalability
+run-scalability: envtest scalability-runner minimalkueue
+	mkdir -p $(SCALABILITY_RUN_DIR)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(SCALABILITY_RUNNER) \
+		--o $(SCALABILITY_RUN_DIR) \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
+		--minimalKueue=$(ARTIFACTS)/minimalkueue $(SCALABILITY_EXTRA_ARGS)
+
+.PHONY: test-scalability
+test-scalability: gotestsum run-scalability
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/scalability/checker  \
+		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
+		--range=$(PROJECT_DIR)/test/scalability/default_rangespec.yaml
+
+.PHONY: run-scalability-in-cluster
+run-scalability-in-cluster: envtest scalability-runner
+	mkdir -p $(ARTIFACTS)/run-scalability-in-cluster
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(SCALABILITY_RUNNER) \
+		--o $(ARTIFACTS)/run-scalability-in-cluster \
+		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
+		--qps=1000 --burst=2000 --timeout=15m
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
@@ -359,11 +405,10 @@ importer-image: PLATFORMS=linux/amd64
 importer-image: PUSH=--load
 importer-image: importer-image-build
 
-PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
 .PHONY: golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.56.2
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.57.2
 
 CONTROLLER_GEN = $(PROJECT_DIR)/bin/controller-gen
 .PHONY: controller-gen

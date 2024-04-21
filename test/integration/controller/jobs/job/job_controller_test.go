@@ -56,10 +56,6 @@ const (
 	childJobName      = jobName + "-child"
 )
 
-var (
-	ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
-)
-
 // +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -71,6 +67,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		cfg = fwk.Init()
 		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
 			jobframework.WithManageJobsWithoutQueueName(true),
+			jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 		))
 	})
 	ginkgo.AfterAll(func() {
@@ -108,6 +105,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			PriorityClass(priorityClassName).
 			SetAnnotation("provreq.kueue.x-k8s.io/ValidUntilSeconds", "0").
 			SetAnnotation("invalid-provreq-prefix/Foo", "Bar").
+			Label("toCopyKey", "toCopyValue").
+			Label("doNotCopyKey", "doNotCopyValue").
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
@@ -135,6 +134,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
 		gomega.Expect(createdWorkload.Annotations).Should(gomega.Equal(map[string]string{"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0"}))
 
+		gomega.Expect(createdWorkload.Labels["toCopyKey"]).Should(gomega.Equal("toCopyValue"))
+		gomega.Expect(createdWorkload.Labels).ShouldNot(gomega.ContainElement("doNotCopyValue"))
+
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		jobQueueName := "test-queue"
 		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
@@ -145,6 +147,17 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}
 			return createdWorkload.Spec.QueueName == jobQueueName
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+
+		ginkgo.By("checking the workload label is not updated when the job label is")
+		newJobLabelValue := "updatedValue"
+		createdJob.Labels["toCopyKey"] = newJobLabelValue
+		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+		gomega.Consistently(func() string {
+			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+				return ""
+			}
+			return createdWorkload.Labels["toCopyKey"]
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Equal("toCopyValue"))
 
 		ginkgo.By("updated workload should have the same created timestamp", func() {
 			gomega.Expect(createdWorkload.CreationTimestamp).Should(gomega.Equal(createdTime))
@@ -508,7 +521,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 								Status:  metav1.ConditionTrue,
 								Reason:  "JobFinished",
 								Message: "Job finished successfully",
-							}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+							}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -895,7 +908,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				gomega.Eventually(func() *metav1.Condition {
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.beforeCondition, ignoreConditionTimestamps))
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.beforeCondition, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}
 
 			ginkgo.By("Update the job status to simulate its progress towards completion")
@@ -920,7 +933,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			gomega.Eventually(func() *metav1.Condition {
 				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.wantCondition, ignoreConditionTimestamps))
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.wantCondition, util.IgnoreConditionTimestampsAndObservedGeneration))
 		},
 		ginkgo.Entry("No progress", podsReadyTestSpec{
 			wantCondition: &metav1.Condition{

@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -62,8 +63,11 @@ type ClusterQueue struct {
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	FlavorFungibility kueue.FlavorFungibility
-	AdmissionChecks   sets.Set[string]
-	Status            metrics.ClusterQueueStatus
+	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
+	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
+	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
+	AdmissionChecks map[string]sets.Set[kueue.ResourceFlavorReference]
+	Status          metrics.ClusterQueueStatus
 	// GuaranteedQuota records how much resource quota the ClusterQueue reserved
 	// when feature LendingLimit is enabled and flavor's lendingLimit is not nil.
 	GuaranteedQuota FlavorResourceQuantities
@@ -199,7 +203,7 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
-	c.AdmissionChecks = sets.New(in.Spec.AdmissionChecks...)
+	c.AdmissionChecks = utilac.NewAdmissionChecks(in)
 
 	c.Usage = filterFlavorQuantities(c.Usage, in.Spec.ResourceGroups)
 	c.AdmittedUsage = filterFlavorQuantities(c.AdmittedUsage, in.Spec.ResourceGroups)
@@ -683,8 +687,21 @@ func (c *ClusterQueue) UsedCohortQuota(fName kueue.ResourceFlavorReference, rNam
 // DominantResourceShare returns a value from 0 to 100 representing the maximum of the ratios
 // of usage above nominal quota to the lendable resources in the cohort, among all the resources
 // provided by the ClusterQueue.
+// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 // The function also returns the resource name that yielded this value.
-func (c *ClusterQueue) DominantResourceShare(w *workload.Info) (int, corev1.ResourceName) {
+func (c *ClusterQueue) DominantResourceShare() (int, corev1.ResourceName) {
+	return c.dominantResourceShare(nil, 1)
+}
+
+func (c *ClusterQueue) DominantResourceShareWith(w *workload.Info) (int, corev1.ResourceName) {
+	return c.dominantResourceShare(w, 1)
+}
+
+func (c *ClusterQueue) DominantResourceShareWithout(w *workload.Info) (int, corev1.ResourceName) {
+	return c.dominantResourceShare(w, -1)
+}
+
+func (c *ClusterQueue) dominantResourceShare(w *workload.Info, m int64) (int, corev1.ResourceName) {
 	if c.Cohort == nil {
 		return 0, ""
 	}
@@ -694,7 +711,7 @@ func (c *ClusterQueue) DominantResourceShare(w *workload.Info) (int, corev1.Reso
 	for rName, rStats := range c.ResourceStats {
 		var ratio int64
 		if c.Cohort.ResourceStats[rName].Lendable > 0 {
-			ratio = max(rStats.Usage+wUsage[rName]-rStats.Nominal, 0) * 100 /
+			ratio = max(rStats.Usage+wUsage[rName]*m-rStats.Nominal, 0) * 100 /
 				c.Cohort.ResourceStats[rName].Lendable
 		}
 		// Use alphabetical order to get a deterministic resource name.

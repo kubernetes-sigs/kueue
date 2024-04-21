@@ -229,6 +229,12 @@ func (j *JobWrapper) Condition(c batchv1.JobCondition) *JobWrapper {
 	return j
 }
 
+// Generation sets the generation
+func (j *JobWrapper) Generation(g int64) *JobWrapper {
+	j.ObjectMeta.Generation = g
+	return j
+}
+
 func SetContainerDefaults(c *corev1.Container) {
 	if c.TerminationMessagePath == "" {
 		c.TerminationMessagePath = "/dev/termination-log"

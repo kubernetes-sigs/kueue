@@ -48,6 +48,10 @@ const (
 	failedUpdateLqStatusMsg = "Failed to retrieve localQueue status"
 )
 
+const (
+	clusterQueueIsInactiveReason = "ClusterQueueIsInactive"
+)
+
 // LocalQueueReconciler reconciles a LocalQueue object
 type LocalQueueReconciler struct {
 	client     client.Client
@@ -107,7 +111,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, "Ready", "Can submit new workloads to clusterQueue")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, "ClusterQueueIsInactive", queueIsInactiveMsg)
+	err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, queueIsInactiveMsg)
 	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
@@ -288,10 +292,11 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	queue.Status.FlavorUsage = stats.AdmittedResources
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
-			Type:    kueue.LocalQueueActive,
-			Status:  conditionStatus,
-			Reason:  reason,
-			Message: msg,
+			Type:               kueue.LocalQueueActive,
+			Status:             conditionStatus,
+			Reason:             reason,
+			Message:            msg,
+			ObservedGeneration: queue.Generation,
 		})
 	}
 	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {
