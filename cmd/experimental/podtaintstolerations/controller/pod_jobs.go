@@ -147,7 +147,7 @@ func (p *Pod) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 	// Restoring is not needed anyways b/c suspending == deleting for Pods.
 }
 
-func (j *Pod) Finished() (metav1.Condition, bool) {
+func (j *Pod) Finished() (reason, message string, finished bool) {
 	condition := metav1.Condition{
 		Type:   kueue.WorkloadFinished,
 		Status: metav1.ConditionTrue,

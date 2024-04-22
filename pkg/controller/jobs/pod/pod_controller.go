@@ -316,26 +316,21 @@ func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 
 // Finished means whether the job is completed/failed or not,
 // condition represents the workload finished condition.
-func (p *Pod) Finished() (metav1.Condition, bool) {
-	finished := true
-
-	condition := metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  kueue.WorkloadFinishedReasonSucceeded,
-		Message: "Job finished successfully",
-	}
+func (p *Pod) Finished() (reason, message string, finished bool) {
+	finished = true
+	reason = kueue.WorkloadFinishedReasonSucceeded
+	message = "Job finished successfully"
 
 	if !p.isGroup {
 		ph := p.pod.Status.Phase
 		finished = ph == corev1.PodSucceeded || ph == corev1.PodFailed
 
 		if ph == corev1.PodFailed {
-			condition.Message = "Job failed"
-			condition.Reason = kueue.WorkloadFinishedReasonFailed
+			message = "Job failed"
+			reason = kueue.WorkloadFinishedReasonFailed
 		}
 
-		return condition, finished
+		return reason, message, finished
 	}
 	isActive := false
 	succeededCount := 0
@@ -343,7 +338,7 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
-		return metav1.Condition{}, false
+		return reason, message, false
 	}
 	for _, pod := range p.list.Items {
 		if pod.Status.Phase == corev1.PodSucceeded {
@@ -358,12 +353,12 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 	unretriableGroup := p.isUnretriableGroup()
 
 	if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
-		condition.Message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
+		message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
 	} else {
-		return metav1.Condition{}, false
+		return reason, message, false
 	}
 
-	return condition, finished
+	return reason, message, finished
 }
 
 // PodSets will build workload podSets corresponding to the job.

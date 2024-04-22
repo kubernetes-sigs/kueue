@@ -16,7 +16,6 @@ package jobframework
 import (
 	"context"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -44,7 +43,7 @@ type GenericJob interface {
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	// Observed generation of the workload is set by the jobframework.
-	Finished() (condition metav1.Condition, finished bool)
+	Finished() (reason, message string, finished bool)
 	// PodSets will build workload podSets corresponding to the job.
 	PodSets() []kueue.PodSet
 	// IsActive returns true if there are any running pods.

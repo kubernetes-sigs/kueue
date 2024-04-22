@@ -277,10 +277,8 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *Job) Finished() (metav1.Condition, bool) {
+func (j *Job) Finished() (reason, message string, finished bool) {
 	var conditionType batchv1.JobConditionType
-	var finished bool
-
 	for _, c := range j.Status.Conditions {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
 			conditionType = c.Type
@@ -289,19 +287,14 @@ func (j *Job) Finished() (metav1.Condition, bool) {
 		}
 	}
 
-	condition := metav1.Condition{
-		Type:               kueue.WorkloadFinished,
-		Status:             metav1.ConditionTrue,
-		Reason:             kueue.WorkloadFinishedReasonSucceeded,
-		Message:            "Job finished successfully",
-		ObservedGeneration: j.Generation,
-	}
+	reason = kueue.WorkloadFinishedReasonSucceeded
+	message = "Job finished successfully"
 	if conditionType == batchv1.JobFailed {
-		condition.Message = "Job failed"
-		condition.Reason = kueue.WorkloadFinishedReasonFailed
+		message = "Job failed"
+		reason = kueue.WorkloadFinishedReasonFailed
 	}
 
-	return condition, finished
+	return reason, message, finished
 }
 
 func (j *Job) PodsReady() bool {

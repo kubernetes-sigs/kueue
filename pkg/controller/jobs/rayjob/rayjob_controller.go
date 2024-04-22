@@ -160,21 +160,12 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *RayJob) Finished() (metav1.Condition, bool) {
-	reason := kueue.WorkloadFinishedReasonSucceeded
+func (j *RayJob) Finished() (reason, message string, finished bool) {
+	reason = kueue.WorkloadFinishedReasonSucceeded
 	if j.Status.JobStatus == rayv1.JobStatusFailed {
 		reason = kueue.WorkloadFinishedReasonFailed
 	}
-
-	condition := metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  reason,
-		Message: j.Status.Message,
-		// ObservedGeneration is added via Update status by the job framework
-	}
-
-	return condition, j.Status.JobStatus == rayv1.JobStatusFailed || j.Status.JobStatus == rayv1.JobStatusSucceeded
+	return reason, j.Status.Message, j.Status.JobStatus == rayv1.JobStatusFailed || j.Status.JobStatus == rayv1.JobStatusSucceeded
 }
 
 func (j *RayJob) PodsReady() bool {
