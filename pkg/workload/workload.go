@@ -376,7 +376,6 @@ func SetRequeuedCondition(wl *kueue.Workload, reason string, message string) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadRequeued,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: wl.Generation,
