@@ -87,7 +87,8 @@ func managerAndSchedulerSetupWithTimeoutAdmission(
 		queue.WithPodsReadyRequeuingTimestamp(requeuingTimestamp),
 	)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg,
+		core.WithControllerRequeuingBaseDelaySeconds(1))
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr)
