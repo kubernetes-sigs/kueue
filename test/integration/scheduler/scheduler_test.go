@@ -420,7 +420,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Request(corev1.ResourceCPU, "2").
 				Obj()
 
-			ginkgo.By("checking the first workload gets created and admitted", func() {
+			ginkgo.By("checking the first workload gets created and gets quota reserved", func() {
 				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, nil)
 				util.ExpectPendingWorkloadsMetric(admissionCheckClusterQ, 0, 0)
