@@ -231,12 +231,12 @@ type RequeuingStrategy struct {
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	// When it is null, the workloads will repeatedly and endless re-queueing.
 	//
-	// Every backoff duration is about "1.41284738^(n-1)+Rand" where the "n" represents the "workloadStatus.requeueState.count",
-	// and the "Rand" represents the random jitter. During this time, the workload is taken as an inadmissible and
+	// Every backoff duration is about "10s*2^(n-1)+Rand" where:
+	// - "n" represents the "workloadStatus.requeueState.count",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and
 	// other workloads will have a chance to be admitted.
-	// For example, when the "waitForPodsReady.timeout" is the default, the workload deactivation time is as follows:
-	//   {backoffLimitCount, workloadDeactivationSeconds}
-	//     ~= {1, 601}, {2, 902}, ...,{5, 1811}, ...,{10, 3374}, ...,{20, 8730}, ...,{30, 86400(=24 hours)}, ...
+	// By default, the consecutive requeue delays are around: (10s, 20s, 40s, ...).
 	//
 	// Defaults to null.
 	// +optional

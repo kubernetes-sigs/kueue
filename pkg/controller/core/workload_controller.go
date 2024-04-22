@@ -68,6 +68,7 @@ type options struct {
 	watchers                   []WorkloadUpdateWatcher
 	podsReadyTimeout           *time.Duration
 	requeuingBackoffLimitCount *int32
+	requeuingBaseDelaySeconds  int32
 }
 
 // Option configures the reconciler.
@@ -86,6 +87,14 @@ func WithPodsReadyTimeout(value *time.Duration) Option {
 func WithRequeuingBackoffLimitCount(value *int32) Option {
 	return func(o *options) {
 		o.requeuingBackoffLimitCount = value
+	}
+}
+
+// WithRequeuingBaseDelaySeconds indicates the base delay for the computation
+// of the requeue delay.
+func WithRequeuingBaseDelaySeconds(value int32) Option {
+	return func(o *options) {
+		o.requeuingBaseDelaySeconds = value
 	}
 }
 
@@ -111,6 +120,7 @@ type WorkloadReconciler struct {
 	watchers                   []WorkloadUpdateWatcher
 	podsReadyTimeout           *time.Duration
 	requeuingBackoffLimitCount *int32
+	requeuingBaseDelaySeconds  int32
 	recorder                   record.EventRecorder
 }
 
@@ -128,6 +138,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 		watchers:                   options.watchers,
 		podsReadyTimeout:           options.podsReadyTimeout,
 		requeuingBackoffLimitCount: options.requeuingBackoffLimitCount,
+		requeuingBaseDelaySeconds:  options.requeuingBaseDelaySeconds,
 		recorder:                   recorder,
 	}
 }
@@ -382,17 +393,14 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 			"Deactivated Workload %q by reached re-queue backoffLimitCount", klog.KObj(wl))
 		return true, nil
 	}
-	// Every backoff duration is about "1.41284738^(n-1)+Rand" where the "n" represents the "requeuingCount",
-	// and the "Rand" represents the random jitter. During this time, the workload is taken as an inadmissible and
-	// other workloads will have a chance to be admitted.
-	// Considering the ".waitForPodsReady.timeout",
-	// this indicates that an evicted workload with PodsReadyTimeout reason is continued re-queuing for
-	// the "t(n+1) + SUM[k=1,n](1.41284738^(k-1) + Rand)" seconds where the "t" represents "waitForPodsReady.timeout".
-	// Given that the "backoffLimitCount" equals "30" and the "waitForPodsReady.timeout" equals "300" (default),
-	// the result equals 24 hours (+Rand seconds).
+	// Every backoff duration is about "10s*2^(n-1)+Rand" where:
+	// - "n" represents the "requeuingCount",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and other
+	// workloads will have a chance to be admitted.
 	backoff := &wait.Backoff{
-		Duration: 1 * time.Second,
-		Factor:   1.41284738,
+		Duration: time.Duration(r.requeuingBaseDelaySeconds) * time.Second,
+		Factor:   2,
 		Jitter:   0.0001,
 		Steps:    int(requeuingCount),
 	}
