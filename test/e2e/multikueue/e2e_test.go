@@ -389,7 +389,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				gomega.Expect(util.DeleteClusterQueue(ctx, k8sWorker1Client, worker1Cq2)).ToNot(gomega.HaveOccurred())
+				gomega.Eventually(func() error {
+					return util.DeleteClusterQueue(ctx, k8sWorker1Client, worker1Cq2)
+				}, util.LongTimeout, util.Interval).ShouldNot(gomega.HaveOccurred())
 
 				// After reconnecting the container to the network, when we try to get pods,
 				// we get it with the previous values (as before disconnect). Therefore, it
