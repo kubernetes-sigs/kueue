@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -381,6 +382,14 @@ func SetRequeuedCondition(wl *kueue.Workload, reason string, message string) {
 		ObservedGeneration: wl.Generation,
 	}
 	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+}
+
+func QueuedWaitTime(wl *kueue.Workload) time.Duration {
+	queuedTime := wl.CreationTimestamp.Time
+	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); c != nil {
+		queuedTime = c.LastTransitionTime.Time
+	}
+	return time.Since(queuedTime)
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that

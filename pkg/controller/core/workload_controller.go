@@ -178,11 +178,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 		if workload.IsAdmitted(&wl) {
-			queuedTime := wl.CreationTimestamp.Time
-			if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); c != nil {
-				queuedTime = c.LastTransitionTime.Time
-			}
-			queuedWaitTime := time.Since(queuedTime)
+			queuedWaitTime := workload.QueuedWaitTime(&wl)
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := time.Since(quotaReservedCondition.LastTransitionTime.Time)
 			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
