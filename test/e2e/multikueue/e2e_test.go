@@ -366,12 +366,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				podList := &corev1.PodList{}
 				podListOptions := client.InNamespace("kueue-system")
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sWorker1Client.List(ctx, podList, podListOptions)).NotTo(gomega.Succeed())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) error {
+					return k8sWorker1Client.List(ctx, podList, podListOptions)
+				}, util.LongTimeout, util.Interval).ShouldNot(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for the cluster do become inactive", func() {
+			ginkgo.By("Waiting for the cluster to become inactive", func() {
 				readClient := &kueuealpha.MultiKueueCluster{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
