@@ -488,7 +488,8 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 		checkState := *checksMap[check]
 		if prc, err := c.helper.ConfigForAdmissionCheck(ctx, check); err != nil {
 			// the check is not active
-			updated = updated || updateCheckState(&checkState, kueue.CheckStatePending) || updateCheckMessage(&checkState, CheckInactiveMessage)
+			updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
+			updated = updateCheckMessage(&checkState, CheckInactiveMessage) || updated
 		} else if !c.reqIsNeeded(ctx, wl, prc) {
 			if updateCheckState(&checkState, kueue.CheckStateReady) {
 				updated = true
@@ -517,7 +518,8 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 					if attempt := getAttempt(ctx, pr, wl.Name, check); attempt <= MaxRetries {
 						// it is going to be retried
 						message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
-						updated = updated || updateCheckState(&checkState, kueue.CheckStatePending) || updateCheckMessage(&checkState, message)
+						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
+						updated = updateCheckMessage(&checkState, message) || updated
 					} else {
 						updated = true
 						checkState.State = kueue.CheckStateRejected
@@ -531,10 +533,10 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 					checkState.PodSetUpdates = podSetUpdates(wl, pr)
 				}
 			default:
-				updated = updated || updateCheckState(&checkState, kueue.CheckStatePending)
+				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 			}
 			if prAccepted && !prFailed {
-				updated = updated || updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
+				updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message) || updated
 			}
 		}
 
