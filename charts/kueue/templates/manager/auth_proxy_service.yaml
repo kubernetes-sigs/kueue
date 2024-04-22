@@ -5,6 +5,10 @@ metadata:
   namespace: '{{ .Release.Namespace }}'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
+  {{- if .Values.metricsService.annotations }}
+  annotations:
+  {{- toYaml .Values.metricsService.annotations | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.metricsService.type }}
   selector:
