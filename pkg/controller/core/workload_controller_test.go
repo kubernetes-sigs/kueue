@@ -455,6 +455,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
 				WithRequeuingBackoffLimitCount(ptr.To[int32](100)),
+				WithRequeuingBaseDelaySeconds(10),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -470,7 +471,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				Admitted(true).
-				RequeueState(ptr.To[int32](29), nil).
+				RequeueState(ptr.To[int32](3), nil).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -485,8 +486,8 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns/wl",
 				}).
-				// 1.41284738^(30-1) = 22530.0558
-				RequeueState(ptr.To[int32](30), ptr.To(metav1.NewTime(testStartTime.Add(22530*time.Second).Truncate(time.Second)))).
+				// 10s * 2^(4-1) = 80s
+				RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Add(80*time.Second).Truncate(time.Second)))).
 				Obj(),
 		},
 		"deactivated workload": {
