@@ -59,7 +59,7 @@ func NewScraper(interval time.Duration, url, fileNameFormat string) *Scraper {
 	}
 }
 
-func (s *Scraper) doScarpe(ctx context.Context, tw *tar.Writer) error {
+func (s *Scraper) doScrape(ctx context.Context, tw *tar.Writer) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
 	if err != nil {
 		return err
@@ -115,7 +115,7 @@ func (s *Scraper) Run(ctx context.Context, output string) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			err := s.doScarpe(ctx, tw)
+			err := s.doScrape(ctx, tw)
 			if err != nil {
 				return err
 			}
