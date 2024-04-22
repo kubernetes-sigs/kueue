@@ -391,6 +391,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 				gomega.Expect(util.DeleteClusterQueue(ctx, k8sWorker1Client, worker1Cq2)).ToNot(gomega.HaveOccurred())
 
+				// After reconnecting the container to the network, when we try to get pods,
+				// we get it with the previous values (as before disconnect). Therefore, it
+				// takes some time for the cluster to restore them, and we got actually values.
+				// To be sure that the leader of kueue-control-manager successfully recovered
+				// we can check it by removing already created Cluster Queue.
 				var cq kueue.ClusterQueue
 				gomega.Eventually(func() error {
 					return k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(worker1Cq2), &cq)
