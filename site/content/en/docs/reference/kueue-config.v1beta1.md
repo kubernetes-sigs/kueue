@@ -436,6 +436,21 @@ Possible options:</p>
    <p>PodOptions defines kueue controller behaviour for pod objects</p>
 </td>
 </tr>
+<tr><td><code>labelKeysToCopy</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>labelKeysToCopy is a list of label keys that should be copied from the job into the
+workload object. It is not required for the job to have all the labels from this
+list. If a job does not have some label with the given key from this list, the
+constructed workload object will be created without this label. In the case
+of creating a workload from a composable job (pod group), if multiple objects
+have labels with some key from the list, the values of these labels must
+match or otherwise the workload creation would fail. The labels are copied only
+during the workload creation and are not updated even if the labels of the
+underlying job are changed.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -622,12 +637,14 @@ that was evicted due to Pod readiness. The possible values are:</p>
    <p>BackoffLimitCount defines the maximum number of re-queuing retries.
 Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).
 When it is null, the workloads will repeatedly and endless re-queueing.</p>
-<p>Every backoff duration is about &quot;1.41284738^(n-1)+Rand&quot; where the &quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;,
-and the &quot;Rand&quot; represents the random jitter. During this time, the workload is taken as an inadmissible and
+<p>Every backoff duration is about &quot;10s*2^(n-1)+Rand&quot; where:</p>
+<ul>
+<li>&quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;,</li>
+<li>&quot;Rand&quot; represents the random jitter.
+During this time, the workload is taken as an inadmissible and
 other workloads will have a chance to be admitted.
-For example, when the &quot;waitForPodsReady.timeout&quot; is the default, the workload deactivation time is as follows:
-{backoffLimitCount, workloadDeactivationSeconds}
-~= {1, 601}, {2, 902}, ...,{5, 1811}, ...,{10, 3374}, ...,{20, 8730}, ...,{30, 86400(=24 hours)}, ...</p>
+By default, the consecutive requeue delays are around: (10s, 20s, 40s, ...).</li>
+</ul>
 <p>Defaults to null.</p>
 </td>
 </tr>
