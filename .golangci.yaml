@@ -29,6 +29,7 @@ linters:
     - gocritic
     - goimports
     - govet
+    - loggercheck
     - misspell
     - unconvert
 

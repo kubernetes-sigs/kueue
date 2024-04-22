@@ -402,7 +402,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					// Mark the workload as finished with failure since the is no point to retry.
 					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinishedReason, err.Error(), constants.JobControllerName)
 					if errUpdateStatus != nil {
-						log.Error(errUpdateStatus, "Updating workload status, on start failure %s", err.Error())
+						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
 					return ctrl.Result{}, errUpdateStatus
 				}
