@@ -536,6 +536,9 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 			}
 			if prAccepted && !prFailed {
+				// we propagate the message from the provisioning request status into the workload
+				// this happens for provisioned = false (ETA updates) and also for provisioned = true
+				// to change to the "successfully provisioned" message after provisioning
 				updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message) || updated
 			}
 		}
