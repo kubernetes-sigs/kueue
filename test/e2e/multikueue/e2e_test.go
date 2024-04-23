@@ -17,6 +17,7 @@ limitations under the License.
 package mke2e
 
 import (
+	"fmt"
 	"os/exec"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -345,15 +346,32 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
-			ginkgo.By("Disconnecting worker1 container from the kind network", func() {
-				cmd := exec.Command("docker", "network", "disconnect", "kind", "kind-worker1-control-plane")
-				output, err := cmd.CombinedOutput()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-			})
+			worker1Cq2 := utiltesting.MakeClusterQueue("q2").
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas(worker1Flavor.Name).
+						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceMemory, "1G").
+						Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sWorker1Client.Create(ctx, worker1Cq2)).Should(gomega.Succeed())
 
+			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
 			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
 
-			ginkgo.By("Waiting for the cluster do become inactive", func() {
+			ginkgo.By("Disconnecting worker1 container from the kind network", func() {
+				cmd := exec.Command("docker", "network", "disconnect", "kind", worker1Container)
+				output, err := cmd.CombinedOutput()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+
+				podList := &corev1.PodList{}
+				podListOptions := client.InNamespace("kueue-system")
+				gomega.Eventually(func(g gomega.Gomega) error {
+					return k8sWorker1Client.List(ctx, podList, podListOptions)
+				}, util.LongTimeout, util.Interval).ShouldNot(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the cluster to become inactive", func() {
 				readClient := &kueuealpha.MultiKueueCluster{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
@@ -364,13 +382,26 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Reason: "ClientConnectionFailed",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Reconnecting worker1 container to the kind network", func() {
-				cmd := exec.Command("docker", "network", "connect", "kind", "kind-worker1-control-plane")
+				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				gomega.Eventually(func() error {
+					return util.DeleteClusterQueue(ctx, k8sWorker1Client, worker1Cq2)
+				}, util.LongTimeout, util.Interval).ShouldNot(gomega.HaveOccurred())
+
+				// After reconnecting the container to the network, when we try to get pods,
+				// we get it with the previous values (as before disconnect). Therefore, it
+				// takes some time for the cluster to restore them, and we got actually values.
+				// To be sure that the leader of kueue-control-manager successfully recovered
+				// we can check it by removing already created Cluster Queue.
+				var cq kueue.ClusterQueue
+				gomega.Eventually(func() error {
+					return k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(worker1Cq2), &cq)
+				}, util.LongTimeout, util.Interval).Should(utiltesting.BeNotFoundError())
 			})
 
 			ginkgo.By("Waiting for the cluster do become active", func() {
