@@ -104,6 +104,9 @@ const (
 	// Having multiple AdmissionChecks managed by the same controller where at least one has this condition
 	// set to true will cause the ClusterQueue to be marked as Inactive.
 	AdmissionChecksSingleInstanceInClusterQueue string = "SingleInstanceInClusterQueue"
+
+	// AdmissionCheckApplyToAllFlavors indicates if the AdmissionCheck should apply to all ResourceFlavor.
+	AdmissionCheckApplyToAllFlavors string = "ApplyToAllFlavors"
 )
 
 // +genclient

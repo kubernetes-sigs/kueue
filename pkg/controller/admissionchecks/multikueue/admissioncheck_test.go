@@ -57,6 +57,7 @@ func TestReconcile(t *testing.T) {
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, AllFlavorsCheckReason, AllFlavorsCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -97,6 +98,7 @@ func TestReconcile(t *testing.T) {
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, AllFlavorsCheckReason, AllFlavorsCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -129,6 +131,7 @@ func TestReconcile(t *testing.T) {
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, AllFlavorsCheckReason, AllFlavorsCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -164,6 +167,7 @@ func TestReconcile(t *testing.T) {
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, AllFlavorsCheckReason, AllFlavorsCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -199,6 +203,7 @@ func TestReconcile(t *testing.T) {
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, AllFlavorsCheckReason, AllFlavorsCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionTrue,
@@ -231,6 +236,7 @@ func TestReconcile(t *testing.T) {
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, AllFlavorsCheckReason, AllFlavorsCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionTrue,

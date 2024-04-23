@@ -474,6 +474,13 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			*utiltesting.MakeAdmissionCheckStrategyRule("check3").Obj()).
 		Obj()
 
+	cqWithACPerFlavor := utiltesting.MakeClusterQueue("cq3").
+		AdmissionCheckStrategy(
+			*utiltesting.MakeAdmissionCheckStrategyRule("check1", "flavor1").Obj(),
+			*utiltesting.MakeAdmissionCheckStrategyRule("check2", "flavor2").Obj(),
+			*utiltesting.MakeAdmissionCheckStrategyRule("check3", "flavor3").Obj()).
+		Obj()
+
 	testcases := []struct {
 		name            string
 		cq              *kueue.ClusterQueue
@@ -647,6 +654,29 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantReason: "MultipleSingleInstanceControllerChecks",
 		},
 		{
+			name:     "Active clusterQueue with an AC per ResourceFlavor",
+			cq:       cqWithACPerFlavor,
+			cqStatus: pending,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:            true,
+					Controller:        "controller1",
+					ApplyToAllFlavors: true,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:            true,
+					Controller:        "controller3",
+					ApplyToAllFlavors: true,
+				},
+			},
+			wantStatus: pending,
+			wantReason: "ChecksNotApplyToAllFlavors",
+		},
+		{
 			name:     "Terminating clusterQueue updated with valid AC list",
 			cq:       cqWithAC,
 			cqStatus: terminating,
@@ -738,9 +768,11 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			if tc.cqStatus == active {
 				cq.hasMultipleSingleInstanceControllersChecks = false
 				cq.hasMissingOrInactiveAdmissionChecks = false
+				cq.hasSpecificFlavorChecks = false
 			} else {
 				cq.hasMultipleSingleInstanceControllersChecks = true
 				cq.hasMissingOrInactiveAdmissionChecks = true
+				cq.hasSpecificFlavorChecks = true
 			}
 			cq.updateWithAdmissionChecks(tc.admissionChecks)
 

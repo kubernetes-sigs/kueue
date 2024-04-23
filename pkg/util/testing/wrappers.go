@@ -918,6 +918,22 @@ func (ac *AdmissionCheckWrapper) SingleInstanceInClusterQueue(singleInstance boo
 	return ac
 }
 
+func (ac *AdmissionCheckWrapper) ApplyToAllFlavors(applyToAllFlavors bool, reason, message string, observedGeneration int64) *AdmissionCheckWrapper {
+	cond := metav1.Condition{
+		Type:               kueue.AdmissionCheckApplyToAllFlavors,
+		Status:             metav1.ConditionTrue,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: observedGeneration,
+	}
+	if !applyToAllFlavors {
+		cond.Status = metav1.ConditionFalse
+	}
+
+	apimeta.SetStatusCondition(&ac.Status.Conditions, cond)
+	return ac
+}
+
 func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
 	return &ac.AdmissionCheck
 }

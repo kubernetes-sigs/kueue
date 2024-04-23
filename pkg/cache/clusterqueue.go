@@ -87,6 +87,7 @@ type ClusterQueue struct {
 	hasMissingFlavors                          bool
 	hasMissingOrInactiveAdmissionChecks        bool
 	hasMultipleSingleInstanceControllersChecks bool
+	hasSpecificFlavorChecks                    bool
 	admittedWorkloadsCount                     int
 	isStopped                                  bool
 }
@@ -340,7 +341,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks || c.hasSpecificFlavorChecks {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -370,6 +371,10 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 
 		if c.hasMultipleSingleInstanceControllersChecks {
 			reasons = append(reasons, "MultipleSingleInstanceControllerChecks")
+		}
+
+		if c.hasSpecificFlavorChecks {
+			reasons = append(reasons, "ChecksNotApplyToAllFlavors")
 		}
 
 		if len(reasons) == 0 {
@@ -418,9 +423,10 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
 func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
 	hasMissing := false
+	hasSpecificChecks := false
 	checksPerController := make(map[string]int, len(c.AdmissionChecks))
 	singleInstanceControllers := sets.New[string]()
-	for acName := range c.AdmissionChecks {
+	for acName, flavors := range c.AdmissionChecks {
 		if ac, found := checks[acName]; !found {
 			hasMissing = true
 		} else {
@@ -430,6 +436,9 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 			checksPerController[ac.Controller]++
 			if ac.SingleInstanceInClusterQueue {
 				singleInstanceControllers.Insert(ac.Controller)
+			}
+			if flavors.Len() != 0 && ac.ApplyToAllFlavors {
+				hasSpecificChecks = true
 			}
 		}
 	}
@@ -449,6 +458,11 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 
 	if c.hasMultipleSingleInstanceControllersChecks != hasMultipleSICC {
 		c.hasMultipleSingleInstanceControllersChecks = hasMultipleSICC
+		update = true
+	}
+
+	if c.hasSpecificFlavorChecks != hasSpecificChecks {
+		c.hasSpecificFlavorChecks = hasSpecificChecks
 		update = true
 	}
 
