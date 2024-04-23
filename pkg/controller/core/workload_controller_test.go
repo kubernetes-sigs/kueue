@@ -508,7 +508,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
 				WithRequeuingBackoffLimitCount(ptr.To[int32](100)),
-				WithRequeuingBaseDelaySeconds(10),
+				WithRequeuingBackoffBaseSeconds(10),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).

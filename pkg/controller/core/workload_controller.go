@@ -70,10 +70,10 @@ var (
 )
 
 type options struct {
-	watchers                   []WorkloadUpdateWatcher
-	podsReadyTimeout           *time.Duration
-	requeuingBackoffLimitCount *int32
-	requeuingBaseDelaySeconds  int32
+	watchers                    []WorkloadUpdateWatcher
+	podsReadyTimeout            *time.Duration
+	requeuingBackoffLimitCount  *int32
+	requeuingBackoffBaseSeconds int32
 }
 
 // Option configures the reconciler.
@@ -95,11 +95,11 @@ func WithRequeuingBackoffLimitCount(value *int32) Option {
 	}
 }
 
-// WithRequeuingBaseDelaySeconds indicates the base delay for the computation
+// WithRequeuingBackoffBaseSeconds indicates the base delay for the computation
 // of the requeue delay.
-func WithRequeuingBaseDelaySeconds(value int32) Option {
+func WithRequeuingBackoffBaseSeconds(value int32) Option {
 	return func(o *options) {
-		o.requeuingBaseDelaySeconds = value
+		o.requeuingBackoffBaseSeconds = value
 	}
 }
 
@@ -118,15 +118,15 @@ type WorkloadUpdateWatcher interface {
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	log                        logr.Logger
-	queues                     *queue.Manager
-	cache                      *cache.Cache
-	client                     client.Client
-	watchers                   []WorkloadUpdateWatcher
-	podsReadyTimeout           *time.Duration
-	requeuingBackoffLimitCount *int32
-	requeuingBaseDelaySeconds  int32
-	recorder                   record.EventRecorder
+	log                         logr.Logger
+	queues                      *queue.Manager
+	cache                       *cache.Cache
+	client                      client.Client
+	watchers                    []WorkloadUpdateWatcher
+	podsReadyTimeout            *time.Duration
+	requeuingBackoffLimitCount  *int32
+	requeuingBackoffBaseSeconds int32
+	recorder                    record.EventRecorder
 }
 
 func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
@@ -136,15 +136,15 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 	}
 
 	return &WorkloadReconciler{
-		log:                        ctrl.Log.WithName("workload-reconciler"),
-		client:                     client,
-		queues:                     queues,
-		cache:                      cache,
-		watchers:                   options.watchers,
-		podsReadyTimeout:           options.podsReadyTimeout,
-		requeuingBackoffLimitCount: options.requeuingBackoffLimitCount,
-		requeuingBaseDelaySeconds:  options.requeuingBaseDelaySeconds,
-		recorder:                   recorder,
+		log:                         ctrl.Log.WithName("workload-reconciler"),
+		client:                      client,
+		queues:                      queues,
+		cache:                       cache,
+		watchers:                    options.watchers,
+		podsReadyTimeout:            options.podsReadyTimeout,
+		requeuingBackoffLimitCount:  options.requeuingBackoffLimitCount,
+		requeuingBackoffBaseSeconds: options.requeuingBackoffBaseSeconds,
+		recorder:                    recorder,
 	}
 }
 
@@ -411,7 +411,7 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	// During this time, the workload is taken as an inadmissible and other
 	// workloads will have a chance to be admitted.
 	backoff := &wait.Backoff{
-		Duration: time.Duration(r.requeuingBaseDelaySeconds) * time.Second,
+		Duration: time.Duration(r.requeuingBackoffBaseSeconds) * time.Second,
 		Factor:   2,
 		Jitter:   0.0001,
 		Steps:    int(requeuingCount),
