@@ -271,6 +271,23 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative waitForPodsReady.requeuingStrategy.backoffBaseSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						BackoffBaseSeconds: ptr.To[int32](-1),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.requeuingStrategy.backoffBaseSeconds",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
