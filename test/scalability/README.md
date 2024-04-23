@@ -66,3 +66,17 @@ make test-scalability
 ```
 
 Runs the scalability with minimalkueue and checks the results against `$(PROJECT_DIR)/test/scalability/default_rangespec.yaml`
+
+## Scrape result
+
+The scrape result `metricsDump.tgz` contains a set of `<ts>.prometheus` files, where `ts` is the millisecond representation of the epoch time at the moment each scrape was stared and can be used during the import in a visualization tool.
+
+If an instance of [VictoriaMetrics](https://docs.victoriametrics.com/) listening at `http://localhost:8428` is used, a metrics dump can be imported like:
+
+```bash
+ TMPDIR=$(mktemp -d)
+ tar -xf ./bin/run-scalability/metricsDump.tgz -C $TMPDIR
+ for file in ${TMPDIR}/*.prometheus; do timestamp=$(basename "$file" .prometheus);  curl -vX POST -T "$file" http://localhost:8428/api/v1/import/prometheus?timestamp="$timestamp"; done
+ rm -r $TMPDIR
+
+```
