@@ -302,6 +302,9 @@ const (
 	// more detailed information. The more detailed reasons should be prefixed
 	// by one of the "base" reasons.
 	WorkloadPreempted = "Preempted"
+
+	// WorkloadRequeued means that the Workload was requeued due to eviction.
+	WorkloadRequeued = "Requeued"
 )
 
 const (

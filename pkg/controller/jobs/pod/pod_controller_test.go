@@ -1651,6 +1651,13 @@ func TestReconciler(t *testing.T) {
 						Reason:             "Pending",
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "Pending",
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,

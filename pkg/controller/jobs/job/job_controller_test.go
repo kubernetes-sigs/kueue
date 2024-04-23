@@ -634,6 +634,12 @@ func TestReconciler(t *testing.T) {
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Pending",
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
 						Reason:  "InactiveWorkload",
