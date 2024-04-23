@@ -1,15 +1,32 @@
-# Until we have a clear picture on how the setup
-# performs in CI keep the values "very relaxed"
+# The values are computed based on the result of 5 trial runs:
+# - #1782760671465705472
+# - #1782764439129296896
+# - #1782768037514973184
+# - #1782772615836864512
+# - #1782775995984515072
 cmd:
-  maxWallMs: 3600_000 #1h 
-  maxUserMs: 3600_000
-  maxSysMs: 3600_000
-  maxrss: 1024_000 #1000MiB
+  # Average value 351116.4 (+/- 0.9%), setting at +5%
+  maxWallMs: 368672
+
+  # Average value 111500 (+/- 14%), setting at +20%
+  maxUserMs: 133800
+
+  # Average value 27875 (+/- 16%), setting at +20%
+  maxSysMs: 33450
+  
+  # Average value 445012 (+/- 0.3%), setting at +5%
+  maxrss: 467263
 
 clusterQueueClassesMinUsage:
-  cq: 10  #10%
+  # Average value 58.7 (+/- 1.2%), setting at -5%
+  cq: 56 #%
 
 wlClassesMaxAvgTimeToAdmissionMs:
-  large: 3600_000 #1h
-  medium: 3600_000
-  small: 3600_000
+  # Average value 6666 (+/- 14%), setting at +20%
+  large: 8_000
+
+  # Average value 76768 (+/- 2%), setting at +5%
+  medium: 80_606
+
+  # Average value 215468 (+/- 2%), setting at +5%
+  small: 226_241
