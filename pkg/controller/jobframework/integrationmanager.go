@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -133,6 +134,36 @@ func (m *integrationManager) getCallbacksForOwner(ownerRef *metav1.OwnerReferenc
 // attempting to register multiple frameworks with the same name or if a
 // mandatory callback is missing.
 func RegisterIntegration(name string, cb IntegrationCallbacks) error {
+	return manager.register(name, cb)
+}
+
+func RegisterExternalIntegration(name string) error {
+	splitName := strings.Split(name, ", Kind=")
+	if len(splitName) != 2 {
+		return fmt.Errorf("%v does not match expected format '$GROUP/$VERSION, Kind=$KIND'", name)
+	}
+	apiVersion := splitName[0]
+	kind := splitName[1]
+	obj := &metav1.PartialObjectMetadata{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: apiVersion,
+			Kind:       kind,
+		},
+	}
+	cb := IntegrationCallbacks{
+		// JobType and IsManagingObjectsOwner are relevant
+		JobType:                obj,
+		IsManagingObjectsOwner: func(ref *metav1.OwnerReference) bool { return ref.Kind == kind && ref.APIVersion == apiVersion },
+
+		// Stub out remaining required functions (should never be called)
+		NewReconciler: func(client client.Client, record record.EventRecorder, opts ...Option) JobReconcilerInterface {
+			return nil
+		},
+		SetupWebhook: func(mgr ctrl.Manager, opts ...Option) error { return nil },
+		SetupIndexes: func(ctx context.Context, indexer client.FieldIndexer) error { return nil },
+		AddToScheme:  func(s *runtime.Scheme) error { return nil },
+	}
+
 	return manager.register(name, cb)
 }
 

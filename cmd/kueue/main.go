@@ -217,6 +217,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 
 	opts := []jobframework.Option{
 		jobframework.WithEnabledFrameworks(cfg.Integrations),
+		jobframework.WithExternalFrameworks(cfg.Integrations),
 	}
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
@@ -268,6 +269,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
 		jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions),
 		jobframework.WithEnabledFrameworks(cfg.Integrations),
+		jobframework.WithExternalFrameworks(cfg.Integrations),
 		jobframework.WithManagerName(constants.KueueName),
 		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
 	}
@@ -370,6 +372,14 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 				errorlist = append(errorlist, field.NotSupported(path, framework, availableFrameworks))
 			}
 		}
+
+		path = field.NewPath("integrations", "externalFrameworks")
+		for idx, name := range cfg.Integrations.ExternalFrameworks {
+			if err := jobframework.RegisterExternalIntegration(name); err != nil {
+				errorlist = append(errorlist, field.InternalError(path.Index(idx), err))
+			}
+		}
+
 		if len(errorlist) > 0 {
 			err := errorlist.ToAggregate()
 			return options, cfg, err

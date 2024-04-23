@@ -51,6 +51,9 @@ func SetupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 		logger := log.WithValues("jobFrameworkName", name)
 		fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", name)
 
+		if options.ExternalFrameworks.Has(name) {
+			return nil
+		}
 		if options.EnabledFrameworks.Has(name) {
 			if cb.CanSupportIntegration != nil {
 				if canSupport, err := cb.CanSupportIntegration(opts...); !canSupport || err != nil {

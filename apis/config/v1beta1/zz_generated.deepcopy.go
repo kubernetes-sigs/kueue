@@ -240,6 +240,11 @@ func (in *Integrations) DeepCopyInto(out *Integrations) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.ExternalFrameworks != nil {
+		in, out := &in.ExternalFrameworks, &out.ExternalFrameworks
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.PodOptions != nil {
 		in, out := &in.PodOptions, &out.PodOptions
 		*out = new(PodIntegrationOptions)
