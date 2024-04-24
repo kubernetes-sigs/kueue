@@ -18,19 +18,28 @@ package jobset
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 type JobSetWebhook struct {
 	manageJobsWithoutQueueName bool
+	queues                     *queue.Manager
+	cache                      *cache.Cache
 }
 
 // SetupJobSetWebhook configures the webhook for kubeflow JobSet.
@@ -38,6 +47,8 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &JobSetWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		queues:                     options.Queues,
+		cache:                      options.Cache,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&jobsetapi.JobSet{}).
@@ -57,6 +68,31 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Applying defaults", "jobset", klog.KObj(jobSet))
 
 	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
+	if features.Enabled(features.MultiKueue) {
+		localQueueName, found := jobSet.Labels[constants.QueueLabel]
+		if !found {
+			return nil
+		}
+		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(fmt.Sprintf("%s/%s", jobSet.ObjectMeta.Namespace, localQueueName))
+		if err != nil {
+			return err
+		}
+		clusterQueue, found := w.cache.GetClusterQueue(clusterQueueName)
+		if !found {
+			return nil
+		}
+		for admissionCheckName := range clusterQueue.AdmissionChecks {
+			admissionCheck, ok := w.cache.GetAdmissionCheck(admissionCheckName)
+			if !ok {
+				continue
+			}
+			if admissionCheck.Controller == multikueue.ControllerName {
+				jobSet.Spec.ManagedBy = ptr.To(multikueue.ControllerName)
+				break
+			}
+		}
+	}
+
 	return nil
 }
 

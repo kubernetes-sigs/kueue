@@ -224,6 +224,13 @@ func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] 
 	return c.updateClusterQueues()
 }
 
+func (c *Cache) GetAdmissionCheck(name string) (AdmissionCheck, bool) {
+	c.RLock()
+	defer c.RUnlock()
+	ac, ok := c.admissionChecks[name]
+	return ac, ok
+}
+
 func (c *Cache) ClusterQueueActive(name string) bool {
 	return c.clusterQueueInStatus(name, active)
 }
@@ -370,6 +377,13 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	c.deleteClusterQueueFromCohort(cqImpl)
 	delete(c.clusterQueues, cq.Name)
 	metrics.ClearCacheMetrics(cq.Name)
+}
+
+func (c *Cache) GetClusterQueue(name string) (*ClusterQueue, bool) {
+	c.RLock()
+	defer c.RUnlock()
+	cq, ok := c.clusterQueues[name]
+	return cq, ok
 }
 
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {

@@ -34,11 +34,13 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -78,6 +80,8 @@ type Options struct {
 	EnabledExternalFrameworks sets.Set[string]
 	ManagerName               string
 	LabelKeysToCopy           []string
+	Queues                    *queue.Manager
+	Cache                     *cache.Cache
 }
 
 // Option configures the reconciler.
@@ -156,6 +160,20 @@ func WithManagerName(n string) Option {
 func WithLabelKeysToCopy(n []string) Option {
 	return func(o *Options) {
 		o.LabelKeysToCopy = n
+	}
+}
+
+// WithQueues adds the queue manager.
+func WithQueues(q *queue.Manager) Option {
+	return func(o *Options) {
+		o.Queues = q
+	}
+}
+
+// WithCache adds the cache manager.
+func WithCache(c *cache.Cache) Option {
+	return func(o *Options) {
+		o.Cache = c
 	}
 }
 
