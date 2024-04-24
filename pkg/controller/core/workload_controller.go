@@ -152,12 +152,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Workload")
 
-	// If a deactivated workload is re-activated, we need to reset the RequeueState.
-	if wl.Status.RequeueState != nil && ptr.Deref(wl.Spec.Active, true) && workload.IsEvictedByDeactivation(&wl) {
-		wl.Status.RequeueState = nil
-		return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
-	}
-
 	if len(wl.ObjectMeta.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, &wl)
 	}
@@ -166,9 +160,51 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
+	if ptr.Deref(wl.Spec.Active, true) {
+		var updated bool
+
+		// If a deactivated workload is re-activated we need to reset the RequeueState.
+		if workload.IsEvictedByDeactivation(&wl) && wl.Status.RequeueState != nil {
+			wl.Status.RequeueState = nil
+			updated = true
+		}
+
+		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
+			switch cond.Reason {
+			case kueue.WorkloadEvictedByDeactivation:
+				workload.SetRequeuedCondition(&wl, kueue.WorkloadReactivated, "The workload was reactivated", true)
+				updated = true
+			case kueue.WorkloadEvictedByPodsReadyTimeout:
+				var requeueAfter time.Duration
+				if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
+					requeueAfter = wl.Status.RequeueState.RequeueAt.Time.Sub(r.clock.Now())
+				}
+				if requeueAfter > 0 {
+					return reconcile.Result{RequeueAfter: requeueAfter}, nil
+				}
+				workload.SetRequeuedCondition(&wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true)
+				updated = true
+			}
+		}
+
+		if updated {
+			return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
+		}
+	}
+
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if cqOk {
-		if updated, err := r.reconcileSyncAdmissionChecks(ctx, &wl, cqName); updated || err != nil {
+		// because we need to react to API cluster cq events, the list of checks from a cache can lead to race conditions
+		cq := kueue.ClusterQueue{}
+		if err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &cq); err != nil {
+			return ctrl.Result{}, err
+		}
+		// If stopped cluster queue is started we need to set the WorkloadRequeued condition to true.
+		if workload.IsDisabledRequeuedByClusterQueueStopped(&wl) && ptr.Deref(cq.Spec.StopPolicy, kueue.None) == kueue.None {
+			workload.SetRequeuedCondition(&wl, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true)
+			return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
+		}
+		if updated, err := r.reconcileSyncAdmissionChecks(ctx, &wl, &cq); updated || err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -259,19 +295,12 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	return true, client.IgnoreNotFound(err)
 }
 
-func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cqName string) (bool, error) {
+func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cq *kueue.ClusterQueue) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
-
-	// because we need to react to API cluster cq events, the list of checks from a cache can lead to race conditions
-	cq := kueue.ClusterQueue{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &cq); err != nil {
-		return false, err
-	}
-
-	admissionChecks := workload.AdmissionChecksForWorkload(log, wl, utilac.NewAdmissionChecks(&cq))
+	admissionChecks := workload.AdmissionChecksForWorkload(log, wl, utilac.NewAdmissionChecks(cq))
 	newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, admissionChecks)
 	if shouldUpdate {
-		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "admissionChecks", admissionChecks)
+		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cq.Name), "admissionChecks", admissionChecks)
 		wl.Status.AdmissionChecks = newChecks
 		err := r.client.Status().Update(ctx, wl)
 		return true, client.IgnoreNotFound(err)

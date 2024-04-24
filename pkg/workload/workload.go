@@ -358,10 +358,6 @@ func UpdateStatus(ctx context.Context,
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
 func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) bool {
-	if HasQuotaReservation(wl) {
-		SetRequeuedCondition(wl, reason, message)
-	}
-
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
@@ -383,13 +379,17 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 }
 
 // SetRequeuedCondition sets the WorkloadRequeued condition to true
-func SetRequeuedCondition(wl *kueue.Workload, reason string, message string) {
+func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status bool) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadRequeued,
-		Status:             metav1.ConditionTrue,
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: wl.Generation,
+	}
+	if status {
+		condition.Status = metav1.ConditionTrue
+	} else {
+		condition.Status = metav1.ConditionFalse
 	}
 	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 }
@@ -575,6 +575,12 @@ func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
 		return nil, false
 	}
 	return cond, true
+}
+
+// IsDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
+func IsDisabledRequeuedByClusterQueueStopped(w *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadRequeued)
+	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadEvictedByClusterQueueStopped
 }
 
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
