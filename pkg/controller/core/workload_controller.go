@@ -73,6 +73,7 @@ type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
 	requeuingBackoffLimitCount  *int32
 	requeuingBackoffBaseSeconds int32
+	requeuingBackoffJitter      float64
 }
 
 type options struct {
@@ -112,6 +113,7 @@ type WorkloadReconciler struct {
 	watchers         []WorkloadUpdateWatcher
 	waitForPodsReady *waitForPodsReadyConfig
 	recorder         record.EventRecorder
+	clock            clock.Clock
 }
 
 func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
@@ -128,6 +130,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 		watchers:         options.watchers,
 		waitForPodsReady: options.waitForPodsReadyConfig,
 		recorder:         recorder,
+		clock:            realClock,
 	}
 }
 
@@ -352,7 +355,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		// the workload has already been evicted by the PodsReadyTimeout or been deactivated.
 		return ctrl.Result{}, nil
 	}
-	countingTowardsTimeout, recheckAfter := r.admittedNotReadyWorkload(wl, realClock)
+	countingTowardsTimeout, recheckAfter := r.admittedNotReadyWorkload(wl)
 	if !countingTowardsTimeout {
 		return ctrl.Result{}, nil
 	}
@@ -396,14 +399,14 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	backoff := &wait.Backoff{
 		Duration: time.Duration(r.waitForPodsReady.requeuingBackoffBaseSeconds) * time.Second,
 		Factor:   2,
-		Jitter:   0.0001,
+		Jitter:   r.waitForPodsReady.requeuingBackoffJitter,
 		Steps:    int(requeuingCount),
 	}
 	var waitDuration time.Duration
 	for backoff.Steps > 0 {
 		waitDuration = backoff.Step()
 	}
-	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(time.Now().Add(waitDuration)))
+	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(r.clock.Now().Add(waitDuration)))
 	wl.Status.RequeueState.Count = &requeuingCount
 	return false, nil
 }
@@ -627,7 +630,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 // True (False or not set). The second value is the remaining time to exceed the
 // specified timeout counted since max of the LastTransitionTime's for the
 // Admitted and PodsReady conditions.
-func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload, clock clock.Clock) (bool, time.Duration) {
+func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool, time.Duration) {
 	if r.waitForPodsReady == nil {
 		// the timeout is not configured for the workload controller
 		return false, 0
@@ -642,9 +645,9 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload, clock 
 		return false, 0
 	}
 	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-	elapsedTime := clock.Since(admittedCond.LastTransitionTime.Time)
+	elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
 	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionFalse && podsReadyCond.LastTransitionTime.After(admittedCond.LastTransitionTime.Time) {
-		elapsedTime = clock.Since(podsReadyCond.LastTransitionTime.Time)
+		elapsedTime = r.clock.Since(podsReadyCond.LastTransitionTime.Time)
 	}
 	waitFor := r.waitForPodsReady.timeout - elapsedTime
 	if waitFor < 0 {
