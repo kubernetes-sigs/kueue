@@ -376,13 +376,15 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						{
 							Name: "ps1",
 							Annotations: map[string]string{
-								provisioning.ConsumesAnnotationKey: provReqKey.Name,
+								provisioning.ConsumesAnnotationKey:  provReqKey.Name,
+								provisioning.ClassNameAnnotationKey: prc.Spec.ProvisioningClassName,
 							},
 						},
 						{
 							Name: "ps2",
 							Annotations: map[string]string{
-								provisioning.ConsumesAnnotationKey: provReqKey.Name,
+								provisioning.ConsumesAnnotationKey:  provReqKey.Name,
+								provisioning.ClassNameAnnotationKey: prc.Spec.ProvisioningClassName,
 							},
 						},
 					}))
@@ -641,13 +643,15 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						{
 							Name: "ps1",
 							Annotations: map[string]string{
-								provisioning.ConsumesAnnotationKey: provReqKey.Name,
+								provisioning.ConsumesAnnotationKey:  provReqKey.Name,
+								provisioning.ClassNameAnnotationKey: prc.Spec.ProvisioningClassName,
 							},
 						},
 						{
 							Name: "ps2",
 							Annotations: map[string]string{
-								provisioning.ConsumesAnnotationKey: provReqKey.Name,
+								provisioning.ConsumesAnnotationKey:  provReqKey.Name,
+								provisioning.ClassNameAnnotationKey: prc.Spec.ProvisioningClassName,
 							},
 						},
 					}))
