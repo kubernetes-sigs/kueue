@@ -7,7 +7,7 @@ description: >
   Run a Kueue scheduled JobSet.
 ---
 
-This document explains how you can use Kueue’s scheduling and resource management functionality when running [JobSet Operator](https://github.com/kubernetes-sigs/jobset) [JobSets](https://github.com/kubernetes-sigs/jobset/blob/main/docs/concepts/README.md).
+This document explains how you can use Kueue’s scheduling and resource management functionality when running [JobSet Operator](https://github.com/kubernetes-sigs/jobset) [JobSet](https://jobset.sigs.k8s.io/docs/concepts/).
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
