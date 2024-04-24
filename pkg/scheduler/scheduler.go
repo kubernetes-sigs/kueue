@@ -158,7 +158,7 @@ func (cu *cohortsUsage) add(cohort string, assignment cache.FlavorResourceQuanti
 }
 
 func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
-	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b cache.ResourceQuantities) cache.ResourceQuantities {
+	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b workload.Requests) workload.Requests {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
@@ -357,7 +357,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
 			if s.enableFairSharing {
-				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(&w)
+				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(e.assignment.TotalRequestsFor(&w))
 			}
 		}
 		entries = append(entries, e)

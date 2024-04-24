@@ -159,18 +159,25 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 }
 
 // ResourceUsage returns the total resource usage for the workload,
-// per resource.
-func (i *Info) ResourceUsage() Requests {
+// per flavor (if assigned, otherwise flavor shows as empty string), per resource.
+func (i *Info) FlavorResourceUsage() map[kueue.ResourceFlavorReference]Requests {
 	if i == nil || len(i.TotalRequests) == 0 {
 		return nil
 	}
-	req := maps.Clone(i.TotalRequests[0].Requests)
-	for j := 1; j < len(i.TotalRequests); j++ {
-		for rName, rVal := range i.TotalRequests[j].Requests {
-			req[rName] += rVal
+	total := make(map[kueue.ResourceFlavorReference]Requests)
+	for _, psReqs := range i.TotalRequests {
+		for res, q := range psReqs.Requests {
+			flv := psReqs.Flavors[res]
+			if requests, found := total[flv]; found {
+				requests[res] += q
+			} else {
+				total[flv] = Requests{
+					res: q,
+				}
+			}
 		}
 	}
-	return req
+	return total
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {

@@ -92,7 +92,7 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, time.Now()))
 
 	sameQueueCandidates := candidatesOnlyFromQueue(candidates, wl.ClusterQueue)
-	wlReq := totalRequestsForAssignment(&wl, assignment)
+	wlReq := assignment.TotalRequestsFor(&wl)
 
 	// To avoid flapping, Kueue only allows preemption of workloads from the same
 	// queue if borrowing. Preemption of workloads from queues can happen only
@@ -258,8 +258,8 @@ func restoreSnapshot(snapshot *cache.Snapshot, targets []*workload.Info) {
 func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*workload.Info {
 	cqHeap := cqHeapFromCandidates(candidates, false, snapshot)
 	nominatedCQ := snapshot.ClusterQueues[wl.ClusterQueue]
-	newNominatedShareValue, _ := nominatedCQ.DominantResourceShareWith(wl)
-	wlReq := totalRequestsForAssignment(wl, assignment)
+	wlReq := assignment.TotalRequestsFor(wl)
+	newNominatedShareValue, _ := nominatedCQ.DominantResourceShareWith(wlReq)
 	var targets []*workload.Info
 	fits := false
 	var retryCandidates []*workload.Info
@@ -274,7 +274,7 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 				fits = true
 				break
 			}
-			newNominatedShareValue, _ = nominatedCQ.DominantResourceShareWith(wl)
+			newNominatedShareValue, _ = nominatedCQ.DominantResourceShareWith(wlReq)
 			candCQ.workloads = candCQ.workloads[1:]
 			if len(candCQ.workloads) > 0 {
 				candCQ.share, _ = candCQ.cq.DominantResourceShare()
@@ -467,22 +467,6 @@ func workloadUsesResources(wl *workload.Info, resPerFlv resourcesPerFlavor) bool
 		}
 	}
 	return false
-}
-
-func totalRequestsForAssignment(wl *workload.Info, assignment flavorassigner.Assignment) cache.FlavorResourceQuantities {
-	usage := make(cache.FlavorResourceQuantities)
-	for i, ps := range wl.TotalRequests {
-		for res, q := range ps.Requests {
-			flv := assignment.PodSets[i].Flavors[res].Name
-			resUsage := usage[flv]
-			if resUsage == nil {
-				resUsage = make(map[corev1.ResourceName]int64)
-				usage[flv] = resUsage
-			}
-			resUsage[res] += q
-		}
-	}
-	return usage
 }
 
 // workloadFits determines if the workload requests would fit given the

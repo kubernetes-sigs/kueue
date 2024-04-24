@@ -128,8 +128,7 @@ type ResourceQuota struct {
 	LendingLimit   *int64
 }
 
-type ResourceQuantities map[corev1.ResourceName]int64
-type FlavorResourceQuantities map[kueue.ResourceFlavorReference]ResourceQuantities
+type FlavorResourceQuantities map[kueue.ResourceFlavorReference]workload.Requests
 
 type queue struct {
 	key                string
@@ -684,40 +683,53 @@ func (c *ClusterQueue) UsedCohortQuota(fName kueue.ResourceFlavorReference, rNam
 	return cohortUsage
 }
 
-// DominantResourceShare returns a value from 0 to 100 representing the maximum of the ratios
+// DominantResourceShare returns a value from 0 to 1000 representing the maximum of the ratios
 // of usage above nominal quota to the lendable resources in the cohort, among all the resources
 // provided by the ClusterQueue.
 // If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 // The function also returns the resource name that yielded this value.
 func (c *ClusterQueue) DominantResourceShare() (int, corev1.ResourceName) {
-	return c.dominantResourceShare(nil, 1)
+	return c.dominantResourceShare(nil, 0)
 }
 
-func (c *ClusterQueue) DominantResourceShareWith(w *workload.Info) (int, corev1.ResourceName) {
-	return c.dominantResourceShare(w, 1)
+func (c *ClusterQueue) DominantResourceShareWith(wlReq FlavorResourceQuantities) (int, corev1.ResourceName) {
+	return c.dominantResourceShare(wlReq, 1)
 }
 
 func (c *ClusterQueue) DominantResourceShareWithout(w *workload.Info) (int, corev1.ResourceName) {
-	return c.dominantResourceShare(w, -1)
+	return c.dominantResourceShare(w.FlavorResourceUsage(), -1)
 }
 
-func (c *ClusterQueue) dominantResourceShare(w *workload.Info, m int64) (int, corev1.ResourceName) {
+func (c *ClusterQueue) dominantResourceShare(wlReq FlavorResourceQuantities, m int64) (int, corev1.ResourceName) {
 	if c.Cohort == nil {
 		return 0, ""
 	}
+
+	borrowing := make(map[corev1.ResourceName]int64)
+	for _, rg := range c.ResourceGroups {
+		for _, flv := range rg.Flavors {
+			for rName, quotas := range flv.Resources {
+				b := c.Usage[flv.Name][rName] + m*wlReq[flv.Name][rName] - quotas.Nominal
+				if b > 0 {
+					borrowing[rName] += b
+				}
+			}
+		}
+	}
+	if len(borrowing) == 0 {
+		return 0, ""
+	}
+
 	var drs int64 = -1
 	var dRes corev1.ResourceName
-	wUsage := w.ResourceUsage()
-	for rName, rStats := range c.ResourceStats {
-		var ratio int64
-		if c.Cohort.ResourceStats[rName].Lendable > 0 {
-			ratio = max(rStats.Usage+wUsage[rName]*m-rStats.Nominal, 0) * 100 /
-				c.Cohort.ResourceStats[rName].Lendable
-		}
-		// Use alphabetical order to get a deterministic resource name.
-		if ratio > drs || (ratio == drs && rName < dRes) {
-			drs = ratio
-			dRes = rName
+	for rName, b := range borrowing {
+		if lendable := c.Cohort.ResourceStats[rName].Lendable; lendable > 0 {
+			ratio := b * 1000 / lendable
+			// Use alphabetical order to get a deterministic resource name.
+			if ratio > drs || (ratio == drs && rName < dRes) {
+				drs = ratio
+				dRes = rName
+			}
 		}
 	}
 	return int(drs), dRes

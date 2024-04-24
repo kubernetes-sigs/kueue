@@ -22,12 +22,12 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestClusterQueueUpdateWithFlavors(t *testing.T) {
@@ -759,38 +759,60 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 func TestDominantResourceShare(t *testing.T) {
 	cases := map[string]struct {
 		cq          ClusterQueue
-		workload    *workload.Info
+		flvResQ     FlavorResourceQuantities
 		wantDRValue int
 		wantDRName  corev1.ResourceName
 	}{
 		"no cohort": {
 			cq: ClusterQueue{
-				ResourceStats: ResourceStats{
-					corev1.ResourceCPU: {
-						Nominal:  2_000,
-						Lendable: 2_000,
-						Usage:    1_000,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  2,
 					},
-					"example.com/gpu": {
-						Nominal:  5,
-						Lendable: 5,
-						Usage:    2_000,
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
 					},
 				},
 			},
 		},
 		"usage below nominal": {
 			cq: ClusterQueue{
-				ResourceStats: ResourceStats{
-					corev1.ResourceCPU: {
-						Nominal:  2_000,
-						Lendable: 2_000,
-						Usage:    1_000,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  2,
 					},
-					"example.com/gpu": {
-						Nominal:  5,
-						Lendable: 5,
-						Usage:    2,
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
 					},
 				},
 				Cohort: &Cohort{
@@ -808,20 +830,30 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 			},
-			wantDRName: corev1.ResourceCPU, // due to alphabetical order.
 		},
 		"usage above nominal": {
 			cq: ClusterQueue{
-				ResourceStats: ResourceStats{
-					corev1.ResourceCPU: {
-						Nominal:  2_000,
-						Lendable: 2_000,
-						Usage:    3_000,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 3_000,
+						"example.com/gpu":  7,
 					},
-					"example.com/gpu": {
-						Nominal:  5,
-						Lendable: 5,
-						Usage:    7,
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
 					},
 				},
 				Cohort: &Cohort{
@@ -840,20 +872,31 @@ func TestDominantResourceShare(t *testing.T) {
 				},
 			},
 			wantDRName:  "example.com/gpu",
-			wantDRValue: 20, // (7-5)/10
+			wantDRValue: 200, // (7-5)*1000/10
 		},
 		"one resource above nominal": {
 			cq: ClusterQueue{
-				ResourceStats: ResourceStats{
-					corev1.ResourceCPU: {
-						Nominal:  2_000,
-						Lendable: 2_000,
-						Usage:    3_000,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 3_000,
+						"example.com/gpu":  3,
 					},
-					"example.com/gpu": {
-						Nominal:  5,
-						Lendable: 5,
-						Usage:    3,
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
 					},
 				},
 				Cohort: &Cohort{
@@ -872,20 +915,31 @@ func TestDominantResourceShare(t *testing.T) {
 				},
 			},
 			wantDRName:  corev1.ResourceCPU,
-			wantDRValue: 10, // (3-2)/10
+			wantDRValue: 100, // (3-2)*1000/10
 		},
 		"usage with workload above nominal": {
 			cq: ClusterQueue{
-				ResourceStats: ResourceStats{
-					corev1.ResourceCPU: {
-						Nominal:  2_000,
-						Lendable: 2_000,
-						Usage:    1_000,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  2,
 					},
-					"example.com/gpu": {
-						Nominal:  5,
-						Lendable: 5,
-						Usage:    2,
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
 					},
 				},
 				Cohort: &Cohort{
@@ -903,28 +957,39 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 			},
-			workload: &workload.Info{
-				TotalRequests: []workload.PodSetResources{{
-					Requests: workload.Requests{
-						corev1.ResourceCPU: 4_000,
-						"example.com/gpu":  4,
-					},
-				}},
+			flvResQ: FlavorResourceQuantities{
+				"default": {
+					corev1.ResourceCPU: 4_000,
+					"example.com/gpu":  4,
+				},
 			},
 			wantDRName:  corev1.ResourceCPU,
-			wantDRValue: 30, // (1+4-2)/10
+			wantDRValue: 300, // (1+4-2)*1000/10
 		},
 		"A resource with zero lendable": {
 			cq: ClusterQueue{
-				ResourceStats: ResourceStats{
-					corev1.ResourceCPU: {
-						Nominal:  2_000,
-						Lendable: 2_000,
-						Usage:    1_000,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  1,
 					},
-					"example.com/gpu": {
-						Nominal: 2_000,
-						Usage:   1_000,
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal:      2,
+										LendingLimit: ptr.To[int64](0),
+									},
+								},
+							},
+						},
 					},
 				},
 				Cohort: &Cohort{
@@ -941,21 +1006,69 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 			},
-			workload: &workload.Info{
-				TotalRequests: []workload.PodSetResources{{
-					Requests: workload.Requests{
-						corev1.ResourceCPU: 4_000,
-						"example.com/gpu":  4,
-					},
-				}},
+			flvResQ: FlavorResourceQuantities{
+				"default": {
+					corev1.ResourceCPU: 4_000,
+					"example.com/gpu":  4,
+				},
 			},
 			wantDRName:  corev1.ResourceCPU,
-			wantDRValue: 30, // (1+4-2)/10
+			wantDRValue: 300, // (1+4-2)*1000/10
+		},
+		"multiple flavors": {
+			cq: ClusterQueue{
+				Usage: FlavorResourceQuantities{
+					"on-demand": {
+						corev1.ResourceCPU: 15_000,
+					},
+					"spot": {
+						corev1.ResourceCPU: 5_000,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "on-demand",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 20_000,
+									},
+								},
+							},
+							{
+								Name: "spot",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 80_000,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  200_000,
+							Lendable: 200_000,
+							Usage:    20_000,
+						},
+					},
+				},
+			},
+			flvResQ: FlavorResourceQuantities{
+				"on-demand": {
+					corev1.ResourceCPU: 10_000,
+				},
+			},
+			wantDRName:  corev1.ResourceCPU,
+			wantDRValue: 25, // ((15+10-20)+0)*1000/200 (spot under nominal)
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			drValue, drName := tc.cq.DominantResourceShareWith(tc.workload)
+			drValue, drName := tc.cq.DominantResourceShareWith(tc.flvResQ)
 			if drValue != tc.wantDRValue {
 				t.Errorf("DominantResourceShare(_) returned value %d, want %d", drValue, tc.wantDRValue)
 			}
