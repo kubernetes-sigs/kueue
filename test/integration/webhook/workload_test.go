@@ -121,16 +121,6 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 var _ = ginkgo.Describe("Workload validating webhook", func() {
 	ginkgo.Context("When creating a Workload", func() {
 
-		ginkgo.It("Should have valid PriorityClassName when creating", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).
-				PriorityClass("invalid_class").
-				Obj()
-			err := k8sClient.Create(ctx, workload)
-			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError), "error: %v", err)
-		})
-
 		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
 			podSets := make([]kueue.PodSet, podSetsCapacity)
 			for i := range podSets {
@@ -490,34 +480,293 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
 		})
 
-		ginkgo.It("Should allow the change of priority", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
+		ginkgo.DescribeTable("Validate Workload on update",
+			func(w func() *kueue.Workload, setQuotaReservation bool, updateWl func(newWL *kueue.Workload), matcher gomega.OmegaMatcher) {
+				ginkgo.By("Creating a new Workload")
+				workload := w()
+				gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
+				if setQuotaReservation {
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
+				}
 
-			ginkgo.By("Updating the priority")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.Priority = ptr.To[int32](10)
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("Should forbid the change of spec.podSet", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
-
-			ginkgo.By("Updating podSet")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.PodSets[0].Count = 10
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
-		})
+				gomega.Eventually(func() error {
+					var newWL kueue.Workload
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+					updateWl(&newWL)
+					return k8sClient.Update(ctx, &newWL)
+				}, util.Timeout, util.Interval).Should(matcher)
+			},
+			ginkgo.Entry("podSets should not be updated when has quota reservation: count",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PodSets = []kueue.PodSet{*testing.MakePodSet("main", 2).Obj()}
+				},
+				testing.BeAPIError(testing.InvalidError),
+			),
+			ginkgo.Entry("podSets should not be updated: podSpec",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PodSets = []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name: "c-after",
+										Resources: corev1.ResourceRequirements{
+											Requests: make(corev1.ResourceList),
+										},
+									},
+								},
+							},
+						},
+					}}
+				},
+				testing.BeAPIError(testing.InvalidError),
+			),
+			ginkgo.Entry("queueName can be updated when not admitted",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Queue("q1").Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.QueueName = "q2"
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("queueName can be updated when admitting",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.QueueName = "q"
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("queueName should not be updated once admitted",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Queue("q1").Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.QueueName = "q2"
+				},
+				testing.BeAPIError(testing.InvalidError),
+			),
+			ginkgo.Entry("queueName can be updated when admission is reset",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Queue("q1").
+						ReserveQuota(testing.MakeAdmission("cq").Obj()).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.QueueName = "q2"
+					newWL.Status = kueue.WorkloadStatus{}
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("admission can be set",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Status = kueue.WorkloadStatus{
+						Admission: testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
+						Conditions: []metav1.Condition{{
+							Type:               kueue.WorkloadQuotaReserved,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							Reason:             "AdmittedByTest",
+							Message:            "Admitted by ClusterQueue cluster-queue",
+						}},
+					}
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("admission can be unset",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).ReserveQuota(
+						testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
+					).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Status = kueue.WorkloadStatus{}
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("priorityClassSource should not be updated",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						Queue("q").
+						PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
+						Priority(10).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.WorkloadPriorityClassSource
+				},
+				testing.BeAPIError(testing.InvalidError),
+			),
+			ginkgo.Entry("priorityClassName should not be updated",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						Queue("q").
+						PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
+						Priority(10).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "test-class-2"
+				},
+				testing.BeAPIError(testing.InvalidError),
+			),
+			ginkgo.Entry("should change other fields of admissionchecks when podSetUpdates is immutable",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*testing.MakePodSet("first", 1).Obj(),
+							*testing.MakePodSet("second", 1).Obj(),
+						).AdmissionChecks(
+						kueue.AdmissionCheckState{
+							Name:          "ac1",
+							Message:       "old",
+							PodSetUpdates: []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
+							State:         kueue.CheckStateReady,
+						}).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Status.AdmissionChecks = []kueue.AdmissionCheckState{
+						{
+							Name:               "ac1",
+							Message:            "new",
+							LastTransitionTime: metav1.NewTime(time.Now()),
+							PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
+							State:              kueue.CheckStateReady,
+						},
+					}
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("updating priorityClassName before setting reserve quota for workload",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						Queue("q").
+						PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
+						Priority(10).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassName = "test-class-2"
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("updating priorityClassSource before setting reserve quota for workload",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						Queue("q").
+						PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
+						Priority(10).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PriorityClassSource = constants.WorkloadPriorityClassSource
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("updating podSets before setting reserve quota for workload",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PodSets = []kueue.PodSet{
+						{
+							Name:  "main",
+							Count: 1,
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Name: "c-after",
+											Resources: corev1.ResourceRequirements{
+												Requests: make(corev1.ResourceList),
+											},
+										},
+									},
+								},
+							},
+						},
+					}
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("Should allow the change of priority",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.Priority = ptr.To[int32](10)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("Should forbid the change of spec.podSet",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.PodSets[0].Count = 10
+				},
+				testing.BeAPIError(testing.InvalidError),
+			),
+			ginkgo.Entry("reclaimable pod count can go to 0 if the job is suspended",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*testing.MakePodSet("ps1", 3).Obj(),
+							*testing.MakePodSet("ps2", 3).Obj(),
+						).
+						ReserveQuota(
+							testing.MakeAdmission("cluster-queue").
+								PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
+								Obj(),
+						).
+						ReclaimablePods(
+							kueue.ReclaimablePod{Name: "ps1", Count: 2},
+							kueue.ReclaimablePod{Name: "ps2", Count: 1},
+						).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Status.AdmissionChecks = []kueue.AdmissionCheckState{
+						{
+							PodSetUpdates: []kueue.PodSetUpdate{{Name: "ps1"}, {Name: "ps2"}},
+							State:         kueue.CheckStateReady,
+						},
+					}
+					newWL.Status.ReclaimablePods = []kueue.ReclaimablePod{
+						{Name: "ps1", Count: 0},
+						{Name: "ps2", Count: 1},
+					}
+				},
+				gomega.Succeed(),
+			),
+		)
 
 		ginkgo.It("Should forbid the change of spec.queueName of an admitted workload", func() {
 			ginkgo.By("Creating and admitting a new Workload")
@@ -612,149 +861,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Equal(&updatedPriority))
 		})
 
-		ginkgo.It("podSets should not be updated when has quota reservation: count", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the podsets")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.PodSets = []kueue.PodSet{*testing.MakePodSet("main", 2).Obj()}
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
-		})
-
-		ginkgo.It("podSets should not be updated: podSpec", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the podSets")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.PodSets = []kueue.PodSet{{
-					Name:  "main",
-					Count: 1,
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name: "c-after",
-									Resources: corev1.ResourceRequirements{
-										Requests: make(corev1.ResourceList),
-									},
-								},
-							},
-						},
-					},
-				}}
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
-		})
-
-		ginkgo.It("queueName can be updated when not admitted", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("q1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the queueName")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.QueueName = "q2"
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("queueName can be updated when admitting", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the queueName")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.QueueName = "q"
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("queueName should not be updated once admitted", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("q1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the queueName")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.QueueName = "q2"
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
-		})
-
-		ginkgo.It("queueName can be updated when admission is reset", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("q1").
-				ReserveQuota(testing.MakeAdmission("cq").Obj()).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the queueName")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.QueueName = "q2"
-				newWL.Status = kueue.WorkloadStatus{}
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("admission can be set", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the workload setting admission")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Status = kueue.WorkloadStatus{
-					Admission: testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
-					Conditions: []metav1.Condition{{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.NewTime(time.Now()),
-						Reason:             "AdmittedByTest",
-						Message:            "Admitted by ClusterQueue cluster-queue",
-					}},
-				}
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("admission can be unset", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).ReserveQuota(
-				testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
-			).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the workload removing admission")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Status = kueue.WorkloadStatus{}
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
 		ginkgo.It("admission should not be updated once set", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
@@ -827,81 +933,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(err).Should(testing.BeAPIError(testing.ForbiddenError))
 		})
 
-		ginkgo.It("reclaimable pod count can go to 0 if the job is suspended", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).
-				PodSets(
-					*testing.MakePodSet("ps1", 3).Obj(),
-					*testing.MakePodSet("ps2", 3).Obj(),
-				).
-				ReserveQuota(
-					testing.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
-						Obj(),
-				).
-				ReclaimablePods(
-					kueue.ReclaimablePod{Name: "ps1", Count: 2},
-					kueue.ReclaimablePod{Name: "ps2", Count: 1},
-				).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the workload")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Status.AdmissionChecks = []kueue.AdmissionCheckState{
-					{
-						PodSetUpdates: []kueue.PodSetUpdate{{Name: "ps1"}, {Name: "ps2"}},
-						State:         kueue.CheckStateReady,
-					},
-				}
-				newWL.Status.ReclaimablePods = []kueue.ReclaimablePod{
-					{Name: "ps1", Count: 0},
-					{Name: "ps2", Count: 1},
-				}
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("priorityClassSource should not be updated", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).
-				Queue("q").
-				PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
-
-			ginkgo.By("Updating priorityClassSource")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.PriorityClassSource = constants.WorkloadPriorityClassSource
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
-		})
-
-		ginkgo.It("priorityClassName should not be updated", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).
-				Queue("q").
-				PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
-
-			ginkgo.By("Updating priorityClassName")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.PriorityClassName = "test-class-2"
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
-		})
-
 		ginkgo.It("podSetUpdates should be immutable when state is ready", func() {
 			ginkgo.By("Creating a new Workload")
 			wl := testing.MakeWorkload(workloadName, ns.Name).
@@ -937,103 +968,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				})
 				return k8sClient.Status().Update(ctx, wl)
 			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
-		})
-
-		ginkgo.It("should change other fields of admissionchecks when podSetUpdates is immutable", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).
-				PodSets(
-					*testing.MakePodSet("first", 1).Obj(),
-					*testing.MakePodSet("second", 1).Obj(),
-				).AdmissionChecks(
-				kueue.AdmissionCheckState{
-					Name:          "ac1",
-					Message:       "old",
-					PodSetUpdates: []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
-					State:         kueue.CheckStateReady,
-				}).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating admissionchecks")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Status.AdmissionChecks = []kueue.AdmissionCheckState{
-					{
-						Name:               "ac1",
-						Message:            "new",
-						LastTransitionTime: metav1.NewTime(time.Now()),
-						PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
-						State:              kueue.CheckStateReady,
-					},
-				}
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("updating priorityClassName before setting reserve quota for workload", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).
-				Queue("q").
-				PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating priorityClassName")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.PriorityClassName = "test-class-2"
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("updating priorityClassSource before setting reserve quota for workload", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).
-				Queue("q").
-				PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating priorityClassSource")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.PriorityClassSource = constants.WorkloadPriorityClassSource
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.It("updating podSets before setting reserve quota for workload", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating podSets")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.PodSets = []kueue.PodSet{
-					{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Name: "c-after",
-										Resources: corev1.ResourceRequirements{
-											Requests: make(corev1.ResourceList),
-										},
-									},
-								},
-							},
-						},
-					},
-				}
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 	})
