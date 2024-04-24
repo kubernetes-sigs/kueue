@@ -26,13 +26,6 @@ cd $(dirname ${BASH_SOURCE[0]})/..
 
 source "${CODEGEN_PKG}/kube_codegen.sh"
 
-# TODO: remove the workaround when the issue is solved in the code-generator
-# (https://github.com/kubernetes/code-generator/issues/165).
-# Here, we create the soft link named "sigs.k8s.io" to the parent directory of
-# Kueue to ensure the layout required by the kube_codegen.sh script.
-ln -s .. sigs.k8s.io
-trap "rm sigs.k8s.io" EXIT
-
 # Generating conversion and defaults functions
 kube::codegen::gen_helpers \
   --input-pkg-root sigs.k8s.io/kueue/apis \
