@@ -23,7 +23,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
@@ -69,34 +68,25 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
 		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),
-		WithPodsReadyTimeout(podsReadyTimeout(cfg)),
-		WithRequeuingBackoffLimitCount(requeuingBackoffLimitCount(cfg)),
-		WithRequeuingBackoffBaseSeconds(requeuingBackoffBaseSeconds(cfg)),
+		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
 	).SetupWithManager(mgr, cfg); err != nil {
 		return "Workload", err
 	}
 	return "", nil
 }
 
-func podsReadyTimeout(cfg *configapi.Configuration) *time.Duration {
-	if config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.Timeout != nil {
-		return &cfg.WaitForPodsReady.Timeout.Duration
+func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
+	if cfg == nil || !cfg.Enable {
+		return nil
 	}
-	return nil
-}
-
-func requeuingBackoffLimitCount(cfg *configapi.Configuration) *int32 {
-	if config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.RequeuingStrategy != nil {
-		return cfg.WaitForPodsReady.RequeuingStrategy.BackoffLimitCount
+	result := waitForPodsReadyConfig{
+		timeout: cfg.Timeout.Duration,
 	}
-	return nil
-}
-
-func requeuingBackoffBaseSeconds(cfg *configapi.Configuration) int32 {
-	if config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.RequeuingStrategy != nil && cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds != nil {
-		return *cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds
+	if cfg.RequeuingStrategy != nil {
+		result.requeuingBackoffBaseSeconds = *cfg.RequeuingStrategy.BackoffBaseSeconds
+		result.requeuingBackoffLimitCount = cfg.RequeuingStrategy.BackoffLimitCount
 	}
-	return configapi.DefaultRequeuingBackoffBaseSeconds
+	return &result
 }
 
 func queueVisibilityUpdateInterval(cfg *configapi.Configuration) time.Duration {

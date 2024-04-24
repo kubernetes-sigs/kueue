@@ -48,7 +48,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 
 	testCases := map[string]struct {
 		workload                   kueue.Workload
-		podsReadyTimeout           *time.Duration
+		waitForPodsReady           *waitForPodsReadyConfig
 		wantCountingTowardsTimeout bool
 		wantRecheckAfter           time.Duration
 	}{
@@ -68,7 +68,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout:           ptr.To(5 * time.Minute),
+			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
 			wantRecheckAfter:           4 * time.Minute,
 		},
@@ -99,7 +99,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout:           ptr.To(5 * time.Minute),
+			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
 		},
 		"workload with Admitted=True, PodsReady=False; counting since PodsReady.LastTransitionTime": {
@@ -120,7 +120,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout:           ptr.To(5 * time.Minute),
+			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
 			wantRecheckAfter:           5 * time.Minute,
 		},
@@ -137,7 +137,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout: ptr.To(5 * time.Minute),
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 		},
 		"workload with Admitted=False, not counting": {
 			workload: kueue.Workload{
@@ -152,7 +152,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout: ptr.To(5 * time.Minute),
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 		},
 		"workload with Admitted=True, PodsReady=True; not counting": {
 			workload: kueue.Workload{
@@ -172,13 +172,13 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout: ptr.To(5 * time.Minute),
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			wRec := WorkloadReconciler{podsReadyTimeout: tc.podsReadyTimeout}
+			wRec := WorkloadReconciler{waitForPodsReady: tc.waitForPodsReady}
 			countingTowardsTimeout, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload, fakeClock)
 
 			if tc.wantCountingTowardsTimeout != countingTowardsTimeout {
@@ -506,9 +506,11 @@ func TestReconcile(t *testing.T) {
 		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
-				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
-				WithRequeuingBackoffLimitCount(ptr.To[int32](100)),
-				WithRequeuingBackoffBaseSeconds(10),
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffBaseSeconds: 10,
+				}),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -548,8 +550,10 @@ func TestReconcile(t *testing.T) {
 		},
 		"deactivated workload": {
 			reconcilerOpts: []Option{
-				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
-				WithRequeuingBackoffLimitCount(ptr.To[int32](1)),
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                    3 * time.Second,
+					requeuingBackoffLimitCount: ptr.To[int32](1),
+				}),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
