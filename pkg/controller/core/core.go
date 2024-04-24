@@ -23,31 +23,17 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 const (
-	updateChBuffer                   = 10
-	defaultRequeuingBaseDelaySeconds = 10
+	updateChBuffer = 10
 )
-
-type ControllerOptions struct {
-	requeuingBaseDelaySeconds int32
-}
-
-type ControllerOption func(*ControllerOptions)
-
-func WithControllerRequeuingBaseDelaySeconds(value int32) ControllerOption {
-	return func(o *ControllerOptions) {
-		o.requeuingBaseDelaySeconds = value
-	}
-}
 
 // SetupControllers sets up the core controllers. It returns the name of the
 // controller that failed to create and an error, if any.
-func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache, cfg *configapi.Configuration, controllerOpts ...ControllerOption) (string, error) {
+func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache, cfg *configapi.Configuration) (string, error) {
 	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc)
 	if err := rfRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ResourceFlavor", err
@@ -78,37 +64,29 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := cqRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ClusterQueue", err
 	}
-	ctrlOpts := ControllerOptions{
-		requeuingBaseDelaySeconds: defaultRequeuingBaseDelaySeconds,
-	}
-	for _, opt := range controllerOpts {
-		opt(&ctrlOpts)
-	}
 
 	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
 		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),
-		WithPodsReadyTimeout(podsReadyTimeout(cfg)),
-		WithRequeuingBackoffLimitCount(requeuingBackoffLimitCount(cfg)),
-		WithRequeuingBaseDelaySeconds(ctrlOpts.requeuingBaseDelaySeconds),
+		WithWaitForPodsReady(waitForPodsReady(cfg.WaitForPodsReady)),
 	).SetupWithManager(mgr, cfg); err != nil {
 		return "Workload", err
 	}
 	return "", nil
 }
 
-func podsReadyTimeout(cfg *configapi.Configuration) *time.Duration {
-	if config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.Timeout != nil {
-		return &cfg.WaitForPodsReady.Timeout.Duration
+func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
+	if cfg == nil || !cfg.Enable {
+		return nil
 	}
-	return nil
-}
-
-func requeuingBackoffLimitCount(cfg *configapi.Configuration) *int32 {
-	if config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.RequeuingStrategy != nil {
-		return cfg.WaitForPodsReady.RequeuingStrategy.BackoffLimitCount
+	result := waitForPodsReadyConfig{
+		timeout: cfg.Timeout.Duration,
 	}
-	return nil
+	if cfg.RequeuingStrategy != nil {
+		result.requeuingBackoffBaseSeconds = *cfg.RequeuingStrategy.BackoffBaseSeconds
+		result.requeuingBackoffLimitCount = cfg.RequeuingStrategy.BackoffLimitCount
+	}
+	return &result
 }
 
 func queueVisibilityUpdateInterval(cfg *configapi.Configuration) time.Duration {

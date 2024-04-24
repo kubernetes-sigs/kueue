@@ -69,37 +69,24 @@ var (
 	realClock = clock.RealClock{}
 )
 
+type waitForPodsReadyConfig struct {
+	timeout                     time.Duration
+	requeuingBackoffLimitCount  *int32
+	requeuingBackoffBaseSeconds int32
+}
+
 type options struct {
-	watchers                   []WorkloadUpdateWatcher
-	podsReadyTimeout           *time.Duration
-	requeuingBackoffLimitCount *int32
-	requeuingBaseDelaySeconds  int32
+	watchers               []WorkloadUpdateWatcher
+	waitForPodsReadyConfig *waitForPodsReadyConfig
 }
 
 // Option configures the reconciler.
 type Option func(*options)
 
-// WithPodsReadyTimeout indicates if the controller should interrupt startup
-// of a workload if it exceeds the timeout to reach the PodsReady=True condition.
-func WithPodsReadyTimeout(value *time.Duration) Option {
+// WithWaitForPodsReady indicates the configuration for the WaitForPodsReady feature.
+func WithWaitForPodsReady(value *waitForPodsReadyConfig) Option {
 	return func(o *options) {
-		o.podsReadyTimeout = value
-	}
-}
-
-// WithRequeuingBackoffLimitCount indicates if the controller should deactivate a workload
-// if it reaches the limitation.
-func WithRequeuingBackoffLimitCount(value *int32) Option {
-	return func(o *options) {
-		o.requeuingBackoffLimitCount = value
-	}
-}
-
-// WithRequeuingBaseDelaySeconds indicates the base delay for the computation
-// of the requeue delay.
-func WithRequeuingBaseDelaySeconds(value int32) Option {
-	return func(o *options) {
-		o.requeuingBaseDelaySeconds = value
+		o.waitForPodsReadyConfig = value
 	}
 }
 
@@ -118,15 +105,13 @@ type WorkloadUpdateWatcher interface {
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	log                        logr.Logger
-	queues                     *queue.Manager
-	cache                      *cache.Cache
-	client                     client.Client
-	watchers                   []WorkloadUpdateWatcher
-	podsReadyTimeout           *time.Duration
-	requeuingBackoffLimitCount *int32
-	requeuingBaseDelaySeconds  int32
-	recorder                   record.EventRecorder
+	log              logr.Logger
+	queues           *queue.Manager
+	cache            *cache.Cache
+	client           client.Client
+	watchers         []WorkloadUpdateWatcher
+	waitForPodsReady *waitForPodsReadyConfig
+	recorder         record.EventRecorder
 }
 
 func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
@@ -136,15 +121,13 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 	}
 
 	return &WorkloadReconciler{
-		log:                        ctrl.Log.WithName("workload-reconciler"),
-		client:                     client,
-		queues:                     queues,
-		cache:                      cache,
-		watchers:                   options.watchers,
-		podsReadyTimeout:           options.podsReadyTimeout,
-		requeuingBackoffLimitCount: options.requeuingBackoffLimitCount,
-		requeuingBaseDelaySeconds:  options.requeuingBaseDelaySeconds,
-		recorder:                   recorder,
+		log:              ctrl.Log.WithName("workload-reconciler"),
+		client:           client,
+		queues:           queues,
+		cache:            cache,
+		watchers:         options.watchers,
+		waitForPodsReady: options.waitForPodsReadyConfig,
+		recorder:         recorder,
 	}
 }
 
@@ -396,7 +379,7 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	}
 	// If requeuingBackoffLimitCount equals to null, the workloads is repeatedly and endless re-queued.
 	requeuingCount := ptr.Deref(wl.Status.RequeueState.Count, 0) + 1
-	if r.requeuingBackoffLimitCount != nil && requeuingCount > *r.requeuingBackoffLimitCount {
+	if r.waitForPodsReady.requeuingBackoffLimitCount != nil && requeuingCount > *r.waitForPodsReady.requeuingBackoffLimitCount {
 		wl.Spec.Active = ptr.To(false)
 		if err := r.client.Update(ctx, wl); err != nil {
 			return false, err
@@ -411,7 +394,7 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	// During this time, the workload is taken as an inadmissible and other
 	// workloads will have a chance to be admitted.
 	backoff := &wait.Backoff{
-		Duration: time.Duration(r.requeuingBaseDelaySeconds) * time.Second,
+		Duration: time.Duration(r.waitForPodsReady.requeuingBackoffBaseSeconds) * time.Second,
 		Factor:   2,
 		Jitter:   0.0001,
 		Steps:    int(requeuingCount),
@@ -645,7 +628,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 // specified timeout counted since max of the LastTransitionTime's for the
 // Admitted and PodsReady conditions.
 func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload, clock clock.Clock) (bool, time.Duration) {
-	if r.podsReadyTimeout == nil {
+	if r.waitForPodsReady == nil {
 		// the timeout is not configured for the workload controller
 		return false, 0
 	}
@@ -663,7 +646,7 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload, clock 
 	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionFalse && podsReadyCond.LastTransitionTime.After(admittedCond.LastTransitionTime.Time) {
 		elapsedTime = clock.Since(podsReadyCond.LastTransitionTime.Time)
 	}
-	waitFor := *r.podsReadyTimeout - elapsedTime
+	waitFor := r.waitForPodsReady.timeout - elapsedTime
 	if waitFor < 0 {
 		waitFor = 0
 	}

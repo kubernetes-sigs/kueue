@@ -637,8 +637,9 @@ that was evicted due to Pod readiness. The possible values are:</p>
    <p>BackoffLimitCount defines the maximum number of re-queuing retries.
 Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).
 When it is null, the workloads will repeatedly and endless re-queueing.</p>
-<p>Every backoff duration is about &quot;10s*2^(n-1)+Rand&quot; where:</p>
+<p>Every backoff duration is about &quot;b*2^(n-1)+Rand&quot; where:</p>
 <ul>
+<li>&quot;b&quot; represents the base set by &quot;BackoffBaseSeconds&quot; parameter,</li>
 <li>&quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;,</li>
 <li>&quot;Rand&quot; represents the random jitter.
 During this time, the workload is taken as an inadmissible and
@@ -646,6 +647,15 @@ other workloads will have a chance to be admitted.
 By default, the consecutive requeue delays are around: (10s, 20s, 40s, ...).</li>
 </ul>
 <p>Defaults to null.</p>
+</td>
+</tr>
+<tr><td><code>backoffBaseSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffBaseSeconds defines the base for the exponential backoff for
+re-queuing an evicted workload.</p>
+<p>Defaults to 10.</p>
 </td>
 </tr>
 </tbody>
