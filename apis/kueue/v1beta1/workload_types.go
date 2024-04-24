@@ -162,7 +162,6 @@ type WorkloadStatus struct {
 	// admission holds the parameters of the admission of the workload by a
 	// ClusterQueue. admission can be set back to null, but its fields cannot be
 	// changed once set.
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	Admission *Admission `json:"admission,omitempty"`
 
 	// requeueState holds the re-queue state

@@ -254,9 +254,19 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
+	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
 	allErrs = append(allErrs, validateImmutablePodSetUpdates(newObj, oldObj, statusPath.Child("admissionChecks"))...)
 
 	return allErrs
+}
+
+// validateAdmissionUpdate validates that admission can be set or unset, but the
+// fields within can't change.
+func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.ErrorList {
+	if old == nil || new == nil {
+		return nil
+	}
+	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
 // validateReclaimablePodsUpdate validates that the reclaimable counts do not decrease, this should be checked

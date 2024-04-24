@@ -805,7 +805,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
 				newWL.Status.Admission.ClusterQueue = "foo-cluster-queue"
 				return k8sClient.Status().Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
+			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
 
 		})
 
@@ -873,7 +873,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
 				newWL.Status.Admission = testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj()
 				return k8sClient.Status().Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
+			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
 		})
 
 		ginkgo.It("reclaimable pod count can change up", func() {

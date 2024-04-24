@@ -7881,9 +7881,6 @@ spec:
                 - clusterQueue
                 - podSetAssignments
                 type: object
-                x-kubernetes-validations:
-                - message: field is immutable
-                  rule: self == oldSelf
               admissionChecks:
                 description: admissionChecks list all the admission checks required
                   by the workload and the current status
