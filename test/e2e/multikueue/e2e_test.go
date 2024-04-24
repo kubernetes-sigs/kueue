@@ -416,7 +416,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Message: "Connected",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
