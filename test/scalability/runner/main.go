@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -34,6 +35,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -49,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/test/scalability/runner/controller"
 	"sigs.k8s.io/kueue/test/scalability/runner/generator"
 	"sigs.k8s.io/kueue/test/scalability/runner/recorder"
+	"sigs.k8s.io/kueue/test/scalability/runner/scraper"
 	"sigs.k8s.io/kueue/test/scalability/runner/stats"
 )
 
@@ -59,6 +62,10 @@ var (
 	timeout         = flag.Duration("timeout", 10*time.Minute, "maximum record time")
 	qps             = flag.Float64("qps", 0, "qps used by the runner clients, use default if 0")
 	burst           = flag.Int("burst", 0, "qps used by the runner clients, use default if 0")
+
+	// metrics scarping
+	metricsScrapeInterval = flag.Duration("metricsScrapeInterval", 0, "the duration between two metrics scraping, if 0 the metrics scraping is disabled")
+	metricsScrapeURL      = flag.String("metricsScrapeURL", "", "the URL to scrape metrics from, ignored when minimal kueue is used")
 
 	// related to minimalkueue
 	minimalKueuePath = flag.String("minimalKueue", "", "path to minimalkueue, run in the hosts default cluster if empty")
@@ -131,9 +138,17 @@ func main() {
 			os.Exit(1)
 		}
 
+		metricsPort := 0
+		if *metricsScrapeInterval != 0 {
+			metricsPort, err = scraper.GetFreePort()
+			if err != nil {
+				log.Error(err, "getting a free port, metrics scraping disabled")
+			}
+			metricsScrapeURL = ptr.To(fmt.Sprintf("http://localhost:%d/metrics", metricsPort))
+		}
+
 		// start the minimal kueue manager process
-		wg.Add(1)
-		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCpuProfile, *withLogs, *logToFile, *logLevel, errCh, wg)
+		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCpuProfile, *withLogs, *logToFile, *logLevel, errCh, wg, metricsPort)
 		if err != nil {
 			log.Error(err, "MinimalKueue start")
 			os.Exit(1)
@@ -156,24 +171,31 @@ func main() {
 	}
 
 	generationDoneCh := make(chan struct{})
-	wg.Add(1)
 	err := runGenerator(ctx, cfg, *generatorConfig, errCh, wg, generationDoneCh)
 	if err != nil {
 		log.Error(err, "Generator start")
 		os.Exit(1)
 	}
 
-	wg.Add(1)
 	recorder, err := startRecorder(ctx, errCh, wg, generationDoneCh, *timeout)
 	if err != nil {
 		log.Error(err, "Recorder start")
 		os.Exit(1)
 	}
 
-	wg.Add(1)
+	if *metricsScrapeInterval != 0 && *metricsScrapeURL != "" {
+		dumpTar := path.Join(*outputDir, "metricsDump.tgz")
+		err := runScraper(ctx, *metricsScrapeInterval, dumpTar, *metricsScrapeURL, errCh, wg)
+		if err != nil {
+			log.Error(err, "Scraper start")
+			os.Exit(1)
+		}
+
+	}
+
 	err = runManager(ctx, cfg, errCh, wg, recorder)
 	if err != nil {
-		log.Error(err, "manager start")
+		log.Error(err, "Failed to start manager")
 		os.Exit(1)
 	}
 
@@ -222,8 +244,7 @@ func main() {
 	}
 }
 
-func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withLogs, logToFile bool, logLevel int, errCh chan<- error, wg *sync.WaitGroup) error {
-	defer wg.Done()
+func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withLogs, logToFile bool, logLevel int, errCh chan<- error, wg *sync.WaitGroup, metricsPort int) error {
 	log := ctrl.LoggerFrom(ctx).WithName("Run command")
 
 	cmd := exec.CommandContext(ctx, cmdPath, "--kubeconfig", path.Join(workDir, kubeconfig))
@@ -258,6 +279,10 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 		}
 		cmd.Stdout = outWriter
 		cmd.Stderr = errWriter
+	}
+
+	if metricsPort != 0 {
+		cmd.Args = append(cmd.Args, "--metricsPort", strconv.Itoa(metricsPort))
 	}
 
 	log.Info("Starting process", "path", cmd.Path, "args", cmd.Args)
@@ -305,8 +330,6 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 }
 
 func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string, errCh chan<- error, wg *sync.WaitGroup, genDone chan<- struct{}) error {
-	defer wg.Done()
-
 	log := ctrl.LoggerFrom(ctx).WithName("Run generator")
 	c, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
@@ -341,7 +364,6 @@ func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string,
 }
 
 func startRecorder(ctx context.Context, errCh chan<- error, wg *sync.WaitGroup, genDone <-chan struct{}, recordTimeout time.Duration) (*recorder.Recorder, error) {
-	defer wg.Done()
 	log := ctrl.LoggerFrom(ctx).WithName("Start recorder")
 	recorder := recorder.New(recordTimeout)
 	wg.Add(1)
@@ -361,7 +383,6 @@ func startRecorder(ctx context.Context, errCh chan<- error, wg *sync.WaitGroup, 
 }
 
 func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *sync.WaitGroup, r *recorder.Recorder) error {
-	defer wg.Done()
 	log := ctrl.LoggerFrom(ctx).WithName("Run manager")
 
 	options := ctrl.Options{
@@ -399,5 +420,26 @@ func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *s
 	}()
 
 	log.Info("Manager started")
+	return nil
+}
+
+func runScraper(ctx context.Context, interval time.Duration, output, url string, errCh chan<- error, wg *sync.WaitGroup) error {
+	log := ctrl.LoggerFrom(ctx).WithName("Run metrics scraper")
+
+	s := scraper.NewScraper(interval, url, "%d.prometheus")
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := s.Run(ctx, output)
+		if err != nil {
+			log.Error(err, "Running the scraper")
+			errCh <- err
+			return
+		}
+		log.Info("Scrape done")
+	}()
+
+	log.Info("Scrape started")
 	return nil
 }

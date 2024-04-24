@@ -37,6 +37,8 @@ Will run a scalability scenario against an existing cluster (connectable by the 
 
 The generation config to be used can be set in `SCALABILITY_GENERATOR_CONFIG` by default using `$(PROJECT_DIR)/test/scalability/default_generator_config.yaml`
 
+Setting `SCALABILITY_SCRAPE_INTERVAL` to an interval value and `SCALABILITY_SCRAPE_URL` to an URL exposing kueue's metrics will cause the scalability runner to scrape that URL every interval and store the results in `$(PROJECT_DIR)/bin/run-scalability-in-cluster/metricsDump.tgz`.
+
 Check [installation guide](https://kueue.sigs.k8s.io/docs/installation) for cluster and [observability](https://kueue.sigs.k8s.io/docs/installation/#add-metrics-scraping-for-prometheus-operator).
 
 ## Run with minimalkueue
@@ -55,6 +57,8 @@ Setting `SCALABILITY_CPU_PROFILE=1` will generate a cpuprofile of minimalkueue i
 
 Setting `SCALABILITY_KUEUE_LOGS=1` will save the logs of minimalkueue in  `$(PROJECT_DIR)/bin/run-scalability/minimalkueue.out.log` and  `$(PROJECT_DIR)/bin/run-scalability/minimalkueue.err.log`
 
+Setting `SCALABILITY_SCRAPE_INTERVAL` to an interval value (e.g. `1s`) will expose the metrics of `minimalkueue` and have them collected by the scalability runner in `$(PROJECT_DIR)/bin/run-scalability/metricsDump.tgz` every interval. 
+
 ## Run scalability test
 
 ```bash
@@ -62,3 +66,17 @@ make test-scalability
 ```
 
 Runs the scalability with minimalkueue and checks the results against `$(PROJECT_DIR)/test/scalability/default_rangespec.yaml`
+
+## Scrape result
+
+The scrape result `metricsDump.tgz` contains a set of `<ts>.prometheus` files, where `ts` is the millisecond representation of the epoch time at the moment each scrape was stared and can be used during the import in a visualization tool.
+
+If an instance of [VictoriaMetrics](https://docs.victoriametrics.com/) listening at `http://localhost:8428` is used, a metrics dump can be imported like:
+
+```bash
+ TMPDIR=$(mktemp -d)
+ tar -xf ./bin/run-scalability/metricsDump.tgz -C $TMPDIR
+ for file in ${TMPDIR}/*.prometheus; do timestamp=$(basename "$file" .prometheus);  curl -vX POST -T "$file" http://localhost:8428/api/v1/import/prometheus?timestamp="$timestamp"; done
+ rm -r $TMPDIR
+
+```
