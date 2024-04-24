@@ -316,9 +316,9 @@ func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 
 // Finished means whether the job is completed/failed or not,
 // condition represents the workload finished condition.
-func (p *Pod) Finished() (reason, message string, finished bool) {
+func (p *Pod) Finished() (message string, success, finished bool) {
 	finished = true
-	reason = kueue.WorkloadFinishedReasonSucceeded
+	success = true
 	message = "Job finished successfully"
 
 	if !p.isGroup {
@@ -327,10 +327,10 @@ func (p *Pod) Finished() (reason, message string, finished bool) {
 
 		if ph == corev1.PodFailed {
 			message = "Job failed"
-			reason = kueue.WorkloadFinishedReasonFailed
+			success = false
 		}
 
-		return reason, message, finished
+		return message, success, finished
 	}
 	isActive := false
 	succeededCount := 0
@@ -338,7 +338,7 @@ func (p *Pod) Finished() (reason, message string, finished bool) {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
-		return reason, message, false
+		return message, success, false
 	}
 	for _, pod := range p.list.Items {
 		if pod.Status.Phase == corev1.PodSucceeded {
@@ -355,10 +355,10 @@ func (p *Pod) Finished() (reason, message string, finished bool) {
 	if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
 		message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
 	} else {
-		return reason, message, false
+		return message, success, false
 	}
 
-	return reason, message, finished
+	return message, success, finished
 }
 
 // PodSets will build workload podSets corresponding to the job.

@@ -43,7 +43,7 @@ type GenericJob interface {
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	// Observed generation of the workload is set by the jobframework.
-	Finished() (reason, message string, finished bool)
+	Finished() (message string, success, finished bool)
 	// PodSets will build workload podSets corresponding to the job.
 	PodSets() []kueue.PodSet
 	// IsActive returns true if there are any running pods.

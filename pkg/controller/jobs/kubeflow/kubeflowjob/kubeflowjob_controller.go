@@ -81,9 +81,9 @@ func (j *KubeflowJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *KubeflowJob) Finished() (reason, message string, finished bool) {
+func (j *KubeflowJob) Finished() (message string, success, finished bool) {
 	if j.KFJobControl.JobStatus() == nil {
-		return reason, message, false
+		return message, finished, false
 	}
 	var conditionType kftraining.JobConditionType
 	for _, c := range j.KFJobControl.JobStatus().Conditions {
@@ -94,12 +94,12 @@ func (j *KubeflowJob) Finished() (reason, message string, finished bool) {
 		}
 	}
 	message = "Job finished successfully"
-	reason = kueue.WorkloadFinishedReasonSucceeded
+	success = true
 	if conditionType == kftraining.JobFailed {
 		message = "Job failed"
-		reason = kueue.WorkloadFinishedReasonFailed
+		success = false
 	}
-	return reason, message, finished
+	return message, success, finished
 }
 
 func (j *KubeflowJob) PodSets() []kueue.PodSet {

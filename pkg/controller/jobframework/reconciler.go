@@ -307,8 +307,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 2. handle job is finished.
-	if reason, message, finished := job.Finished(); finished {
+	if message, success, finished := job.Finished(); finished {
 		if wl != nil && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+			reason := kueue.WorkloadFinishedReasonSucceeded
+			if !success {
+				reason = kueue.WorkloadFinishedReasonFailed
+			}
 			err := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, reason, message, constants.JobControllerName)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err

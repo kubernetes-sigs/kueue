@@ -148,7 +148,7 @@ func (j *MPIJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *MPIJob) Finished() (reason, message string, finished bool) {
+func (j *MPIJob) Finished() (message string, success, finished bool) {
 	var conditionType kubeflow.JobConditionType
 	for _, c := range j.Status.Conditions {
 		if (c.Type == kubeflow.JobSucceeded || c.Type == kubeflow.JobFailed) && c.Status == corev1.ConditionTrue {
@@ -159,12 +159,12 @@ func (j *MPIJob) Finished() (reason, message string, finished bool) {
 	}
 
 	message = "Job finished successfully"
-	reason = kueue.WorkloadFinishedReasonSucceeded
+	success = true
 	if conditionType == kubeflow.JobFailed {
 		message = "Job failed"
-		reason = kueue.WorkloadFinishedReasonFailed
+		success = false
 	}
-	return reason, message, finished
+	return message, success, finished
 }
 
 // PriorityClass calculates the priorityClass name needed for workload according to the following priorities:

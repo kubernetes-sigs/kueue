@@ -160,12 +160,14 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *RayJob) Finished() (reason, message string, finished bool) {
-	reason = kueue.WorkloadFinishedReasonSucceeded
+func (j *RayJob) Finished() (message string, success, finished bool) {
+	success = true
 	if j.Status.JobStatus == rayv1.JobStatusFailed {
-		reason = kueue.WorkloadFinishedReasonFailed
+		success = false
 	}
-	return reason, j.Status.Message, j.Status.JobStatus == rayv1.JobStatusFailed || j.Status.JobStatus == rayv1.JobStatusSucceeded
+	message = j.Status.Message
+	finished = j.Status.JobStatus == rayv1.JobStatusFailed || j.Status.JobStatus == rayv1.JobStatusSucceeded
+	return message, success, finished
 }
 
 func (j *RayJob) PodsReady() bool {
