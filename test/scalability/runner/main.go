@@ -148,7 +148,6 @@ func main() {
 		}
 
 		// start the minimal kueue manager process
-		wg.Add(1)
 		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCpuProfile, *withLogs, *logToFile, *logLevel, errCh, wg, metricsPort)
 		if err != nil {
 			log.Error(err, "MinimalKueue start")
@@ -172,14 +171,12 @@ func main() {
 	}
 
 	generationDoneCh := make(chan struct{})
-	wg.Add(1)
 	err := runGenerator(ctx, cfg, *generatorConfig, errCh, wg, generationDoneCh)
 	if err != nil {
 		log.Error(err, "Generator start")
 		os.Exit(1)
 	}
 
-	wg.Add(1)
 	recorder, err := startRecorder(ctx, errCh, wg, generationDoneCh, *timeout)
 	if err != nil {
 		log.Error(err, "Recorder start")
@@ -188,7 +185,6 @@ func main() {
 
 	if *metricsScrapeInterval != 0 && *metricsScrapeURL != "" {
 		dumpTar := path.Join(*outputDir, "metricsDump.tgz")
-		wg.Add(1)
 		err := runScraper(ctx, *metricsScrapeInterval, dumpTar, *metricsScrapeURL, errCh, wg)
 		if err != nil {
 			log.Error(err, "Scraper start")
@@ -197,10 +193,9 @@ func main() {
 
 	}
 
-	wg.Add(1)
 	err = runManager(ctx, cfg, errCh, wg, recorder)
 	if err != nil {
-		log.Error(err, "Manager start")
+		log.Error(err, "Failed to start manager")
 		os.Exit(1)
 	}
 
@@ -250,7 +245,6 @@ func main() {
 }
 
 func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withLogs, logToFile bool, logLevel int, errCh chan<- error, wg *sync.WaitGroup, metricsPort int) error {
-	defer wg.Done()
 	log := ctrl.LoggerFrom(ctx).WithName("Run command")
 
 	cmd := exec.CommandContext(ctx, cmdPath, "--kubeconfig", path.Join(workDir, kubeconfig))
@@ -336,8 +330,6 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 }
 
 func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string, errCh chan<- error, wg *sync.WaitGroup, genDone chan<- struct{}) error {
-	defer wg.Done()
-
 	log := ctrl.LoggerFrom(ctx).WithName("Run generator")
 	c, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
@@ -372,7 +364,6 @@ func runGenerator(ctx context.Context, cfg *rest.Config, generatorConfig string,
 }
 
 func startRecorder(ctx context.Context, errCh chan<- error, wg *sync.WaitGroup, genDone <-chan struct{}, recordTimeout time.Duration) (*recorder.Recorder, error) {
-	defer wg.Done()
 	log := ctrl.LoggerFrom(ctx).WithName("Start recorder")
 	recorder := recorder.New(recordTimeout)
 	wg.Add(1)
@@ -392,7 +383,6 @@ func startRecorder(ctx context.Context, errCh chan<- error, wg *sync.WaitGroup, 
 }
 
 func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *sync.WaitGroup, r *recorder.Recorder) error {
-	defer wg.Done()
 	log := ctrl.LoggerFrom(ctx).WithName("Run manager")
 
 	options := ctrl.Options{
@@ -434,8 +424,6 @@ func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *s
 }
 
 func runScraper(ctx context.Context, interval time.Duration, output, url string, errCh chan<- error, wg *sync.WaitGroup) error {
-	defer wg.Done()
-
 	log := ctrl.LoggerFrom(ctx).WithName("Run metrics scraper")
 
 	s := scraper.NewScraper(interval, url, "%d.prometheus")
