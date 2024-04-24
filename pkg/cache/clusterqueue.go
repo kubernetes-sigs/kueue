@@ -87,7 +87,7 @@ type ClusterQueue struct {
 	hasMissingFlavors                          bool
 	hasMissingOrInactiveAdmissionChecks        bool
 	hasMultipleSingleInstanceControllersChecks bool
-	hasSpecificFlavorChecks                    bool
+	hasAllFlavorsChecksAppliedToSpecificFlavor bool
 	admittedWorkloadsCount                     int
 	isStopped                                  bool
 }
@@ -341,7 +341,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks || c.hasSpecificFlavorChecks {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks || c.hasAllFlavorsChecksAppliedToSpecificFlavor {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -373,8 +373,8 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 			reasons = append(reasons, "MultipleSingleInstanceControllerChecks")
 		}
 
-		if c.hasSpecificFlavorChecks {
-			reasons = append(reasons, "ChecksNotApplyToAllFlavors")
+		if c.hasAllFlavorsChecksAppliedToSpecificFlavor {
+			reasons = append(reasons, "AllFlavorsChecksAppliedToSpecificFlavor")
 		}
 
 		if len(reasons) == 0 {
@@ -437,7 +437,7 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 			if ac.SingleInstanceInClusterQueue {
 				singleInstanceControllers.Insert(ac.Controller)
 			}
-			if flavors.Len() != 0 && ac.ApplyToAllFlavors {
+			if ac.ApplyOnlyToAllFlavors && flavors.Len() != 0 {
 				hasSpecificChecks = true
 			}
 		}
@@ -461,8 +461,8 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 		update = true
 	}
 
-	if c.hasSpecificFlavorChecks != hasSpecificChecks {
-		c.hasSpecificFlavorChecks = hasSpecificChecks
+	if c.hasAllFlavorsChecksAppliedToSpecificFlavor != hasSpecificChecks {
+		c.hasAllFlavorsChecksAppliedToSpecificFlavor = hasSpecificChecks
 		update = true
 	}
 

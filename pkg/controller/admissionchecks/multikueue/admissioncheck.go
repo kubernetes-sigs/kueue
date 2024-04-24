@@ -142,9 +142,9 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		needsUpdate = true
 	}
 
-	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckApplyToAllFlavors) {
+	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckApplyOnlyToAllFlavors) {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
-			Type:               kueue.AdmissionCheckApplyToAllFlavors,
+			Type:               kueue.AdmissionCheckApplyOnlyToAllFlavors,
 			Status:             metav1.ConditionTrue,
 			Reason:             AllFlavorsCheckReason,
 			Message:            AllFlavorsCheckMessage,

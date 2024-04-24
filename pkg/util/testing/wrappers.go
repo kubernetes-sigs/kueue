@@ -920,7 +920,7 @@ func (ac *AdmissionCheckWrapper) SingleInstanceInClusterQueue(singleInstance boo
 
 func (ac *AdmissionCheckWrapper) ApplyToAllFlavors(applyToAllFlavors bool, reason, message string, observedGeneration int64) *AdmissionCheckWrapper {
 	cond := metav1.Condition{
-		Type:               kueue.AdmissionCheckApplyToAllFlavors,
+		Type:               kueue.AdmissionCheckApplyOnlyToAllFlavors,
 		Status:             metav1.ConditionTrue,
 		Reason:             reason,
 		Message:            message,
