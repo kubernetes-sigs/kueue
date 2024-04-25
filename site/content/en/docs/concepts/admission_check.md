@@ -59,18 +59,7 @@ kind: ClusterQueue
 metadata:
   name: "cluster-queue"
 spec:
-  namespaceSelector: {} # match all.
-  resourceGroups:
-  - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
-    flavors:
-    - name: "default-flavor"
-      resources:
-      - name: "cpu"
-        nominalQuota: 9
-      - name: "memory"
-        nominalQuota: 36Gi
-      - name: "nvidia.com/gpu"
-        nominalQuota: 9
+<...>
   admissionChecks:
   - sample-prov
 ```
@@ -88,18 +77,7 @@ spec:
     - name: "sample-prov"           # Name of the AdmissionCheck to be run
       onFlavors: ["default-flavor"] # This AdmissionCheck will only run for Workloads that use default-flavor
     - name: "sample-prov-2" # This AdmissionCheck will run for all Workloads regardless of a used ResourceFlavor
-  namespaceSelector: {} # match all.
-  resourceGroups:
-  - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
-    flavors:
-    - name: "default-flavor"
-      resources:
-      - name: "cpu"
-        nominalQuota: 9
-      - name: "memory"
-        nominalQuota: 36Gi
-      - name: "nvidia.com/gpu"
-        nominalQuota: 9
+<...>
 ```
 
 
