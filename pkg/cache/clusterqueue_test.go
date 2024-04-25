@@ -816,17 +816,9 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 				Cohort: &Cohort{
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  10_000,
-							Lendable: 10_000,
-							Usage:    2_000,
-						},
-						"example.com/gpu": {
-							Nominal:  10,
-							Lendable: 10,
-							Usage:    6,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  10,
 					},
 				},
 			},
@@ -857,17 +849,9 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 				Cohort: &Cohort{
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  10_000,
-							Lendable: 10_000,
-							Usage:    10_000,
-						},
-						"example.com/gpu": {
-							Nominal:  10,
-							Lendable: 10,
-							Usage:    10,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  10,
 					},
 				},
 			},
@@ -900,17 +884,9 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 				Cohort: &Cohort{
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  10_000,
-							Lendable: 10_000,
-							Usage:    10_000,
-						},
-						"example.com/gpu": {
-							Nominal:  10,
-							Lendable: 10,
-							Usage:    10,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  10,
 					},
 				},
 			},
@@ -943,17 +919,9 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 				Cohort: &Cohort{
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  10_000,
-							Lendable: 10_000,
-							Usage:    2_000,
-						},
-						"example.com/gpu": {
-							Nominal:  10,
-							Lendable: 10,
-							Usage:    6,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  10,
 					},
 				},
 			},
@@ -993,16 +961,9 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 				Cohort: &Cohort{
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  10_000,
-							Lendable: 10_000,
-							Usage:    2_000,
-						},
-						"example.com/gpu": {
-							Nominal: 10_000,
-							Usage:   5_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  0,
 					},
 				},
 			},
@@ -1048,12 +1009,8 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 				Cohort: &Cohort{
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  200_000,
-							Lendable: 200_000,
-							Usage:    20_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 200_000,
 					},
 				},
 			},

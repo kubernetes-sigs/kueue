@@ -40,16 +40,6 @@ var (
 	errQueueAlreadyExists = errors.New("queue already exists")
 )
 
-// QuotaStats holds the nominal quota and usage for a resource.
-type QuotaStats struct {
-	Nominal  int64
-	Lendable int64
-	Usage    int64
-}
-
-// ResourceStats holds QuotaStats for resources.
-type ResourceStats map[corev1.ResourceName]*QuotaStats
-
 // ClusterQueue is the internal implementation of kueue.ClusterQueue that
 // holds admitted workloads.
 type ClusterQueue struct {
@@ -75,8 +65,8 @@ type ClusterQueue struct {
 	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
 
-	// ResourceStats holds nominal quota and usage for the resources of the ClusterQueue, independent of the flavor.
-	ResourceStats ResourceStats
+	// Lendable holds the total lendable quota for the resources of the ClusterQueue, independent of the flavor.
+	Lendable map[corev1.ResourceName]int64
 
 	// The following fields are not populated in a snapshot.
 
@@ -101,7 +91,7 @@ type Cohort struct {
 	// RequestableResources equals to the sum of LendingLimit when feature LendingLimit enabled.
 	RequestableResources FlavorResourceQuantities
 	Usage                FlavorResourceQuantities
-	ResourceStats        ResourceStats
+	Lendable             map[corev1.ResourceName]int64
 	// AllocatableResourceGeneration equals to
 	// the sum of allocatable generation among its members.
 	AllocatableResourceGeneration int64
@@ -265,29 +255,10 @@ func filterFlavorQuantities(orig FlavorResourceQuantities, resourceGroups []kueu
 	return ret
 }
 
-// resetResourceStatsFromResourceGroups maintains the Usage stats for the given resource groups
-// and resets Nominal and Lendable values. They are calculated again in updateResourceGroups.
-func (c *ClusterQueue) resetResourceStatsFromResourceGroups(resourceGroups []kueue.ResourceGroup) {
-	updatedResourceStats := make(ResourceStats, len(resourceGroups))
-	for _, rg := range resourceGroups {
-		for _, res := range rg.CoveredResources {
-			if oStats := c.ResourceStats[res]; oStats != nil {
-				updatedResourceStats[res] = &QuotaStats{
-					Usage: c.ResourceStats[res].Usage,
-					// Reset Nominal and Lendable.
-				}
-			} else {
-				updatedResourceStats[res] = &QuotaStats{}
-			}
-		}
-	}
-	c.ResourceStats = updatedResourceStats
-}
-
 func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 	oldRG := c.ResourceGroups
 	c.ResourceGroups = make([]ResourceGroup, len(in))
-	c.resetResourceStatsFromResourceGroups(in)
+	c.Lendable = make(map[corev1.ResourceName]int64)
 	for i, rgIn := range in {
 		rg := &c.ResourceGroups[i]
 		*rg = ResourceGroup{
@@ -305,15 +276,14 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 				rQuota := ResourceQuota{
 					Nominal: nominal,
 				}
-				c.ResourceStats[rIn.Name].Nominal += nominal
 				if rIn.BorrowingLimit != nil {
 					rQuota.BorrowingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
 				}
 				if features.Enabled(features.LendingLimit) && rIn.LendingLimit != nil {
 					rQuota.LendingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.LendingLimit))
-					c.ResourceStats[rIn.Name].Lendable += *rQuota.LendingLimit
+					c.Lendable[rIn.Name] += *rQuota.LendingLimit
 				} else {
-					c.ResourceStats[rIn.Name].Lendable += nominal
+					c.Lendable[rIn.Name] += nominal
 				}
 				fQuotas.Resources[rIn.Name] = &rQuota
 			}
@@ -499,7 +469,6 @@ func (c *ClusterQueue) reportActiveWorkloads() {
 func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	updateFlavorUsage(wi, c.Usage, m)
-	updateResourceStats(wi, c.ResourceStats, m)
 	if admitted {
 		updateFlavorUsage(wi, c.AdmittedUsage, m)
 		c.admittedWorkloadsCount += int(m)
@@ -511,16 +480,6 @@ func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		if admitted {
 			updateFlavorUsage(wi, lq.admittedUsage, m)
 			lq.admittedWorkloads += int(m)
-		}
-	}
-}
-
-func updateResourceStats(wi *workload.Info, rStats ResourceStats, m int64) {
-	for _, ps := range wi.TotalRequests {
-		for res, v := range ps.Requests {
-			if _, exists := rStats[res]; exists {
-				rStats[res].Usage += v * m
-			}
 		}
 	}
 }
@@ -723,7 +682,7 @@ func (c *ClusterQueue) dominantResourceShare(wlReq FlavorResourceQuantities, m i
 	var drs int64 = -1
 	var dRes corev1.ResourceName
 	for rName, b := range borrowing {
-		if lendable := c.Cohort.ResourceStats[rName].Lendable; lendable > 0 {
+		if lendable := c.Cohort.Lendable[rName]; lendable > 0 {
 			ratio := b * 1000 / lendable
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs || (ratio == drs && rName < dRes) {
