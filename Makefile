@@ -258,6 +258,10 @@ test-performance-scheduler: gotestsum run-performance-scheduler
 		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
 		--range=$(PROJECT_DIR)/test/performance/scheduler/default_rangespec.yaml
 
+# drop this once is no longer used by CI
+.PHONY: test-scalability
+test-scalability: test-performance-scheduler
+
 .PHONY: run-performance-scheduler-in-cluster
 run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 	mkdir -p $(ARTIFACTS)/run-performance-scheduler-in-cluster
