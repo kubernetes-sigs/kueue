@@ -200,10 +200,10 @@ var _ = ginkgo.Describe("Multikueue", func() {
 							Message: multikueue.SingleInstanceMessage,
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.AdmissionCheckApplyOnlyToAllFlavors,
+							Type:    kueue.FlavorIndependentAdmissionCheck,
 							Status:  metav1.ConditionTrue,
-							Reason:  multikueue.AllFlavorsCheckReason,
-							Message: multikueue.AllFlavorsCheckMessage,
+							Reason:  multikueue.FlavorIndependentCheckReason,
+							Message: multikueue.FlavorIndependentCheckMessage,
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

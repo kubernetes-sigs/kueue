@@ -20,5 +20,5 @@ type AdmissionCheck struct {
 	Active                       bool
 	Controller                   string
 	SingleInstanceInClusterQueue bool
-	ApplyOnlyToAllFlavors        bool
+	FlavorIndependent            bool
 }

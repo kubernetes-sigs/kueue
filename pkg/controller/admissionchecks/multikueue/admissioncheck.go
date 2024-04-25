@@ -39,11 +39,11 @@ import (
 )
 
 const (
-	ControllerName         = "kueue.x-k8s.io/multikueue"
-	SingleInstanceReason   = "MultiKueue"
-	SingleInstanceMessage  = "only one multikueue managed admission check can be used in one ClusterQueue"
-	AllFlavorsCheckReason  = "MultiKueue"
-	AllFlavorsCheckMessage = "admission check should be applied to all flavors"
+	ControllerName                = "kueue.x-k8s.io/multikueue"
+	SingleInstanceReason          = "MultiKueue"
+	SingleInstanceMessage         = "only one multikueue managed admission check can be used in one ClusterQueue"
+	FlavorIndependentCheckReason  = "MultiKueue"
+	FlavorIndependentCheckMessage = "admission check cannot be applied at ResourceFlavor level"
 )
 
 type multiKueueStoreHelper = admissioncheck.ConfigHelper[*kueuealpha.MultiKueueConfig, kueuealpha.MultiKueueConfig]
@@ -142,12 +142,12 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		needsUpdate = true
 	}
 
-	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckApplyOnlyToAllFlavors) {
+	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck) {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
-			Type:               kueue.AdmissionCheckApplyOnlyToAllFlavors,
+			Type:               kueue.FlavorIndependentAdmissionCheck,
 			Status:             metav1.ConditionTrue,
-			Reason:             AllFlavorsCheckReason,
-			Message:            AllFlavorsCheckMessage,
+			Reason:             FlavorIndependentCheckReason,
+			Message:            FlavorIndependentCheckMessage,
 			ObservedGeneration: ac.Generation,
 		})
 		needsUpdate = true

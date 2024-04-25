@@ -659,22 +659,22 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			cqStatus: pending,
 			admissionChecks: map[string]AdmissionCheck{
 				"check1": {
-					Active:                true,
-					Controller:            "controller1",
-					ApplyOnlyToAllFlavors: true,
+					Active:            true,
+					Controller:        "controller1",
+					FlavorIndependent: true,
 				},
 				"check2": {
 					Active:     true,
 					Controller: "controller2",
 				},
 				"check3": {
-					Active:                true,
-					Controller:            "controller3",
-					ApplyOnlyToAllFlavors: true,
+					Active:            true,
+					Controller:        "controller3",
+					FlavorIndependent: true,
 				},
 			},
 			wantStatus: pending,
-			wantReason: "AllFlavorsChecksAppliedToSpecificFlavor",
+			wantReason: "MultiKueueAdmissionCheckAppliedPerFlavor",
 		},
 		{
 			name:     "Terminating clusterQueue updated with valid AC list",
@@ -768,11 +768,11 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			if tc.cqStatus == active {
 				cq.hasMultipleSingleInstanceControllersChecks = false
 				cq.hasMissingOrInactiveAdmissionChecks = false
-				cq.hasAllFlavorsChecksAppliedToSpecificFlavor = false
+				cq.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel = false
 			} else {
 				cq.hasMultipleSingleInstanceControllersChecks = true
 				cq.hasMissingOrInactiveAdmissionChecks = true
-				cq.hasAllFlavorsChecksAppliedToSpecificFlavor = true
+				cq.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel = true
 			}
 			cq.updateWithAdmissionChecks(tc.admissionChecks)
 

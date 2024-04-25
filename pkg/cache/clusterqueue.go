@@ -82,14 +82,14 @@ type ClusterQueue struct {
 
 	AdmittedUsage FlavorResourceQuantities
 	// localQueues by (namespace/name).
-	localQueues                                map[string]*queue
-	podsReadyTracking                          bool
-	hasMissingFlavors                          bool
-	hasMissingOrInactiveAdmissionChecks        bool
-	hasMultipleSingleInstanceControllersChecks bool
-	hasAllFlavorsChecksAppliedToSpecificFlavor bool
-	admittedWorkloadsCount                     int
-	isStopped                                  bool
+	localQueues                                            map[string]*queue
+	podsReadyTracking                                      bool
+	hasMissingFlavors                                      bool
+	hasMissingOrInactiveAdmissionChecks                    bool
+	hasMultipleSingleInstanceControllersChecks             bool
+	hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel bool
+	admittedWorkloadsCount                                 int
+	isStopped                                              bool
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -341,7 +341,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks || c.hasAllFlavorsChecksAppliedToSpecificFlavor {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks || c.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -373,8 +373,8 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 			reasons = append(reasons, "MultipleSingleInstanceControllerChecks")
 		}
 
-		if c.hasAllFlavorsChecksAppliedToSpecificFlavor {
-			reasons = append(reasons, "AllFlavorsChecksAppliedToSpecificFlavor")
+		if c.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel {
+			reasons = append(reasons, "MultiKueueAdmissionCheckAppliedPerFlavor")
 		}
 
 		if len(reasons) == 0 {
@@ -437,7 +437,7 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 			if ac.SingleInstanceInClusterQueue {
 				singleInstanceControllers.Insert(ac.Controller)
 			}
-			if ac.ApplyOnlyToAllFlavors && flavors.Len() != 0 {
+			if ac.FlavorIndependent && flavors.Len() != 0 {
 				hasSpecificChecks = true
 			}
 		}
@@ -461,8 +461,8 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 		update = true
 	}
 
-	if c.hasAllFlavorsChecksAppliedToSpecificFlavor != hasSpecificChecks {
-		c.hasAllFlavorsChecksAppliedToSpecificFlavor = hasSpecificChecks
+	if c.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel != hasSpecificChecks {
+		c.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel = hasSpecificChecks
 		update = true
 	}
 
