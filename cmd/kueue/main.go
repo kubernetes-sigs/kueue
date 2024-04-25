@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -42,6 +43,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -366,30 +368,34 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 
 	if cfg.Integrations != nil {
 		var errorlist field.ErrorList
-		jobTypes := make(sets.Set[runtime.Object])
+		managedKinds := make(sets.Set[schema.GroupVersionKind])
 		availableFrameworks := jobframework.GetIntegrationsList()
 		path := field.NewPath("integrations", "frameworks")
 		for idx, framework := range cfg.Integrations.Frameworks {
 			if cb, found := jobframework.GetIntegration(framework); !found {
 				errorlist = append(errorlist, field.NotSupported(path, framework, availableFrameworks))
 			} else {
-				if jobTypes.Has(cb.JobType) {
-					errorlist = append(errorlist, field.Duplicate(path.Index(idx), cb.JobType))
+				if gvk, err := apiutil.GVKForObject(cb.JobType, scheme); err == nil {
+					if managedKinds.Has(gvk) {
+						errorlist = append(errorlist, field.Duplicate(path.Index(idx), framework))
+					}
+					managedKinds = managedKinds.Insert(gvk)
 				}
-				jobTypes = jobTypes.Insert(cb.JobType)
 			}
 		}
 
 		path = field.NewPath("integrations", "externalFrameworks")
 		for idx, name := range cfg.Integrations.ExternalFrameworks {
-			if err := jobframework.RegisterExternalIntegration(name); err != nil {
+			if err := jobframework.RegisterExternalJobType(name); err != nil {
 				errorlist = append(errorlist, field.InternalError(path.Index(idx), err))
 			}
 			if jt, found := jobframework.GetExternalIntegration(name); found {
-				if jobTypes.Has(jt) {
-					errorlist = append(errorlist, field.Duplicate(path.Index(idx), jt))
+				if gvk, err := apiutil.GVKForObject(jt, scheme); err == nil {
+					if managedKinds.Has(gvk) {
+						errorlist = append(errorlist, field.Duplicate(path.Index(idx), name))
+					}
+					managedKinds = managedKinds.Insert(gvk)
 				}
-				jobTypes = jobTypes.Insert(jt)
 			}
 		}
 

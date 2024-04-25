@@ -34,6 +34,7 @@ import (
 var (
 	errDuplicateFrameworkName = errors.New("duplicate framework name")
 	errMissingMandatoryField  = errors.New("mandatory field missing")
+	errFrameworkNameFormat    = errors.New("misformatted external framework name")
 )
 
 type JobReconcilerInterface interface {
@@ -113,16 +114,24 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 	return nil
 }
 
-func (m *integrationManager) registerExternal(name string, jobType runtime.Object) error {
-	if err := m.detectDuplicates(name); err != nil {
+func (m *integrationManager) registerExternal(kindArg string) error {
+	if err := m.detectDuplicates(kindArg); err != nil {
 		return err
 	}
 
-	if jobType == nil {
-		return fmt.Errorf("%w \"JobType\" for %q", errMissingMandatoryField, name)
+	gvk, _ := schema.ParseKindArg(kindArg)
+	if gvk == nil {
+		return fmt.Errorf("%w %q", errFrameworkNameFormat, kindArg)
+	}
+	apiVersion, kind := gvk.ToAPIVersionAndKind()
+	jobType := &metav1.PartialObjectMetadata{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: apiVersion,
+			Kind:       kind,
+		},
 	}
 
-	m.externalIntegrations[name] = jobType
+	m.externalIntegrations[kindArg] = jobType
 
 	return nil
 }
@@ -141,8 +150,8 @@ func (m *integrationManager) get(name string) (IntegrationCallbacks, bool) {
 	return cb, f
 }
 
-func (m *integrationManager) getExternal(name string) (runtime.Object, bool) {
-	jt, f := m.externalIntegrations[name]
+func (m *integrationManager) getExternal(kindArg string) (runtime.Object, bool) {
+	jt, f := m.externalIntegrations[kindArg]
 	return jt, f
 }
 
@@ -176,22 +185,10 @@ func RegisterIntegration(name string, cb IntegrationCallbacks) error {
 	return manager.register(name, cb)
 }
 
-// RegisterExternalIntegration registers a new external framework, returns an error when
-// attempting to register multiple frameworks with the same name or if a
-// mandatory callback is missing.
-func RegisterExternalIntegration(name string) error {
-	gvk, _ := schema.ParseKindArg(name)
-	if gvk == nil {
-		return fmt.Errorf("%v does not match expected format 'Kind.version.group'", name)
-	}
-	apiVersion, kind := gvk.ToAPIVersionAndKind()
-	obj := &metav1.PartialObjectMetadata{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: apiVersion,
-			Kind:       kind,
-		},
-	}
-	return manager.registerExternal(name, obj)
+// RegisterExternalJobType registers a new externally-managed Kind, returns an error when
+// attempting to register multiple JobTypes with the same name.
+func RegisterExternalJobType(kindArg string) error {
+	return manager.registerExternal(kindArg)
 }
 
 // ForEachIntegration loops through the registered list of frameworks calling f,

@@ -24,9 +24,11 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -251,88 +253,75 @@ func compareCallbacks(x, y interface{}) bool {
 
 func TestRegisterExternal(t *testing.T) {
 	cases := map[string]struct {
-		manager         *integrationManager
-		integrationName string
-		jobType         runtime.Object
-		wantError       error
-		wantList        []string
-		wantJobType     runtime.Object
+		manager   *integrationManager
+		kindArg   string
+		wantError error
+		wantGVK   *schema.GroupVersionKind
 	}{
-		"successful": {
+		"successful 1": {
 			manager: &integrationManager{
 				names: []string{"oldFramework"},
 				integrations: map[string]IntegrationCallbacks{
 					"oldFramework": testIntegrationCallbacks,
 				},
 			},
-			integrationName: "newFramework",
-			jobType:         &corev1.Pod{},
-			wantError:       nil,
-			wantList:        []string{"oldFramework"},
-			wantJobType:     &corev1.Pod{},
+			kindArg:   "Job.v1.batch",
+			wantError: nil,
+			wantGVK:   &schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
+		},
+		"successful 2": {
+			manager: &integrationManager{
+				externalIntegrations: map[string]runtime.Object{
+					"Job.v1.batch": &batchv1.Job{TypeMeta: metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"}},
+				},
+			},
+			kindArg:   "AppWrapper.v1beta2.workload.codeflare.dev",
+			wantError: nil,
+			wantGVK:   &schema.GroupVersionKind{Group: "workload.codeflare.dev", Version: "v1beta2", Kind: "AppWrapper"},
 		},
 		"duplicate name": {
 			manager: &integrationManager{
-				names: []string{"oldFramework"},
-				integrations: map[string]IntegrationCallbacks{
-					"oldFramework": testIntegrationCallbacks,
-				},
 				externalIntegrations: map[string]runtime.Object{
-					"newFramework": &corev1.Pod{},
+					"Job.v1.batch": &batchv1.Job{TypeMeta: metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"}},
 				},
 			},
-			integrationName: "newFramework",
-			jobType:         &corev1.Pod{},
-			wantError:       errDuplicateFrameworkName,
-			wantList:        []string{"oldFramework"},
-			wantJobType:     nil,
+			kindArg:   "Job.v1.batch",
+			wantError: errDuplicateFrameworkName,
+			wantGVK:   &schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 		},
 		"duplicate with internal name": {
 			manager: &integrationManager{
-				names: []string{"newFramework"},
+				names: []string{"Job.v1.batch"},
 				integrations: map[string]IntegrationCallbacks{
-					"newFramework": testIntegrationCallbacks,
+					"Job.v1.batch": testIntegrationCallbacks,
 				},
 			},
-			integrationName: "newFramework",
-			jobType:         &corev1.Pod{},
-			wantError:       errDuplicateFrameworkName,
-			wantList:        []string{"newFramework"},
-			wantJobType:     &corev1.Pod{},
+			kindArg:   "Job.v1.batch",
+			wantError: errDuplicateFrameworkName,
+			wantGVK:   nil,
 		},
-		"missing JobType": {
-			manager:         &integrationManager{},
-			integrationName: "newFramework",
-			jobType:         nil,
-			wantError:       errMissingMandatoryField,
-			wantList:        []string{},
+		"malformed kind arg": {
+			manager:   &integrationManager{},
+			kindArg:   "batch/job",
+			wantError: errFrameworkNameFormat,
+			wantGVK:   nil,
 		},
 	}
 
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
-			gotError := tc.manager.registerExternal(tc.integrationName, tc.jobType)
+			gotError := tc.manager.registerExternal(tc.kindArg)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want +got):\n%s", diff)
 			}
-			gotList := tc.manager.getList()
-			if diff := cmp.Diff(tc.wantList, gotList); diff != "" {
-				t.Errorf("Unexpected frameworks list (-want +got):\n%s", diff)
-			}
-
-			if gotJobType, found := tc.manager.getExternal(tc.integrationName); found {
-				if diff := cmp.Diff(tc.jobType, gotJobType, cmp.FilterValues(func(_, _ interface{}) bool { return true }, cmp.Comparer(compareJobTypes))); diff != "" {
+			if gotJobType, found := tc.manager.getExternal(tc.kindArg); found {
+				gvk := gotJobType.GetObjectKind().GroupVersionKind()
+				if diff := cmp.Diff(tc.wantGVK, &gvk); diff != "" {
 					t.Errorf("Unexpected jobtypes (-want +got):\n%s", diff)
 				}
 			}
 		})
 	}
-}
-
-func compareJobTypes(x, y interface{}) bool {
-	xjt := x.(runtime.Object)
-	yjt := y.(runtime.Object)
-	return xjt.GetObjectKind().GroupVersionKind() == yjt.GetObjectKind().GroupVersionKind()
 }
 
 func TestForEach(t *testing.T) {
@@ -454,7 +443,7 @@ func TestGetJobTypeForOwner(t *testing.T) {
 				if wantJobType == nil {
 					t.Errorf("This owner should be managed")
 				} else {
-					if diff := cmp.Diff(tc.wantJobType, wantJobType, cmp.FilterValues(func(_, _ interface{}) bool { return true }, cmp.Comparer(compareJobTypes))); diff != "" {
+					if diff := cmp.Diff(tc.wantJobType, wantJobType); diff != "" {
 						t.Errorf("Unexpected callbacks (-want +got):\n%s", diff)
 					}
 				}
