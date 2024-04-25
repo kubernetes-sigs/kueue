@@ -213,9 +213,9 @@ run-test-multikueue-e2e-%: FORCE
 	@echo Running multikueue e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/multikueue-e2e-test.sh
 
-SCALABILITY_RUNNER := $(ARTIFACTS)/scalability-runner
-.PHONY: scalability-runner
-scalability-runner:
+SCALABILITY_RUNNER := $(ARTIFACTS)/performance-scheduler-runner
+.PHONY: performance-scheduler-runner
+performance-scheduler-runner:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/performance/scheduler/runner/main.go
 
 .PHONY: minimalkueue
@@ -240,9 +240,9 @@ endif
 
 SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/default_generator_config.yaml
 
-SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-scalability
-.PHONY: run-scalability
-run-scalability: envtest scalability-runner minimalkueue
+SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-performance-scheduler
+.PHONY: run-performance-scheduler
+run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 	mkdir -p $(SCALABILITY_RUN_DIR)
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(SCALABILITY_RUNNER) \
@@ -251,19 +251,19 @@ run-scalability: envtest scalability-runner minimalkueue
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
 		--minimalKueue=$(ARTIFACTS)/minimalkueue $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
 
-.PHONY: test-scalability
-test-scalability: gotestsum run-scalability
+.PHONY: test-performance-scheduler
+test-performance-scheduler: gotestsum run-performance-scheduler
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
 		--summary=$(SCALABILITY_RUN_DIR)/summary.yaml \
 		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
 		--range=$(PROJECT_DIR)/test/performance/scheduler/default_rangespec.yaml
 
-.PHONY: run-scalability-in-cluster
-run-scalability-in-cluster: envtest scalability-runner
-	mkdir -p $(ARTIFACTS)/run-scalability-in-cluster
+.PHONY: run-performance-scheduler-in-cluster
+run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
+	mkdir -p $(ARTIFACTS)/run-performance-scheduler-in-cluster
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(SCALABILITY_RUNNER) \
-		--o $(ARTIFACTS)/run-scalability-in-cluster \
+		--o $(ARTIFACTS)/run-performance-scheduler-in-cluster \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
 		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
 
