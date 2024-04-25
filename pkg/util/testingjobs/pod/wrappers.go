@@ -84,7 +84,7 @@ func (p *PodWrapper) Queue(q string) *PodWrapper {
 	return p.Label(constants.QueueLabel, q)
 }
 
-// Queue updates the queue name of the Pod
+// PriorityClass updates the priority class name of the Pod
 func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
 	p.Spec.PriorityClassName = pc
 	return p
