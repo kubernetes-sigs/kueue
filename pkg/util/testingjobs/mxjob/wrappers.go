@@ -185,7 +185,7 @@ func (j *MXJobWrapper) NodeSelector(k, v string) *MXJobWrapper {
 		RoleNodeSelector(kftraining.MXJobReplicaTypeWorker, k, v)
 }
 
-// NodeSelector updates the nodeSelector of job.
+// RoleNodeSelector updates the nodeSelector of job.
 func (j *MXJobWrapper) RoleNodeSelector(role kftraining.ReplicaType, k, v string) *MXJobWrapper {
 	if j.Spec.MXReplicaSpecs[role].Template.Spec.NodeSelector == nil {
 		j.Spec.MXReplicaSpecs[role].Template.Spec.NodeSelector = make(map[string]string)
