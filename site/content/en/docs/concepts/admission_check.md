@@ -46,12 +46,12 @@ Similarly to `ResourceFlavors`, if an `AdmissionCheck` is not found or its contr
 There are two ways of referencing AdmissionChecks in the ClusterQueue's spec:
 
 - `.spec.admissionChecks` - is the list of AdmissionChecks that will be run for all Workloads submitted to the ClusterQueue
-- `.spec.admissionCheckStrategy` - wraps the list of `AdmissionCheckStrategyRules` that give you more flexibility. It allows you to both run an AdmissionCheck for all Workloads or to associate an AdmissionCheck
+- `.spec.admissionCheckStrategy` - wraps the list of `admissionCheckStrategyRules` that give you more flexibility. It allows you to both run an AdmissionCheck for all Workloads or to associate an AdmissionCheck
 with a specific ResourceFlavor. To specify ResourceFlavors that an AdmissionCheck should run for use the `admissionCheckStrategyRule.onFlavors` field, and if you want to run AdmissionCheck for all Workloads, simply leave the field empty.
 
 See examples below:
 
-Using `.spec.AdmissionChecks`
+Using `.spec.admissionChecks`
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -75,7 +75,8 @@ spec:
   - sample-prov
 ```
 
-Using `.spec.AdmissionCheckStrategy`
+Using `.spec.admissionCheckStrategy`
+
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
