@@ -23,8 +23,8 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	"sigs.k8s.io/kueue/test/scalability/runner/recorder"
-	"sigs.k8s.io/kueue/test/scalability/runner/stats"
+	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
+	"sigs.k8s.io/kueue/test/performance/scheduler/runner/stats"
 )
 
 var (

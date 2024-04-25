@@ -216,11 +216,11 @@ run-test-multikueue-e2e-%: FORCE
 SCALABILITY_RUNNER := $(ARTIFACTS)/scalability-runner
 .PHONY: scalability-runner
 scalability-runner:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/scalability/runner/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/performance/scheduler/runner/main.go
 
 .PHONY: minimalkueue
 minimalkueue: 
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o  $(ARTIFACTS)/minimalkueue test/scalability/minimalkueue/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o  $(ARTIFACTS)/minimalkueue test/performance/scheduler/minimalkueue/main.go
 
 ifdef SCALABILITY_CPU_PROFILE
 SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
@@ -238,7 +238,7 @@ ifdef SCALABILITY_SCRAPE_URL
 SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeURL=$(SCALABILITY_SCRAPE_URL)
 endif
 
-SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/scalability/default_generator_config.yaml
+SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/default_generator_config.yaml
 
 SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-scalability
 .PHONY: run-scalability
@@ -253,10 +253,10 @@ run-scalability: envtest scalability-runner minimalkueue
 
 .PHONY: test-scalability
 test-scalability: gotestsum run-scalability
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/scalability/checker  \
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
 		--summary=$(SCALABILITY_RUN_DIR)/summary.yaml \
 		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
-		--range=$(PROJECT_DIR)/test/scalability/default_rangespec.yaml
+		--range=$(PROJECT_DIR)/test/performance/scheduler/default_rangespec.yaml
 
 .PHONY: run-scalability-in-cluster
 run-scalability-in-cluster: envtest scalability-runner
