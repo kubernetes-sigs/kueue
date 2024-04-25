@@ -87,7 +87,7 @@ type ClusterQueue struct {
 	hasMissingFlavors                                      bool
 	hasMissingOrInactiveAdmissionChecks                    bool
 	hasMultipleSingleInstanceControllersChecks             bool
-	hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel bool
+	hasFlavorIndependentAdmissionCheckAppliedAtFlavorLevel bool
 	admittedWorkloadsCount                                 int
 	isStopped                                              bool
 }
@@ -341,7 +341,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks || c.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks || c.hasFlavorIndependentAdmissionCheckAppliedAtFlavorLevel {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -373,8 +373,8 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 			reasons = append(reasons, "MultipleSingleInstanceControllerChecks")
 		}
 
-		if c.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel {
-			reasons = append(reasons, "MultiKueueAdmissionCheckAppliedPerFlavor")
+		if c.hasFlavorIndependentAdmissionCheckAppliedAtFlavorLevel {
+			reasons = append(reasons, "FlavorIndependentAdmissionCheckAppliedPerFlavor")
 		}
 
 		if len(reasons) == 0 {
@@ -461,8 +461,8 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 		update = true
 	}
 
-	if c.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel != hasSpecificChecks {
-		c.hasClusterQueueLevelAdmissionCheckAppliedAtFlavorLevel = hasSpecificChecks
+	if c.hasFlavorIndependentAdmissionCheckAppliedAtFlavorLevel != hasSpecificChecks {
+		c.hasFlavorIndependentAdmissionCheckAppliedAtFlavorLevel = hasSpecificChecks
 		update = true
 	}
 
