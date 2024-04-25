@@ -40,16 +40,6 @@ var (
 	errQueueAlreadyExists = errors.New("queue already exists")
 )
 
-// QuotaStats holds the nominal quota and usage for a resource.
-type QuotaStats struct {
-	Nominal  int64
-	Lendable int64
-	Usage    int64
-}
-
-// ResourceStats holds QuotaStats for resources.
-type ResourceStats map[corev1.ResourceName]*QuotaStats
-
 // ClusterQueue is the internal implementation of kueue.ClusterQueue that
 // holds admitted workloads.
 type ClusterQueue struct {
