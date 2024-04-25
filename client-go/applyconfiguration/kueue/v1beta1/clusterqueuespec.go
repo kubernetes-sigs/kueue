@@ -34,6 +34,7 @@ type ClusterQueueSpecApplyConfiguration struct {
 	AdmissionChecks         []string                                   `json:"admissionChecks,omitempty"`
 	AdmissionChecksStrategy *AdmissionChecksStrategyApplyConfiguration `json:"admissionChecksStrategy,omitempty"`
 	StopPolicy              *kueuev1beta1.StopPolicy                   `json:"stopPolicy,omitempty"`
+	FairSharing             *FairSharingApplyConfiguration             `json:"fairSharing,omitempty"`
 }
 
 // ClusterQueueSpecApplyConfiguration constructs an declarative configuration of the ClusterQueueSpec type for use with
@@ -118,5 +119,13 @@ func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionChecksStrategy(value *
 // If called multiple times, the StopPolicy field is set to the value of the last call.
 func (b *ClusterQueueSpecApplyConfiguration) WithStopPolicy(value kueuev1beta1.StopPolicy) *ClusterQueueSpecApplyConfiguration {
 	b.StopPolicy = &value
+	return b
+}
+
+// WithFairSharing sets the FairSharing field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FairSharing field is set to the value of the last call.
+func (b *ClusterQueueSpecApplyConfiguration) WithFairSharing(value *FairSharingApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
+	b.FairSharing = value
 	return b
 }

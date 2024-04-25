@@ -70,6 +70,9 @@ type Configuration struct {
 
 	// MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.
 	MultiKueue *MultiKueue `json:"multiKueue,omitempty"`
+
+	// FairSharing controls the fair sharing semantics across the cluster.
+	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
 type ControllerManager struct {
@@ -351,4 +354,28 @@ type ClusterQueueVisibility struct {
 	// The maximal value is 4000.
 	// Defaults to 10.
 	MaxCount int32 `json:"maxCount,omitempty"`
+}
+
+type PreemptionStrategy string
+
+const (
+	LessThanOrEqualToFinalShare PreemptionStrategy = "LessThanOrEqualToFinalShare"
+	LessThanInitialShare        PreemptionStrategy = "LessThanInitialShare"
+)
+
+type FairSharing struct {
+	// enable indicates whether to enable fair sharing for all cohorts.
+	// Defaults to false.
+	Enable bool `json:"enable"`
+
+	// preemptionStrategies indicates which constraints should a preemption satisfy.
+	// The preemption algorithm will only use the next strategy in the list if the
+	// incoming workload (preemptor) doesn't fit after using the previous strategies.
+	// Possible values are:
+	// - LessThanOrEqualToFinalShare: Only preempt if the share of the preemptor CQ
+	//   will be less than or equal to the share of the preemptee CQ after the preemption occurs.
+	// - LessThanInitialShare: Only preempt if the share of the preemptor CQ will be strictly less
+	//   than the share of the preemptee CQ before the preemption.
+	// The default strategy is ["LessThanOrEqualToFinalShare"].
+	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
 }

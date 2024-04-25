@@ -349,6 +349,48 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"preemption strategies when fair sharing is disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "fairSharing.preemptionStrategies",
+				},
+			},
+		},
+		"Unknown and duplicated preemption strategies": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					Enabled:              true,
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, "UNKNOWN", configapi.LessThanInitialShare, configapi.LessThanOrEqualToFinalShare},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "fairSharing.preemptionStrategies[1]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "fairSharing.preemptionStrategies[3]",
+				},
+			},
+		},
+		"valid preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					Enabled:              true,
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, configapi.LessThanInitialShare},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {

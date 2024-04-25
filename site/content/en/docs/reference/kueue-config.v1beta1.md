@@ -163,6 +163,13 @@ pending workloads.</p>
    <p>MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.</p>
 </td>
 </tr>
+<tr><td><code>fairSharing</code> <B>[Required]</B><br/>
+<a href="#FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>FairSharing controls the fair sharing semantics across the cluster.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -395,6 +402,47 @@ must be named tls.key and tls.crt, respectively.</p>
 </tbody>
 </table>
 
+## `FairSharing`     {#FairSharing}
+    
+
+**Appears in:**
+
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>enable</code> <B>[Required]</B><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>enable indicates whether to enable fair sharing for all cohorts.
+Defaults to false.</p>
+</td>
+</tr>
+<tr><td><code>preemptionStrategies</code> <B>[Required]</B><br/>
+<a href="#PreemptionStrategy"><code>[]PreemptionStrategy</code></a>
+</td>
+<td>
+   <p>preemptionStrategies indicates which constraints should a preemption satisfy.
+The preemption algorithm will only use the next strategy in the list if the
+incoming workload (preemptor) doesn't fit after using the previous strategies.
+Possible values are:</p>
+<ul>
+<li>LessThanOrEqualToFinalShare: Only preempt if the share of the preemptor CQ
+will be less than or equal to the share of the preemptee CQ after the preemption occurs.</li>
+<li>LessThanInitialShare: Only preempt if the share of the preemptor CQ will be strictly less
+than the share of the preemptee CQ before the preemption.
+The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;].</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `Integrations`     {#Integrations}
     
 
@@ -577,6 +625,18 @@ if the connection with its reserving worker cluster is lost.</p>
 </tr>
 </tbody>
 </table>
+
+## `PreemptionStrategy`     {#PreemptionStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [FairSharing](#FairSharing)
+
+
+
+
 
 ## `QueueVisibility`     {#QueueVisibility}
     

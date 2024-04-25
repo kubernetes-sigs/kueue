@@ -184,4 +184,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.MultiKueue.WorkerLostTimeout == nil {
 		cfg.MultiKueue.WorkerLostTimeout = &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout}
 	}
+	if fs := cfg.FairSharing; fs != nil && fs.Enabled && len(fs.PreemptionStrategies) == 0 {
+		fs.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare}
+	}
 }

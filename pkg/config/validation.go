@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
@@ -45,6 +46,7 @@ var (
 	waitForPodsReadyPath       = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath      = waitForPodsReadyPath.Child("requeuingStrategy")
 	multiKueuePath             = field.NewPath("multiKueue")
+	fsPreemptionStrategiesPath = field.NewPath("fairSharing", "preemptionStrategies")
 )
 
 func validate(c *configapi.Configuration) field.ErrorList {
@@ -58,7 +60,7 @@ func validate(c *configapi.Configuration) field.ErrorList {
 	allErrs = append(allErrs, validateIntegrations(c)...)
 
 	allErrs = append(allErrs, validateMultiKueue(c)...)
-
+	allErrs = append(allErrs, validateFairSharing(c)...)
 	return allErrs
 }
 
@@ -172,5 +174,29 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		}
 	}
 
+	return allErrs
+}
+
+func validateFairSharing(c *configapi.Configuration) field.ErrorList {
+	fs := c.FairSharing
+	if fs == nil {
+		return nil
+	}
+	var allErrs field.ErrorList
+	if !fs.Enabled && len(fs.PreemptionStrategies) != 0 {
+		allErrs = append(allErrs, field.Invalid(fsPreemptionStrategiesPath, fs.PreemptionStrategies, "Must be empty when fair sharing is disabled"))
+	}
+	strategies := sets.New[configapi.PreemptionStrategy]()
+	validStrategies := []configapi.PreemptionStrategy{configapi.LessThanInitialShare, configapi.LessThanOrEqualToFinalShare}
+	for i, s := range fs.PreemptionStrategies {
+		path := fsPreemptionStrategiesPath.Index(i)
+		if slices.Index(validStrategies, s) == -1 {
+			allErrs = append(allErrs, field.NotSupported(path, s, validStrategies))
+		}
+		if strategies.Has(s) {
+			allErrs = append(allErrs, field.Duplicate(path, s))
+		}
+		strategies.Insert(s)
+	}
 	return allErrs
 }
