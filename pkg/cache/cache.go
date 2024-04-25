@@ -211,6 +211,7 @@ func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[str
 		Active:                       apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
 		Controller:                   ac.Spec.ControllerName,
 		SingleInstanceInClusterQueue: apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue),
+		FlavorIndependent:            apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck),
 	}
 
 	return c.updateClusterQueues()
