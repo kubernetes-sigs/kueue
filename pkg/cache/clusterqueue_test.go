@@ -476,9 +476,8 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 
 	cqWithACPerFlavor := utiltesting.MakeClusterQueue("cq3").
 		AdmissionCheckStrategy(
-			*utiltesting.MakeAdmissionCheckStrategyRule("check1", "flavor1").Obj(),
-			*utiltesting.MakeAdmissionCheckStrategyRule("check2", "flavor2").Obj(),
-			*utiltesting.MakeAdmissionCheckStrategyRule("check3", "flavor3").Obj()).
+			*utiltesting.MakeAdmissionCheckStrategyRule("check1", "flavor1", "flavor2", "flavor3").Obj(),
+		).
 		Obj()
 
 	testcases := []struct {
@@ -661,15 +660,6 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 				"check1": {
 					Active:            true,
 					Controller:        "controller1",
-					FlavorIndependent: true,
-				},
-				"check2": {
-					Active:     true,
-					Controller: "controller2",
-				},
-				"check3": {
-					Active:            true,
-					Controller:        "controller3",
 					FlavorIndependent: true,
 				},
 			},
