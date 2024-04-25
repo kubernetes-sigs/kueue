@@ -41,9 +41,9 @@ integrations:
   - "kubeflow.org/pytorchjob"
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
-  externalFrameworks:
-  - "workload.codeflare.dev/v1beta2, Kind=AppWrapper"
 # - "pod"
+# externalFrameworks:
+# - "Foo.v1.example.com"
 # podOptions:
 #   namespaceSelector:
 #     matchExpressions:

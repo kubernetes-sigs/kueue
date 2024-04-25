@@ -33,6 +33,7 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
@@ -365,11 +366,17 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 
 	if cfg.Integrations != nil {
 		var errorlist field.ErrorList
+		jobTypes := make(sets.Set[runtime.Object])
 		availableFrameworks := jobframework.GetIntegrationsList()
 		path := field.NewPath("integrations", "frameworks")
-		for _, framework := range cfg.Integrations.Frameworks {
-			if _, found := jobframework.GetIntegration(framework); !found {
+		for idx, framework := range cfg.Integrations.Frameworks {
+			if cb, found := jobframework.GetIntegration(framework); !found {
 				errorlist = append(errorlist, field.NotSupported(path, framework, availableFrameworks))
+			} else {
+				if jobTypes.Has(cb.JobType) {
+					errorlist = append(errorlist, field.Duplicate(path.Index(idx), cb.JobType))
+				}
+				jobTypes = jobTypes.Insert(cb.JobType)
 			}
 		}
 
@@ -377,6 +384,12 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 		for idx, name := range cfg.Integrations.ExternalFrameworks {
 			if err := jobframework.RegisterExternalIntegration(name); err != nil {
 				errorlist = append(errorlist, field.InternalError(path.Index(idx), err))
+			}
+			if jt, found := jobframework.GetExternalIntegration(name); found {
+				if jobTypes.Has(jt) {
+					errorlist = append(errorlist, field.Duplicate(path.Index(idx), jt))
+				}
+				jobTypes = jobTypes.Insert(jt)
 			}
 		}
 

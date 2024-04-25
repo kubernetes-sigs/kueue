@@ -307,8 +307,8 @@ type Integrations struct {
 	//  - "kubeflow.org/xgboostjob"
 	//  - "pod"
 	Frameworks []string `json:"frameworks,omitempty"`
-	// List of GroupVersionKinds that are managed for Kueue by external controllers
-	// the expected format of the string is "$GROUP/$VERSION, Kind=$KIND"
+	// List of GroupVersionKinds that are managed for Kueue by external controllers;
+	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
 	// PodOptions defines kueue controller behaviour for pod objects
 	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`

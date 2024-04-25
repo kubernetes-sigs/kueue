@@ -98,6 +98,19 @@ func TestRegister(t *testing.T) {
 			wantList:             []string{"newFramework"},
 			wantCallbacks:        testIntegrationCallbacks,
 		},
+		"duplicate with external name": {
+			manager: &integrationManager{
+				names: []string{},
+				externalIntegrations: map[string]runtime.Object{
+					"newFramework": &corev1.Pod{},
+				},
+			},
+			integrationName:      "newFramework",
+			integrationCallbacks: IntegrationCallbacks{},
+			wantError:            errDuplicateFrameworkName,
+			wantList:             []string{},
+			wantCallbacks:        testIntegrationCallbacks,
+		},
 		"missing NewReconciler": {
 			manager:         &integrationManager{},
 			integrationName: "newFramework",
@@ -236,6 +249,92 @@ func compareCallbacks(x, y interface{}) bool {
 	return reflect.ValueOf(xcb.AddToScheme).Pointer() == reflect.ValueOf(ycb.AddToScheme).Pointer()
 }
 
+func TestRegisterExternal(t *testing.T) {
+	cases := map[string]struct {
+		manager         *integrationManager
+		integrationName string
+		jobType         runtime.Object
+		wantError       error
+		wantList        []string
+		wantJobType     runtime.Object
+	}{
+		"successful": {
+			manager: &integrationManager{
+				names: []string{"oldFramework"},
+				integrations: map[string]IntegrationCallbacks{
+					"oldFramework": testIntegrationCallbacks,
+				},
+			},
+			integrationName: "newFramework",
+			jobType:         &corev1.Pod{},
+			wantError:       nil,
+			wantList:        []string{"oldFramework"},
+			wantJobType:     &corev1.Pod{},
+		},
+		"duplicate name": {
+			manager: &integrationManager{
+				names: []string{"oldFramework"},
+				integrations: map[string]IntegrationCallbacks{
+					"oldFramework": testIntegrationCallbacks,
+				},
+				externalIntegrations: map[string]runtime.Object{
+					"newFramework": &corev1.Pod{},
+				},
+			},
+			integrationName: "newFramework",
+			jobType:         &corev1.Pod{},
+			wantError:       errDuplicateFrameworkName,
+			wantList:        []string{"oldFramework"},
+			wantJobType:     nil,
+		},
+		"duplicate with internal name": {
+			manager: &integrationManager{
+				names: []string{"newFramework"},
+				integrations: map[string]IntegrationCallbacks{
+					"newFramework": testIntegrationCallbacks,
+				},
+			},
+			integrationName: "newFramework",
+			jobType:         &corev1.Pod{},
+			wantError:       errDuplicateFrameworkName,
+			wantList:        []string{"newFramework"},
+			wantJobType:     &corev1.Pod{},
+		},
+		"missing JobType": {
+			manager:         &integrationManager{},
+			integrationName: "newFramework",
+			jobType:         nil,
+			wantError:       errMissingMandatoryField,
+			wantList:        []string{},
+		},
+	}
+
+	for tcName, tc := range cases {
+		t.Run(tcName, func(t *testing.T) {
+			gotError := tc.manager.registerExternal(tc.integrationName, tc.jobType)
+			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
+			}
+			gotList := tc.manager.getList()
+			if diff := cmp.Diff(tc.wantList, gotList); diff != "" {
+				t.Errorf("Unexpected frameworks list (-want +got):\n%s", diff)
+			}
+
+			if gotJobType, found := tc.manager.getExternal(tc.integrationName); found {
+				if diff := cmp.Diff(tc.jobType, gotJobType, cmp.FilterValues(func(_, _ interface{}) bool { return true }, cmp.Comparer(compareJobTypes))); diff != "" {
+					t.Errorf("Unexpected jobtypes (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func compareJobTypes(x, y interface{}) bool {
+	xjt := x.(runtime.Object)
+	yjt := y.(runtime.Object)
+	return xjt.GetObjectKind().GroupVersionKind() == yjt.GetObjectKind().GroupVersionKind()
+}
+
 func TestForEach(t *testing.T) {
 	foeEachError := errors.New("test error")
 	cases := map[string]struct {
@@ -286,7 +385,7 @@ func TestForEach(t *testing.T) {
 	}
 }
 
-func TestGetCallbacksForOwner(t *testing.T) {
+func TestGetJobTypeForOwner(t *testing.T) {
 	dontManage := IntegrationCallbacks{
 		NewReconciler: func(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
 			panic("not implemented")
@@ -297,12 +396,17 @@ func TestGetCallbacksForOwner(t *testing.T) {
 	manageK1 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K1" }
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K1"}}
 		return ret
 	}()
 	manageK2 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K2" }
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K2"}}
 		return ret
+	}()
+	externalK3 := func() runtime.Object {
+		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3"}}
 	}()
 
 	mgr := integrationManager{
@@ -312,38 +416,45 @@ func TestGetCallbacksForOwner(t *testing.T) {
 			"manageK1":   manageK1,
 			"manageK2":   manageK2,
 		},
+		externalIntegrations: map[string]runtime.Object{
+			"externalK3": externalK3,
+		},
 	}
 
 	cases := map[string]struct {
-		owner         *metav1.OwnerReference
-		wantCallbacks *IntegrationCallbacks
+		owner       *metav1.OwnerReference
+		wantJobType runtime.Object
 	}{
 		"K1": {
-			owner:         &metav1.OwnerReference{Kind: "K1"},
-			wantCallbacks: &manageK1,
+			owner:       &metav1.OwnerReference{Kind: "K1"},
+			wantJobType: manageK1.JobType,
 		},
 		"K2": {
-			owner:         &metav1.OwnerReference{Kind: "K2"},
-			wantCallbacks: &manageK2,
+			owner:       &metav1.OwnerReference{Kind: "K2"},
+			wantJobType: manageK2.JobType,
 		},
 		"K3": {
-			owner:         &metav1.OwnerReference{Kind: "K3"},
-			wantCallbacks: nil,
+			owner:       &metav1.OwnerReference{Kind: "K3"},
+			wantJobType: externalK3,
+		},
+		"K4": {
+			owner:       &metav1.OwnerReference{Kind: "K4"},
+			wantJobType: nil,
 		},
 	}
 
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
-			gotCallbacks := mgr.getCallbacksForOwner(tc.owner)
-			if tc.wantCallbacks == nil {
-				if gotCallbacks != nil {
+			wantJobType := mgr.getJobTypeForOwner(tc.owner)
+			if tc.wantJobType == nil {
+				if wantJobType != nil {
 					t.Errorf("This owner should be unmanaged")
 				}
 			} else {
-				if gotCallbacks == nil {
+				if wantJobType == nil {
 					t.Errorf("This owner should be managed")
 				} else {
-					if diff := cmp.Diff(*tc.wantCallbacks, *gotCallbacks, cmp.FilterValues(func(_, _ interface{}) bool { return true }, cmp.Comparer(compareCallbacks))); diff != "" {
+					if diff := cmp.Diff(tc.wantJobType, wantJobType, cmp.FilterValues(func(_, _ interface{}) bool { return true }, cmp.Comparer(compareJobTypes))); diff != "" {
 						t.Errorf("Unexpected callbacks (-want +got):\n%s", diff)
 					}
 				}
