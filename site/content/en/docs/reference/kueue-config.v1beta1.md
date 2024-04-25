@@ -429,6 +429,14 @@ Possible options:</p>
 </ul>
 </td>
 </tr>
+<tr><td><code>externalFrameworks</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>List of GroupVersionKinds that are managed for Kueue by external controllers;
+the expected format is <code>Kind.version.group.com</code>.</p>
+</td>
+</tr>
 <tr><td><code>podOptions</code> <B>[Required]</B><br/>
 <a href="#PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
 </td>
