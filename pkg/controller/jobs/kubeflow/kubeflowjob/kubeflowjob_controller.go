@@ -90,15 +90,16 @@ func (j *KubeflowJob) Finished() (message string, success, finished bool) {
 		if (c.Type == kftraining.JobSucceeded || c.Type == kftraining.JobFailed) && c.Status == corev1.ConditionTrue {
 			conditionType = c.Type
 			finished = true
+			message = c.Message
 			break
 		}
 	}
-	message = "Job finished successfully"
+
 	success = true
 	if conditionType == kftraining.JobFailed {
-		message = "Job failed"
 		success = false
 	}
+
 	return message, success, finished
 }
 

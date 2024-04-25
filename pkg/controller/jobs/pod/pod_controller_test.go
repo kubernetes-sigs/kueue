@@ -364,11 +364,13 @@ func TestReconciler(t *testing.T) {
 				Label("kueue.x-k8s.io/managed", "true").
 				KueueFinalizer().
 				StatusPhase(corev1.PodSucceeded).
+				StatusMessage("Job finished successfully").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				Label("kueue.x-k8s.io/managed", "true").
 				StatusPhase(corev1.PodSucceeded).
+				StatusMessage("Job finished successfully").
 				Obj()},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -416,11 +418,13 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Label("kueue.x-k8s.io/managed", "true").
 				StatusPhase(corev1.PodSucceeded).
+				StatusMessage("Job finished successfully").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				Label("kueue.x-k8s.io/managed", "true").
 				StatusPhase(corev1.PodSucceeded).
+				StatusMessage("Job finished successfully").
 				Obj()},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -3614,6 +3618,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 		Label("kueue.x-k8s.io/managed", "true").
 		KueueFinalizer().
 		StatusPhase(corev1.PodSucceeded).
+		StatusMessage("Job finished successfully").
 		Obj()
 
 	wl := *utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -3684,6 +3689,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 		Clone().
 		Label("kueue.x-k8s.io/managed", "true").
 		StatusPhase(corev1.PodSucceeded).
+		StatusMessage("Job finished successfully").
 		Obj()
 	if diff := cmp.Diff(wantPod, gotPod, podCmpOpts...); diff != "" {
 		t.Errorf("Pod after second reconcile (-want,+got):\n%s", diff)

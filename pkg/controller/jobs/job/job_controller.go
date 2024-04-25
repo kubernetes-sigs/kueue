@@ -283,14 +283,13 @@ func (j *Job) Finished() (message string, success, finished bool) {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
 			conditionType = c.Type
 			finished = true
+			message = c.Message
 			break
 		}
 	}
 
 	success = true
-	message = "Job finished successfully"
 	if conditionType == batchv1.JobFailed {
-		message = "Job failed"
 		success = false
 	}
 

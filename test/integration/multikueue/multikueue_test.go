@@ -374,6 +374,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Status:             corev1.ConditionTrue,
 					LastProbeTime:      metav1.Now(),
 					LastTransitionTime: metav1.Now(),
+					Message:            "Job finished successfully",
 				})
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -385,7 +386,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadFinishedReasonSucceeded,
-					Message: `Job finished successfully`,
+					Message: "Job finished successfully",
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
@@ -495,7 +496,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Type:    string(jobset.JobSetCompleted),
 					Status:  metav1.ConditionTrue,
 					Reason:  "ByTest",
-					Message: "by test",
+					Message: "JobSet finished successfully",
 				})
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdJobSet)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -507,7 +508,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadFinishedReasonSucceeded,
-					Message: `JobSet finished successfully`,
+					Message: "JobSet finished successfully",
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 

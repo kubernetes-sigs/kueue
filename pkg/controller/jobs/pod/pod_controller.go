@@ -319,15 +319,18 @@ func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 func (p *Pod) Finished() (message string, success, finished bool) {
 	finished = true
 	success = true
-	message = "Job finished successfully"
 
 	if !p.isGroup {
 		ph := p.pod.Status.Phase
 		finished = ph == corev1.PodSucceeded || ph == corev1.PodFailed
 
 		if ph == corev1.PodFailed {
-			message = "Job failed"
+			message = p.pod.Status.Message
 			success = false
+		}
+
+		if ph == corev1.PodSucceeded {
+			message = p.pod.Status.Message
 		}
 
 		return message, success, finished
@@ -338,6 +341,7 @@ func (p *Pod) Finished() (message string, success, finished bool) {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
+		message = "failed to check if pod group is finished"
 		return message, success, false
 	}
 	for _, pod := range p.list.Items {

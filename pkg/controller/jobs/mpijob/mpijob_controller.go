@@ -154,16 +154,16 @@ func (j *MPIJob) Finished() (message string, success, finished bool) {
 		if (c.Type == kubeflow.JobSucceeded || c.Type == kubeflow.JobFailed) && c.Status == corev1.ConditionTrue {
 			conditionType = c.Type
 			finished = true
+			message = c.Message
 			break
 		}
 	}
 
-	message = "Job finished successfully"
 	success = true
 	if conditionType == kubeflow.JobFailed {
-		message = "Job failed"
 		success = false
 	}
+
 	return message, success, finished
 }
 

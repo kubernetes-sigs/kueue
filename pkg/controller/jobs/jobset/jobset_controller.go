@@ -147,11 +147,11 @@ func (j *JobSet) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 }
 
 func (j *JobSet) Finished() (message string, success, finished bool) {
-	if apimeta.IsStatusConditionTrue(j.Status.Conditions, string(jobsetapi.JobSetCompleted)) {
-		return "JobSet finished successfully", true, true
+	if c := apimeta.FindStatusCondition(j.Status.Conditions, string(jobsetapi.JobSetCompleted)); c != nil && c.Status == metav1.ConditionTrue {
+		return c.Message, true, true
 	}
-	if apimeta.IsStatusConditionTrue(j.Status.Conditions, string(jobsetapi.JobSetFailed)) {
-		return "JobSet failed", false, true
+	if c := apimeta.FindStatusCondition(j.Status.Conditions, string(jobsetapi.JobSetFailed)); c != nil && c.Status == metav1.ConditionTrue {
+		return c.Message, false, true
 	}
 	return message, success, false
 }

@@ -504,7 +504,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							LastProbeTime:      metav1.Now(),
 							LastTransitionTime: metav1.Now(),
 							Reason:             "ByTest",
-							Message:            "by test",
+							Message:            "Job finished successfully",
 						},
 					}
 					g.Expect(k8sClient.Status().Update(ctx, &createdJob)).To(gomega.Succeed())
