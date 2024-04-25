@@ -546,6 +546,11 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 	case (prevStatus == quotaReserved || prevStatus == admitted) && status == pending:
+		var backoff time.Duration
+		if wlCopy.Status.RequeueState != nil && wlCopy.Status.RequeueState.RequeueAt != nil {
+			backoff = time.Until(wl.Status.RequeueState.RequeueAt.Time)
+		}
+		immediate := backoff <= 0
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock
@@ -554,16 +559,16 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			if err := r.cache.DeleteWorkload(wl); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
-		})
-		var backoff time.Duration
-		if wlCopy.Status.RequeueState != nil && wlCopy.Status.RequeueState.RequeueAt != nil {
-			backoff = time.Until(wl.Status.RequeueState.RequeueAt.Time)
-		}
-		if backoff <= 0 {
-			if !r.queues.AddOrUpdateWorkload(wlCopy) {
-				log.V(2).Info("Queue for workload didn't exist; ignored for now")
+			// Here we don't take the lock as it is already taken by the wrapping
+			// function.
+			if immediate {
+				if !r.queues.AddOrUpdateWorkloadWithoutLock(wlCopy) {
+					log.V(2).Info("Queue for workload didn't exist; ignored for now")
+				}
 			}
-		} else {
+		})
+
+		if !immediate {
 			log.V(3).Info("Workload to be requeued after backoff", "backoff", backoff, "requeueAt", wl.Status.RequeueState.RequeueAt.Time)
 			time.AfterFunc(backoff, func() {
 				updatedWl := kueue.Workload{}
