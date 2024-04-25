@@ -40,7 +40,7 @@ spec:
 
 ### Usage
 
-Once defined, an AdmissionCheck can be referenced in the ClusterQueue's spec. All Workloads associated with the queue need to be evaluated by the AdmissionCheck's controller before being admitted.
+Once defined, an AdmissionCheck can be referenced in the [ClusterQueue's spec](/docs/concepts/cluster_queue). All Workloads associated with the queue need to be evaluated by the AdmissionCheck's controller before being admitted.
 Similarly to `ResourceFlavors`, if an `AdmissionCheck` is not found or its controller has not marked it as `Active`, the ClusterQueue will be marked as Inactive.
 
 There are two ways of referencing AdmissionChecks in the ClusterQueue's spec:
@@ -48,6 +48,8 @@ There are two ways of referencing AdmissionChecks in the ClusterQueue's spec:
 - `.spec.admissionChecks` - is the list of AdmissionChecks that will be run for all Workloads submitted to the ClusterQueue
 - `.spec.admissionCheckStrategy` - wraps the list of `admissionCheckStrategyRules` that give you more flexibility. It allows you to both run an AdmissionCheck for all Workloads or to associate an AdmissionCheck
 with a specific ResourceFlavor. To specify ResourceFlavors that an AdmissionCheck should run for use the `admissionCheckStrategyRule.onFlavors` field, and if you want to run AdmissionCheck for all Workloads, simply leave the field empty.
+
+Only one of the above-mentioned fields can be specified at the time.
 
 See examples below:
 
@@ -72,12 +74,12 @@ kind: ClusterQueue
 metadata:
   name: "cluster-queue"
 spec:
-  admissionCheckStrategy:
+<...>
+  admissionChecksStrategy:
     admissionChecks:
     - name: "sample-prov"           # Name of the AdmissionCheck to be run
       onFlavors: ["default-flavor"] # This AdmissionCheck will only run for Workloads that use default-flavor
-    - name: "sample-prov-2" # This AdmissionCheck will run for all Workloads regardless of a used ResourceFlavor
-<...>
+    - name: "sample-prov-2"         # This AdmissionCheck will run for all Workloads regardless of a used ResourceFlavor
 ```
 
 
