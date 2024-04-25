@@ -758,11 +758,11 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			if tc.cqStatus == active {
 				cq.hasMultipleSingleInstanceControllersChecks = false
 				cq.hasMissingOrInactiveAdmissionChecks = false
-				cq.hasFlavorIndependentAdmissionCheckAppliedAtFlavorLevel = false
+				cq.hasFlavorIndependentAdmissionCheckAppliedPerFlavor = false
 			} else {
 				cq.hasMultipleSingleInstanceControllersChecks = true
 				cq.hasMissingOrInactiveAdmissionChecks = true
-				cq.hasFlavorIndependentAdmissionCheckAppliedAtFlavorLevel = true
+				cq.hasFlavorIndependentAdmissionCheckAppliedPerFlavor = true
 			}
 			cq.updateWithAdmissionChecks(tc.admissionChecks)
 
