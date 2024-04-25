@@ -1,4 +1,4 @@
-# Kueue Performance Testing
+# Kueue e2e Performance Testing
 
 ## Measurements
 
