@@ -365,7 +365,6 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: wl.Generation,
@@ -429,12 +428,12 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 // The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
 func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	w.Status.Admission = admission
+	message := fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue)
 	admittedCond := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
 		Reason:             "QuotaReserved",
-		Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue),
+		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
@@ -443,14 +442,14 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.Reason = "QuotaReserved"
-		evictedCond.Message = "Previously: " + evictedCond.Message
+		evictedCond.Message = api.TruncateConditionMessage("Previously: " + evictedCond.Message)
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
 	// reset Preempted condition if present.
 	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
 		preemptedCond.Status = metav1.ConditionFalse
 		preemptedCond.Reason = "QuotaReserved"
-		preemptedCond.Message = "Previously: " + preemptedCond.Message
+		preemptedCond.Message = api.TruncateConditionMessage("Previously: " + preemptedCond.Message)
 		preemptedCond.LastTransitionTime = metav1.Now()
 	}
 }
@@ -460,7 +459,7 @@ func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
 		Type:    kueue.WorkloadPreempted,
 		Status:  metav1.ConditionTrue,
 		Reason:  reason,
-		Message: message,
+		Message: api.TruncateConditionMessage(message),
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
@@ -469,9 +468,8 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadEvicted,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
-		Message:            message,
+		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
