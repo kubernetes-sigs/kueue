@@ -6,16 +6,16 @@
 # - #1782775995984515072
 cmd:
   # Average value 351116.4 (+/- 0.9%), setting at +5%
-  maxWallMs: 368672
+  maxWallMs: 368_000
 
   # Average value 111500 (+/- 14%), setting at +20%
-  maxUserMs: 133800
+  maxUserMs: 134_000
 
   # Average value 27875 (+/- 16%), setting at +20%
-  maxSysMs: 33450
+  maxSysMs: 34_000
   
   # Average value 445012 (+/- 0.3%), setting at +5%
-  maxrss: 467263
+  maxrss: 468_000
 
 clusterQueueClassesMinUsage:
   # Average value 58.7 (+/- 1.2%), setting at -5%
@@ -26,7 +26,7 @@ wlClassesMaxAvgTimeToAdmissionMs:
   large: 8_000
 
   # Average value 76768 (+/- 2%), setting at +5%
-  medium: 80_606
+  medium: 81_000
 
   # Average value 215468 (+/- 2%), setting at +5%
-  small: 226_241
+  small: 227_000
