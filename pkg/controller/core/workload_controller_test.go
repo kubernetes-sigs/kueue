@@ -466,7 +466,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    "Finished",
 					Status:  "True",
-					Reason:  "AdmissionChecksRejected",
+					Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
 					Message: "Admission checks [check] are rejected",
 				}).
 				Obj(),

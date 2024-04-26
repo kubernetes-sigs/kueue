@@ -316,25 +316,24 @@ func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 
 // Finished means whether the job is completed/failed or not,
 // condition represents the workload finished condition.
-func (p *Pod) Finished() (metav1.Condition, bool) {
-	finished := true
-
-	condition := metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  "JobFinished",
-		Message: "Job finished successfully",
-	}
+func (p *Pod) Finished() (message string, success, finished bool) {
+	finished = true
+	success = true
 
 	if !p.isGroup {
 		ph := p.pod.Status.Phase
 		finished = ph == corev1.PodSucceeded || ph == corev1.PodFailed
 
 		if ph == corev1.PodFailed {
-			condition.Message = "Job failed"
+			message = p.pod.Status.Message
+			success = false
 		}
 
-		return condition, finished
+		if ph == corev1.PodSucceeded {
+			message = p.pod.Status.Message
+		}
+
+		return message, success, finished
 	}
 	isActive := false
 	succeededCount := 0
@@ -342,7 +341,8 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
-		return metav1.Condition{}, false
+		message = "failed to check if pod group is finished"
+		return message, success, false
 	}
 	for _, pod := range p.list.Items {
 		if pod.Status.Phase == corev1.PodSucceeded {
@@ -357,12 +357,12 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 	unretriableGroup := p.isUnretriableGroup()
 
 	if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
-		condition.Message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
+		message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
 	} else {
-		return metav1.Condition{}, false
+		return message, success, false
 	}
 
-	return condition, finished
+	return message, success, finished
 }
 
 // PodSets will build workload podSets corresponding to the job.

@@ -204,6 +204,12 @@ func (p *PodWrapper) StatusPhase(ph corev1.PodPhase) *PodWrapper {
 	return p
 }
 
+// StatusMessage updates status message of the Pod.
+func (p *PodWrapper) StatusMessage(msg string) *PodWrapper {
+	p.Pod.Status.Message = msg
+	return p
+}
+
 // CreationTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 	timestamp := metav1.NewTime(t).Rfc3339Copy()

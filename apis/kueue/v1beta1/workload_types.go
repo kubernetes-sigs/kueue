@@ -329,6 +329,20 @@ const (
 	WorkloadEvictedByDeactivation = "InactiveWorkload"
 )
 
+const (
+	// WorkloadFinishedReasonSucceeded indicates that the workload's job finished successfully.
+	WorkloadFinishedReasonSucceeded = "Succeeded"
+
+	// WorkloadFinishedReasonFailed indicates that the workload's job finished with an error.
+	WorkloadFinishedReasonFailed = "Failed"
+
+	// WorkloadFinishedReasonAdmissionChecksRejected indicates that the workload was rejected by admission checks.
+	WorkloadFinishedReasonAdmissionChecksRejected = "AdmissionChecksRejected"
+
+	// WorkloadFinishedReasonOutOfSync indicates that the prebuilt workload is not in sync with its parent job.
+	WorkloadFinishedReasonOutOfSync = "OutOfSync"
+)
+
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion

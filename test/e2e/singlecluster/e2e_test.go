@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 						gomega.BeComparableTo(metav1.Condition{
 							Type:   kueue.WorkloadFinished,
 							Status: metav1.ConditionTrue,
-							Reason: "JobFinished",
+							Reason: kueue.WorkloadFinishedReasonFailed,
 						}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})

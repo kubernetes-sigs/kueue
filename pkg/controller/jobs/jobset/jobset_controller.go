@@ -146,26 +146,14 @@ func (j *JobSet) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *JobSet) Finished() (metav1.Condition, bool) {
-	if apimeta.IsStatusConditionTrue(j.Status.Conditions, string(jobsetapi.JobSetCompleted)) {
-		condition := metav1.Condition{
-			Type:    kueue.WorkloadFinished,
-			Status:  metav1.ConditionTrue,
-			Reason:  "JobSetFinished",
-			Message: "JobSet finished successfully",
-		}
-		return condition, true
+func (j *JobSet) Finished() (message string, success, finished bool) {
+	if c := apimeta.FindStatusCondition(j.Status.Conditions, string(jobsetapi.JobSetCompleted)); c != nil && c.Status == metav1.ConditionTrue {
+		return c.Message, true, true
 	}
-	if apimeta.IsStatusConditionTrue(j.Status.Conditions, string(jobsetapi.JobSetFailed)) {
-		condition := metav1.Condition{
-			Type:    kueue.WorkloadFinished,
-			Status:  metav1.ConditionTrue,
-			Reason:  "JobSetFinished",
-			Message: "JobSet failed",
-		}
-		return condition, true
+	if c := apimeta.FindStatusCondition(j.Status.Conditions, string(jobsetapi.JobSetFailed)); c != nil && c.Status == metav1.ConditionTrue {
+		return c.Message, false, true
 	}
-	return metav1.Condition{}, false
+	return message, success, false
 }
 
 func (j *JobSet) PodsReady() bool {

@@ -504,7 +504,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							LastProbeTime:      metav1.Now(),
 							LastTransitionTime: metav1.Now(),
 							Reason:             "ByTest",
-							Message:            "by test",
+							Message:            "Job finished successfully",
 						},
 					}
 					g.Expect(k8sClient.Status().Update(ctx, &createdJob)).To(gomega.Succeed())
@@ -519,7 +519,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							gomega.BeComparableTo(metav1.Condition{
 								Type:    kueue.WorkloadFinished,
 								Status:  metav1.ConditionTrue,
-								Reason:  "JobFinished",
+								Reason:  kueue.WorkloadFinishedReasonSucceeded,
 								Message: "Job finished successfully",
 							}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
