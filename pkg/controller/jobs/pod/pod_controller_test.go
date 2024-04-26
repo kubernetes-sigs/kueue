@@ -3629,7 +3629,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 		WithObjects(&pod).
 		WithStatusSubresource(&wl).
 		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			Patch: func(ctx context.Context, client client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 				_, isPod := obj.(*corev1.Pod)
 				if isPod {
 					defer func() { reqcount++ }()
@@ -3639,10 +3639,10 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 					}
 					if reqcount == 1 {
 						// Exec a regular update operation for the second request
-						return client.Update(ctx, obj, opts...)
+						return client.Patch(ctx, obj, patch, opts...)
 					}
 				}
-				return client.Update(ctx, obj, opts...)
+				return client.Patch(ctx, obj, patch, opts...)
 			},
 			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 		})
@@ -3853,11 +3853,11 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 	kcBuilder := clientBuilder.
 		WithStatusSubresource(&wl).
 		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			Patch: func(ctx context.Context, client client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 				if triggerUpdateErr {
 					return connRefusedErrMock
 				}
-				return client.Update(ctx, obj, opts...)
+				return client.Patch(ctx, obj, patch, opts...)
 			},
 			Delete: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
 				if triggerDeleteErr {
