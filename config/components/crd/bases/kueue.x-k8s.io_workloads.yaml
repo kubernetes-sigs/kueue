@@ -8144,31 +8144,28 @@ spec:
         type: object
         x-kubernetes-validations:
         - message: podSetAssignments must have the same number of podSets as the spec
-          rule: 'has(self.spec) && has(self.status) && has(self.status.conditions)
-            && self.status.conditions.exists(c, c.type == ''QuotaReserved'' && c.status
-            == ''True'') && has(self.status.admission) ? size(self.spec.podSets) ==
-            size(self.status.admission.podSetAssignments) : true'
-        - message: field is immutable
-          rule: '(has(oldSelf.spec) && has(oldSelf.status) && has(oldSelf.status.conditions)
-            && oldSelf.status.conditions.exists(c, c.type == ''QuotaReserved'' &&
-            c.status == ''True'')) ? (oldSelf.spec.podSets == self.spec.podSets) :
-            true'
-        - message: field is immutable
-          rule: '(has(oldSelf.spec) && has(oldSelf.status) && has(oldSelf.status.conditions)
-            && oldSelf.status.conditions.exists(c, c.type == ''QuotaReserved'' &&
-            c.status == ''True'')) ? (oldSelf.spec.priorityClassSource == self.spec.priorityClassSource)
+          rule: 'has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c,
+            c.type == ''QuotaReserved'' && c.status == ''True'') && has(self.status.admission)
+            ? size(self.spec.podSets) == size(self.status.admission.podSetAssignments)
             : true'
         - message: field is immutable
-          rule: '(has(oldSelf.spec) && has(oldSelf.status) && has(oldSelf.status.conditions)
-            && oldSelf.status.conditions.exists(c, c.type == ''QuotaReserved'' &&
-            c.status == ''True'') && has(oldSelf.spec.priorityClassName) && has(self.spec.priorityClassName))
-            ? (oldSelf.spec.priorityClassName == self.spec.priorityClassName) : true'
+          rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
+            c.type == ''QuotaReserved'' && c.status == ''True'')) ? (oldSelf.spec.podSets
+            == self.spec.podSets) : true'
         - message: field is immutable
-          rule: '(has(oldSelf.spec) && has(oldSelf.spec.queueName) && has(oldSelf.status)
-            && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
-            c.type == ''QuotaReserved'' && c.status == ''True'')) && (has(self.spec)
-            && has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c,
-            c.type == ''QuotaReserved'' && c.status == ''True'')) && has(oldSelf.spec.queueName)
+          rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
+            c.type == ''QuotaReserved'' && c.status == ''True'')) ? (oldSelf.spec.priorityClassSource
+            == self.spec.priorityClassSource) : true'
+        - message: field is immutable
+          rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
+            c.type == ''QuotaReserved'' && c.status == ''True'') && has(oldSelf.spec.priorityClassName)
+            && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName
+            == self.spec.priorityClassName) : true'
+        - message: field is immutable
+          rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
+            c.type == ''QuotaReserved'' && c.status == ''True'')) && (has(self.status)
+            && has(self.status.conditions) && self.status.conditions.exists(c, c.type
+            == ''QuotaReserved'' && c.status == ''True'')) && has(oldSelf.spec.queueName)
             && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName
             : true'
     served: true
