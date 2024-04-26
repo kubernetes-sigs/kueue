@@ -128,28 +128,3 @@ func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorL
 	}
 	return allErrors
 }
-
-// TODO(#463): Remove this function when CEL validations are added to workload type
-// validateTaintEffect is extracted from git.k8s.io/kubernetes/pkg/apis/core/validation/validation.go
-func validateTaintEffect(effect *corev1.TaintEffect, allowEmpty bool, fldPath *field.Path) field.ErrorList {
-	if !allowEmpty && len(*effect) == 0 {
-		return field.ErrorList{field.Required(fldPath, "")}
-	}
-
-	allErrors := field.ErrorList{}
-	switch *effect {
-	// TODO: Replace next line with subsequent commented-out line when implement TaintEffectNoScheduleNoAdmit.
-	case corev1.TaintEffectNoSchedule, corev1.TaintEffectPreferNoSchedule, corev1.TaintEffectNoExecute:
-		// case core.TaintEffectNoSchedule, core.TaintEffectPreferNoSchedule, core.TaintEffectNoScheduleNoAdmit, core.TaintEffectNoExecute:
-	default:
-		validValues := []string{
-			string(corev1.TaintEffectNoSchedule),
-			string(corev1.TaintEffectPreferNoSchedule),
-			string(corev1.TaintEffectNoExecute),
-			// TODO: Uncomment this block when implement TaintEffectNoScheduleNoAdmit.
-			// string(core.TaintEffectNoScheduleNoAdmit),
-		}
-		allErrors = append(allErrors, field.NotSupported(fldPath, *effect, validValues))
-	}
-	return allErrors
-}

@@ -115,9 +115,13 @@ spec:
 
                         This is an alpha field and requires enabling PartialAdmission feature gate.
                       format: int32
+                      minimum: 1
                       type: integer
                     name:
+                      default: main
                       description: name is the PodSet name.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
                     template:
                       description: |-
@@ -7768,9 +7772,11 @@ spec:
                       type: object
                   required:
                   - count
-                  - name
                   - template
                   type: object
+                  x-kubernetes-validations:
+                  - message: minCount should be positive and less or equal to count
+                    rule: 'has(self.minCount) ? self.minCount <= self.count : true'
                 maxItems: 8
                 minItems: 1
                 type: array
@@ -7794,6 +7800,8 @@ spec:
                   the highest priority. Any other name must be defined by creating a
                   PriorityClass object with that name. If not specified, the workload
                   priority will be default or zero if there is no default.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
               priorityClassSource:
                 default: ""
@@ -7810,10 +7818,15 @@ spec:
                 description: |-
                   queueName is the name of the LocalQueue the Workload is associated with.
                   queueName cannot be changed while .status.admission is not null.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
             required:
             - podSets
             type: object
+            x-kubernetes-validations:
+            - message: priority should not be nil when priorityClassName is set
+              rule: 'has(self.priorityClassName) ? has(self.priority) : true'
           status:
             description: WorkloadStatus defines the observed state of Workload
             properties:
@@ -7857,6 +7870,8 @@ spec:
                           default: main
                           description: Name is the name of the podSet. It should match
                             one of the names in .spec.podSets.
+                          maxLength: 63
+                          pattern: ^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                         resourceUsage:
                           additionalProperties:
@@ -7876,6 +7891,7 @@ spec:
                       required:
                       - name
                       type: object
+                    maxItems: 8
                     type: array
                     x-kubernetes-list-map-keys:
                     - name
@@ -7966,10 +7982,32 @@ spec:
                                     If the operator is Exists, the value should be empty, otherwise just a regular string.
                                   type: string
                               type: object
+                            maxItems: 8
                             type: array
+                            x-kubernetes-validations:
+                            - message: operator must be Exists when 'key' is empty,
+                                which means 'match all values and all keys'
+                              rule: 'self.all(x, !has(x.key) ? x.operator == ''Exists''
+                                : true)'
+                            - message: effect must be 'NoExecute' when 'tolerationSeconds'
+                                is set
+                              rule: 'self.all(x, has(x.tolerationSeconds) ? x.effect
+                                == ''NoExecute'' : true)'
+                            - message: 'supported toleration values: ''Equal''(default),
+                                ''Exists'''
+                              rule: self.all(x, !has(x.operator) || x.operator in
+                                ['Equal', 'Exists'])
+                            - message: a value must be empty when 'operator' is 'Exists'
+                              rule: 'self.all(x, has(x.operator) && x.operator ==
+                                ''Exists'' ? !has(x.value) : true)'
+                            - message: 'supported taint effect values: ''NoSchedule'',
+                                ''PreferNoSchedule'', ''NoExecute'''
+                              rule: self.all(x, !has(x.effect) || x.effect in ['NoSchedule',
+                                'PreferNoSchedule', 'NoExecute'])
                         required:
                         - name
                         type: object
+                      maxItems: 8
                       type: array
                       x-kubernetes-list-type: atomic
                     state:
@@ -7987,6 +8025,7 @@ spec:
                   - name
                   - state
                   type: object
+                maxItems: 8
                 type: array
                 x-kubernetes-list-map-keys:
                 - name
@@ -8094,6 +8133,7 @@ spec:
                   - count
                   - name
                   type: object
+                maxItems: 8
                 type: array
                 x-kubernetes-list-map-keys:
                 - name
@@ -8121,6 +8161,28 @@ spec:
                 type: object
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: podSetAssignments must have the same number of podSets as the spec
+          rule: 'has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c,
+            c.type == ''QuotaReserved'' && c.status == ''True'') && has(self.status.admission)
+            ? size(self.spec.podSets) == size(self.status.admission.podSetAssignments)
+            : true'
+        - message: field is immutable
+          rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
+            c.type == ''QuotaReserved'' && c.status == ''True'')) ? (oldSelf.spec.priorityClassSource
+            == self.spec.priorityClassSource) : true'
+        - message: field is immutable
+          rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
+            c.type == ''QuotaReserved'' && c.status == ''True'') && has(oldSelf.spec.priorityClassName)
+            && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName
+            == self.spec.priorityClassName) : true'
+        - message: field is immutable
+          rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
+            c.type == ''QuotaReserved'' && c.status == ''True'')) && (has(self.status)
+            && has(self.status.conditions) && self.status.conditions.exists(c, c.type
+            == ''QuotaReserved'' && c.status == ''True'')) && has(oldSelf.spec.queueName)
+            && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName
+            : true'
     served: true
     storage: true
     subresources:
