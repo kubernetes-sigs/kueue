@@ -38,8 +38,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/scalability/runner/generator"
-	"sigs.k8s.io/kueue/test/scalability/runner/recorder"
+	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
+	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
 )
 
 type reconciler struct {

@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/test/scalability/runner/generator"
+	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 )
 
 type CQEvent struct {
