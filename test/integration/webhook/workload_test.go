@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -129,10 +128,9 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			workload := testing.MakeWorkload(workloadName, ns.Name).PodSets(podSets...).Obj()
 			err := k8sClient.Create(ctx, workload)
 			if isInvalid {
-				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(errors.IsInvalid(err)).Should(gomega.BeTrue(), "error: %v", err)
+				gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError), "error: %v", err)
 			} else {
-				gomega.Expect(err).Should(gomega.Succeed())
+				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			}
 		},
 			ginkgo.Entry("podSets count less than 1", 0, 1, true),
@@ -141,16 +139,11 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.Entry("valid podSet", 3, 3, false),
 		)
 
-		ginkgo.DescribeTable("Should have valid values when creating", func(w func() *kueue.Workload, errorType int) {
+		ginkgo.DescribeTable("Should have valid values when creating", func(w func() *kueue.Workload, errorType gomega.OmegaMatcher) {
 			err := k8sClient.Create(ctx, w())
-			switch errorType {
-			case isForbidden:
-				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(testing.BeAPIError(testing.ForbiddenError), "error: %v", err)
-			case isInvalid:
-				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError), "error: %v", err)
-			default:
+			if errorType != nil {
+				gomega.Expect(err).Should(errorType, "error: %v", err)
+			} else {
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			}
 		},
@@ -161,14 +154,14 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						*testing.MakePodSet("workers", 100).Obj(),
 					).Obj()
 				},
-				isValid),
+				nil),
 			ginkgo.Entry("invalid podSet name",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).PodSets(
 						*testing.MakePodSet("@driver", 1).Obj(),
 					).Obj()
 				},
-				isInvalid),
+				testing.BeAPIError(testing.InvalidError)),
 			ginkgo.Entry("invalid priorityClassName",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
@@ -176,27 +169,27 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Priority(0).
 						Obj()
 				},
-				isInvalid),
+				testing.BeAPIError(testing.InvalidError)),
 			ginkgo.Entry("empty priorityClassName is valid",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						Obj()
 				},
-				isValid),
+				nil),
 			ginkgo.Entry("priority should not be nil when priorityClassName is set",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						PriorityClass("priority").
 						Obj()
 				},
-				isInvalid),
+				testing.BeAPIError(testing.InvalidError)),
 			ginkgo.Entry("invalid queueName",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						Queue("@invalid").
 						Obj()
 				},
-				isInvalid),
+				testing.BeAPIError(testing.InvalidError)),
 			ginkgo.Entry("should not request num-pods resource",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
@@ -228,14 +221,14 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						}).
 						Obj()
 				},
-				isForbidden),
+				testing.BeAPIError(testing.ForbiddenError)),
 			ginkgo.Entry("empty podSetUpdates should be valid since it is optional",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						AdmissionChecks(kueue.AdmissionCheckState{}).
 						Obj()
 				},
-				isValid),
+				nil),
 			ginkgo.Entry("matched names in podSetUpdates with names in podSets",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
@@ -281,7 +274,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						).
 						Obj()
 				},
-				isValid),
+				nil),
 			ginkgo.Entry("invalid podSet minCount (negative)",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
@@ -290,7 +283,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						).
 						Obj()
 				},
-				isInvalid),
+				testing.BeAPIError(testing.InvalidError)),
 			ginkgo.Entry("invalid podSet minCount (too big)",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
@@ -299,7 +292,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						).
 						Obj()
 				},
-				isInvalid),
+				testing.BeAPIError(testing.InvalidError)),
 			ginkgo.Entry("too many variable count podSets",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
@@ -309,22 +302,17 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						).
 						Obj()
 				},
-				isForbidden),
+				testing.BeAPIError(testing.ForbiddenError)),
 		)
 
-		ginkgo.DescribeTable("Should have valid values when setting Admission", func(w func() *kueue.Workload, a *kueue.Admission, errorType int) {
+		ginkgo.DescribeTable("Should have valid values when setting Admission", func(w func() *kueue.Workload, a *kueue.Admission, errorType gomega.OmegaMatcher) {
 			workload := w()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
 
 			err := util.SetQuotaReservation(ctx, k8sClient, workload, a)
-			switch errorType {
-			case isForbidden:
-				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(testing.BeAPIError(testing.ForbiddenError), "error: %v", err)
-			case isInvalid:
-				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError), "error: %v", err)
-			default:
+			if errorType != nil {
+				gomega.Expect(err).Should(errorType, "error: %v", err)
+			} else {
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			}
 		},
@@ -334,14 +322,14 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				testing.MakeAdmission("@invalid").Obj(),
-				isInvalid),
+				testing.BeAPIError(testing.InvalidError)),
 			ginkgo.Entry("invalid podSet name in status assignment",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						Obj()
 				},
 				testing.MakeAdmission("cluster-queue", "@invalid").Obj(),
-				isInvalid),
+				testing.BeAPIError(testing.InvalidError)),
 			ginkgo.Entry("mismatched names in admission with names in podSets",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
@@ -352,7 +340,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				testing.MakeAdmission("cluster-queue", "main1", "main2", "main3").Obj(),
-				isInvalid),
+				testing.BeAPIError(testing.InvalidError)),
 			ginkgo.Entry("assignment usage should be divisible by count",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
@@ -367,7 +355,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					Assignment(corev1.ResourceCPU, "flv", "1").
 					AssignmentPodCount(3).
 					Obj(),
-				isForbidden),
+				testing.BeAPIError(testing.ForbiddenError)),
 		)
 
 		ginkgo.DescribeTable("Should have valid values when setting AdmissionCheckState", func(w func() *kueue.Workload, acs kueue.AdmissionCheckState) {
@@ -454,7 +442,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				{Name: "ps1", Count: 4},
 				{Name: "ps2", Count: 1},
 			})
-			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeAPIError(testing.ForbiddenError), "error: %v", err)
 		})
 
@@ -813,7 +800,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).PriorityClass("priority").Obj()
 			err := k8sClient.Create(ctx, workload)
-			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError), "error: %v", err)
 		})
 
@@ -929,7 +915,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			err := workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
 				{Name: "ps1", Count: 1},
 			})
-			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(testing.BeAPIError(testing.ForbiddenError))
 		})
 
