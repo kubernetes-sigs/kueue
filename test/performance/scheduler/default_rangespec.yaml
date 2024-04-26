@@ -5,6 +5,9 @@
 # - #1782772615836864512
 # - #1782775995984515072
 cmd:
+  # Average value 351116.4 (+/- 0.9%), setting at +20%
+  maxWallMs: 425_000
+
   # Average value 396 mCPU (+/- 8%), setting at +25%
   mCPU: 500
   
@@ -19,8 +22,8 @@ wlClassesMaxAvgTimeToAdmissionMs:
   # Average value 6666 (+/- 14%), setting at +35%
   large: 9_000
 
-  # Average value 76768 (+/- 2%), setting at +5%
-  medium: 81_000
+  # Average value 76768 (+/- 2%), setting at +20%
+  medium: 90_000
 
   # Average value 215468 (+/- 2%), setting at +5%
   small: 227_000

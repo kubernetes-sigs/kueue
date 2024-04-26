@@ -256,7 +256,6 @@ test-performance-scheduler: gotestsum run-performance-scheduler
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
 		--summary=$(SCALABILITY_RUN_DIR)/summary.yaml \
 		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
-		--timeout=8m \
 		--range=$(PROJECT_DIR)/test/performance/scheduler/default_rangespec.yaml
 
 # drop this once is no longer used by CI
