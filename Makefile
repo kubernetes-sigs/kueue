@@ -213,14 +213,15 @@ run-test-multikueue-e2e-%: FORCE
 	@echo Running multikueue e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/multikueue-e2e-test.sh
 
-SCALABILITY_RUNNER := $(ARTIFACTS)/performance-scheduler-runner
+SCALABILITY_RUNNER := $(PROJECT_DIR)/bin/performance-scheduler-runner
 .PHONY: performance-scheduler-runner
 performance-scheduler-runner:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/performance/scheduler/runner/main.go
 
+MINIMALKUEUE_RUNNER := $(PROJECT_DIR)/bin/minimalkueue
 .PHONY: minimalkueue
 minimalkueue: 
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o  $(ARTIFACTS)/minimalkueue test/performance/scheduler/minimalkueue/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MINIMALKUEUE_RUNNER) test/performance/scheduler/minimalkueue/main.go
 
 ifdef SCALABILITY_CPU_PROFILE
 SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
@@ -249,7 +250,7 @@ run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 		--o $(SCALABILITY_RUN_DIR) \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
-		--minimalKueue=$(ARTIFACTS)/minimalkueue $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: test-performance-scheduler
 test-performance-scheduler: gotestsum run-performance-scheduler
