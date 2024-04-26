@@ -54,9 +54,6 @@ func TestSetupControllers(t *testing.T) {
 				WithEnabledFrameworks(&configapi.Integrations{
 					Frameworks: []string{"batch/job", "kubeflow.org/mpijob"},
 				}),
-				WithExternalFrameworks(&configapi.Integrations{
-					ExternalFrameworks: []string{"workload.codeflare.dev/v1beta2, Kind=AppWrapper"},
-				}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),

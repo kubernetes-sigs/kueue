@@ -76,7 +76,6 @@ type Options struct {
 	// IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
 	IntegrationOptions map[string]any
 	EnabledFrameworks  sets.Set[string]
-	ExternalFrameworks sets.Set[string]
 	ManagerName        string
 	LabelKeysToCopy    []string
 }
@@ -133,16 +132,6 @@ func WithEnabledFrameworks(i *configapi.Integrations) Option {
 			return
 		}
 		o.EnabledFrameworks = sets.New(i.Frameworks...)
-	}
-}
-
-// WithExternalFrameworks adds external framework names from the ConfigAPI.
-func WithExternalFrameworks(i *configapi.Integrations) Option {
-	return func(o *Options) {
-		if i == nil || len(i.ExternalFrameworks) == 0 {
-			return
-		}
-		o.ExternalFrameworks = sets.New(i.ExternalFrameworks...)
 	}
 }
 
