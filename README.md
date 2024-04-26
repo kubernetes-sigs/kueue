@@ -41,7 +41,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
     [1.27](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-27),
     [1.28](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-28)
     on Kind.
-- ✔️ Scalability verification via [performance tests](https://github.com/kubernetes-sigs/kueue/tree/main/test/performance/e2e).
+- ✔️ Scalability verification via [performance tests](https://github.com/kubernetes-sigs/kueue/tree/main/test/performance).
 - ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics).
 - ✔️ Security: RBAC based accessibility.
 - ✔️ Stable release cycle(2-3 months) for new features, bugfixes, cleanups.
