@@ -55,9 +55,10 @@ import (
 
 const (
 	// statuses for logging purposes
-	pending  = "pending"
-	admitted = "admitted"
-	finished = "finished"
+	pending       = "pending"
+	quotaReserved = "quotaReserved"
+	admitted      = "admitted"
+	finished      = "finished"
 )
 
 var (
@@ -541,12 +542,12 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			log.V(2).Info("Queue for updated workload didn't exist; ignoring for now")
 		}
 
-	case prevStatus == pending && status == admitted:
+	case prevStatus == pending && (status == quotaReserved || status == admitted):
 		r.queues.DeleteWorkload(oldWl)
 		if !r.cache.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
-	case prevStatus == admitted && status == pending:
+	case (prevStatus == quotaReserved || prevStatus == admitted) && status == pending:
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock
@@ -662,8 +663,11 @@ func workloadStatus(w *kueue.Workload) string {
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return finished
 	}
-	if workload.HasQuotaReservation(w) {
+	if workload.IsAdmitted(w) {
 		return admitted
+	}
+	if workload.HasQuotaReservation(w) {
+		return quotaReserved
 	}
 	return pending
 }
