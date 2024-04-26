@@ -270,9 +270,13 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 
 func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
+	specPath := field.NewPath("spec")
 	statusPath := field.NewPath("status")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
 
+	if workload.HasQuotaReservation(oldObj) {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}

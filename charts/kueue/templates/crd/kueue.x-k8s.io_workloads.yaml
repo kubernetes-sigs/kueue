@@ -8165,10 +8165,6 @@ spec:
             : true'
         - message: field is immutable
           rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
-            c.type == ''QuotaReserved'' && c.status == ''True'')) ? (oldSelf.spec.podSets
-            == self.spec.podSets) : true'
-        - message: field is immutable
-          rule: '(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
             c.type == ''QuotaReserved'' && c.status == ''True'')) ? (oldSelf.spec.priorityClassSource
             == self.spec.priorityClassSource) : true'
         - message: field is immutable

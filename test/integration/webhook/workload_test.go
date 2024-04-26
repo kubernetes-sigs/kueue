@@ -491,7 +491,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PodSets = []kueue.PodSet{*testing.MakePodSet("main", 2).Obj()}
 				},
-				testing.BeAPIError(testing.InvalidError),
+				testing.BeAPIError(testing.ForbiddenError),
 			),
 			ginkgo.Entry("podSets should not be updated: podSpec",
 				func() *kueue.Workload {
@@ -516,7 +516,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						},
 					}}
 				},
-				testing.BeAPIError(testing.InvalidError),
+				testing.BeAPIError(testing.ForbiddenError),
 			),
 			ginkgo.Entry("queueName can be updated when not admitted",
 				func() *kueue.Workload {
@@ -718,7 +718,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PodSets[0].Count = 10
 				},
-				testing.BeAPIError(testing.InvalidError),
+				testing.BeAPIError(testing.ForbiddenError),
 			),
 			ginkgo.Entry("reclaimable pod count can go to 0 if the job is suspended",
 				func() *kueue.Workload {
