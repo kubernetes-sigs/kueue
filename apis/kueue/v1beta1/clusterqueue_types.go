@@ -123,6 +123,7 @@ type ClusterQueueSpec struct {
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
 
 	// fairSharing defines the properties of the ClusterQueue when participating in fair sharing.
+	// The values are only relevant if fair sharing is enabled in the Kueue configuration.
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
@@ -477,6 +478,7 @@ type FairSharing struct {
 	// and preempting workloads from the ClusterQueues with the highest share.
 	// A zero weight implies infinite share value, meaning that this ClusterQueue will always
 	// be at disadvantage against other ClusterQueues.
+	// +kubebuilder:default=1
 	Weight *resource.Quantity `json:"weight,omitempty"`
 }
 

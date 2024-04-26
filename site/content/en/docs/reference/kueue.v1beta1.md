@@ -846,7 +846,8 @@ made.</p>
 <a href="#kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
 </td>
 <td>
-   <p>fairSharing defines the properties of the ClusterQueue when participating in fair sharing.</p>
+   <p>fairSharing defines the properties of the ClusterQueue when participating in fair sharing.
+The values are only relevant if fair sharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
 </tbody>

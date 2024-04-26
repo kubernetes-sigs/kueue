@@ -550,6 +550,31 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 		},
+		"add default fair sharing configuration when enabled": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				FairSharing: &FairSharing{
+					Enable: true,
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
+				FairSharing: &FairSharing{
+					Enable:               true,
+					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {

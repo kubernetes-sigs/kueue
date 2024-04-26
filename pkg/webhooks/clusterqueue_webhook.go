@@ -106,6 +106,9 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	if cq.Spec.Preemption != nil {
 		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
 	}
+	if cq.Spec.FairSharing != nil {
+		allErrs = append(allErrs, validateFairSharing(cq.Spec.FairSharing, path.Child("fairSharing"))...)
+	}
 	return allErrs
 }
 
@@ -212,6 +215,17 @@ func validateLendingLimit(lend, nominal resource.Quantity, fldPath *field.Path) 
 	var allErrs field.ErrorList
 	if lend.Cmp(nominal) > 0 {
 		allErrs = append(allErrs, field.Invalid(fldPath, lend.String(), lendingLimitErrorMsg))
+	}
+	return allErrs
+}
+
+func validateFairSharing(fs *kueue.FairSharing, fldPath *field.Path) field.ErrorList {
+	if fs == nil {
+		return nil
+	}
+	var allErrs field.ErrorList
+	if fs.Weight != nil && fs.Weight.Cmp(resource.Quantity{}) < 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath, fs.Weight.String(), constants.IsNegativeErrorMsg))
 	}
 	return allErrs
 }

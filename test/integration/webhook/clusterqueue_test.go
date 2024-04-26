@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -130,6 +131,37 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
 								MaxPriorityThreshold: ptr.To[int32](100),
 							},
+						},
+					},
+				},
+			),
+			ginkgo.Entry("Default fair sharing",
+				kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						FairSharing: &kueue.FairSharing{},
+					},
+				},
+				kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "foo",
+						Finalizers: []string{kueue.ResourceInUseFinalizerName},
+					},
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy:  kueue.BestEffortFIFO,
+						StopPolicy:        ptr.To(kueue.None),
+						FlavorFungibility: defaultFlavorFungibility,
+						Preemption: &kueue.ClusterQueuePreemption{
+							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+							WithinClusterQueue:  kueue.PreemptionPolicyNever,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy: kueue.BorrowWithinCohortPolicyNever,
+							},
+						},
+						FairSharing: &kueue.FairSharing{
+							Weight: ptr.To(resource.MustParse("1")),
 						},
 					},
 				},
@@ -532,6 +564,42 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 				},
 				isValid),
+			ginkgo.Entry("Should allow zero fair share weight",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						FairSharing: &kueue.FairSharing{
+							Weight: ptr.To(resource.MustParse("0")),
+						},
+					},
+				},
+				isValid),
+			ginkgo.Entry("Should allow fractional weight",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						FairSharing: &kueue.FairSharing{
+							Weight: ptr.To(resource.MustParse("0.1")),
+						},
+					},
+				},
+				isValid),
+			ginkgo.Entry("Should forbid negative weight",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						FairSharing: &kueue.FairSharing{
+							Weight: ptr.To(resource.MustParse("-1")),
+						},
+					},
+				},
+				isForbidden),
 		)
 	})
 })

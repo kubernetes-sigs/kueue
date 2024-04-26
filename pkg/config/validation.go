@@ -183,14 +183,14 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 		return nil
 	}
 	var allErrs field.ErrorList
-	if !fs.Enabled && len(fs.PreemptionStrategies) != 0 {
+	if !fs.Enable && len(fs.PreemptionStrategies) != 0 {
 		allErrs = append(allErrs, field.Invalid(fsPreemptionStrategiesPath, fs.PreemptionStrategies, "Must be empty when fair sharing is disabled"))
 	}
 	strategies := sets.New[configapi.PreemptionStrategy]()
 	validStrategies := []configapi.PreemptionStrategy{configapi.LessThanInitialShare, configapi.LessThanOrEqualToFinalShare}
 	for i, s := range fs.PreemptionStrategies {
 		path := fsPreemptionStrategiesPath.Index(i)
-		if slices.Index(validStrategies, s) == -1 {
+		if !slices.Contains(validStrategies, s) {
 			allErrs = append(allErrs, field.NotSupported(path, s, validStrategies))
 		}
 		if strategies.Has(s) {
