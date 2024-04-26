@@ -368,34 +368,27 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 
 	if cfg.Integrations != nil {
 		var errorlist field.ErrorList
-		managedKinds := make(sets.Set[schema.GroupVersionKind])
+		managedKinds := make(sets.Set[string])
 		availableFrameworks := jobframework.GetIntegrationsList()
 		path := field.NewPath("integrations", "frameworks")
-		for idx, framework := range cfg.Integrations.Frameworks {
+		for _, framework := range cfg.Integrations.Frameworks {
 			if cb, found := jobframework.GetIntegration(framework); !found {
 				errorlist = append(errorlist, field.NotSupported(path, framework, availableFrameworks))
 			} else {
 				if gvk, err := apiutil.GVKForObject(cb.JobType, scheme); err == nil {
-					if managedKinds.Has(gvk) {
-						errorlist = append(errorlist, field.Duplicate(path.Index(idx), framework))
-					}
-					managedKinds = managedKinds.Insert(gvk)
+					managedKinds = managedKinds.Insert(gvk.String())
 				}
 			}
 		}
 
 		path = field.NewPath("integrations", "externalFrameworks")
 		for idx, name := range cfg.Integrations.ExternalFrameworks {
-			if err := jobframework.RegisterExternalJobType(name); err != nil {
-				errorlist = append(errorlist, field.InternalError(path.Index(idx), err))
-			}
-			if jt, found := jobframework.GetExternalIntegration(name); found {
-				if gvk, err := apiutil.GVKForObject(jt, scheme); err == nil {
-					if managedKinds.Has(gvk) {
-						errorlist = append(errorlist, field.Duplicate(path.Index(idx), name))
-					}
-					managedKinds = managedKinds.Insert(gvk)
+			if err := jobframework.RegisterExternalJobType(name); err == nil {
+				gvk, _ := schema.ParseKindArg(name)
+				if managedKinds.Has(gvk.String()) {
+					errorlist = append(errorlist, field.Duplicate(path.Index(idx), name))
 				}
+				managedKinds = managedKinds.Insert(gvk.String())
 			}
 		}
 

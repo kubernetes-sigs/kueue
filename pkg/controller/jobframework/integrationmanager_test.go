@@ -100,19 +100,6 @@ func TestRegister(t *testing.T) {
 			wantList:             []string{"newFramework"},
 			wantCallbacks:        testIntegrationCallbacks,
 		},
-		"duplicate with external name": {
-			manager: &integrationManager{
-				names: []string{},
-				externalIntegrations: map[string]runtime.Object{
-					"newFramework": &corev1.Pod{},
-				},
-			},
-			integrationName:      "newFramework",
-			integrationCallbacks: IntegrationCallbacks{},
-			wantError:            errDuplicateFrameworkName,
-			wantList:             []string{},
-			wantCallbacks:        testIntegrationCallbacks,
-		},
 		"missing NewReconciler": {
 			manager:         &integrationManager{},
 			integrationName: "newFramework",
@@ -278,27 +265,6 @@ func TestRegisterExternal(t *testing.T) {
 			kindArg:   "AppWrapper.v1beta2.workload.codeflare.dev",
 			wantError: nil,
 			wantGVK:   &schema.GroupVersionKind{Group: "workload.codeflare.dev", Version: "v1beta2", Kind: "AppWrapper"},
-		},
-		"duplicate name": {
-			manager: &integrationManager{
-				externalIntegrations: map[string]runtime.Object{
-					"Job.v1.batch": &batchv1.Job{TypeMeta: metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"}},
-				},
-			},
-			kindArg:   "Job.v1.batch",
-			wantError: errDuplicateFrameworkName,
-			wantGVK:   &schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
-		},
-		"duplicate with internal name": {
-			manager: &integrationManager{
-				names: []string{"Job.v1.batch"},
-				integrations: map[string]IntegrationCallbacks{
-					"Job.v1.batch": testIntegrationCallbacks,
-				},
-			},
-			kindArg:   "Job.v1.batch",
-			wantError: errDuplicateFrameworkName,
-			wantGVK:   nil,
 		},
 		"malformed kind arg": {
 			manager:   &integrationManager{},

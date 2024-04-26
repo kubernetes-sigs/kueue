@@ -75,25 +75,12 @@ type integrationManager struct {
 
 var manager integrationManager
 
-func (m *integrationManager) detectDuplicates(name string) error {
+func (m *integrationManager) register(name string, cb IntegrationCallbacks) error {
 	if m.integrations == nil {
 		m.integrations = make(map[string]IntegrationCallbacks)
 	}
-	if m.externalIntegrations == nil {
-		m.externalIntegrations = make(map[string]runtime.Object)
-	}
 	if _, exists := m.integrations[name]; exists {
 		return fmt.Errorf("%w %q", errDuplicateFrameworkName, name)
-	}
-	if _, exists := m.externalIntegrations[name]; exists {
-		return fmt.Errorf("%w %q", errDuplicateFrameworkName, name)
-	}
-	return nil
-}
-
-func (m *integrationManager) register(name string, cb IntegrationCallbacks) error {
-	if err := m.detectDuplicates(name); err != nil {
-		return err
 	}
 
 	if cb.NewReconciler == nil {
@@ -115,8 +102,8 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 }
 
 func (m *integrationManager) registerExternal(kindArg string) error {
-	if err := m.detectDuplicates(kindArg); err != nil {
-		return err
+	if m.externalIntegrations == nil {
+		m.externalIntegrations = make(map[string]runtime.Object)
 	}
 
 	gvk, _ := schema.ParseKindArg(kindArg)
@@ -185,8 +172,8 @@ func RegisterIntegration(name string, cb IntegrationCallbacks) error {
 	return manager.register(name, cb)
 }
 
-// RegisterExternalJobType registers a new externally-managed Kind, returns an error when
-// attempting to register multiple JobTypes with the same name.
+// RegisterExternalJobType registers a new externally-managed Kind, returns an error
+// if kindArg cannot be parsed as a Kind.version.group.
 func RegisterExternalJobType(kindArg string) error {
 	return manager.registerExternal(kindArg)
 }
@@ -201,12 +188,6 @@ func ForEachIntegration(f func(name string, cb IntegrationCallbacks) error) erro
 // list of frameworks returning its callbacks and true if found.
 func GetIntegration(name string) (IntegrationCallbacks, bool) {
 	return manager.get(name)
-}
-
-// GetExternalIntegration looks-up the framework identified by name in the currently registered
-// list of external frameworks returning its JobType and true if found.
-func GetExternalIntegration(name string) (runtime.Object, bool) {
-	return manager.getExternal(name)
 }
 
 // GetIntegrationsList returns the list of currently registered frameworks.
