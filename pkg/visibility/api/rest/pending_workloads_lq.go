@@ -25,7 +25,7 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 
@@ -67,7 +67,7 @@ func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts ru
 	offset := pendingWorkloadOpts.Offset
 
 	namespace := genericapirequest.NamespaceValue(ctx)
-	cqName, err := m.queueMgr.ClusterQueueFromLocalQueue(fmt.Sprintf("%s/%s", namespace, name))
+	cqName, err := m.queueMgr.ClusterQueueFromLocalQueue(queue.QueueKey(namespace, name))
 	if err != nil {
 		return nil, errors.NewNotFound(v1alpha1.Resource("localqueue"), name)
 	}

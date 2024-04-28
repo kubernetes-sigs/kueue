@@ -18,7 +18,6 @@ package jobset
 
 import (
 	"context"
-	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
@@ -69,11 +68,14 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
 	if features.Enabled(features.MultiKueue) {
+		if jobSet.Spec.ManagedBy != nil && *jobSet.Spec.ManagedBy == jobsetapi.JobSetControllerName {
+			return nil
+		}
 		localQueueName, found := jobSet.Labels[constants.QueueLabel]
 		if !found {
 			return nil
 		}
-		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(fmt.Sprintf("%s/%s", jobSet.ObjectMeta.Namespace, localQueueName))
+		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(jobSet.ObjectMeta.Namespace, localQueueName))
 		if err != nil {
 			return err
 		}

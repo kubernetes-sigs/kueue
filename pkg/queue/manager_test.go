@@ -481,7 +481,7 @@ func TestStatus(t *testing.T) {
 		"fake": {
 			queue:      &kueue.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
 			wantStatus: 0,
-			wantErr:    errQueueDoesNotExist,
+			wantErr:    ErrQueueDoesNotExist,
 		},
 	}
 	for name, tc := range cases {

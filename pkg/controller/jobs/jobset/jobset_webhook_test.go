@@ -18,13 +18,14 @@ package jobset
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -90,9 +91,39 @@ func TestDefault(t *testing.T) {
 		clusterQueues     []kueue.ClusterQueue
 		admissionCheck    *kueue.AdmissionCheck
 		multiKueueEnabled bool
-		expectedManagedBy string
-		expectedError     error
+		wantManagedBy     *string
+		wantErr           error
 	}{
+		{
+			name: "TestDefault_JobSetManagedBy_jobsetapi.JobSetControllerName",
+			jobSet: &jobset.JobSet{
+				Spec: jobset.JobSetSpec{
+					ManagedBy: ptr.To(jobset.JobSetControllerName),
+				},
+				ObjectMeta: ctrl.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "local-queue",
+					},
+					Namespace: "default",
+				},
+			},
+			queues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("local-queue", "default").
+					ClusterQueue("cluster-queue").
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("cluster-queue").
+					AdmissionChecks("admission-check").
+					Obj(),
+			},
+			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+				ControllerName(multikueue.ControllerName).
+				Active(metav1.ConditionTrue).
+				Obj(),
+			multiKueueEnabled: true,
+			wantManagedBy:     ptr.To(jobset.JobSetControllerName),
+		},
 		{
 			name: "TestDefault_WithQueueLabel",
 			jobSet: &jobset.JobSet{
@@ -118,7 +149,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			multiKueueEnabled: true,
-			expectedManagedBy: multikueue.ControllerName,
+			wantManagedBy:     ptr.To(multikueue.ControllerName),
 		},
 		{
 			name: "TestDefault_WithoutQueueLabel",
@@ -126,7 +157,7 @@ func TestDefault(t *testing.T) {
 				ObjectMeta: ctrl.ObjectMeta{Namespace: "default"},
 			},
 			multiKueueEnabled: true,
-			expectedManagedBy: "",
+			wantManagedBy:     nil,
 		},
 		{
 			name: "TestDefault_InvalidQueueName",
@@ -137,7 +168,7 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			multiKueueEnabled: true,
-			expectedError:     errors.New("queue doesn't exist"),
+			wantErr:           queue.ErrQueueDoesNotExist,
 		},
 		{
 			name: "TestDefault_QueueNotFound",
@@ -150,7 +181,7 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			multiKueueEnabled: true,
-			expectedError:     errors.New("queue doesn't exist"),
+			wantErr:           queue.ErrQueueDoesNotExist,
 		},
 		{
 			name: "TestDefault_AdmissionCheckNotFound",
@@ -173,7 +204,7 @@ func TestDefault(t *testing.T) {
 					Obj(),
 			},
 			multiKueueEnabled: true,
-			expectedManagedBy: "",
+			wantManagedBy:     nil,
 		},
 		{
 			name: "TestDefault_MultiKueueFeatureDisabled",
@@ -200,7 +231,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			multiKueueEnabled: false,
-			expectedManagedBy: "",
+			wantManagedBy:     nil,
 		},
 	}
 
@@ -240,19 +271,12 @@ func TestDefault(t *testing.T) {
 				cache:                      cqCache,
 			}
 
-			err := webhook.Default(ctx, tc.jobSet)
-			if err != nil && tc.expectedError == nil {
-				t.Errorf("Unexpected error: %v", err)
-			} else if err == nil && tc.expectedError != nil {
-				t.Errorf("Expected error %v, but got nil", tc.expectedError)
-			} else if err != nil && err.Error() != tc.expectedError.Error() {
-				t.Errorf("Expected error %v, but got %v", tc.expectedError, err)
+			gotErr := webhook.Default(ctx, tc.jobSet)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Default() error mismatch (-want +got):\n%s", diff)
 			}
-
-			if tc.jobSet.Spec.ManagedBy == nil && tc.expectedManagedBy != "" {
-				t.Errorf("Expected jobSet.Spec.ManagedBy to be %s, but got nil", tc.expectedManagedBy)
-			} else if tc.jobSet.Spec.ManagedBy != nil && *tc.jobSet.Spec.ManagedBy != tc.expectedManagedBy {
-				t.Errorf("Expected jobSet.Spec.ManagedBy to be %s, but got %v", tc.expectedManagedBy, *tc.jobSet.Spec.ManagedBy)
+			if diff := cmp.Diff(tc.wantManagedBy, tc.jobSet.Spec.ManagedBy); diff != "" {
+				t.Errorf("Default() jobSet.Spec.ManagedBy mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
