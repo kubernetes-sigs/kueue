@@ -156,6 +156,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
 					BackoffLimit(0).
+					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"-termination-code=1", "10m"}).
 					TerminationGracePeriod(1).
 					Obj()
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
