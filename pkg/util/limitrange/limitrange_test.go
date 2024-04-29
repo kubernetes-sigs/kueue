@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/field"
+	"k8s.io/utils/ptr"
 
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -193,6 +194,16 @@ func TestTotalRequest(t *testing.T) {
 				},
 			},
 		},
+		{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("2Gi"),
+					"example.com/gpu":     resource.MustParse("2"),
+				},
+			},
+			RestartPolicy: ptr.To(corev1.ContainerRestartPolicyAlways),
+		},
 	}
 	cases := map[string]struct {
 		podSpec *corev1.PodSpec
@@ -210,13 +221,24 @@ func TestTotalRequest(t *testing.T) {
 		},
 		"one init wants more": {
 			podSpec: &corev1.PodSpec{
-				InitContainers: containers[2:],
+				InitContainers: containers[2:4],
 				Containers:     containers[:2],
 			},
 			want: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("4000m"),
 				corev1.ResourceMemory: resource.MustParse("2Gi"),
 				"example.com/gpu":     resource.MustParse("2"),
+			},
+		},
+		"include sidecar container": {
+			podSpec: &corev1.PodSpec{
+				InitContainers: containers[2:],
+				Containers:     containers[:2],
+			},
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("5000m"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				"example.com/gpu":     resource.MustParse("4"),
 			},
 		},
 		"adds overhead": {
@@ -230,9 +252,9 @@ func TestTotalRequest(t *testing.T) {
 				},
 			},
 			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("5000m"),
-				corev1.ResourceMemory: resource.MustParse("3Gi"),
-				"example.com/gpu":     resource.MustParse("3"),
+				corev1.ResourceCPU:    resource.MustParse("6000m"),
+				corev1.ResourceMemory: resource.MustParse("5Gi"),
+				"example.com/gpu":     resource.MustParse("5"),
 			},
 		},
 	}
