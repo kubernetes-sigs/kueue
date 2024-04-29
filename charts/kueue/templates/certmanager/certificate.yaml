@@ -19,9 +19,9 @@ metadata:
 spec:
   dnsNames:
   - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc'
-  - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain}}'
+  - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
   issuerRef:
     kind: Issuer
-    name: '{{ include "kueue.fullname" . }}-selfsigned-issuer'
-  secretName: webhook-server-cert  
+    name: {{ include "kueue.fullname" . }}-selfsigned-issuer
+  secretName: {{ include "kueue.fullname" . }}-webhook-server-cert
 {{- end }}
