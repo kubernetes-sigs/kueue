@@ -114,7 +114,7 @@ add_webhook_pod_mutate=$(
     name: mpod.kb.io
     namespaceSelector:
       {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
+        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -135,7 +135,7 @@ add_webhook_pod_validate=$(
     name: vpod.kb.io
     namespaceSelector:
       {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
+        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
