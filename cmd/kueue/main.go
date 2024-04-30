@@ -32,7 +32,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
@@ -41,6 +43,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -363,13 +366,30 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 
 	if cfg.Integrations != nil {
 		var errorlist field.ErrorList
+		managedKinds := make(sets.Set[string])
 		availableFrameworks := jobframework.GetIntegrationsList()
 		path := field.NewPath("integrations", "frameworks")
 		for _, framework := range cfg.Integrations.Frameworks {
-			if _, found := jobframework.GetIntegration(framework); !found {
+			if cb, found := jobframework.GetIntegration(framework); !found {
 				errorlist = append(errorlist, field.NotSupported(path, framework, availableFrameworks))
+			} else {
+				if gvk, err := apiutil.GVKForObject(cb.JobType, scheme); err == nil {
+					managedKinds = managedKinds.Insert(gvk.String())
+				}
 			}
 		}
+
+		path = field.NewPath("integrations", "externalFrameworks")
+		for idx, name := range cfg.Integrations.ExternalFrameworks {
+			if err := jobframework.RegisterExternalJobType(name); err == nil {
+				gvk, _ := schema.ParseKindArg(name)
+				if managedKinds.Has(gvk.String()) {
+					errorlist = append(errorlist, field.Duplicate(path.Index(idx), name))
+				}
+				managedKinds = managedKinds.Insert(gvk.String())
+			}
+		}
+
 		if len(errorlist) > 0 {
 			err := errorlist.ToAggregate()
 			return options, cfg, err

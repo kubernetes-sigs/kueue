@@ -21,7 +21,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	common "github.com/kubeflow/common/pkg/apis/common/v1"
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,7 +52,7 @@ func TestCalcPriorityClassName(t *testing.T) {
 							PriorityClass: "scheduling-priority",
 						},
 					},
-					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*common.ReplicaSpec{
+					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec{
 						kubeflow.MPIReplicaTypeLauncher: {
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
@@ -79,7 +78,7 @@ func TestCalcPriorityClassName(t *testing.T) {
 					RunPolicy: kubeflow.RunPolicy{
 						SchedulingPolicy: &kubeflow.SchedulingPolicy{},
 					},
-					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*common.ReplicaSpec{
+					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec{
 						kubeflow.MPIReplicaTypeLauncher: {
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
@@ -95,7 +94,7 @@ func TestCalcPriorityClassName(t *testing.T) {
 		"specified on launcher takes precedence over worker": {
 			job: kubeflow.MPIJob{
 				Spec: kubeflow.MPIJobSpec{
-					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*common.ReplicaSpec{
+					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec{
 						kubeflow.MPIReplicaTypeLauncher: {
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
@@ -118,7 +117,7 @@ func TestCalcPriorityClassName(t *testing.T) {
 		"launcher present, but without priority; fallback to worker": {
 			job: kubeflow.MPIJob{
 				Spec: kubeflow.MPIJobSpec{
-					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*common.ReplicaSpec{
+					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec{
 						kubeflow.MPIReplicaTypeLauncher: {
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{},
@@ -139,7 +138,7 @@ func TestCalcPriorityClassName(t *testing.T) {
 		"specified on worker only": {
 			job: kubeflow.MPIJob{
 				Spec: kubeflow.MPIJobSpec{
-					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*common.ReplicaSpec{
+					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec{
 						kubeflow.MPIReplicaTypeLauncher: {},
 						kubeflow.MPIReplicaTypeWorker: {
 							Template: corev1.PodTemplateSpec{
@@ -156,7 +155,7 @@ func TestCalcPriorityClassName(t *testing.T) {
 		"worker present, but without priority; fallback to empty": {
 			job: kubeflow.MPIJob{
 				Spec: kubeflow.MPIJobSpec{
-					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*common.ReplicaSpec{
+					MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec{
 						kubeflow.MPIReplicaTypeLauncher: {},
 						kubeflow.MPIReplicaTypeWorker: {
 							Template: corev1.PodTemplateSpec{

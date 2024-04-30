@@ -5,10 +5,11 @@ leaderElection:
 controller:
   groupKindConcurrency:
     Job.batch: 5
+    Pod: 5
+    Workload.kueue.x-k8s.io: 5
     LocalQueue.kueue.x-k8s.io: 1
     ClusterQueue.kueue.x-k8s.io: 1
     ResourceFlavor.kueue.x-k8s.io: 1
-    Workload.kueue.x-k8s.io: 1
 clientConnection:
   qps: 50
   burst: 100
@@ -24,8 +25,3 @@ integrations:
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
   - "pod"
-controller:
-  groupKindConcurrency:
-    Job.batch: 5
-    Pod.: 5
-    Workload.kueue.x-k8s.io: 5

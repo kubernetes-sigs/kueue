@@ -14,7 +14,9 @@ spec:
         spec:
           containers:
             - name: pytorch
-              image: docker.io/kubeflowkatib/pytorch-mnist:v1beta1-45c5727
+              image: docker.io/kubeflowkatib/pytorch-mnist-cpu:v1beta1-21320b6
+#              If you have gpu, pytorch-mnist-gpu would be helpful. pytorch-mnist-gpu is approximately 22GB
+#              image: docker.io/kubeflowkatib/pytorch-mnist-cpu:latest
               imagePullPolicy: Always
               command:
                 - "python3"
@@ -31,7 +33,9 @@ spec:
         spec:
           containers:
             - name: pytorch
-              image: docker.io/kubeflowkatib/pytorch-mnist:v1beta1-45c5727
+              image: docker.io/kubeflowkatib/pytorch-mnist-cpu:v1beta1-21320b6
+#              If you have gpu, pytorch-mnist-gpu would be helpful. pytorch-mnist-gpu is approximately 22GB
+#              image: docker.io/kubeflowkatib/pytorch-mnist-cpu:latest
               imagePullPolicy: Always
               command:
                 - "python3"

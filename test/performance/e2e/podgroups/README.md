@@ -1,4 +1,4 @@
-# Kueue Pod Integration Performance Testing
+# Kueue Pod Integration e2e Performance Testing
 ## Introduction
 A minimal setup for performance testing Plain Pods integration using
 clusterloader2.

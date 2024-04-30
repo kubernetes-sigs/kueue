@@ -95,7 +95,7 @@ func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (*ClusterQueu
 func newClusterQueueImpl(wo workload.Ordering, clock clock.Clock) *ClusterQueue {
 	lessFunc := queueOrderingFunc(wo)
 	return &ClusterQueue{
-		heap:                   heap.New(workloadKey, lessFunc),
+		heap:                   *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
 		queueInadmissibleCycle: -1,
 		lessFunc:               lessFunc,
@@ -372,7 +372,7 @@ func (c *ClusterQueue) totalElements() []*workload.Info {
 	return elements
 }
 
-// Returns true if the queue is active
+// Active returns true if the queue is active
 func (c *ClusterQueue) Active() bool {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
@@ -388,11 +388,11 @@ func (c *ClusterQueue) Active() bool {
 // compete with other workloads, until cluster events free up quota.
 // The workload should not be reinserted if it's already in the ClusterQueue.
 // Returns true if the workload was inserted.
-func (cq *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
-	if cq.queueingStrategy == kueue.StrictFIFO {
-		return cq.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
+func (c *ClusterQueue) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
+	if c.queueingStrategy == kueue.StrictFIFO {
+		return c.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
 	}
-	return cq.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination || reason == RequeueReasonPendingPreemption)
+	return c.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination || reason == RequeueReasonPendingPreemption)
 }
 
 // queueOrderingFunc returns a function used by the clusterQueue heap algorithm

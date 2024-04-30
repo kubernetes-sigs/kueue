@@ -634,6 +634,12 @@ func TestReconciler(t *testing.T) {
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Pending",
+						Message: "The workload is deactivated",
+					}).
+					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
 						Reason:  "InactiveWorkload",
@@ -1694,7 +1700,11 @@ func TestReconciler(t *testing.T) {
 		},
 		"when job completes, workload is marked as finished": {
 			job: *baseJobWrapper.Clone().
-				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Condition(batchv1.JobCondition{
+					Type:    batchv1.JobComplete,
+					Status:  corev1.ConditionTrue,
+					Message: "Job finished successfully",
+				}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1703,7 +1713,11 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantJob: *baseJobWrapper.Clone().
-				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Condition(batchv1.JobCondition{
+					Type:    batchv1.JobComplete,
+					Status:  corev1.ConditionTrue,
+					Message: "Job finished successfully",
+				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1711,7 +1725,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
-						Reason:             "JobFinished",
+						Reason:             kueue.WorkloadFinishedReasonSucceeded,
 						Message:            "Job finished successfully",
 						ObservedGeneration: 1,
 					}).

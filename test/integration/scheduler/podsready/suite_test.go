@@ -71,8 +71,9 @@ func managerAndSchedulerSetupWithTimeoutAdmission(
 			BlockAdmission: &blockAdmission,
 			Timeout:        &metav1.Duration{Duration: value},
 			RequeuingStrategy: &config.RequeuingStrategy{
-				Timestamp:         ptr.To(requeuingTimestamp),
-				BackoffLimitCount: requeuingBackoffLimitCount,
+				Timestamp:          ptr.To(requeuingTimestamp),
+				BackoffLimitCount:  requeuingBackoffLimitCount,
+				BackoffBaseSeconds: ptr.To[int32](1),
 			},
 		},
 	}

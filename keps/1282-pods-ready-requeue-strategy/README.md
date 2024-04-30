@@ -143,16 +143,23 @@ type RequeuingStrategy struct {
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	// When it is null, the workloads will repeatedly and endless re-queueing.
 	//
-	// Every backoff duration is about "1.41284738^(n-1)+Rand" where the "n" represents the "workloadStatus.requeueState.count",
-	// and the "Rand" represents the random jitter. During this time, the workload is taken as an inadmissible and
+	// Every backoff duration is about "10s*2^(n-1)+Rand" where:
+	// - "n" represents the "workloadStatus.requeueState.count",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and
 	// other workloads will have a chance to be admitted.
-	// For example, when the "waitForPodsReady.timeout" is the default, the workload deactivation time is as follows:
-	//   {backoffLimitCount, workloadDeactivationSeconds}
-	//     ~= {1, 601}, {2, 902}, ...,{5, 1811}, ...,{10, 3374}, ...,{20, 8730}, ...,{30, 86400(=24 hours)}, ...
+	// By default, the consecutive requeue delays are around: (10s, 20s, 40s, ...).
 	//
 	// Defaults to null.
 	// +optional
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+
+	// BackoffBaseSeconds defines the base for the exponential backoff for
+	// re-queuing an evicted workload.
+	//
+	// Defaults to 10.
+	// +optional
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 }
 
 type RequeuingTimestamp string
@@ -222,16 +229,19 @@ the queueManager holds the evicted workloads as inadmissible workloads while exp
 Duration this time, other workloads will have a chance to be admitted.
 
 The queueManager calculates an exponential backoff duration by [the Step function](https://pkg.go.dev/k8s.io/apimachinery/pkg/util/wait@v0.29.1#Backoff.Step)
-according to the $1.41284738^{(n-1)}+Rand$ where the $n$ represents the `workloadStatus.requeueState.count`, and the $Rand$ represents the random jitter.
+according to the $b*2^{(n-1)}+Rand$ where:
+- $b$ represents the base delay, configured by `baseDelaySeconds`
+- $n$ represents the `workloadStatus.requeueState.count`,
+- $Rand$ represents the random jitter.
 
-Considering the `.waitForPodsReady.timeout` (default: 300 seconds),
-this duration indicates that an evicted workload with `PodsReadyTimeout` reason is continued re-queuing 
-for the following period where the $t$ represents `.waitForPodsReady.timeout`:
+It will spend awaiting to be requeued after eviction:
+$$\sum_{k=1}^{n}(b*2^{(k-1)} + Rand)$$
 
-$$t(n+1) + \sum_{k=1}^{n}(1.41284738^{(k-1)} + Rand)$$
-
-Given that the `backoffLimitCount` equals `30` and the `waitForPodsReady.timeout` equals `300` (default),
-the result equals 24 hours (+ $Rand$ seconds).
+Assuming `backoffLimitCount` equals 10, and `baseDelaySeconds` equals 10 (default) the workload is requeued 10 times
+after failing to have all pods ready, then the total time awaiting for requeue
+will take (neglecting the jitter): `10s+20s+40s +...+7680s=2h 8min`.
+Also, considering `.waitForPodsReady.timeout=300s` (default),
+the workload will spend `50min` total waiting for pods ready.
 
 #### Evaluation
 

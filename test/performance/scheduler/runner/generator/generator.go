@@ -35,9 +35,9 @@ import (
 
 const (
 	resourceFlavorName = "rf"
-	RunningTimeLabel   = "kueue.x-k8s.io/scalability-running-ms"
-	ClassLabel         = "kueue.x-k8s.io/scalability-class"
-	CleanupLabel       = "kueue.x-k8s.io/scalability-cleanup"
+	RunningTimeLabel   = "kueue.x-k8s.io/performance-scheduler-running-ms"
+	ClassLabel         = "kueue.x-k8s.io/performance-scheduler-class"
+	CleanupLabel       = "kueue.x-k8s.io/performance-scheduler-cleanup"
 )
 
 type WorkloadTemplate struct {

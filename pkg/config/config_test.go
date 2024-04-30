@@ -218,7 +218,7 @@ clientConnection:
 apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 integrations:
-  frameworks: 
+  frameworks:
   - batch/job
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
@@ -239,7 +239,7 @@ queueVisibility:
 apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 integrations:
-  frameworks: 
+  frameworks:
   - pod
   podOptions:
     namespaceSelector:
@@ -543,8 +543,9 @@ multiKueue:
 					BlockAdmission: ptr.To(true),
 					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp:         ptr.To(configapi.CreationTimestamp),
-						BackoffLimitCount: ptr.To[int32](10),
+						Timestamp:          ptr.To(configapi.CreationTimestamp),
+						BackoffLimitCount:  ptr.To[int32](10),
+						BackoffBaseSeconds: ptr.To[int32](10),
 					},
 				},
 				ClientConnection: defaultClientConnection,

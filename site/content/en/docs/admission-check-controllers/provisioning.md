@@ -15,7 +15,7 @@ The Provisioning Admission Check Controller is supported on [Kubernetes cluster-
 ## Usage
 
 To use the Provisioning AdmissionCheck, create an [AdmissionCheck](docs/concepts/admission_check)
-with `kueue.x-k8s.io/provisioning-request` as a `.spec.controllerName` and create a ProvisioningRequest configuration usign a `ProvisioningRequestConfig` object. See an example below.
+with `kueue.x-k8s.io/provisioning-request` as a `.spec.controllerName` and create a ProvisioningRequest configuration using a `ProvisioningRequestConfig` object. See an example below.
 
 ## ProvisioningRequest configuration
 

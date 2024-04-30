@@ -21,7 +21,6 @@ import (
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -82,30 +81,26 @@ func (j *KubeflowJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *KubeflowJob) Finished() (metav1.Condition, bool) {
-	var conditionType kftraining.JobConditionType
-	var finished bool
+func (j *KubeflowJob) Finished() (message string, success, finished bool) {
 	if j.KFJobControl.JobStatus() == nil {
-		return metav1.Condition{}, false
+		return message, finished, false
 	}
+	var conditionType kftraining.JobConditionType
 	for _, c := range j.KFJobControl.JobStatus().Conditions {
 		if (c.Type == kftraining.JobSucceeded || c.Type == kftraining.JobFailed) && c.Status == corev1.ConditionTrue {
 			conditionType = c.Type
 			finished = true
+			message = c.Message
 			break
 		}
 	}
-	message := "Job finished successfully"
+
+	success = true
 	if conditionType == kftraining.JobFailed {
-		message = "Job failed"
+		success = false
 	}
-	condition := metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  "JobFinished",
-		Message: message,
-	}
-	return condition, finished
+
+	return message, success, finished
 }
 
 func (j *KubeflowJob) PodSets() []kueue.PodSet {

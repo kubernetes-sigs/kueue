@@ -142,7 +142,7 @@ func WithManagerName(n string) Option {
 	}
 }
 
-// WithLabelKeysToCopy
+// WithLabelKeysToCopy adds the label keys
 func WithLabelKeysToCopy(n []string) Option {
 	return func(o *Options) {
 		o.LabelKeysToCopy = n
@@ -256,7 +256,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// if this is a non-standalone job, suspend the job if its parent workload is not found or not admitted.
 	if !isStandaloneJob {
-		_, finished := job.Finished()
+		_, _, finished := job.Finished()
 		if !finished && !job.IsSuspended() {
 			if parentWorkload, err := r.getParentWorkload(ctx, job, object); err != nil {
 				log.Error(err, "couldn't get the parent job workload")
@@ -307,9 +307,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 2. handle job is finished.
-	if condition, finished := job.Finished(); finished {
+	if message, success, finished := job.Finished(); finished {
 		if wl != nil && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-			err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
+			reason := kueue.WorkloadFinishedReasonSucceeded
+			if !success {
+				reason = kueue.WorkloadFinishedReasonFailed
+			}
+			err := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, reason, message, constants.JobControllerName)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -402,7 +406,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					// Mark the workload as finished with failure since the is no point to retry.
 					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinishedReason, err.Error(), constants.JobControllerName)
 					if errUpdateStatus != nil {
-						log.Error(errUpdateStatus, "Updating workload status, on start failure %s", err.Error())
+						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
 					return ctrl.Result{}, errUpdateStatus
 				}
@@ -541,7 +545,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			w = toDelete[0]
 		}
 
-		if _, finished := job.Finished(); !finished {
+		if _, _, finished := job.Finished(); !finished {
 			var msg string
 			if w == nil {
 				msg = "Missing Workload; unable to restore pod templates"
@@ -636,7 +640,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		err := workload.UpdateStatus(ctx, r.client, wl,
 			kueue.WorkloadFinished,
 			metav1.ConditionTrue,
-			"OutOfSync",
+			kueue.WorkloadFinishedReasonOutOfSync,
 			"The prebuilt workload is out of sync with its user job",
 			constants.JobControllerName)
 		return false, err

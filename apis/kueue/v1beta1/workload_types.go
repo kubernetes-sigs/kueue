@@ -22,6 +22,7 @@ import (
 )
 
 // WorkloadSpec defines the desired state of Workload
+// +kubebuilder:validation:XValidation:rule="has(self.priorityClassName) ? has(self.priority) : true", message="priority should not be nil when priorityClassName is set"
 type WorkloadSpec struct {
 	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
@@ -36,6 +37,8 @@ type WorkloadSpec struct {
 
 	// queueName is the name of the LocalQueue the Workload is associated with.
 	// queueName cannot be changed while .status.admission is not null.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 	QueueName string `json:"queueName,omitempty"`
 
 	// If specified, indicates the workload's priority.
@@ -44,6 +47,8 @@ type WorkloadSpec struct {
 	// the highest priority. Any other name must be defined by creating a
 	// PriorityClass object with that name. If not specified, the workload
 	// priority will be default or zero if there is no default.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 	PriorityClassName string `json:"priorityClassName,omitempty"`
 
 	// Priority determines the order of access to the resources managed by the
@@ -79,12 +84,15 @@ type Admission struct {
 	// PodSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
 	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
 }
 
 type PodSetAssignment struct {
 	// Name is the name of the podSet. It should match one of the names in .spec.podSets.
 	// +kubebuilder:default=main
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern="^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
 	Name string `json:"name"`
 
 	// Flavors are the flavors assigned to the workload for each resource.
@@ -107,9 +115,13 @@ type PodSetAssignment struct {
 	Count *int32 `json:"count,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
 type PodSet struct {
 	// name is the PodSet name.
-	Name string `json:"name"`
+	// +kubebuilder:default=main
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+	Name string `json:"name,omitempty"`
 
 	// template is the Pod template.
 	//
@@ -141,6 +153,7 @@ type PodSet struct {
 	// This is an alpha field and requires enabling PartialAdmission feature gate.
 	//
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MinCount *int32 `json:"minCount,omitempty"`
 }
 
@@ -179,6 +192,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
 	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
 
 	// admissionChecks list all the admission checks required by the workload and the current status
@@ -187,6 +201,7 @@ type WorkloadStatus struct {
 	// +listMapKey=name
 	// +patchStrategy=merge
 	// +patchMergeKey=name
+	// +kubebuilder:validation:MaxItems=8
 	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 }
 
@@ -234,6 +249,7 @@ type AdmissionCheckState struct {
 
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=8
 	PodSetUpdates []PodSetUpdate `json:"podSetUpdates,omitempty"`
 }
 
@@ -257,6 +273,12 @@ type PodSetUpdate struct {
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 
 	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.key) ? x.operator == 'Exists' : true)", message="operator must be Exists when 'key' is empty, which means 'match all values and all keys'"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, has(x.tolerationSeconds) ? x.effect == 'NoExecute' : true)", message="effect must be 'NoExecute' when 'tolerationSeconds' is set"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.operator) || x.operator in ['Equal', 'Exists'])", message="supported toleration values: 'Equal'(default), 'Exists'"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, has(x.operator) && x.operator == 'Exists' ? !has(x.value) : true)", message="a value must be empty when 'operator' is 'Exists'"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.effect) || x.effect in ['NoSchedule', 'PreferNoSchedule', 'NoExecute'])", message="supported taint effect values: 'NoSchedule', 'PreferNoSchedule', 'NoExecute'"
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
@@ -302,6 +324,9 @@ const (
 	// more detailed information. The more detailed reasons should be prefixed
 	// by one of the "base" reasons.
 	WorkloadPreempted = "Preempted"
+
+	// WorkloadRequeued means that the Workload was requeued due to eviction.
+	WorkloadRequeued = "Requeued"
 )
 
 const (
@@ -326,16 +351,35 @@ const (
 	WorkloadEvictedByDeactivation = "InactiveWorkload"
 )
 
+const (
+	// WorkloadFinishedReasonSucceeded indicates that the workload's job finished successfully.
+	WorkloadFinishedReasonSucceeded = "Succeeded"
+
+	// WorkloadFinishedReasonFailed indicates that the workload's job finished with an error.
+	WorkloadFinishedReasonFailed = "Failed"
+
+	// WorkloadFinishedReasonAdmissionChecksRejected indicates that the workload was rejected by admission checks.
+	WorkloadFinishedReasonAdmissionChecksRejected = "AdmissionChecksRejected"
+
+	// WorkloadFinishedReasonOutOfSync indicates that the prebuilt workload is not in sync with its parent job.
+	WorkloadFinishedReasonOutOfSync = "OutOfSync"
+)
+
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type=string,description="Name of the queue this workload was submitted to"
-// +kubebuilder:printcolumn:name="Admitted by",JSONPath=".status.admission.clusterQueue",type=string,description="Name of the ClusterQueue that admitted this workload"
-// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Time this workload was created"
+// +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type="string",description="Name of the queue this workload was submitted to"
+// +kubebuilder:printcolumn:name="Reserved in",JSONPath=".status.admission.clusterQueue",type="string",description="Name of the ClusterQueue where the workload is reserving quota"
+// +kubebuilder:printcolumn:name="Admitted",JSONPath=".status.conditions[?(@.type=='Admitted')].status",type="string",description="Admission status"
+// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
 // +kubebuilder:resource:shortName={wl}
 
 // Workload is the Schema for the workloads API
+// +kubebuilder:validation:XValidation:rule="has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(self.status.admission) ? size(self.spec.podSets) == size(self.status.admission.podSetAssignments) : true", message="podSetAssignments must have the same number of podSets as the spec"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) ? (oldSelf.spec.priorityClassSource == self.spec.priorityClassSource) : true", message="field is immutable"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassName) && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName == self.spec.priorityClassName) : true", message="field is immutable"
+// +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && has(oldSelf.spec.queueName) && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName : true", message="field is immutable"
 type Workload struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

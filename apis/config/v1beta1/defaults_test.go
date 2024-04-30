@@ -364,7 +364,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					BlockAdmission: ptr.To(true),
 					Timeout:        &podsReadyTimeoutTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
-						Timestamp: ptr.To(EvictionTimestamp),
+						Timestamp:          ptr.To(EvictionTimestamp),
+						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
 					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
@@ -393,7 +394,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					BlockAdmission: ptr.To(false),
 					Timeout:        &podsReadyTimeoutTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
-						Timestamp: ptr.To(EvictionTimestamp),
+						Timestamp:          ptr.To(EvictionTimestamp),
+						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
 					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
@@ -413,7 +415,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable:  true,
 					Timeout: &podsReadyTimeoutOverwrite,
 					RequeuingStrategy: &RequeuingStrategy{
-						Timestamp: ptr.To(CreationTimestamp),
+						Timestamp:          ptr.To(CreationTimestamp),
+						BackoffBaseSeconds: ptr.To[int32](63),
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -426,7 +429,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					BlockAdmission: ptr.To(true),
 					Timeout:        &podsReadyTimeoutOverwrite,
 					RequeuingStrategy: &RequeuingStrategy{
-						Timestamp: ptr.To(CreationTimestamp),
+						Timestamp:          ptr.To(CreationTimestamp),
+						BackoffBaseSeconds: ptr.To[int32](63),
 					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),

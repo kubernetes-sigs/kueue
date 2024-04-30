@@ -127,11 +127,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  10_000,
-							Lendable: 10_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -159,11 +156,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  15_000,
-							Lendable: 15_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 15_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -210,11 +204,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  15_000,
-							Lendable: 15_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 15_000,
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
@@ -303,11 +294,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  10_000,
-							Lendable: 10_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -335,11 +323,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  15_000,
-							Lendable: 15_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 15_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -388,11 +373,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  15_000,
-							Lendable: 15_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 15_000,
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
@@ -478,11 +460,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  5_000,
-							Lendable: 5_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 5_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -547,11 +526,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  5_000,
-							Lendable: 4_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 4_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -614,11 +590,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  15_000,
-							Lendable: 15_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 15_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -657,11 +630,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  15_000,
-							Lendable: 15_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 15_000,
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
@@ -722,11 +692,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  10_000,
-							Lendable: 10_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -754,11 +721,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  15_000,
-							Lendable: 15_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 15_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -805,11 +769,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Nominal:  15_000,
-							Lendable: 15_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 15_000,
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
@@ -934,10 +895,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							"example.com/gpu": 0,
 						},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU:    {},
-						corev1.ResourceMemory: {},
-						"example.com/gpu":     {},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    0,
+						corev1.ResourceMemory: 0,
+						"example.com/gpu":     0,
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
@@ -1108,12 +1069,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         FlavorResourceQuantities{"f1": {corev1.ResourceCPU: 2000}},
 					AdmittedUsage:                 FlavorResourceQuantities{"f1": {corev1.ResourceCPU: 1000}},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: &QuotaStats{
-							Nominal:  10_000,
-							Lendable: 10_000,
-							Usage:    2_000,
-						},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
 					},
 					Workloads: map[string]*workload.Info{
 						"ns/reserving": {
@@ -1146,6 +1103,113 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
+		},
+		{
+			name:               "add CQ with multiple resource groups and flavors",
+			enableLendingLimit: true,
+			operation: func(cache *Cache) error {
+				cq := utiltesting.MakeClusterQueue("foo").
+					ResourceGroup(
+						kueue.FlavorQuotas{
+							Name: "on-demand",
+							Resources: []kueue.ResourceQuota{
+								{
+									Name:         corev1.ResourceCPU,
+									NominalQuota: resource.MustParse("10"),
+									LendingLimit: ptr.To(resource.MustParse("8")),
+								},
+								{
+									Name:         corev1.ResourceMemory,
+									NominalQuota: resource.MustParse("10Gi"),
+									LendingLimit: ptr.To(resource.MustParse("8Gi")),
+								},
+							},
+						},
+						kueue.FlavorQuotas{
+							Name: "spot",
+							Resources: []kueue.ResourceQuota{
+								{
+									Name:         corev1.ResourceCPU,
+									NominalQuota: resource.MustParse("20"),
+									LendingLimit: ptr.To(resource.MustParse("20")),
+								},
+								{
+									Name:         corev1.ResourceMemory,
+									NominalQuota: resource.MustParse("20Gi"),
+									LendingLimit: ptr.To(resource.MustParse("20Gi")),
+								},
+							},
+						},
+					).
+					ResourceGroup(
+						kueue.FlavorQuotas{
+							Name: "license",
+							Resources: []kueue.ResourceQuota{
+								{
+									Name:         "license",
+									NominalQuota: resource.MustParse("8"),
+									LendingLimit: ptr.To(resource.MustParse("4")),
+								},
+							},
+						},
+					).
+					Obj()
+				return cache.AddClusterQueue(context.Background(), cq)
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:                          "foo",
+					NamespaceSelector:             labels.Everything(),
+					Status:                        pending,
+					Preemption:                    defaultPreemption,
+					AllocatableResourceGeneration: 1,
+					FlavorFungibility:             defaultFlavorFungibility,
+					GuaranteedQuota: FlavorResourceQuantities{
+						"on-demand": {
+							corev1.ResourceCPU:    2_000,
+							corev1.ResourceMemory: 2 * utiltesting.Gi,
+						},
+						"spot": {
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 0,
+						},
+						"license": {
+							"license": 4,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"on-demand": {
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 0,
+						},
+						"spot": {
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 0,
+						},
+						"license": {
+							"license": 0,
+						},
+					},
+					AdmittedUsage: FlavorResourceQuantities{
+						"on-demand": {
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 0,
+						},
+						"spot": {
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 0,
+						},
+						"license": {
+							"license": 0,
+						},
+					},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    28_000,
+						corev1.ResourceMemory: 28 * utiltesting.Gi,
+						"license":             4,
+					},
+				},
+			},
 		},
 	}
 
@@ -1250,7 +1314,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	type result struct {
 		Workloads     sets.Set[string]
 		UsedResources FlavorResourceQuantities
-		ResourceStats ResourceStats
 	}
 
 	steps := []struct {
@@ -1285,22 +1348,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c", "/d"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1324,22 +1377,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1362,22 +1405,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1401,22 +1434,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/a", "/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
 					},
 				},
 			},
@@ -1440,22 +1463,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1479,22 +1492,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1517,22 +1520,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c", "/d"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1552,22 +1545,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1585,22 +1568,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1619,22 +1592,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1655,22 +1618,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1690,22 +1643,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1737,22 +1680,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 20},
 						"spot":      {corev1.ResourceCPU: 30},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 50,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c", "/e"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
 					},
 				},
 			},
@@ -1780,22 +1713,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1830,22 +1753,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c", "/e"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
 					},
 				},
 			},
@@ -1872,22 +1785,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 0},
 						"spot":      {corev1.ResourceCPU: 0},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 0,
-						},
 					},
 				},
 			},
@@ -1924,22 +1827,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						"on-demand": {corev1.ResourceCPU: 20},
 						"spot":      {corev1.ResourceCPU: 30},
 					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 50,
-						},
-					},
 				},
 				"two": {
 					Workloads: sets.New("/c", "/e"),
 					UsedResources: FlavorResourceQuantities{
 						"on-demand": {corev1.ResourceCPU: 10},
 						"spot":      {corev1.ResourceCPU: 15},
-					},
-					ResourceStats: ResourceStats{
-						corev1.ResourceCPU: {
-							Usage: 25,
-						},
 					},
 				},
 			},
@@ -1967,7 +1860,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				gotResult[name] = result{
 					Workloads:     sets.KeySet(cq.Workloads),
 					UsedResources: cq.Usage,
-					ResourceStats: cq.ResourceStats,
 				}
 			}
 			if diff := cmp.Diff(step.wantResults, gotResult); diff != "" {

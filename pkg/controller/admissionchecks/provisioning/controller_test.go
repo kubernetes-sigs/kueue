@@ -64,6 +64,14 @@ var (
 	}
 )
 
+func requestWithConditions(r *autoscaling.ProvisioningRequest, conditions []metav1.Condition) *autoscaling.ProvisioningRequest {
+	r = r.DeepCopy()
+	for _, condition := range conditions {
+		apimeta.SetStatusCondition(&r.Status.Conditions, condition)
+	}
+	return r
+}
+
 func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType string, status metav1.ConditionStatus) *autoscaling.ProvisioningRequest {
 	r = r.DeepCopy()
 	apimeta.SetStatusCondition(&r.Status.Conditions, metav1.Condition{
@@ -539,12 +547,15 @@ func TestReconcile(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name:        "ps1",
-								Annotations: map[string]string{"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1"},
+								Name: "ps1",
+								Annotations: map[string]string{
+									"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1",
+									"cluster-autoscaler.kubernetes.io/provisioning-class-name":      "class1"},
 							},
 							{
-								Name:        "ps2",
-								Annotations: map[string]string{"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1"},
+								Name: "ps2",
+								Annotations: map[string]string{"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1",
+									"cluster-autoscaler.kubernetes.io/provisioning-class-name": "class1"},
 							},
 						},
 					}, kueue.AdmissionCheckState{
@@ -645,6 +656,55 @@ func TestReconcile(t *testing.T) {
 			wantRequestsNotFound: []string{
 				GetProvisioningRequestName("wl", "check1", 1),
 				GetProvisioningRequestName("wl", "check2", 1),
+			},
+		},
+		"workloads status gets updated based on the provisioning request": {
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config1",
+					},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+						Parameters: map[string]kueue.Parameter{
+							"p1": "v1",
+						},
+					},
+				},
+			},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest,
+					[]metav1.Condition{
+						{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:    autoscaling.Provisioned,
+							Status:  metav1.ConditionFalse,
+							Message: "Provisioning Request wasn't provisioned. ETA: 2024-02-22T10:36:40Z",
+						},
+						{
+							Type:   autoscaling.Accepted,
+							Status: metav1.ConditionTrue,
+						},
+					}),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStatePending,
+						Message: "Provisioning Request wasn't provisioned. ETA: 2024-02-22T10:36:40Z",
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
 			},
 		},
 	}

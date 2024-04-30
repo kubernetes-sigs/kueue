@@ -11,7 +11,6 @@ linters-settings:
       - assignOp
       - captLocal
       - commentFormatting
-      - deprecatedComment
       - elseif
       - exitAfterDefer
       - ifElseChain
@@ -20,6 +19,24 @@ linters-settings:
   govet:
     enable:
       - nilness
+  gci:
+    # Section configuration to compare against.
+    # Section names are case-insensitive and may contain parameters in ().
+    # The default order of sections is `standard > default > custom > blank > dot > alias`,
+    # If `custom-order` is `true`, it follows the order of `sections` option.
+    # Default: ["standard", "default"]
+    sections:
+      - standard # Standard section: captures all standard packages.
+      - default # Default section: contains all imports that could not be matched to another section type.
+      - prefix(sigs.k8s.io/kueue) # Custom section: groups all imports with the specified Prefix.
+    # Skip generated files.
+    # Default: true
+    skip-generated: true
+    # Enable custom order of sections.
+    # If `true`, make the section order the same as the order of `sections`.
+    # Default: false
+    custom-order: true
+
 
 # Settings for enabling and disabling linters
 linters:
@@ -30,6 +47,7 @@ linters:
     - gocritic
     - goimports
     - govet
+    - loggercheck
     - misspell
     - unconvert
 
@@ -38,6 +56,12 @@ issues:
   # Which dirs to exclude: issues from them won't be reported
   exclude-dirs:
     - bin
+  # Excluding configuration per-path, per-linter, per-text and per-source
+  exclude-rules:
+    - linters:
+      - staticcheck
+      # TODO(#768): Drop when incrementing the API version.
+      text: "SA1019: constants.QueueAnnotation is deprecated"
   # Show all issues from a linter
   max-issues-per-linter: 0
   # Show all issues with the same text

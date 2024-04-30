@@ -42,6 +42,8 @@ integrations:
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
 # - "pod"
+# externalFrameworks:
+# - "Foo.v1.example.com"
 # podOptions:
 #   namespaceSelector:
 #     matchExpressions:

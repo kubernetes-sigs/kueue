@@ -92,7 +92,7 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, time.Now()))
 
 	sameQueueCandidates := candidatesOnlyFromQueue(candidates, wl.ClusterQueue)
-	wlReq := totalRequestsForAssignment(&wl, assignment)
+	wlReq := assignment.TotalRequestsFor(&wl)
 
 	// To avoid flapping, Kueue only allows preemption of workloads from the same
 	// queue if borrowing. Preemption of workloads from queues can happen only
@@ -256,35 +256,13 @@ func restoreSnapshot(snapshot *cache.Snapshot, targets []*workload.Info) {
 }
 
 func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*workload.Info {
-	cqHeap := heap.New(
-		func(c *candidateCQ) string {
-			return c.cq.Name
-		},
-		func(c1, c2 *candidateCQ) bool {
-			return c1.share > c2.share
-		},
-	)
-	for _, cand := range candidates {
-		candCQ := cqHeap.GetByKey(cand.ClusterQueue)
-		if candCQ == nil {
-			cq := snapshot.ClusterQueues[cand.ClusterQueue]
-			share, _ := cq.DominantResourceShare()
-			candCQ = &candidateCQ{
-				cq:        cq,
-				share:     share,
-				workloads: []*workload.Info{cand},
-			}
-			_ = cqHeap.PushIfNotPresent(candCQ)
-		} else {
-			candCQ.workloads = append(candCQ.workloads, cand)
-		}
-	}
-
+	cqHeap := cqHeapFromCandidates(candidates, false, snapshot)
 	nominatedCQ := snapshot.ClusterQueues[wl.ClusterQueue]
-	newNominatedShareValue, _ := nominatedCQ.DominantResourceShareWith(wl)
-	wlReq := totalRequestsForAssignment(wl, assignment)
+	wlReq := assignment.TotalRequestsFor(wl)
+	newNominatedShareValue, _ := nominatedCQ.DominantResourceShareWith(wlReq)
 	var targets []*workload.Info
 	fits := false
+	var retryCandidates []*workload.Info
 	for cqHeap.Len() > 0 && !fits {
 		candCQ := cqHeap.Pop()
 
@@ -296,7 +274,7 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 				fits = true
 				break
 			}
-			newNominatedShareValue, _ = nominatedCQ.DominantResourceShareWith(wl)
+			newNominatedShareValue, _ = nominatedCQ.DominantResourceShareWith(wlReq)
 			candCQ.workloads = candCQ.workloads[1:]
 			if len(candCQ.workloads) > 0 {
 				candCQ.share, _ = candCQ.cq.DominantResourceShare()
@@ -323,12 +301,35 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 				}
 				// Might need to pick a different CQ due to changing values.
 				break
+			} else {
+				retryCandidates = append(retryCandidates, candCQ.workloads[i])
 			}
 		}
 	}
 	if !fits {
-		restoreSnapshot(snapshot, targets)
-		return nil
+		// Try rule S2-b in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
+		// if rule S2-a was not enough.
+		cqHeap = cqHeapFromCandidates(retryCandidates, true, snapshot)
+
+		for cqHeap.Len() > 0 && !fits {
+			candCQ := cqHeap.Pop()
+			if newNominatedShareValue < candCQ.share {
+				// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
+				candWl := candCQ.workloads[0]
+				snapshot.RemoveWorkload(candWl)
+				targets = append(targets, candWl)
+				if workloadFits(wlReq, nominatedCQ, true) {
+					fits = true
+				}
+				// No requeueing because there doesn't seem to be an scenario where
+				// it's possible to apply rule S2-b more than once in a CQ.
+			}
+		}
+
+		if !fits {
+			restoreSnapshot(snapshot, targets)
+			return nil
+		}
 	}
 	targets = fillBackWorkloads(targets, wlReq, nominatedCQ, snapshot, true)
 	restoreSnapshot(snapshot, targets)
@@ -339,6 +340,33 @@ type candidateCQ struct {
 	cq        *cache.ClusterQueue
 	workloads []*workload.Info
 	share     int
+}
+
+func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot *cache.Snapshot) *heap.Heap[candidateCQ] {
+	cqHeap := heap.New(
+		func(c *candidateCQ) string {
+			return c.cq.Name
+		},
+		func(c1, c2 *candidateCQ) bool {
+			return c1.share > c2.share
+		},
+	)
+	for _, cand := range candidates {
+		candCQ := cqHeap.GetByKey(cand.ClusterQueue)
+		if candCQ == nil {
+			cq := snapshot.ClusterQueues[cand.ClusterQueue]
+			share, _ := cq.DominantResourceShare()
+			candCQ = &candidateCQ{
+				cq:        cq,
+				share:     share,
+				workloads: []*workload.Info{cand},
+			}
+			cqHeap.PushOrUpdate(candCQ)
+		} else if !firstOnly {
+			candCQ.workloads = append(candCQ.workloads, cand)
+		}
+	}
+	return cqHeap
 }
 
 type resourcesPerFlavor map[kueue.ResourceFlavorReference]sets.Set[corev1.ResourceName]
@@ -439,22 +467,6 @@ func workloadUsesResources(wl *workload.Info, resPerFlv resourcesPerFlavor) bool
 		}
 	}
 	return false
-}
-
-func totalRequestsForAssignment(wl *workload.Info, assignment flavorassigner.Assignment) cache.FlavorResourceQuantities {
-	usage := make(cache.FlavorResourceQuantities)
-	for i, ps := range wl.TotalRequests {
-		for res, q := range ps.Requests {
-			flv := assignment.PodSets[i].Flavors[res].Name
-			resUsage := usage[flv]
-			if resUsage == nil {
-				resUsage = make(map[corev1.ResourceName]int64)
-				usage[flv] = resUsage
-			}
-			resUsage[res] += q
-		}
-	}
-	return usage
 }
 
 // workloadFits determines if the workload requests would fit given the
