@@ -51,6 +51,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -237,6 +238,8 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return fmt.Errorf("%w: expecting 1 pod set got %d", podset.ErrInvalidPodsetInfo, len(podSetsInfo))
 		}
 
+		podOriginal := p.pod.DeepCopy()
+
 		if ungated := ungatePod(&p.pod); !ungated {
 			return nil
 		}
@@ -245,8 +248,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return err
 		}
 
-		err := c.Update(ctx, &p.pod)
-		if err != nil {
+		if err := clientutil.Patch(ctx, c, podOriginal, &p.pod); err != nil {
 			return err
 		}
 		if recorder != nil {
@@ -255,21 +257,14 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		return nil
 	}
 
-	var podsToUngate []*corev1.Pod
-
-	for i := range p.list.Items {
+	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
 		pod := &p.list.Items[i]
-		if ungated := ungatePod(pod); !ungated {
-			continue
-		}
-		podsToUngate = append(podsToUngate, pod)
-	}
-	if len(podsToUngate) == 0 {
-		return nil
-	}
+		podOriginal := pod.DeepCopy()
 
-	return parallelize.Until(ctx, len(podsToUngate), func(i int) error {
-		pod := podsToUngate[i]
+		if ungated := ungatePod(pod); !ungated {
+			return nil
+		}
+
 		roleHash, err := getRoleHash(*pod)
 		if err != nil {
 			return err
@@ -288,7 +283,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
-		if err := c.Update(ctx, pod); err != nil {
+		if err := clientutil.Patch(ctx, c, podOriginal, pod); err != nil {
 			return err
 		}
 		if recorder != nil {
@@ -511,8 +506,9 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 
 	return parallelize.Until(ctx, len(podsInGroup.Items), func(i int) error {
 		pod := &podsInGroup.Items[i]
+		podOriginal := pod.DeepCopy()
 		if controllerutil.RemoveFinalizer(pod, PodFinalizer) {
-			return c.Update(ctx, pod)
+			return clientutil.Patch(ctx, c, podOriginal, pod)
 		}
 		return nil
 	})
@@ -820,9 +816,10 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	// Finalize and delete the active pods created last
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
+		podOriginal := pod.DeepCopy()
 		if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {
 			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
-			if err := c.Update(ctx, &pod); err != nil {
+			if err := clientutil.Patch(ctx, c, podOriginal, &pod); err != nil {
 				// We won't observe this cleanup in the event handler.
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
@@ -858,9 +855,10 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
+		podOriginal := pod.DeepCopy()
 		if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {
 			log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
-			if err := c.Update(ctx, &pod); err != nil {
+			if err := clientutil.Patch(ctx, c, podOriginal, &pod); err != nil {
 				// We won't observe this cleanup in the event handler.
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
