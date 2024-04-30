@@ -2,7 +2,7 @@ title: Kubectl plugin for listing objects
 kep-number: 487
 authors:
   - "@vsoch"
-status: provisional
+status: replaced  # Replaced by KEP #2076
 creation-date: 2023-07-11
 reviewers:
   - "@tenzen-y"

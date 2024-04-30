@@ -38,7 +38,7 @@ We want to create a command line tool for Kueue that allows to:
 
 * list Kueue's objects with easy to use Kueue-specific filtering,
 * create Local and ClusterQueues without writing yamls,
-* perform management operations on LQs, CQs and Workloads.
+* perform management operations on LQs, CQs, Workloads, ResourceFlavors and other Kueue objects.
 
 ## Motivation
 
@@ -58,6 +58,8 @@ tedious without writing a custom mini script or complex pipe processing.
     
 * Build it on top of kubectl (as a [kubectl plugin](https://kubernetes.io/docs/tasks/extend-kubectl/kubectl-plugins/)) to reuse all of
 the authentication/cluster selection methods.
+
+* Expose the plugin in Krew.
 
 ### Non-Goals
 
@@ -80,7 +82,8 @@ kueuectl <command> <object> <flags>
 ```
 
 The commands automatically submit all changes unless `--dry-run` option is given - in that 
-case the tool will print out yamls without making any changes in the cluster.
+case the tool will print out yamls without making any changes in the cluster (we may
+submit the yaml with dryrun enabled to the APIServer to get validation error).
 
 ### User Stories (Optional)
 
@@ -115,7 +118,6 @@ kueuectl create cq|clusterqueue cqname
 --namespace-selector=selector              # defaults to {} - all namespaces can use the queue
 --reclaim-within-cohort=policy             # defaults to Never
 --preemption-within-cluster-queue = policy # defaults to Never
---preemption-when-borrowing = policy       # defaults to Never
 
 –-nominal-quota=rfname1:resource1=value,resource2=value,resource3=value
 –-borrowing-limit=rfname1:resource1=value,resource2=value,resource3=value
@@ -145,7 +147,7 @@ Format:
 kueuectl create lq|localqueue lqname
 –-namespace=namespace                  # uses context's default namespace if not specified
 –-clusterqueue=cqname
---skip-validation
+--ignore-unknown-cq
 ```
 
 Output:  
@@ -234,7 +236,7 @@ Format:
 ```
 kueuectl stop clusterqueue|cq cqname
 --keep-already-running
---resource-flavor=rfname
+--resource-flavor=rfnam               # Requires additional API.
 ```
 
 Output:
@@ -246,7 +248,7 @@ Resumes admission inside the specified ClusterQueue.
 Format:
 ```
 kueuectl resume clusterqueue|cq cqname 
--–resource-flavor=rfname
+-–resource-flavor=rfname              # Requires additional API.
 ```
 Output:
 None.
@@ -254,7 +256,7 @@ None.
 ### Stop LocalQueue
 
 Stops execution (or just admission) of Workloads coming from the given LocalQueue. 
-This requires adding StopPolicy to LocalQueue and enforcing its changes in ClusterQueue.
+This requires adding StopPolicy to LocalQueue and enforcing its changes in ClusterQueue (#2109).
 Format:
 ```
 kueuectl stop localqueue|lq lqname
@@ -277,7 +279,9 @@ None.
 ### Stop Workload
 
 Puts the given Workload on hold. The Workload will not be admitted and 
-if it is already admitted it will be put back to queue just as if it was preempted. 
+if it is already admitted it will be put back to queue just as if it was preempted
+(using `.spec.active` field).
+
 Format:
 ```
 kueuectl stop workload name --namespace=ns
@@ -340,3 +344,4 @@ KEP: 2023-04-27.
 
 * Use existing kubectl functionality and perform management operations via
 API manipulations.
+* Don't use kubectl plugins but write CLI from scratch.
