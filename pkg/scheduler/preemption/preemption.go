@@ -33,6 +33,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -50,17 +51,19 @@ type Preemptor struct {
 
 	workloadOrdering  workload.Ordering
 	enableFairSharing bool
+	fsStrategies      []fsStrategy
 
 	// stubs
 	applyPreemption func(context.Context, *kueue.Workload, string, string) error
 }
 
-func New(cl client.Client, workloadOrdering workload.Ordering, recorder record.EventRecorder, enableFairSharing bool) *Preemptor {
+func New(cl client.Client, workloadOrdering workload.Ordering, recorder record.EventRecorder, fs config.FairSharing) *Preemptor {
 	p := &Preemptor{
 		client:            cl,
 		recorder:          recorder,
 		workloadOrdering:  workloadOrdering,
-		enableFairSharing: enableFairSharing,
+		enableFairSharing: fs.Enable,
+		fsStrategies:      parseStrategies(fs.PreemptionStrategies),
 	}
 	p.applyPreemption = p.applyPreemptionWithSSA
 	return p
@@ -117,7 +120,7 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 
 	borrowWithinCohort, thresholdPrio := canBorrowWithinCohort(cq, wl.Obj)
 	if p.enableFairSharing {
-		return fairPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, thresholdPrio)
+		return p.fairPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, thresholdPrio)
 	}
 	// There is a potential of preemption of workloads from the other queue in the
 	// cohort. We proceed with borrowing only if the dedicated policy
@@ -269,7 +272,38 @@ func restoreSnapshot(snapshot *cache.Snapshot, targets []*workload.Info) {
 	}
 }
 
-func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*workload.Info {
+type fsStrategy func(preemptorNewShare, preempteeOldShare, preempteeNewShare int) bool
+
+// lessThanOrEqualToFinalShare implements Rule S2-a in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
+func lessThanOrEqualToFinalShare(preemptorNewShare, _, preempteeNewShare int) bool {
+	return preemptorNewShare <= preempteeNewShare
+}
+
+// lessThanInitialShare implements rule S2-b in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
+func lessThanInitialShare(preemptorNewShare, preempteeOldShare, _ int) bool {
+	return preemptorNewShare < preempteeOldShare
+}
+
+// parseStrategies converts an array of strategies into the functions to the used by the algorithm.
+// This function takes advantage of the properties of the preemption algorithm and the strategies.
+// The number of functions returned might not match the input slice.
+func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
+	result := []fsStrategy{lessThanOrEqualToFinalShare}
+	if len(s) == 0 {
+		return result
+	}
+	if s[0] == config.LessThanInitialShare {
+		result[0] = lessThanInitialShare
+		// This rule is a superset of the other rule, no need to check other strategies.
+		return result
+	}
+	if len(s) == 1 {
+		return result
+	}
+	return append(result, lessThanInitialShare)
+}
+
+func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*workload.Info {
 	cqHeap := cqHeapFromCandidates(candidates, false, snapshot)
 	nominatedCQ := snapshot.ClusterQueues[wl.ClusterQueue]
 	wlReq := assignment.TotalRequestsFor(wl)
@@ -299,9 +333,8 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 
 		for i, candWl := range candCQ.workloads {
 			belowThreshold := allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) < *allowBorrowingBelowPriority
-			// Rule S2-a in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
 			newCandShareVal, _ := candCQ.cq.DominantResourceShareWithout(candWl)
-			if belowThreshold || newNominatedShareValue <= newCandShareVal {
+			if belowThreshold || p.fsStrategies[0](newNominatedShareValue, candCQ.share, newCandShareVal) {
 				snapshot.RemoveWorkload(candWl)
 				targets = append(targets, candWl)
 				if workloadFits(wlReq, nominatedCQ, true) {
@@ -320,14 +353,13 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 			}
 		}
 	}
-	if !fits {
-		// Try rule S2-b in https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption
-		// if rule S2-a was not enough.
+	if !fits && len(p.fsStrategies) > 1 {
+		// Try next strategy if the previous strategy wasn't enough
 		cqHeap = cqHeapFromCandidates(retryCandidates, true, snapshot)
 
 		for cqHeap.Len() > 0 && !fits {
 			candCQ := cqHeap.Pop()
-			if newNominatedShareValue < candCQ.share {
+			if p.fsStrategies[1](newNominatedShareValue, candCQ.share, 0 /* irrelevant */) {
 				// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
 				candWl := candCQ.workloads[0]
 				snapshot.RemoveWorkload(candWl)
@@ -339,11 +371,10 @@ func fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, sn
 				// it's possible to apply rule S2-b more than once in a CQ.
 			}
 		}
-
-		if !fits {
-			restoreSnapshot(snapshot, targets)
-			return nil
-		}
+	}
+	if !fits {
+		restoreSnapshot(snapshot, targets)
+		return nil
 	}
 	targets = fillBackWorkloads(targets, wlReq, nominatedCQ, snapshot, true)
 	restoreSnapshot(snapshot, targets)

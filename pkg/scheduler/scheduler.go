@@ -59,8 +59,6 @@ const (
 )
 
 type Scheduler struct {
-	enableFairSharing bool
-
 	queues                  *queue.Manager
 	cache                   *cache.Cache
 	client                  client.Client
@@ -68,6 +66,7 @@ type Scheduler struct {
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
+	fairSharing             config.FairSharing
 
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
@@ -75,7 +74,7 @@ type Scheduler struct {
 
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
-	enableFairSharing           bool
+	fairSharing                 config.FairSharing
 }
 
 // Option configures the reconciler.
@@ -93,9 +92,11 @@ func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 	}
 }
 
-func WithFairSharing(enable bool) Option {
+func WithFairSharing(fs *config.FairSharing) Option {
 	return func(o *options) {
-		o.enableFairSharing = enable
+		if fs != nil {
+			o.fairSharing = *fs
+		}
 	}
 }
 
@@ -108,12 +109,12 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 	}
 	s := &Scheduler{
-		enableFairSharing:       options.enableFairSharing,
+		fairSharing:             options.fairSharing,
 		queues:                  queues,
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder, options.enableFairSharing),
+		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 	}
@@ -201,7 +202,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 4. Sort entries based on borrowing, priorities (if enabled) and timestamps.
 	sort.Sort(entryOrdering{
-		enableFairSharing: s.enableFairSharing,
+		enableFairSharing: s.fairSharing.Enable,
 		entries:           entries,
 		workloadOrdering:  s.workloadOrdering,
 	})
@@ -356,7 +357,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
-			if s.enableFairSharing {
+			if s.fairSharing.Enable {
 				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(e.assignment.TotalRequestsFor(&w))
 			}
 		}
@@ -404,7 +405,7 @@ type partialAssignment struct {
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
 	cq := snap.ClusterQueues[wl.ClusterQueue]
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.enableFairSharing)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable)
 	fullAssignment := flvAssigner.Assign(log, nil)
 	var faPreemtionTargets []*workload.Info
 

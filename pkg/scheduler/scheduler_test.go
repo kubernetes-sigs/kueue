@@ -1697,7 +1697,7 @@ func TestSchedule(t *testing.T) {
 					t.Errorf("couldn't create the cluster queue: %v", err)
 				}
 			}
-			scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(tc.enableFairSharing))
+			scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(&config.FairSharing{Enable: tc.enableFairSharing}))
 			gotScheduled := make(map[string]kueue.Admission)
 			var mu sync.Mutex
 			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
