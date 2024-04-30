@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -55,14 +54,12 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 
 func (c *ClusterQueue) addOrRemoveWorkload(wl *workload.Info, m int64) {
 	updateFlavorUsage(wl, c.Usage, m)
-	updateResourceStats(wl, c.ResourceStats, m)
 	if c.Cohort != nil {
 		if features.Enabled(features.LendingLimit) {
 			updateCohortUsage(wl, c, m)
 		} else {
 			updateFlavorUsage(wl, c.Cohort.Usage, m)
 		}
-		updateResourceStats(wl, c.Cohort.ResourceStats, m)
 	}
 }
 
@@ -138,7 +135,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		FlavorFungibility:             c.FlavorFungibility,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
 		Usage:                         make(FlavorResourceQuantities, len(c.Usage)),
-		ResourceStats:                 make(ResourceStats, len(c.ResourceStats)),
+		Lendable:                      maps.Clone(c.Lendable),
 		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
@@ -151,9 +148,6 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 	}
 	if features.Enabled(features.LendingLimit) {
 		cc.GuaranteedQuota = c.GuaranteedQuota
-	}
-	for rName, rStats := range c.ResourceStats {
-		cc.ResourceStats[rName] = ptr.To(*rStats)
 	}
 
 	return cc
@@ -203,17 +197,11 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 			used[res] += val
 		}
 	}
-	if cohort.ResourceStats == nil {
-		cohort.ResourceStats = make(ResourceStats, len(c.ResourceStats))
-	}
-	for rName, rStats := range c.ResourceStats {
-		cohortRStats := cohort.ResourceStats[rName]
-		if cohortRStats == nil {
-			cohort.ResourceStats[rName] = ptr.To(*rStats)
-			continue
+	if cohort.Lendable == nil {
+		cohort.Lendable = maps.Clone(c.Lendable)
+	} else {
+		for res, v := range c.Lendable {
+			cohort.Lendable[res] += v
 		}
-		cohortRStats.Nominal += rStats.Nominal
-		cohortRStats.Lendable += rStats.Lendable
-		cohortRStats.Usage += rStats.Usage
 	}
 }

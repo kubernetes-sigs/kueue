@@ -47,6 +47,7 @@ fields:
       requeuingStrategy:
         timestamp: Eviction | Creation
         backoffLimitCount: 5
+        backoffBaseSeconds: 10
 ```
 
 {{% alert title="Note" color="primary" %}}
@@ -92,6 +93,14 @@ Kueue will re-queue a Workload evicted by the `PodsReadyTimeout` reason until th
 If you don't specify any value for `backoffLimitCount`,
 a Workload is repeatedly and endlessly re-queued to the queue based on the `timestamp`.
 Once the number of re-queues reaches the limit, Kueue [deactivates the Workload](/docs/concepts/workload/#active).
+
+{{% alert title="Note" color="primary" %}}
+_The `backoffBaseSeconds` is available in Kueue v0.7.0 and later_
+{{% /alert %}}
+The time to re-queue a workload after each consecutive timeout is increased
+exponentially, with the exponent of 2. The first delay is determined by the
+`backoffBaseSeconds` parameter (defaulting to 10). So, after the consecutive timeouts
+the evicted workload is re-queued after approximately `10, 20, 40, ...` seconds.
 
 ## Example
 

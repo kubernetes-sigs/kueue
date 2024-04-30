@@ -171,8 +171,8 @@ func (h *Heap[T]) List() []*T {
 }
 
 // New returns a Heap which can be used to queue up items to process.
-func New[T any](keyFn keyFunc[T], lessFn lessFunc[T]) Heap[T] {
-	return Heap[T]{
+func New[T any](keyFn keyFunc[T], lessFn lessFunc[T]) *Heap[T] {
+	return &Heap[T]{
 		data: data[T]{
 			items:    make(map[string]*heapItem[T]),
 			keyFunc:  keyFn,

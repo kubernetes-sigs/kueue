@@ -7,7 +7,7 @@ description: >
   Run a Kueue scheduled JobSet.
 ---
 
-This document explains how you can use Kueue’s scheduling and resource management functionality when running [JobSet Operator](https://github.com/kubernetes-sigs/jobset) [JobSets](https://github.com/kubernetes-sigs/jobset/blob/main/docs/concepts/README.md).
+This document explains how you can use Kueue’s scheduling and resource management functionality when running [JobSet Operator](https://github.com/kubernetes-sigs/jobset) [JobSet](https://jobset.sigs.k8s.io/docs/concepts/).
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
@@ -15,11 +15,11 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 1. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
-2. See [JobSet Installation](https://github.com/kubernetes-sigs/jobset/blob/main/docs/setup/install.md) for installation and configuration details of JobSet Operator.
+2. See [JobSet Installation](https://jobset.sigs.k8s.io/docs/installation/) for installation and configuration details of JobSet Operator.
 
 ## JobSet definition
 
-When running [JobSets](https://github.com/kubernetes-sigs/jobset/blob/main/docs/concepts/README.md) on
+When running [JobSets](https://jobset.sigs.k8s.io/docs/concepts/) on
 Kueue, take into consideration the following aspects:
 
 ### a. Queue selection

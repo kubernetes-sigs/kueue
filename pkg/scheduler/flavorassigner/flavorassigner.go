@@ -105,6 +105,22 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 	return psFlavors
 }
 
+func (a *Assignment) TotalRequestsFor(wl *workload.Info) cache.FlavorResourceQuantities {
+	usage := make(cache.FlavorResourceQuantities)
+	for i, ps := range wl.TotalRequests {
+		for res, q := range ps.Requests {
+			flv := a.PodSets[i].Flavors[res].Name
+			resUsage := usage[flv]
+			if resUsage == nil {
+				resUsage = make(map[corev1.ResourceName]int64)
+				usage[flv] = resUsage
+			}
+			resUsage[res] += q
+		}
+	}
+	return usage
+}
+
 type Status struct {
 	reasons []string
 	err     error

@@ -24,6 +24,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +34,7 @@ import (
 var (
 	errDuplicateFrameworkName = errors.New("duplicate framework name")
 	errMissingMandatoryField  = errors.New("mandatory field missing")
+	errFrameworkNameFormat    = errors.New("misformatted external framework name")
 )
 
 type JobReconcilerInterface interface {
@@ -66,8 +68,9 @@ type IntegrationCallbacks struct {
 }
 
 type integrationManager struct {
-	names        []string
-	integrations map[string]IntegrationCallbacks
+	names                []string
+	integrations         map[string]IntegrationCallbacks
+	externalIntegrations map[string]runtime.Object
 }
 
 var manager integrationManager
@@ -98,6 +101,28 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 	return nil
 }
 
+func (m *integrationManager) registerExternal(kindArg string) error {
+	if m.externalIntegrations == nil {
+		m.externalIntegrations = make(map[string]runtime.Object)
+	}
+
+	gvk, _ := schema.ParseKindArg(kindArg)
+	if gvk == nil {
+		return fmt.Errorf("%w %q", errFrameworkNameFormat, kindArg)
+	}
+	apiVersion, kind := gvk.ToAPIVersionAndKind()
+	jobType := &metav1.PartialObjectMetadata{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: apiVersion,
+			Kind:       kind,
+		},
+	}
+
+	m.externalIntegrations[kindArg] = jobType
+
+	return nil
+}
+
 func (m *integrationManager) forEach(f func(name string, cb IntegrationCallbacks) error) error {
 	for _, name := range m.names {
 		if err := f(name, m.integrations[name]); err != nil {
@@ -112,6 +137,11 @@ func (m *integrationManager) get(name string) (IntegrationCallbacks, bool) {
 	return cb, f
 }
 
+func (m *integrationManager) getExternal(kindArg string) (runtime.Object, bool) {
+	jt, f := m.externalIntegrations[kindArg]
+	return jt, f
+}
+
 func (m *integrationManager) getList() []string {
 	ret := make([]string, len(m.names))
 	copy(ret, m.names)
@@ -119,13 +149,19 @@ func (m *integrationManager) getList() []string {
 	return ret
 }
 
-func (m *integrationManager) getCallbacksForOwner(ownerRef *metav1.OwnerReference) *IntegrationCallbacks {
-	for _, name := range m.names {
-		cbs := m.integrations[name]
+func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
+	for _, cbs := range m.integrations {
 		if cbs.IsManagingObjectsOwner != nil && cbs.IsManagingObjectsOwner(ownerRef) {
-			return &cbs
+			return cbs.JobType
 		}
 	}
+	for _, jt := range m.externalIntegrations {
+		apiVersion, kind := jt.GetObjectKind().GroupVersionKind().ToAPIVersionAndKind()
+		if ownerRef.Kind == kind && ownerRef.APIVersion == apiVersion {
+			return jt
+		}
+	}
+
 	return nil
 }
 
@@ -134,6 +170,12 @@ func (m *integrationManager) getCallbacksForOwner(ownerRef *metav1.OwnerReferenc
 // mandatory callback is missing.
 func RegisterIntegration(name string, cb IntegrationCallbacks) error {
 	return manager.register(name, cb)
+}
+
+// RegisterExternalJobType registers a new externally-managed Kind, returns an error
+// if kindArg cannot be parsed as a Kind.version.group.
+func RegisterExternalJobType(kindArg string) error {
+	return manager.registerExternal(kindArg)
 }
 
 // ForEachIntegration loops through the registered list of frameworks calling f,
@@ -156,14 +198,14 @@ func GetIntegrationsList() []string {
 // IsOwnerManagedByKueue returns true if the provided owner can be managed by
 // kueue.
 func IsOwnerManagedByKueue(owner *metav1.OwnerReference) bool {
-	return manager.getCallbacksForOwner(owner) != nil
+	return manager.getJobTypeForOwner(owner) != nil
 }
 
 // GetEmptyOwnerObject returns an empty object of the owner's type,
 // returns nil if the owner is not manageable by kueue.
 func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
-	if cbs := manager.getCallbacksForOwner(owner); cbs != nil {
-		return cbs.JobType.DeepCopyObject().(client.Object)
+	if jt := manager.getJobTypeForOwner(owner); jt != nil {
+		return jt.DeepCopyObject().(client.Object)
 	}
 	return nil
 }

@@ -48,7 +48,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 
 	testCases := map[string]struct {
 		workload                   kueue.Workload
-		podsReadyTimeout           *time.Duration
+		waitForPodsReady           *waitForPodsReadyConfig
 		wantCountingTowardsTimeout bool
 		wantRecheckAfter           time.Duration
 	}{
@@ -68,7 +68,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout:           ptr.To(5 * time.Minute),
+			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
 			wantRecheckAfter:           4 * time.Minute,
 		},
@@ -99,7 +99,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout:           ptr.To(5 * time.Minute),
+			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
 		},
 		"workload with Admitted=True, PodsReady=False; counting since PodsReady.LastTransitionTime": {
@@ -120,7 +120,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout:           ptr.To(5 * time.Minute),
+			waitForPodsReady:           &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 			wantCountingTowardsTimeout: true,
 			wantRecheckAfter:           5 * time.Minute,
 		},
@@ -137,7 +137,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout: ptr.To(5 * time.Minute),
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 		},
 		"workload with Admitted=False, not counting": {
 			workload: kueue.Workload{
@@ -152,7 +152,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout: ptr.To(5 * time.Minute),
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 		},
 		"workload with Admitted=True, PodsReady=True; not counting": {
 			workload: kueue.Workload{
@@ -172,14 +172,14 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout: ptr.To(5 * time.Minute),
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			wRec := WorkloadReconciler{podsReadyTimeout: tc.podsReadyTimeout}
-			countingTowardsTimeout, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload, fakeClock)
+			wRec := WorkloadReconciler{waitForPodsReady: tc.waitForPodsReady, clock: fakeClock}
+			countingTowardsTimeout, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload)
 
 			if tc.wantCountingTowardsTimeout != countingTowardsTimeout {
 				t.Errorf("Unexpected countingTowardsTimeout, want=%v, got=%v", tc.wantCountingTowardsTimeout, countingTowardsTimeout)
@@ -466,7 +466,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    "Finished",
 					Status:  "True",
-					Reason:  "AdmissionChecksRejected",
+					Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
 					Message: "Admission checks [check] are rejected",
 				}).
 				Obj(),
@@ -506,8 +506,12 @@ func TestReconcile(t *testing.T) {
 		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
-				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
-				WithRequeuingBackoffLimitCount(ptr.To[int32](100)),
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+				}),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -523,7 +527,7 @@ func TestReconcile(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				Admitted(true).
-				RequeueState(ptr.To[int32](29), nil).
+				RequeueState(ptr.To[int32](3), nil).
 				Generation(1).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
@@ -541,14 +545,17 @@ func TestReconcile(t *testing.T) {
 					Message:            "Exceeded the PodsReady timeout ns/wl",
 					ObservedGeneration: 1,
 				}).
-				// 1.41284738^(30-1) = 22530.0558
-				RequeueState(ptr.To[int32](30), ptr.To(metav1.NewTime(testStartTime.Add(22530*time.Second).Truncate(time.Second)))).
+				// 10s * 2^(4-1) = 80s
+				RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Add(80*time.Second).Truncate(time.Second)))).
 				Obj(),
 		},
 		"deactivated workload": {
 			reconcilerOpts: []Option{
-				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
-				WithRequeuingBackoffLimitCount(ptr.To[int32](1)),
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                    3 * time.Second,
+					requeuingBackoffLimitCount: ptr.To[int32](1),
+					requeuingBackoffJitter:     0,
+				}),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -594,6 +601,8 @@ func TestReconcile(t *testing.T) {
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
+			// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
+			reconciler.clock = testingclock.NewFakeClock(testStartTime)
 
 			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
@@ -633,11 +642,7 @@ func TestReconcile(t *testing.T) {
 				if requeueState := tc.wantWorkload.Status.RequeueState; requeueState != nil && requeueState.RequeueAt != nil {
 					gotRequeueState := gotWorkload.Status.RequeueState
 					if gotRequeueState != nil && gotRequeueState.RequeueAt != nil {
-						// We verify the got requeueAt if the got requeueAt is after the desired requeueAt
-						// since the requeueAt is included in positive seconds of random jitter.
-						// Additionally, we need to verify the requeueAt by "Equal" function
-						// as the "After" function evaluates the nanoseconds despite the metav1.Time is seconds level precision.
-						if !gotRequeueState.RequeueAt.After(requeueState.RequeueAt.Time) && !gotRequeueState.RequeueAt.Equal(requeueState.RequeueAt) {
+						if !gotRequeueState.RequeueAt.Equal(requeueState.RequeueAt) {
 							t.Errorf("Unexpected requeueState.requeueAt; gotRequeueAt %v needs to be after requeueAt %v", requeueState.RequeueAt, gotRequeueState.RequeueAt)
 						}
 					} else {

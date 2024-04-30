@@ -91,6 +91,23 @@ The label 'result' can have the following values:
 		}, []string{"cluster_queue", "status"},
 	)
 
+	QuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "quota_reserved_workloads_total",
+			Help:      "The total number of quota reserved workloads per 'cluster_queue'",
+		}, []string{"cluster_queue"},
+	)
+
+	quotaReservedWaitTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "quota_reserved_wait_time_seconds",
+			Help:      "The time between a workload was created or requeued until it got quota reservation, per 'cluster_queue'",
+			Buckets:   generateExponentialBuckets(14),
+		}, []string{"cluster_queue"},
+	)
+
 	AdmittedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -103,7 +120,17 @@ The label 'result' can have the following values:
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_wait_time_seconds",
-			Help:      "The time between a Workload was created until it was admitted, per 'cluster_queue'",
+			Help:      "The time between a workload was created or requeued until admission, per 'cluster_queue'",
+			Buckets:   generateExponentialBuckets(14),
+		}, []string{"cluster_queue"},
+	)
+
+	admissionChecksWaitTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "admission_checks_wait_time_seconds",
+			Help:      "The time from when a workload got the quota reservation until admission, per 'cluster_queue'",
+			Buckets:   generateExponentialBuckets(14),
 		}, []string{"cluster_queue"},
 	)
 
@@ -176,14 +203,27 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 	)
 )
 
+func generateExponentialBuckets(count int) []float64 {
+	return append([]float64{1}, prometheus.ExponentialBuckets(2.5, 2, count-1)...)
+}
+
 func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
 	AdmissionAttemptsTotal.WithLabelValues(string(result)).Inc()
 	admissionAttemptDuration.WithLabelValues(string(result)).Observe(duration.Seconds())
 }
 
+func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
+	QuotaReservedWorkloadsTotal.WithLabelValues(string(cqName)).Inc()
+	quotaReservedWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
+}
+
 func AdmittedWorkload(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
 	AdmittedWorkloadsTotal.WithLabelValues(string(cqName)).Inc()
 	admissionWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
+}
+
+func AdmissionChecksWaitTime(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
+	admissionChecksWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
 }
 
 func ReportPendingWorkloads(cqName string, active, inadmissible int) {
@@ -194,8 +234,11 @@ func ReportPendingWorkloads(cqName string, active, inadmissible int) {
 func ClearQueueSystemMetrics(cqName string) {
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
+	QuotaReservedWorkloadsTotal.DeleteLabelValues(cqName)
+	quotaReservedWaitTime.DeleteLabelValues(cqName)
 	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
 	admissionWaitTime.DeleteLabelValues(cqName)
+	admissionChecksWaitTime.DeleteLabelValues(cqName)
 }
 
 func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
@@ -295,8 +338,11 @@ func Register() {
 		PendingWorkloads,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
+		QuotaReservedWorkloadsTotal,
+		quotaReservedWaitTime,
 		AdmittedWorkloadsTotal,
 		admissionWaitTime,
+		admissionChecksWaitTime,
 		ClusterQueueResourceUsage,
 		ClusterQueueResourceReservations,
 		ClusterQueueResourceNominalQuota,

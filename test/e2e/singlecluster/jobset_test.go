@@ -23,6 +23,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/jobset/pkg/constants"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -33,7 +34,7 @@ import (
 
 // +kubebuilder:docs-gen:collapse=Imports
 
-var _ = ginkgo.Describe("Kueue", func() {
+var _ = ginkgo.Describe("Jobset", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
@@ -104,8 +105,8 @@ var _ = ginkgo.Describe("Kueue", func() {
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  "JobSetFinished",
-						Message: "JobSet finished successfully",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: constants.AllJobsCompletedMessage,
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})

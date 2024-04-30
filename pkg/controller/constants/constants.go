@@ -22,7 +22,7 @@ const (
 
 	// QueueAnnotation is the annotation key in the workload that holds the queue name.
 	//
-	// DEPRECATED: Use QueueLabel as a label key.
+	// Deprecated: Use QueueLabel as a label key.
 	QueueAnnotation = QueueLabel
 
 	// PrebuiltWorkloadLabel is the label key of the job holding the name of the pre-built workload to use.

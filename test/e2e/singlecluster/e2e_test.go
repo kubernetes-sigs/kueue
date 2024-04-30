@@ -156,6 +156,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
 					BackoffLimit(0).
+					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"-termination-code=1", "10m"}).
 					TerminationGracePeriod(1).
 					Obj()
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
@@ -207,7 +208,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 						gomega.BeComparableTo(metav1.Condition{
 							Type:   kueue.WorkloadFinished,
 							Status: metav1.ConditionTrue,
-							Reason: "JobFinished",
+							Reason: kueue.WorkloadFinishedReasonFailed,
 						}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})

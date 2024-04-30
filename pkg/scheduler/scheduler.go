@@ -27,7 +27,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -159,7 +158,7 @@ func (cu *cohortsUsage) add(cohort string, assignment cache.FlavorResourceQuanti
 }
 
 func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
-	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b cache.ResourceQuantities) cache.ResourceQuantities {
+	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b workload.Requests) workload.Requests {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
@@ -358,7 +357,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
 			if s.enableFairSharing {
-				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(&w)
+				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(e.assignment.TotalRequestsFor(&w))
 			}
 		}
 		entries = append(entries, e)
@@ -528,16 +527,16 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueue)
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
-			waitStarted := e.Obj.CreationTimestamp.Time
-			if c := apimeta.FindStatusCondition(e.Obj.Status.Conditions, kueue.WorkloadEvicted); c != nil {
-				waitStarted = c.LastTransitionTime.Time
-			}
-			waitTime := time.Since(waitStarted)
+			waitTime := workload.QueuedWaitTime(newWorkload)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
+			metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
 			if workload.IsAdmitted(newWorkload) {
-				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s ", admission.ClusterQueue)
+				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
+				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
+				if len(newWorkload.Status.AdmissionChecks) > 0 {
+					metrics.AdmissionChecksWaitTime(admission.ClusterQueue, 0)
+				}
 			}
-			metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}

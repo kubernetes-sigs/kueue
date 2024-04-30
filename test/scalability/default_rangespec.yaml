@@ -1,7 +1,0 @@
-# Until we have a clear picture on how the setup
-# performs in CI keep the values "very relaxed"
-cmd:
-  maxWallMs: 3600_000 #1h 
-  maxUserMs: 3600_000
-  maxSysMs: 3600_000
-  maxrss: 1024_000 #1000MiB

@@ -19,6 +19,7 @@ package metrics
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"sigs.k8s.io/kueue/pkg/features"
@@ -34,6 +35,14 @@ func expectFilteredMetricsCount(t *testing.T, vec *prometheus.GaugeVec, count in
 	if len(all) != count {
 		t.Helper()
 		t.Errorf("Expecting %d metrics got %d, matching labels %v", count, len(all), kvs)
+	}
+}
+
+func TestGenerateExponentialBuckets(t *testing.T) {
+	expect := []float64{1, 2.5, 5, 10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120, 10240}
+	result := generateExponentialBuckets(14)
+	if diff := cmp.Diff(result, expect); len(diff) != 0 {
+		t.Errorf("Unexpected buckets (-want,+got):\n%s", diff)
 	}
 }
 
