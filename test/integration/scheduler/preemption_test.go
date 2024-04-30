@@ -446,9 +446,10 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, alphaLQ)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, alphaCQ)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, alphaCQ, true)
 			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, betaLQ)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, betaCQ)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, betaCQ, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, oneFlavor, true)
 		})
 
 		ginkgo.It("Should reclaim from cohort even if another CQ has pending workloads", func() {
