@@ -37,26 +37,26 @@
 We want to create a command line tool for Kueue that allows to:
 
 * list Kueue's objects with easy to use Kueue-specific filtering,
-* create Local and ClusterQueues without touching yamls,
+* create Local and ClusterQueues without writing yamls,
 * perform management operations on LQs, CQs and Workloads.
 
 ## Motivation
 
 Currently many administrative operations around Kueue are largely inconvenient. 
 They require full API understanding, are relatively error-prone or are simply
-impossible without writing a custom mini script or complex pipe processing.
+tedious without writing a custom mini script or complex pipe processing.
 
 ### Goals
 
 * Provide a command line tool for system administrator to:
 
     * Create ClusterQueues and LocalQueues.
-    * Listing *Queues and Workloads that meet certain criteria.
-    * Stopping and resuming execution in ClusteQueuesr and LocalQueues.
-    * Stooping and resuming individual Workloads.
+    * Listing Queues and Workloads that meet certain criteria.
+    * Stopping and resuming execution in ClusteQueues and LocalQueues.
+    * Stopping and resuming individual Workloads.
     * (In the future) Migrating workloads between LocalQueues and other avanced operations
     
-* Build it on top of kubectl (as a kubectl plugin) to reuse all of
+* Build it on top of kubectl (as a [kubectl plugin](https://kubernetes.io/docs/tasks/extend-kubectl/kubectl-plugins/)) to reuse all of
 the authentication/cluster selection methods.
 
 ### Non-Goals
