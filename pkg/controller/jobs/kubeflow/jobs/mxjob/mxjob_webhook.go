@@ -73,7 +73,7 @@ func (w *MXJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (
 }
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
-	return jobframework.ValidateCreateForQueueName(job)
+	return jobframework.ValidateJobOnCreate(job)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -82,8 +82,7 @@ func (w *MXJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtim
 	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("mxjob-webhook")
 	log.Info("Validating update", "mxjob", klog.KObj(newJob.Object()))
-	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
+	allErrs := jobframework.ValidateJobOnUpdate(oldJob, newJob)
 	return nil, allErrs.ToAggregate()
 }
 

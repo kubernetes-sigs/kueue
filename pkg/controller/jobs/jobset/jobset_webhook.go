@@ -69,7 +69,7 @@ func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating create", "jobset", klog.KObj(jobSet))
-	return nil, jobframework.ValidateCreateForQueueName(jobSet).ToAggregate()
+	return nil, jobframework.ValidateJobOnCreate(jobSet).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -78,9 +78,8 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating update", "jobset", klog.KObj(newJobSet))
-	allErrs := jobframework.ValidateUpdateForQueueName(oldJobSet, newJobSet)
-	allErrs = append(allErrs, jobframework.ValidateCreateForQueueName(newJobSet)...)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJobSet, newJobSet)...)
+	allErrs := jobframework.ValidateJobOnUpdate(oldJobSet, newJobSet)
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJobSet)...)
 	return nil, allErrs.ToAggregate()
 }
 
