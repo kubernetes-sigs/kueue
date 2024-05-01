@@ -77,6 +77,16 @@ func candidatesOnlyFromQueue(candidates []*workload.Info, clusterQueue string) [
 	return result
 }
 
+func candidatesFromCQOrUnderThreshold(candidates []*workload.Info, clusterQueue string, threshold int32) []*workload.Info {
+	result := make([]*workload.Info, 0, len(candidates))
+	for _, wi := range candidates {
+		if wi.ClusterQueue == clusterQueue || priority.Priority(wi.Obj) < threshold {
+			result = append(result, wi)
+		}
+	}
+	return result
+}
+
 // GetTargets returns the list of workloads that should be evicted in order to make room for wl.
 func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*workload.Info {
 	resPerFlv := resourcesRequiringPreemption(assignment)
@@ -112,6 +122,10 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 		allowBorrowingBelowPriority := ptr.To(priority.Priority(wl.Obj))
 		if borrowWithinCohort.MaxPriorityThreshold != nil && *borrowWithinCohort.MaxPriorityThreshold < *allowBorrowingBelowPriority {
 			allowBorrowingBelowPriority = ptr.To(*borrowWithinCohort.MaxPriorityThreshold + 1)
+		}
+		if !queueUnderNominalInAllRequestedResources(wlReq, cq) {
+			// It can only preempt workloads from another CQ if they are strictly under allowBorrowingBelowPriority.
+			candidates = candidatesFromCQOrUnderThreshold(candidates, wl.ClusterQueue, *allowBorrowingBelowPriority)
 		}
 		return minimalPreemptions(wlReq, cq, snapshot, resPerFlv, candidates, true, allowBorrowingBelowPriority)
 	}
