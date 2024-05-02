@@ -103,7 +103,7 @@ func TotalRequests(ps *corev1.PodSpec) corev1.ResourceList {
 func calculateRegularInitContainersResources(initContainers []corev1.Container) corev1.ResourceList {
 	total := corev1.ResourceList{}
 	for i := range initContainers {
-		if initContainers[i].RestartPolicy == nil || *initContainers[i].RestartPolicy != corev1.ContainerRestartPolicyAlways {
+		if !isSidecarContainer(initContainers[i]) {
 			total = resource.MergeResourceListKeepMax(total, initContainers[i].Resources.Requests)
 		}
 	}
@@ -113,11 +113,15 @@ func calculateRegularInitContainersResources(initContainers []corev1.Container) 
 func calculateSidecarContainersResources(initContainers []corev1.Container) corev1.ResourceList {
 	total := corev1.ResourceList{}
 	for i := range initContainers {
-		if initContainers[i].RestartPolicy != nil && *initContainers[i].RestartPolicy == corev1.ContainerRestartPolicyAlways {
+		if isSidecarContainer(initContainers[i]) {
 			total = resource.MergeResourceListKeepSum(total, initContainers[i].Resources.Requests)
 		}
 	}
 	return total
+}
+
+func isSidecarContainer(container corev1.Container) bool {
+	return container.RestartPolicy != nil && *container.RestartPolicy == corev1.ContainerRestartPolicyAlways
 }
 
 // ValidatePodSpec verifies if the provided podSpec (ps) first into the boundaries of the summary (s).
