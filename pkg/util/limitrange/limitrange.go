@@ -88,18 +88,8 @@ func TotalRequests(ps *corev1.PodSpec) corev1.ResourceList {
 	for i := range ps.Containers {
 		sumContainers = resource.MergeResourceListKeepSum(sumContainers, ps.Containers[i].Resources.Requests)
 	}
-
-	// take into account the maximum of any non sidecar init containers and add the sidecar containers
-	maxNonSidecarInitContainers := corev1.ResourceList{}
-	sumSidecarContainers := corev1.ResourceList{}
-	for i := range ps.InitContainers {
-		// Is the init container a sidecar container?
-		if ps.InitContainers[i].RestartPolicy != nil && *ps.InitContainers[i].RestartPolicy == corev1.ContainerRestartPolicyAlways {
-			sumSidecarContainers = resource.MergeResourceListKeepSum(sumSidecarContainers, ps.InitContainers[i].Resources.Requests)
-		} else {
-			maxNonSidecarInitContainers = resource.MergeResourceListKeepMax(maxNonSidecarInitContainers, ps.InitContainers[i].Resources.Requests)
-		}
-	}
+	maxNonSidecarInitContainers := calculateRegularInitContainersResources(ps.InitContainers)
+	sumSidecarContainers := calculateSidecarContainersResources(ps.InitContainers)
 
 	total := resource.MergeResourceListKeepMax(
 		resource.MergeResourceListKeepSum(maxNonSidecarInitContainers, sumSidecarContainers),
@@ -107,6 +97,26 @@ func TotalRequests(ps *corev1.PodSpec) corev1.ResourceList {
 	)
 	// add the overhead
 	total = resource.MergeResourceListKeepSum(total, ps.Overhead)
+	return total
+}
+
+func calculateRegularInitContainersResources(initContainers []corev1.Container) corev1.ResourceList {
+	total := corev1.ResourceList{}
+	for i := range initContainers {
+		if initContainers[i].RestartPolicy == nil || *initContainers[i].RestartPolicy != corev1.ContainerRestartPolicyAlways {
+			total = resource.MergeResourceListKeepMax(total, initContainers[i].Resources.Requests)
+		}
+	}
+	return total
+}
+
+func calculateSidecarContainersResources(initContainers []corev1.Container) corev1.ResourceList {
+	total := corev1.ResourceList{}
+	for i := range initContainers {
+		if initContainers[i].RestartPolicy != nil && *initContainers[i].RestartPolicy == corev1.ContainerRestartPolicyAlways {
+			total = resource.MergeResourceListKeepSum(total, initContainers[i].Resources.Requests)
+		}
+	}
 	return total
 }
 
