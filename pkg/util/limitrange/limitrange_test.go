@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/field"
-	"k8s.io/utils/ptr"
 
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -161,57 +160,22 @@ func TestSummarize(t *testing.T) {
 }
 
 func TestTotalRequest(t *testing.T) {
-	containers := []corev1.Container{
-		{
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("2Gi"),
-				},
-			},
-		},
-		{
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU: resource.MustParse("1500m"),
-					"example.com/gpu":  resource.MustParse("2"),
-				},
-			},
-		},
-		{
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("4"),
-					corev1.ResourceMemory: resource.MustParse("2Gi"),
-				},
-			},
-		},
-		{
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU: resource.MustParse("1500m"),
-					"example.com/gpu":  resource.MustParse("2"),
-				},
-			},
-		},
-		{
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("2Gi"),
-					"example.com/gpu":     resource.MustParse("2"),
-				},
-			},
-			RestartPolicy: ptr.To(corev1.ContainerRestartPolicyAlways),
-		},
-	}
 	cases := map[string]struct {
 		podSpec *corev1.PodSpec
 		want    corev1.ResourceList
 	}{
 		"sum up main containers": {
 			podSpec: &corev1.PodSpec{
-				Containers: containers[:2],
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						WithResourceReq(corev1.ResourceMemory, "2Gi").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1500m").
+						WithResourceReq("example.com/gpu", "2").
+						Obj(),
+				},
 			},
 			want: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("2500m"),
@@ -221,8 +185,26 @@ func TestTotalRequest(t *testing.T) {
 		},
 		"one init wants more": {
 			podSpec: &corev1.PodSpec{
-				InitContainers: containers[2:4],
-				Containers:     containers[:2],
+				InitContainers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "4").
+						WithResourceReq(corev1.ResourceMemory, "2Gi").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1500m").
+						WithResourceReq("example.com/gpu", "2").
+						Obj(),
+				},
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						WithResourceReq(corev1.ResourceMemory, "2Gi").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1500m").
+						WithResourceReq("example.com/gpu", "2").
+						Obj(),
+				},
 			},
 			want: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("4000m"),
@@ -232,8 +214,32 @@ func TestTotalRequest(t *testing.T) {
 		},
 		"include sidecar container": {
 			podSpec: &corev1.PodSpec{
-				InitContainers: containers[2:],
-				Containers:     containers[:2],
+				InitContainers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "4").
+						WithResourceReq(corev1.ResourceMemory, "2Gi").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1500m").
+						WithResourceReq("example.com/gpu", "2").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						WithResourceReq(corev1.ResourceMemory, "2Gi").
+						WithResourceReq("example.com/gpu", "2").
+						AsSidecar().
+						Obj(),
+				},
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						WithResourceReq(corev1.ResourceMemory, "2Gi").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1500m").
+						WithResourceReq("example.com/gpu", "2").
+						Obj(),
+				},
 			},
 			want: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("5000m"),
@@ -243,8 +249,32 @@ func TestTotalRequest(t *testing.T) {
 		},
 		"adds overhead": {
 			podSpec: &corev1.PodSpec{
-				InitContainers: containers[2:],
-				Containers:     containers[:2],
+				InitContainers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "4").
+						WithResourceReq(corev1.ResourceMemory, "2Gi").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1500m").
+						WithResourceReq("example.com/gpu", "2").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						WithResourceReq(corev1.ResourceMemory, "2Gi").
+						WithResourceReq("example.com/gpu", "2").
+						AsSidecar().
+						Obj(),
+				},
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						WithResourceReq(corev1.ResourceMemory, "2Gi").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1500m").
+						WithResourceReq("example.com/gpu", "2").
+						Obj(),
+				},
 				Overhead: corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
@@ -271,42 +301,26 @@ func TestTotalRequest(t *testing.T) {
 func TestValidatePodSpec(t *testing.T) {
 	podSpec := &corev1.PodSpec{
 		Containers: []corev1.Container{
-			{
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:             resource.MustParse("1"),
-						corev1.ResourceMemory:          resource.MustParse("2Gi"),
-						"example.com/mainContainerGpu": resource.MustParse("2"),
-					},
-				},
-			},
-			{
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1500m"),
-						"example.com/gpu":  resource.MustParse("2"),
-					},
-				},
-			},
+			*testingutil.MakeContainer().
+				WithResourceReq(corev1.ResourceCPU, "1").
+				WithResourceReq(corev1.ResourceMemory, "2Gi").
+				WithResourceReq("example.com/mainContainerGpu", "2").
+				Obj(),
+			*testingutil.MakeContainer().
+				WithResourceReq(corev1.ResourceCPU, "1500m").
+				WithResourceReq("example.com/gpu", "2").
+				Obj(),
 		},
 		InitContainers: []corev1.Container{
-			{
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("4"),
-						corev1.ResourceMemory: resource.MustParse("2Gi"),
-					},
-				},
-			},
-			{
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:             resource.MustParse("1500m"),
-						"example.com/gpu":              resource.MustParse("2"),
-						"example.com/initContainerGpu": resource.MustParse("2"),
-					},
-				},
-			},
+			*testingutil.MakeContainer().
+				WithResourceReq(corev1.ResourceCPU, "4").
+				WithResourceReq(corev1.ResourceMemory, "2Gi").
+				Obj(),
+			*testingutil.MakeContainer().
+				WithResourceReq(corev1.ResourceCPU, "1500m").
+				WithResourceReq("example.com/gpu", "2").
+				WithResourceReq("example.com/initContainerGpu", "2").
+				Obj(),
 		},
 		Overhead: corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("1"),
