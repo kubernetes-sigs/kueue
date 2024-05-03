@@ -1,7 +1,7 @@
 ---
 title: "Troubleshooting Jobs"
 date: 2024-03-21
-weight: 1
+weight: 2
 description: >
   Troubleshooting the status of a Job
 ---
@@ -176,7 +176,7 @@ See [resources groups](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#re
 When using a [ClusterQueue](/docs/concepts/cluster_queue) with the `StrictFIFO`
 [`queueingStrategy`](/docs/concepts/cluster_queue/#queueing-strategy), Kueue only attempts
 to admit the head of each ClusterQueue. As a result, if Kueue didn't attempt to admit
-a Workload, the Workload status would not contain any condition.
+a Workload, the Workload status might not contain any condition.
 
 ### Misconfigured LocalQueues or ClusterQueues
 
@@ -192,6 +192,9 @@ status:
     status: "False"
     type: QuotaReserved
 ```
+
+See [Troubleshooting Queues](/docs/tasks/troubleshooting/troubleshooting_queues) to understand why a
+ClusterQueue or a LocalQueue is inactive.
 
 ## Is my Job preempted?
 
