@@ -56,7 +56,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 			ginkgo.By("Create a local queue with full flags", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := util.CreateConfigFlagsWithRestConfig(cfg, streams)
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 			ginkgo.By("Create a local queue with default namespace", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := util.CreateConfigFlagsWithRestConfig(cfg, streams)
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 				// Setting default namespace
 				configFlags.Namespace = ptr.To(ns.Name)
 				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
