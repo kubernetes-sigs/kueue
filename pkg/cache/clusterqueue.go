@@ -19,11 +19,13 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -38,6 +40,7 @@ import (
 
 var (
 	errQueueAlreadyExists = errors.New("queue already exists")
+	oneQuantity           = resource.MustParse("1")
 )
 
 // ClusterQueue is the internal implementation of kueue.ClusterQueue that
@@ -52,6 +55,7 @@ type ClusterQueue struct {
 	WorkloadsNotReady sets.Set[string]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
+	FairWeight        resource.Quantity
 	FlavorFungibility kueue.FlavorFungibility
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
@@ -216,6 +220,11 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 		}
 	} else {
 		c.FlavorFungibility = defaultFlavorFungibility
+	}
+
+	c.FairWeight = oneQuantity
+	if fs := in.Spec.FairSharing; fs != nil && fs.Weight != nil {
+		c.FairWeight = *fs.Weight
 	}
 
 	if features.Enabled(features.LendingLimit) {
@@ -677,6 +686,9 @@ func (c *ClusterQueue) dominantResourceShare(wlReq FlavorResourceQuantities, m i
 	if c.Cohort == nil {
 		return 0, ""
 	}
+	if c.FairWeight.Cmp(resource.Quantity{}) == 0 {
+		return math.MaxInt, ""
+	}
 
 	borrowing := make(map[corev1.ResourceName]int64)
 	for _, rg := range c.ResourceGroups {
@@ -705,5 +717,6 @@ func (c *ClusterQueue) dominantResourceShare(wlReq FlavorResourceQuantities, m i
 			}
 		}
 	}
+	drs = drs * 1000 / c.FairWeight.MilliValue()
 	return int(drs), dRes
 }

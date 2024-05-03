@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -1750,6 +1751,131 @@ func TestFairPreemptions(t *testing.T) {
 			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "1").Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New("/b_high"),
+		},
+		"CQ with higher weight can preempt more": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("all").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FairWeight(resource.MustParse("2")).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("all").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltesting.MakeClusterQueue("c").
+					Cohort("all").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b6").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New("/b1", "/b2"),
+		},
+		"can preempt anything borrowing from CQ with 0 weight": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("all").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("all").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FairWeight(resource.MustParse("0")).
+					Obj(),
+				utiltesting.MakeClusterQueue("c").
+					Cohort("all").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b6").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "3").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New("/b1", "/b2", "/b3"),
+		},
+		"can't preempt nominal from CQ with 0 weight": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("all").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("all").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FairWeight(resource.MustParse("0")).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming: unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ: "a",
 		},
 	}
 	for name, tc := range cases {
