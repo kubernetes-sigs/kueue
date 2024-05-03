@@ -577,12 +577,6 @@ func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
 	return cond, true
 }
 
-// IsDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.
-func IsDisabledRequeuedByClusterQueueStopped(w *kueue.Workload) bool {
-	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadRequeued)
-	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadEvictedByClusterQueueStopped
-}
-
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
 		return c.Update(ctx, wl)
