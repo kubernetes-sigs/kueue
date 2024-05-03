@@ -68,5 +68,21 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("Shouldn't create local queue with unknown cluster queue", func() {
+			lqName := "e2e-lq"
+			cqName := "e2e-cq-unknown"
+
+			ginkgo.By("Create local queue by kueuectl", func() {
+				cmd := exec.Command(kueuectlPath, "create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name)
+				_, err := cmd.CombinedOutput()
+				gomega.Expect(err).To(gomega.HaveOccurred())
+			})
+
+			ginkgo.By("Check that the local queue did not create", func() {
+				var createdQueue v1beta1.LocalQueue
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).ToNot(gomega.Succeed())
+			})
+		})
 	})
 })

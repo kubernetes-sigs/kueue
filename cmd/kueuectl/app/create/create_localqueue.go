@@ -36,7 +36,10 @@ import (
 const (
 	lqLong    = `Create a local queue with the given name in the specified namespace.`
 	lqExample = `  # Create a local queue 
-  kueuectl create localqueue my-local-queue -c my-cluster-queue`
+  kueuectl create localqueue my-local-queue -c my-cluster-queue
+  
+  # Create a local queue with unknown cluster queue
+  kueuectl create localqueue my-local-queue -c my-cluster-queue -i`
 )
 
 type LocalQueueOptions struct {
@@ -47,6 +50,7 @@ type LocalQueueOptions struct {
 	Namespace        string
 	EnforceNamespace bool
 	ClusterQueue     v1beta1.ClusterQueueReference
+	IgnoreUnknownCq  bool
 
 	UserSpecifiedClusterQueue string
 
@@ -68,7 +72,7 @@ func NewLocalQueueCmd(clientGetter genericclioptions.RESTClientGetter, streams g
 	o := NewLocalQueueOptions(streams)
 
 	cmd := &cobra.Command{
-		Use: "localqueue NAME -c CLUSTER_QUEUE_NAME [--dry-run STRATEGY]",
+		Use: "localqueue NAME -c CLUSTER_QUEUE_NAME [--ignore-unknown-cq] [--dry-run STRATEGY]",
 		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"lq"},
@@ -77,9 +81,10 @@ func NewLocalQueueCmd(clientGetter genericclioptions.RESTClientGetter, streams g
 		Example:               lqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		Run: func(cmd *cobra.Command, args []string) {
+			ctx := cmd.Context()
 			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
-			cobra.CheckErr(o.Validate())
-			cobra.CheckErr(o.Run(cmd.Context()))
+			cobra.CheckErr(o.Validate(ctx))
+			cobra.CheckErr(o.Run(ctx))
 		},
 	}
 
@@ -87,6 +92,9 @@ func NewLocalQueueCmd(clientGetter genericclioptions.RESTClientGetter, streams g
 
 	cmd.Flags().StringVarP(&o.UserSpecifiedClusterQueue, "clusterqueue", "c", "",
 		"The cluster queue name which will be associated with the local queue (required).")
+	cmd.Flags().BoolVarP(&o.IgnoreUnknownCq, "ignore-unknown-cq", "i", false,
+		"Ignore unknown cluster queue.")
+
 	_ = cmd.MarkFlagRequired("clusterqueue")
 
 	return cmd
@@ -137,7 +145,7 @@ func (o *LocalQueueOptions) Complete(clientGetter genericclioptions.RESTClientGe
 }
 
 // Validate validates required fields are set to support structured generation
-func (o *LocalQueueOptions) Validate() error {
+func (o *LocalQueueOptions) Validate(ctx context.Context) error {
 	if len(o.Name) == 0 {
 		return fmt.Errorf("name must be specified")
 	}
@@ -146,6 +154,12 @@ func (o *LocalQueueOptions) Validate() error {
 	}
 	if len(o.Namespace) == 0 {
 		return fmt.Errorf("namespace must be specified")
+	}
+	if !o.IgnoreUnknownCq {
+		_, err := o.Client.ClusterQueues().Get(ctx, o.UserSpecifiedClusterQueue, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

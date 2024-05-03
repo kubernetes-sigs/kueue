@@ -85,4 +85,7 @@ The following table includes short descriptions and the general syntax for all o
 ```shell
 # Create a local queue 
 kubectl kueue create localqueue my-local-queue -c my-cluster-queue
+
+# Create a local queue with unknown cluster queue
+kubectl kueue create localqueue my-local-queue -c my-cluster-queue -i`
 ```
