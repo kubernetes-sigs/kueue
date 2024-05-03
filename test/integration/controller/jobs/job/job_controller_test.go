@@ -19,6 +19,7 @@ package job
 import (
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -1911,10 +1912,10 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			Enable:         true,
 			BlockAdmission: ptr.To(true),
-			Timeout:        &metav1.Duration{Duration: util.Timeout},
+			Timeout:        &metav1.Duration{Duration: 10 * time.Millisecond},
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
-				BackoffBaseSeconds: ptr.To[int32](configapi.DefaultRequeuingBackoffBaseSeconds),
+				BackoffBaseSeconds: ptr.To[int32](1),
 			},
 		}
 		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup(
@@ -1990,7 +1991,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("setting job status ready")
 			createdJob.Status.Ready = ptr.To(int32(1))
@@ -2034,7 +2035,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 						Message: "The workload backoff was finished",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
