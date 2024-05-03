@@ -24,6 +24,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/create"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/resume"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/stop"
 )
@@ -63,6 +64,7 @@ func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	cmd.AddCommand(create.NewCreateCmd(configFlags, o.IOStreams))
 	cmd.AddCommand(resume.NewResumeCmd(configFlags, o.IOStreams))
 	cmd.AddCommand(stop.NewStopCmd(configFlags, o.IOStreams))
+	cmd.AddCommand(list.NewListCmd(configFlags, o.IOStreams))
 
 	return cmd
 }
