@@ -359,7 +359,9 @@ func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner
 
 		for cqHeap.Len() > 0 && !fits {
 			candCQ := cqHeap.Pop()
-			if p.fsStrategies[1](newNominatedShareValue, candCQ.share, 0 /* irrelevant */) {
+			// We can only reach here if the second strategy is LessThanInitialShare, in which
+			// case the last parameter for the strategy function is irrelevant.
+			if p.fsStrategies[1](newNominatedShareValue, candCQ.share, 0) {
 				// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
 				candWl := candCQ.workloads[0]
 				snapshot.RemoveWorkload(candWl)

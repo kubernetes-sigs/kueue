@@ -686,7 +686,7 @@ func (c *ClusterQueue) dominantResourceShare(wlReq FlavorResourceQuantities, m i
 	if c.Cohort == nil {
 		return 0, ""
 	}
-	if c.FairWeight.Cmp(resource.Quantity{}) == 0 {
+	if c.FairWeight.IsZero() {
 		return math.MaxInt, ""
 	}
 
