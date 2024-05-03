@@ -599,6 +599,8 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByDeactivation,
 					Message: "The workload is deactivated",
 				}).
+				// The fake test not allow to save state with nil values when updating by Patch/Apply. So we are skipping this case.
+				//RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
