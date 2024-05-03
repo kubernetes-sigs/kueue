@@ -102,7 +102,7 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) field.ErrorLis
 		}
 	}
 
-	allErrors = append(allErrors, jobframework.ValidateCreateForQueueName(kueueJob)...)
+	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
 	return allErrors
 }
 
@@ -113,9 +113,8 @@ func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj r
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayCluster)(newJob)) != "" {
 		log.Info("Validating update", "job", klog.KObj(newJob))
-		allErrors := jobframework.ValidateUpdateForQueueName((*RayCluster)(oldJob), (*RayCluster)(newJob))
+		allErrors := jobframework.ValidateJobOnUpdate((*RayCluster)(oldJob), (*RayCluster)(newJob))
 		allErrors = append(allErrors, w.validateCreate(newJob)...)
-		allErrors = append(allErrors, jobframework.ValidateUpdateForWorkloadPriorityClassName((*RayCluster)(oldJob), (*RayCluster)(newJob))...)
 		return nil, allErrors.ToAggregate()
 	}
 	return nil, nil

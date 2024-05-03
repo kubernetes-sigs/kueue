@@ -74,7 +74,7 @@ func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 }
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
-	return jobframework.ValidateCreateForQueueName(job)
+	return jobframework.ValidateJobOnCreate(job)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -83,8 +83,7 @@ func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating update", "job", klog.KObj(newJob))
-	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
+	allErrs := jobframework.ValidateJobOnUpdate(oldJob, newJob)
 	return nil, allErrs.ToAggregate()
 }
 

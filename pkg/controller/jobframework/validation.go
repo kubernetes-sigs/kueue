@@ -36,7 +36,19 @@ var (
 		jobset.SchemeGroupVersion.WithKind("JobSet").String())
 )
 
-func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
+// ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
+func ValidateJobOnCreate(job GenericJob) field.ErrorList {
+	return validateCreateForQueueName(job)
+}
+
+// ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
+func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
+	allErrs := validateUpdateForQueueName(oldJob, newJob)
+	allErrs = append(allErrs, validateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
+	return allErrs
+}
+
+func validateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.QueueLabel)...)
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.PrebuiltWorkloadLabel)...)
@@ -72,7 +84,7 @@ func ValidateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList
 	return allErrs
 }
 
-func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
+func validateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
@@ -84,7 +96,7 @@ func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	return allErrs
 }
 
-func ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
+func validateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := apivalidation.ValidateImmutableField(workloadPriorityClassName(oldJob), workloadPriorityClassName(newJob), workloadPriorityClassNamePath)
 	return allErrs
 }
