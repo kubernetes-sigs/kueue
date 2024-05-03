@@ -171,6 +171,31 @@ spec:
 
 See [resources groups](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#resource-groups) for more information.
 
+### Pending Admission Checks
+
+When the ClusterQueue has [admission checks](/docs/concepts/admission_check) configured, such as
+[ProvisioningRequest](/docs/admission-check-controllers/provisioning) or [MultiKueue](/docs/concepts/multikueue),
+a Workload might stay with a status similar to the following, until the admission checks pass:
+
+```yaml
+status:
+  admission:
+    clusterQueue: dws-cluster-queue
+    podSetAssignments:
+      ...
+  admissionChecks:
+  - lastTransitionTime: "2024-05-03T20:01:59Z"
+    message: ""
+    name: dws-prov
+    state: Pending
+  conditions:
+  - lastTransitionTime: "2024-05-03T20:01:59Z"
+    message: Quota reserved in ClusterQueue dws-cluster-queue
+    reason: QuotaReserved
+    status: "True"
+    type: QuotaReserved
+```
+
 ### Unattempted Workload
 
 When using a [ClusterQueue](/docs/concepts/cluster_queue) with the `StrictFIFO`
