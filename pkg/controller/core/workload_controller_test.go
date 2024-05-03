@@ -549,7 +549,7 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Add(80*time.Second).Truncate(time.Second)))).
 				Obj(),
 		},
-		"deactivated workload": {
+		"deactivate workload when reaching backoffLimitCount": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                    3 * time.Second,
@@ -589,6 +589,130 @@ func TestReconcile(t *testing.T) {
 				Reason:    kueue.WorkloadEvictedByDeactivation,
 				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffLimitCount",
 			}},
+		},
+		"should set the WorkloadRequeued condition to true on re-activated": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Message: "The workload is deactivated",
+				}).
+				// The fake test not allow to save state with nil values when updating by Patch/Apply. So we are skipping this case.
+				//RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadReactivated,
+					Message: "The workload was reactivated",
+				}).
+				Obj(),
+		},
+		"should keep the WorkloadRequeued condition until the backoff expires": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(60*time.Second).Truncate(time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(60*time.Second).Truncate(time.Second)))).
+				Obj(),
+		},
+		"should set the WorkloadRequeued condition when backoff expires": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadBackoffFinished,
+					Message: "The workload backoff was finished",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
+				Obj(),
+		},
+		"shouldn't set the WorkloadRequeued condition when backoff expires and workload finished": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "JobFinished",
+					Message: "Job finished successfully",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "JobFinished",
+					Message: "Job finished successfully",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
+				Obj(),
+		},
+		"should set the WorkloadRequeued condition to true on ClusterQueue started": {
+			cq: utiltesting.MakeClusterQueue("cq").Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
+					Message: "The ClusterQueue is stopped",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadClusterQueueRestarted,
+					Message: "The ClusterQueue was restarted after being stopped",
+				}).
+				Obj(),
 		},
 	}
 	for name, tc := range cases {

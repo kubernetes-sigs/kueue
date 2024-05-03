@@ -405,12 +405,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 							Reason:  "Pending",
 							Message: "By test",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.WorkloadRequeued,
-							Status:  metav1.ConditionTrue,
-							Reason:  "Pending",
-							Message: "By test",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

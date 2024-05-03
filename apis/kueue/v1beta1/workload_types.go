@@ -349,6 +349,18 @@ const (
 	// WorkloadEvictedByDeactivation indicates that the workload was evicted
 	// because spec.active is set to false.
 	WorkloadEvictedByDeactivation = "InactiveWorkload"
+
+	// WorkloadReactivated indicates that the workload was requeued because
+	// spec.active is set to true after deactivation.
+	WorkloadReactivated = "Reactivated"
+
+	// WorkloadBackoffFinished indicates that the workload was requeued because
+	// backoff finished.
+	WorkloadBackoffFinished = "BackoffFinished"
+
+	// WorkloadClusterQueueRestarted indicates that the workload was requeued because
+	// cluster queue was restarted after being stopped.
+	WorkloadClusterQueueRestarted = "ClusterQueueRestarted"
 )
 
 const (

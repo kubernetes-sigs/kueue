@@ -384,6 +384,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
+				if evCond.Reason == kueue.WorkloadEvictedByDeactivation ||
+					evCond.Reason == kueue.WorkloadEvictedByPodsReadyTimeout ||
+					evCond.Reason == kueue.WorkloadEvictedByClusterQueueStopped {
+					workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, false)
+				} else {
+					workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, true)
+				}
 				_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
 				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 				if err != nil {
