@@ -33,9 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
-	"k8s.io/client-go/rest"
 	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -711,14 +708,4 @@ readCh:
 		}
 	}
 	gomega.ExpectWithOffset(1, gotObjs).To(gomega.Equal(objs))
-}
-
-func CreateConfigFlagsWithRestConfig(cfg *rest.Config, streams genericiooptions.IOStreams) *genericclioptions.ConfigFlags {
-	return genericclioptions.
-		NewConfigFlags(true).
-		WithDiscoveryQPS(50.0).
-		WithWarningPrinter(streams).
-		WithWrapConfigFn(func(*rest.Config) *rest.Config {
-			return cfg
-		})
 }
