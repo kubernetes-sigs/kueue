@@ -1,8 +1,10 @@
 ---
-title: "Kubectl Kueue Plugin"
-date: 2024-04-30
+title: "Installation"
+linkTitle: "Installation"
+date: 2024-05-09
+weight: 20
 description: >
-  The kubectl-kueue plugin, kueuectl, allows you to create kueue resources such as localqueue.
+  Installing the kubectl-kueue plugin, kueuectl.
 ---
 
 ## Installing From Release Binaries
@@ -52,40 +54,4 @@ Additionally, you can create an alias `kueuectl` to allow shorter syntax.
 echo 'alias kueuectl="kubectl kueue"' >> ~/.bashrc
 # Or if you are using ZSH
 echo 'alias kueuectl="kubectl kueue"' >> ~/.zshrc
-```
-
-## Syntax
-
-Use the following syntax to run `kubectl kueue` commands from your terminal window:
-
-```shell
-kubectl kueue [command] [TYPE] [NAME] [flags]
-```
-
-or with shorter syntax `kueuectl`:
-
-```shell
-kueuectl [command] [TYPE] [NAME] [flags]
-```
-
-You can run `kubectl kueue help` in the terminal to get the full list of commands, along with all possible flags.
-
-
-## Operations
-
-The following table includes short descriptions and the general syntax for all of the kueuectl operations:
-
-| Operation | Syntax                       | Description                                             |
-|--------|------------------------------|---------------------------------------------------------|
-| create | kubectl kueue create [TYPE] [NAME] [flags] | Create resource. | 
-
-
-## Examples: Common operations
-
-```shell
-# Create a local queue 
-kubectl kueue create localqueue my-local-queue -c my-cluster-queue
-
-# Create a local queue with unknown cluster queue
-kubectl kueue create localqueue my-local-queue -c my-cluster-queue -i`
 ```
