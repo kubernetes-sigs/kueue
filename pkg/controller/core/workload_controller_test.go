@@ -528,6 +528,24 @@ func TestReconcile(t *testing.T) {
 				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffLimitCount",
 			}},
 		},
+		"should set the Evicted condition with InactiveWorkload reason when the .spec.active=False": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Message: "The workload is deactivated",
+				}).
+				Obj(),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

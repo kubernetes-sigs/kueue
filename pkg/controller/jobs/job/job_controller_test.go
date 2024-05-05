@@ -473,55 +473,6 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"when workload is admitted and spec.active is set to false, the workload's conditions is set to Evicted": {
-			job: *baseJobWrapper.Clone().
-				Suspend(false).
-				Obj(),
-			wantJob: *baseJobWrapper.Clone().
-				Suspend(false).
-				Obj(),
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
-					Admitted(true).
-					Active(false).
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:  "check",
-						State: kueue.CheckStateReady,
-						PodSetUpdates: []kueue.PodSetUpdate{
-							{
-								Name: "main",
-							},
-						},
-					}).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
-					Admitted(true).
-					Active(false).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadEvicted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "InactiveWorkload",
-						Message: "The workload is deactivated",
-					}).
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:  "check",
-						State: kueue.CheckStateReady,
-						PodSetUpdates: []kueue.PodSetUpdate{
-							{
-								Name: "main",
-							},
-						},
-					}).
-					Obj(),
-			},
-		},
 		"when workload is evicted due to spec.active field being false, job gets suspended and quota is unset": {
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
