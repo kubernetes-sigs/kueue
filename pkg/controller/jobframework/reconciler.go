@@ -73,10 +73,11 @@ type Options struct {
 	WaitForPodsReady           bool
 	KubeServerVersion          *kubeversion.ServerVersionFetcher
 	// IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
-	IntegrationOptions map[string]any
-	EnabledFrameworks  sets.Set[string]
-	ManagerName        string
-	LabelKeysToCopy    []string
+	IntegrationOptions        map[string]any
+	EnabledFrameworks         sets.Set[string]
+	EnabledExternalFrameworks sets.Set[string]
+	ManagerName               string
+	LabelKeysToCopy           []string
 }
 
 // Option configures the reconciler.
@@ -131,6 +132,16 @@ func WithEnabledFrameworks(i *configapi.Integrations) Option {
 			return
 		}
 		o.EnabledFrameworks = sets.New(i.Frameworks...)
+	}
+}
+
+// WithEnabledExternalFrameworks adds framework names managed by external controller in the Config API.
+func WithEnabledExternalFrameworks(exFrameworks []string) Option {
+	return func(o *Options) {
+		if len(exFrameworks) == 0 {
+			return
+		}
+		o.EnabledExternalFrameworks = sets.New(exFrameworks...)
 	}
 }
 

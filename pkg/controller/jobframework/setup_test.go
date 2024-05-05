@@ -54,6 +54,10 @@ func TestSetupControllers(t *testing.T) {
 				WithEnabledFrameworks(&configapi.Integrations{
 					Frameworks: []string{"batch/job", "kubeflow.org/mpijob"},
 				}),
+				WithEnabledExternalFrameworks([]string{
+					"Foo.v1.example.com",
+					"Bar.v2.example.com",
+				}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
