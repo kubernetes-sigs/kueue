@@ -81,18 +81,14 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 }
 
 // TotalRequests computes the total resource requests of a pod.
-// total = Sum(Max( Max(nonSidecarInitContainers) + Sum(SidecarContainers), Sum(SidecarContainers) + Sum(Containers) ), overhead)
+// total = Max( Max(each InitContainerUse) , Sum(SidecarContainers) + Sum(Containers) ) + pod overhead
 func TotalRequests(ps *corev1.PodSpec) corev1.ResourceList {
-	// add the resource from the main containers
-	sumContainers := corev1.ResourceList{}
-	for i := range ps.Containers {
-		sumContainers = resource.MergeResourceListKeepSum(sumContainers, ps.Containers[i].Resources.Requests)
-	}
-	maxNonSidecarInitContainers := calculateRegularInitContainersResources(ps.InitContainers)
+	sumContainers := calculateMainContainersResources(ps.Containers)
+	maxInitContainers := calculateInitContainersResources(ps.InitContainers)
 	sumSidecarContainers := calculateSidecarContainersResources(ps.InitContainers)
 
 	total := resource.MergeResourceListKeepMax(
-		resource.MergeResourceListKeepSum(maxNonSidecarInitContainers, sumSidecarContainers),
+		maxInitContainers,
 		resource.MergeResourceListKeepSum(sumSidecarContainers, sumContainers),
 	)
 	// add the overhead
@@ -100,12 +96,21 @@ func TotalRequests(ps *corev1.PodSpec) corev1.ResourceList {
 	return total
 }
 
-func calculateRegularInitContainersResources(initContainers []corev1.Container) corev1.ResourceList {
+func calculateMainContainersResources(containers []corev1.Container) corev1.ResourceList {
+	total := corev1.ResourceList{}
+	for i := range containers {
+		total = resource.MergeResourceListKeepSum(total, containers[i].Resources.Requests)
+	}
+	return total
+}
+
+func calculateInitContainersResources(initContainers []corev1.Container) corev1.ResourceList {
 	total := corev1.ResourceList{}
 	for i := range initContainers {
-		if !isSidecarContainer(initContainers[i]) {
-			total = resource.MergeResourceListKeepMax(total, initContainers[i].Resources.Requests)
-		}
+		sumSidecarContainers := calculateSidecarContainersResources(initContainers[:i])
+		initContainerUse := resource.MergeResourceListKeepSum(sumSidecarContainers, initContainers[i].Resources.Requests)
+
+		total = resource.MergeResourceListKeepMax(total, initContainerUse)
 	}
 	return total
 }
