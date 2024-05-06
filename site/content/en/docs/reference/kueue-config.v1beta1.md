@@ -432,10 +432,17 @@ The preemption algorithm will only use the next strategy in the list if the
 incoming workload (preemptor) doesn't fit after using the previous strategies.
 Possible values are:</p>
 <ul>
-<li>LessThanOrEqualToFinalShare: Only preempt if the share of the preemptor CQ
-will be less than or equal to the share of the preemptee CQ after the preemption occurs.</li>
-<li>LessThanInitialShare: Only preempt if the share of the preemptor CQ will be strictly less
-than the share of the preemptee CQ before the preemption.
+<li>LessThanOrEqualToFinalShare: Only preempt a workload if the share of the preemptor CQ
+with the preemptor workload is less than or equal to the share of the preemptee CQ
+without the workload to be preempted.
+This strategy might favor preemption of smaller workloads in the preemptee CQ,
+regardless of priority or start time, in an effort to keep the share of the CQ
+as high as possible.</li>
+<li>LessThanInitialShare: Only preempt a workload if the share of the preemptor CQ
+with the incoming workload is strictly less than the share of the preemptee CQ.
+This strategy doesn't depend on the share usage of the workload being preempted.
+As a result, the strategy chooses to preempt workloads with the lowest priority and
+newest start time first.
 The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;].</li>
 </ul>
 </td>
