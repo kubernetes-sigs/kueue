@@ -478,6 +478,16 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 	return stoppedNow, nil
 }
 
+func (p *Pod) ForEach(f func(obj runtime.Object)) {
+	if p.isGroup {
+		for _, pod := range p.list.Items {
+			f(&pod)
+		}
+	} else {
+		f(&p.pod)
+	}
+}
+
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName); err != nil {
 		return err

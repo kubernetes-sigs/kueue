@@ -23,6 +23,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -410,6 +411,24 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 
+		// emit admission check messages in an event for job
+		if workload.HasQuotaReservation(wl) {
+			message := ""
+			for _, check := range wl.Status.AdmissionChecks {
+				if check.State == kueue.CheckStatePending && check.Message != "" {
+					message += "Admission check: " + check.Name + ", Message: `" + check.Message + "`; "
+				}
+			}
+			if message != "" {
+				if cJob, isComposable := job.(ComposableJob); isComposable {
+					cJob.ForEach(func(obj runtime.Object) {
+						r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedWorkload, message)
+					})
+				} else {
+					r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedWorkload, message)
+				}
+			}
+		}
 		// update queue name if changed.
 		q := QueueName(job)
 		if wl.Spec.QueueName != q {
