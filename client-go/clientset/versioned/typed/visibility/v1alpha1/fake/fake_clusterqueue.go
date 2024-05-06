@@ -152,3 +152,13 @@ func (c *FakeClusterQueues) GetPendingWorkloadsSummary(ctx context.Context, clus
 	}
 	return obj.(*v1alpha1.PendingWorkloadsSummary), err
 }
+
+// GetRunningWorkloadsSummary takes name of the clusterQueue, and returns the corresponding runningWorkloadsSummary object, and an error if there is any.
+func (c *FakeClusterQueues) GetRunningWorkloadsSummary(ctx context.Context, clusterQueueName string, options v1.GetOptions) (result *v1alpha1.RunningWorkloadsSummary, err error) {
+	obj, err := c.Fake.
+		Invokes(testing.NewRootGetSubresourceAction(clusterqueuesResource, "runningWorkloads", clusterQueueName), &v1alpha1.RunningWorkloadsSummary{})
+	if obj == nil {
+		return nil, err
+	}
+	return obj.(*v1alpha1.RunningWorkloadsSummary), err
+}

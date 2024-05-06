@@ -28,3 +28,13 @@ type resp struct {
 	wantErr              error
 	wantPendingWorkloads []visibility.PendingWorkload
 }
+
+type runningReq struct {
+	queueName   string
+	queryParams *visibility.PendingWorkloadOptions
+}
+
+type runningResp struct {
+	wantErr              error
+	wantRunningWorkloads []visibility.RunningWorkload
+}

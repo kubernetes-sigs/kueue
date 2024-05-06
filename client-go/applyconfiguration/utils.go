@@ -136,6 +136,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &applyconfigurationvisibilityv1alpha1.PendingWorkloadApplyConfiguration{}
 	case visibilityv1alpha1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
 		return &applyconfigurationvisibilityv1alpha1.PendingWorkloadsSummaryApplyConfiguration{}
+	case visibilityv1alpha1.SchemeGroupVersion.WithKind("RunningWorkload"):
+		return &applyconfigurationvisibilityv1alpha1.RunningWorkloadApplyConfiguration{}
+	case visibilityv1alpha1.SchemeGroupVersion.WithKind("RunningWorkloadsSummary"):
+		return &applyconfigurationvisibilityv1alpha1.RunningWorkloadsSummaryApplyConfiguration{}
 
 	}
 	return nil

@@ -44,3 +44,24 @@ func newPendingWorkload(wlInfo *workload.Info, positionInLq int32, positionInCq 
 		PositionInLocalQueue:   positionInLq,
 	}
 }
+
+func newRunningWorkload(wlInfo *workload.Info) *v1alpha1.RunningWorkload {
+	ownerReferences := make([]metav1.OwnerReference, 0, len(wlInfo.Obj.OwnerReferences))
+	for _, ref := range wlInfo.Obj.OwnerReferences {
+		ownerReferences = append(ownerReferences, metav1.OwnerReference{
+			APIVersion: ref.APIVersion,
+			Kind:       ref.Kind,
+			Name:       ref.Name,
+			UID:        ref.UID,
+		})
+	}
+	return &v1alpha1.RunningWorkload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              wlInfo.Obj.Name,
+			Namespace:         wlInfo.Obj.Namespace,
+			OwnerReferences:   ownerReferences,
+			CreationTimestamp: wlInfo.Obj.CreationTimestamp,
+		},
+		Priority: *wlInfo.Obj.Spec.Priority,
+	}
+}

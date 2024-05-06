@@ -90,6 +90,9 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadOptions":      schema_kueue_apis_visibility_v1alpha1_PendingWorkloadOptions(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary":     schema_kueue_apis_visibility_v1alpha1_PendingWorkloadsSummary(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummaryList": schema_kueue_apis_visibility_v1alpha1_PendingWorkloadsSummaryList(ref),
+		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkload":             schema_kueue_apis_visibility_v1alpha1_RunningWorkload(ref),
+		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkloadsSummary":     schema_kueue_apis_visibility_v1alpha1_RunningWorkloadsSummary(ref),
+		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkloadsSummaryList": schema_kueue_apis_visibility_v1alpha1_RunningWorkloadsSummaryList(ref),
 	}
 }
 
@@ -2544,12 +2547,18 @@ func schema_kueue_apis_visibility_v1alpha1_ClusterQueue(ref common.ReferenceCall
 							Ref:     ref("sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary"),
 						},
 					},
+					"runningWorkloadsSummary": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkloadsSummary"),
+						},
+					},
 				},
-				Required: []string{"pendingWorkloadsSummary"},
+				Required: []string{"pendingWorkloadsSummary", "runningWorkloadsSummary"},
 			},
 		},
 		Dependencies: []string{
-			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary"},
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary", "sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkloadsSummary"},
 	}
 }
 
@@ -2881,5 +2890,132 @@ func schema_kueue_apis_visibility_v1alpha1_PendingWorkloadsSummaryList(ref commo
 		},
 		Dependencies: []string{
 			"k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta", "sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary"},
+	}
+}
+
+func schema_kueue_apis_visibility_v1alpha1_RunningWorkload(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "RunningWorkload is a user-facing representation of a running workload that summarizes the relevant information for assumed resources in the cluster queue.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
+						},
+					},
+					"priority": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Priority indicates the workload's priority",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+				},
+				Required: []string{"priority"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+	}
+}
+
+func schema_kueue_apis_visibility_v1alpha1_RunningWorkloadsSummary(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "RunningWorkloadsSummary contains a list of running workloads in the context of the query (within LocalQueue or ClusterQueue).",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
+						},
+					},
+					"items": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkload"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"items"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkload"},
+	}
+}
+
+func schema_kueue_apis_visibility_v1alpha1_RunningWorkloadsSummaryList(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta"),
+						},
+					},
+					"items": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkloadsSummary"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"items"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta", "sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkloadsSummary"},
 	}
 }
