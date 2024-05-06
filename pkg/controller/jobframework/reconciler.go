@@ -427,7 +427,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			message := ""
 			for _, check := range wl.Status.AdmissionChecks {
 				if check.State == kueue.CheckStatePending && check.Message != "" {
-					message += "Admission check: `" + check.Name + "`, Message: `" + check.Message + "`; "
+					if message != "" {
+						message += "; "
+					}
+					message += "Admission check: \"" + check.Name + "\", Message: \"" + check.Message + "\""
 				}
 			}
 			if message != "" {
