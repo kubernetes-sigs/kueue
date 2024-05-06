@@ -653,7 +653,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadBackoffFinished,
 					Message: "The workload backoff was finished",
 				}).
-				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
+				RequeueState(ptr.To[int32](1), nil).
 				Obj(),
 		},
 		"shouldn't set the WorkloadRequeued condition when backoff expires and workload finished": {
