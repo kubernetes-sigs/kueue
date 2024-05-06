@@ -23,8 +23,8 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	"sigs.k8s.io/kueue/test/scalability/runner/recorder"
-	"sigs.k8s.io/kueue/test/scalability/runner/stats"
+	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
+	"sigs.k8s.io/kueue/test/performance/scheduler/runner/stats"
 )
 
 var (
@@ -36,8 +36,7 @@ var (
 type RangeSpec struct {
 	Cmd struct {
 		MaxWallMs int64  `json:"maxWallMs"`
-		MaxUserMs int64  `json:"maxUserMs"`
-		MaxSysMs  int64  `json:"maxSysMs"`
+		MCPU      int64  `json:"mCPU"`
 		Maxrss    uint64 `json:"maxrss"`
 	} `json:"cmd"`
 	ClusterQueueClassesMinUsage      map[string]float64 `json:"clusterQueueClassesMinUsage"`
@@ -83,11 +82,9 @@ func TestScalability(t *testing.T) {
 		if cmdStats.WallMs > rangeSpec.Cmd.MaxWallMs {
 			t.Errorf("Wall time %dms is greater than maximum expected %dms", cmdStats.WallMs, rangeSpec.Cmd.MaxWallMs)
 		}
-		if cmdStats.UserMs > rangeSpec.Cmd.MaxUserMs {
-			t.Errorf("User time %dms is greater than maximum expected %dms", cmdStats.UserMs, rangeSpec.Cmd.MaxUserMs)
-		}
-		if cmdStats.SysMs > rangeSpec.Cmd.MaxSysMs {
-			t.Errorf("Sys time %dms is greater than maximum expected %dms", cmdStats.SysMs, rangeSpec.Cmd.MaxSysMs)
+		mCPUUsed := (cmdStats.SysMs + cmdStats.UserMs) * 1000 / cmdStats.WallMs
+		if mCPUUsed > rangeSpec.Cmd.MCPU {
+			t.Errorf("Average CPU usage %dmCpu is greater than maximum expected %dmCPU", mCPUUsed, rangeSpec.Cmd.MCPU)
 		}
 		if cmdStats.Maxrss > int64(rangeSpec.Cmd.Maxrss) {
 			t.Errorf("Maxrss %dKib is greater than maximum expected %dKib", cmdStats.Maxrss, rangeSpec.Cmd.Maxrss)

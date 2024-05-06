@@ -240,6 +240,11 @@ func (in *Integrations) DeepCopyInto(out *Integrations) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.ExternalFrameworks != nil {
+		in, out := &in.ExternalFrameworks, &out.ExternalFrameworks
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.PodOptions != nil {
 		in, out := &in.PodOptions, &out.PodOptions
 		*out = new(PodIntegrationOptions)
@@ -377,6 +382,11 @@ func (in *RequeuingStrategy) DeepCopyInto(out *RequeuingStrategy) {
 	}
 	if in.BackoffLimitCount != nil {
 		in, out := &in.BackoffLimitCount, &out.BackoffLimitCount
+		*out = new(int32)
+		**out = **in
+	}
+	if in.BackoffBaseSeconds != nil {
+		in, out := &in.BackoffBaseSeconds, &out.BackoffBaseSeconds
 		*out = new(int32)
 		**out = **in
 	}

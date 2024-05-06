@@ -41,6 +41,8 @@ kind: Configuration
 integrations:
   frameworks: 
   - batch/job
+  externalFrameworks:
+  - "Foo.v1.example.com"
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +54,19 @@ kind: Configuration
 integrations:
   frameworks:
   - unregistered/jobframework
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
+	badIntegrationsConfig2 := filepath.Join(tmpDir, "badIntegrations2.yaml")
+	if err := os.WriteFile(badIntegrationsConfig2, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+integrations:
+  frameworks:
+  - batch/job
+  externalFrameworks:
+  - Job.v1.batch
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +107,8 @@ integrations:
 				Integrations: &config.Integrations{
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
-					Frameworks: []string{job.FrameworkName},
+					Frameworks:         []string{job.FrameworkName},
+					ExternalFrameworks: []string{"Foo.v1.example.com"},
 					PodOptions: &config.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -124,6 +140,11 @@ integrations:
 			configFile: badIntegrationsConfig,
 			wantError:  fmt.Errorf("integrations.frameworks: Unsupported value: \"unregistered/jobframework\": supported values: \"batch/job\", \"jobset.x-k8s.io/jobset\", \"kubeflow.org/mpijob\", \"kubeflow.org/mxjob\", \"kubeflow.org/paddlejob\", \"kubeflow.org/pytorchjob\", \"kubeflow.org/tfjob\", \"kubeflow.org/xgboostjob\", \"pod\", \"ray.io/raycluster\", \"ray.io/rayjob\""),
 		},
+		{
+			name:       "bad integrations config 2",
+			configFile: badIntegrationsConfig2,
+			wantError:  fmt.Errorf("integrations.externalFrameworks[0]: Duplicate value: \"Job.v1.batch\""),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -137,7 +158,9 @@ integrations:
 					t.Errorf("Unexpected config (-want +got):\n%s", diff)
 				}
 			} else {
-				if diff := cmp.Diff(tc.wantError.Error(), err.Error()); diff != "" {
+				if err == nil {
+					t.Errorf("Failed to get expected error")
+				} else if diff := cmp.Diff(tc.wantError.Error(), err.Error()); diff != "" {
 					t.Errorf("Unexpected error (-want +got):\n%s", diff)
 				}
 			}

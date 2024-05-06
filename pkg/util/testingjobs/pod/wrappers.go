@@ -84,7 +84,7 @@ func (p *PodWrapper) Queue(q string) *PodWrapper {
 	return p.Label(constants.QueueLabel, q)
 }
 
-// Queue updates the queue name of the Pod
+// PriorityClass updates the priority class name of the Pod
 func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
 	p.Spec.PriorityClassName = pc
 	return p
@@ -201,6 +201,12 @@ func (p *PodWrapper) StatusConditions(conditions ...corev1.PodCondition) *PodWra
 // StatusPhase updates status phase of the Pod.
 func (p *PodWrapper) StatusPhase(ph corev1.PodPhase) *PodWrapper {
 	p.Pod.Status.Phase = ph
+	return p
+}
+
+// StatusMessage updates status message of the Pod.
+func (p *PodWrapper) StatusMessage(msg string) *PodWrapper {
+	p.Pod.Status.Message = msg
 	return p
 }
 

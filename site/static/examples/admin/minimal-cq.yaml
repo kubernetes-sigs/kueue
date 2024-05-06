@@ -1,0 +1,11 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue-2"
+spec:
+  namespaceSelector: {} # match all.
+  admissionChecksStrategy:
+    admissionChecks:
+    - name: "sample-prov"           # Name of the AdmissionCheck to be run
+      onFlavors: ["default-flavor"] # This AdmissionCheck will only run for Workloads that use default-flavor
+    - name: "sample-prov-2" # This AdmissionCheck will run for all Workloads regardless of a used ResourceFlavor

@@ -19,14 +19,12 @@ package webhooks
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -59,15 +57,6 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 	wl := obj.(*kueue.Workload)
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Applying defaults", "workload", klog.KObj(wl))
-
-	// Only when we have one podSet and its name is empty,
-	// we'll set it to the default name `main`.
-	if len(wl.Spec.PodSets) == 1 {
-		podSet := &wl.Spec.PodSets[0]
-		if len(podSet.Name) == 0 {
-			podSet.Name = kueue.DefaultPodSetName
-		}
-	}
 
 	// drop minCounts if PartialAdmission is not enabled
 	if !features.Enabled(features.PartialAdmission) {
@@ -122,22 +111,6 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPosets, "at most one podSet can use minCount"))
 	}
 
-	if len(obj.Spec.PriorityClassName) > 0 {
-		msgs := validation.IsDNS1123Subdomain(obj.Spec.PriorityClassName)
-		if len(msgs) > 0 {
-			for _, msg := range msgs {
-				allErrs = append(allErrs, field.Invalid(specPath.Child("priorityClassName"), obj.Spec.PriorityClassName, msg))
-			}
-		}
-		if obj.Spec.Priority == nil {
-			allErrs = append(allErrs, field.Invalid(specPath.Child("priority"), obj.Spec.Priority, "priority should not be nil when priorityClassName is set"))
-		}
-	}
-
-	if len(obj.Spec.QueueName) > 0 {
-		allErrs = append(allErrs, validateNameReference(obj.Spec.QueueName, specPath.Child("queueName"))...)
-	}
-
 	statusPath := field.NewPath("status")
 	if workload.HasQuotaReservation(obj) {
 		allErrs = append(allErrs, validateAdmission(obj, statusPath.Child("admission"))...)
@@ -152,10 +125,6 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 
 func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	// Apply the same validation as container names.
-	for _, msg := range validation.IsDNS1123Label(ps.Name) {
-		allErrs = append(allErrs, field.Invalid(path.Child("name"), ps.Name, msg))
-	}
 
 	// validate initContainers
 	icPath := path.Child("template", "spec", "initContainers")
@@ -166,10 +135,6 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	cPath := path.Child("template", "spec", "containers")
 	for ci := range ps.Template.Spec.Containers {
 		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
-	}
-
-	if min := ptr.Deref(ps.MinCount, ps.Count); min > ps.Count || min < 0 {
-		allErrs = append(allErrs, field.Forbidden(path.Child("minCount"), fmt.Sprintf("%d should be positive and less or equal to %d", min, ps.Count)))
 	}
 
 	return allErrs
@@ -247,38 +212,6 @@ func validateTolerations(tolerations []corev1.Toleration, fldPath *field.Path) f
 		if len(toleration.Key) > 0 {
 			allErrors = append(allErrors, metav1validation.ValidateLabelName(toleration.Key, idxPath.Child("key"))...)
 		}
-
-		// empty toleration key with Exists operator and empty value means match all taints
-		if len(toleration.Key) == 0 && toleration.Operator != corev1.TolerationOpExists {
-			allErrors = append(allErrors, field.Invalid(idxPath.Child("operator"), toleration.Operator,
-				"operator must be Exists when `key` is empty, which means \"match all values and all keys\""))
-		}
-
-		if toleration.TolerationSeconds != nil && toleration.Effect != corev1.TaintEffectNoExecute {
-			allErrors = append(allErrors, field.Invalid(idxPath.Child("effect"), toleration.Effect,
-				"effect must be 'NoExecute' when `tolerationSeconds` is set"))
-		}
-
-		// validate toleration operator and value
-		switch toleration.Operator {
-		// empty operator means Equal
-		case corev1.TolerationOpEqual, "":
-			if errs := validation.IsValidLabelValue(toleration.Value); len(errs) != 0 {
-				allErrors = append(allErrors, field.Invalid(idxPath.Child("operator"), toleration.Value, strings.Join(errs, ";")))
-			}
-		case corev1.TolerationOpExists:
-			if len(toleration.Value) > 0 {
-				allErrors = append(allErrors, field.Invalid(idxPath.Child("operator"), toleration, "value must be empty when `operator` is 'Exists'"))
-			}
-		default:
-			validValues := []string{string(corev1.TolerationOpEqual), string(corev1.TolerationOpExists)}
-			allErrors = append(allErrors, field.NotSupported(idxPath.Child("operator"), toleration.Operator, validValues))
-		}
-
-		// validate toleration effect, empty toleration effect means match all taint effects
-		if len(toleration.Effect) > 0 {
-			allErrors = append(allErrors, validateTaintEffect(&toleration.Effect, true, idxPath.Child("effect"))...)
-		}
 	}
 	return allErrors
 }
@@ -286,17 +219,12 @@ func validateTolerations(tolerations []corev1.Toleration, fldPath *field.Path) f
 func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	admission := obj.Status.Admission
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, validateNameReference(string(admission.ClusterQueue), path.Child("clusterQueue"))...)
 
 	names := sets.New[string]()
 	for _, ps := range obj.Spec.PodSets {
 		names.Insert(ps.Name)
 	}
 	assignmentsPath := path.Child("podSetAssignments")
-	if names.Len() != len(admission.PodSetAssignments) {
-		allErrs = append(allErrs, field.Invalid(assignmentsPath, field.OmitValueType{}, "must have the same number of podSets as the spec"))
-	}
-
 	for i, ps := range admission.PodSetAssignments {
 		psaPath := assignmentsPath.Index(i)
 		if !names.Has(ps.Name) {
@@ -348,11 +276,8 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 
 	if workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassSource, oldObj.Spec.PriorityClassSource, specPath.Child("priorityClassSource"))...)
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassName, oldObj.Spec.PriorityClassName, specPath.Child("priorityClassName"))...)
 	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
 	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)

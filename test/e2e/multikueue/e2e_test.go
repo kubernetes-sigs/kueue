@@ -218,11 +218,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "JobFinished",
-						Message: `Job finished successfully`,
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+						Type:   kueue.WorkloadFinished,
+						Status: metav1.ConditionTrue,
+						Reason: kueue.WorkloadFinishedReasonSucceeded,
+					}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -314,8 +313,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  "JobSetFinished",
-						Message: "JobSet finished successfully",
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "jobset completed successfully",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -416,7 +415,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Message: "Connected",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

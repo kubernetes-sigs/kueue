@@ -600,7 +600,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  "InactiveWorkload",
+						Reason:  kueue.WorkloadEvictedByDeactivation,
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -635,14 +635,14 @@ func TestReconciler(t *testing.T) {
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
-						Status:  metav1.ConditionTrue,
-						Reason:  "Pending",
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadEvictedByDeactivation,
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  "InactiveWorkload",
+						Reason:  kueue.WorkloadEvictedByDeactivation,
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -665,6 +665,302 @@ func TestReconciler(t *testing.T) {
 					EventType: "Normal",
 					Reason:    "Stopped",
 					Message:   "The workload is deactivated",
+				},
+			},
+		},
+		"when workload is evicted due to pods ready timeout, job gets suspended and quota is unset": {
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+						Message: "Exceeded the PodsReady timeout",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Exceeded the PodsReady timeout",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+						Message: "Exceeded the PodsReady timeout",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+						Message: "Exceeded the PodsReady timeout",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Exceeded the PodsReady timeout",
+				},
+			},
+		},
+		"when workload is evicted due to admission check, job gets suspended": {
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "At least one admission check is false",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "At least one admission check is false",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "At least one admission check is false",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "At least one admission check is false",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "At least one admission check is false",
+				},
+			},
+		},
+		"when workload is evicted due to cluster queue stopped, job gets suspended": {
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
+						Message: "The ClusterQueue is stopped",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "The ClusterQueue is stopped",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
+						Message: "The ClusterQueue is stopped",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
+						Message: "The ClusterQueue is stopped",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The ClusterQueue is stopped",
+				},
+			},
+		},
+		"when workload is evicted due to preemption, job gets suspended": {
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "Preempted",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Preempted",
 				},
 			},
 		},
@@ -1700,7 +1996,11 @@ func TestReconciler(t *testing.T) {
 		},
 		"when job completes, workload is marked as finished": {
 			job: *baseJobWrapper.Clone().
-				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Condition(batchv1.JobCondition{
+					Type:    batchv1.JobComplete,
+					Status:  corev1.ConditionTrue,
+					Message: "Job finished successfully",
+				}).
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1709,7 +2009,11 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantJob: *baseJobWrapper.Clone().
-				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Condition(batchv1.JobCondition{
+					Type:    batchv1.JobComplete,
+					Status:  corev1.ConditionTrue,
+					Message: "Job finished successfully",
+				}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1717,7 +2021,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
 						Status:             metav1.ConditionTrue,
-						Reason:             "JobFinished",
+						Reason:             kueue.WorkloadFinishedReasonSucceeded,
 						Message:            "Job finished successfully",
 						ObservedGeneration: 1,
 					}).

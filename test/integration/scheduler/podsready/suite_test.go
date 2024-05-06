@@ -71,8 +71,9 @@ func managerAndSchedulerSetupWithTimeoutAdmission(
 			BlockAdmission: &blockAdmission,
 			Timeout:        &metav1.Duration{Duration: value},
 			RequeuingStrategy: &config.RequeuingStrategy{
-				Timestamp:         ptr.To(requeuingTimestamp),
-				BackoffLimitCount: requeuingBackoffLimitCount,
+				Timestamp:          ptr.To(requeuingTimestamp),
+				BackoffLimitCount:  requeuingBackoffLimitCount,
+				BackoffBaseSeconds: ptr.To[int32](1),
 			},
 		},
 	}
@@ -87,8 +88,7 @@ func managerAndSchedulerSetupWithTimeoutAdmission(
 		queue.WithPodsReadyRequeuingTimestamp(requeuingTimestamp),
 	)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg,
-		core.WithControllerRequeuingBaseDelaySeconds(1))
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr)

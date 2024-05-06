@@ -24,9 +24,11 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -236,6 +238,58 @@ func compareCallbacks(x, y interface{}) bool {
 	return reflect.ValueOf(xcb.AddToScheme).Pointer() == reflect.ValueOf(ycb.AddToScheme).Pointer()
 }
 
+func TestRegisterExternal(t *testing.T) {
+	cases := map[string]struct {
+		manager   *integrationManager
+		kindArg   string
+		wantError error
+		wantGVK   *schema.GroupVersionKind
+	}{
+		"successful 1": {
+			manager: &integrationManager{
+				names: []string{"oldFramework"},
+				integrations: map[string]IntegrationCallbacks{
+					"oldFramework": testIntegrationCallbacks,
+				},
+			},
+			kindArg:   "Job.v1.batch",
+			wantError: nil,
+			wantGVK:   &schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
+		},
+		"successful 2": {
+			manager: &integrationManager{
+				externalIntegrations: map[string]runtime.Object{
+					"Job.v1.batch": &batchv1.Job{TypeMeta: metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"}},
+				},
+			},
+			kindArg:   "AppWrapper.v1beta2.workload.codeflare.dev",
+			wantError: nil,
+			wantGVK:   &schema.GroupVersionKind{Group: "workload.codeflare.dev", Version: "v1beta2", Kind: "AppWrapper"},
+		},
+		"malformed kind arg": {
+			manager:   &integrationManager{},
+			kindArg:   "batch/job",
+			wantError: errFrameworkNameFormat,
+			wantGVK:   nil,
+		},
+	}
+
+	for tcName, tc := range cases {
+		t.Run(tcName, func(t *testing.T) {
+			gotError := tc.manager.registerExternal(tc.kindArg)
+			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
+			}
+			if gotJobType, found := tc.manager.getExternal(tc.kindArg); found {
+				gvk := gotJobType.GetObjectKind().GroupVersionKind()
+				if diff := cmp.Diff(tc.wantGVK, &gvk); diff != "" {
+					t.Errorf("Unexpected jobtypes (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
 func TestForEach(t *testing.T) {
 	foeEachError := errors.New("test error")
 	cases := map[string]struct {
@@ -286,7 +340,7 @@ func TestForEach(t *testing.T) {
 	}
 }
 
-func TestGetCallbacksForOwner(t *testing.T) {
+func TestGetJobTypeForOwner(t *testing.T) {
 	dontManage := IntegrationCallbacks{
 		NewReconciler: func(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
 			panic("not implemented")
@@ -297,12 +351,17 @@ func TestGetCallbacksForOwner(t *testing.T) {
 	manageK1 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K1" }
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K1"}}
 		return ret
 	}()
 	manageK2 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K2" }
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K2"}}
 		return ret
+	}()
+	externalK3 := func() runtime.Object {
+		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3"}}
 	}()
 
 	mgr := integrationManager{
@@ -312,38 +371,45 @@ func TestGetCallbacksForOwner(t *testing.T) {
 			"manageK1":   manageK1,
 			"manageK2":   manageK2,
 		},
+		externalIntegrations: map[string]runtime.Object{
+			"externalK3": externalK3,
+		},
 	}
 
 	cases := map[string]struct {
-		owner         *metav1.OwnerReference
-		wantCallbacks *IntegrationCallbacks
+		owner       *metav1.OwnerReference
+		wantJobType runtime.Object
 	}{
 		"K1": {
-			owner:         &metav1.OwnerReference{Kind: "K1"},
-			wantCallbacks: &manageK1,
+			owner:       &metav1.OwnerReference{Kind: "K1"},
+			wantJobType: manageK1.JobType,
 		},
 		"K2": {
-			owner:         &metav1.OwnerReference{Kind: "K2"},
-			wantCallbacks: &manageK2,
+			owner:       &metav1.OwnerReference{Kind: "K2"},
+			wantJobType: manageK2.JobType,
 		},
 		"K3": {
-			owner:         &metav1.OwnerReference{Kind: "K3"},
-			wantCallbacks: nil,
+			owner:       &metav1.OwnerReference{Kind: "K3"},
+			wantJobType: externalK3,
+		},
+		"K4": {
+			owner:       &metav1.OwnerReference{Kind: "K4"},
+			wantJobType: nil,
 		},
 	}
 
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
-			gotCallbacks := mgr.getCallbacksForOwner(tc.owner)
-			if tc.wantCallbacks == nil {
-				if gotCallbacks != nil {
+			wantJobType := mgr.getJobTypeForOwner(tc.owner)
+			if tc.wantJobType == nil {
+				if wantJobType != nil {
 					t.Errorf("This owner should be unmanaged")
 				}
 			} else {
-				if gotCallbacks == nil {
+				if wantJobType == nil {
 					t.Errorf("This owner should be managed")
 				} else {
-					if diff := cmp.Diff(*tc.wantCallbacks, *gotCallbacks, cmp.FilterValues(func(_, _ interface{}) bool { return true }, cmp.Comparer(compareCallbacks))); diff != "" {
+					if diff := cmp.Diff(tc.wantJobType, wantJobType); diff != "" {
 						t.Errorf("Unexpected callbacks (-want +got):\n%s", diff)
 					}
 				}

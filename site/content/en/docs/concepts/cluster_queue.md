@@ -527,6 +527,10 @@ The `HoldAndDrain` will have a similar effect but, in addition, it will trigger 
 
 If set to `None` or `spec.stopPolicy` is removed the ClusterQueue will to normal admission behavior.
 
+## AdmissionChecks
+
+AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload. See [Admission Checks](/docs/concepts/admission_check#usage) for ClusterQueue's example configuration.
+
 ## What's next?
 
 - Create [local queues](/docs/concepts/local_queue)

@@ -159,18 +159,25 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 }
 
 // ResourceUsage returns the total resource usage for the workload,
-// per resource.
-func (i *Info) ResourceUsage() Requests {
+// per flavor (if assigned, otherwise flavor shows as empty string), per resource.
+func (i *Info) FlavorResourceUsage() map[kueue.ResourceFlavorReference]Requests {
 	if i == nil || len(i.TotalRequests) == 0 {
 		return nil
 	}
-	req := maps.Clone(i.TotalRequests[0].Requests)
-	for j := 1; j < len(i.TotalRequests); j++ {
-		for rName, rVal := range i.TotalRequests[j].Requests {
-			req[rName] += rVal
+	total := make(map[kueue.ResourceFlavorReference]Requests)
+	for _, psReqs := range i.TotalRequests {
+		for res, q := range psReqs.Requests {
+			flv := psReqs.Flavors[res]
+			if requests, found := total[flv]; found {
+				requests[res] += q
+			} else {
+				total[flv] = Requests{
+					res: q,
+				}
+			}
 		}
 	}
-	return req
+	return total
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
@@ -351,14 +358,9 @@ func UpdateStatus(ctx context.Context,
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
 func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) bool {
-	if HasQuotaReservation(wl) {
-		SetRequeuedCondition(wl, reason, message)
-	}
-
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: wl.Generation,
@@ -377,13 +379,17 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 }
 
 // SetRequeuedCondition sets the WorkloadRequeued condition to true
-func SetRequeuedCondition(wl *kueue.Workload, reason string, message string) {
+func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status bool) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadRequeued,
-		Status:             metav1.ConditionTrue,
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: wl.Generation,
+	}
+	if status {
+		condition.Status = metav1.ConditionTrue
+	} else {
+		condition.Status = metav1.ConditionFalse
 	}
 	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 }
@@ -422,12 +428,12 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 // The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
 func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	w.Status.Admission = admission
+	message := fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue)
 	admittedCond := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
 		Reason:             "QuotaReserved",
-		Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue),
+		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
@@ -436,14 +442,14 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.Reason = "QuotaReserved"
-		evictedCond.Message = "Previously: " + evictedCond.Message
+		evictedCond.Message = api.TruncateConditionMessage("Previously: " + evictedCond.Message)
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
 	// reset Preempted condition if present.
 	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
 		preemptedCond.Status = metav1.ConditionFalse
 		preemptedCond.Reason = "QuotaReserved"
-		preemptedCond.Message = "Previously: " + preemptedCond.Message
+		preemptedCond.Message = api.TruncateConditionMessage("Previously: " + preemptedCond.Message)
 		preemptedCond.LastTransitionTime = metav1.Now()
 	}
 }
@@ -453,7 +459,7 @@ func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
 		Type:    kueue.WorkloadPreempted,
 		Status:  metav1.ConditionTrue,
 		Reason:  reason,
-		Message: message,
+		Message: api.TruncateConditionMessage(message),
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
@@ -462,9 +468,8 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadEvicted,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
-		Message:            message,
+		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)

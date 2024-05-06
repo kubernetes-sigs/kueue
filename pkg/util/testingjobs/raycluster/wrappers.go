@@ -74,7 +74,7 @@ func MakeCluster(name, ns string) *ClusterWrapper {
 	}}
 }
 
-// NodeSelector adds a node selector to the job's head.
+// NodeSelectorHeadGroup adds a node selector to the job's head.
 func (j *ClusterWrapper) NodeSelectorHeadGroup(k, v string) *ClusterWrapper {
 	j.Spec.HeadGroupSpec.Template.Spec.NodeSelector[k] = v
 	return j

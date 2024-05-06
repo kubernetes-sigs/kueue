@@ -31,6 +31,7 @@ GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/gi
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
@@ -190,7 +191,7 @@ test-integration: gomod-download envtest ginkgo mpi-operator-crd ray-operator-cr
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
-test-e2e: kustomize ginkgo yq gomod-download jobset-operator-crd run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: kustomize ginkgo yq gomod-download jobset-operator-crd kueuectl run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e
 test-multikueue-e2e: kustomize ginkgo yq gomod-download jobset-operator-crd run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -213,14 +214,15 @@ run-test-multikueue-e2e-%: FORCE
 	@echo Running multikueue e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/multikueue-e2e-test.sh
 
-SCALABILITY_RUNNER := $(ARTIFACTS)/scalability-runner
-.PHONY: scalability-runner
-scalability-runner:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/scalability/runner/main.go
+SCALABILITY_RUNNER := $(PROJECT_DIR)/bin/performance-scheduler-runner
+.PHONY: performance-scheduler-runner
+performance-scheduler-runner:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/performance/scheduler/runner/main.go
 
+MINIMALKUEUE_RUNNER := $(PROJECT_DIR)/bin/minimalkueue
 .PHONY: minimalkueue
 minimalkueue: 
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o  $(ARTIFACTS)/minimalkueue test/scalability/minimalkueue/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MINIMALKUEUE_RUNNER) test/performance/scheduler/minimalkueue/main.go
 
 ifdef SCALABILITY_CPU_PROFILE
 SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
@@ -230,38 +232,50 @@ ifdef SCALABILITY_KUEUE_LOGS
 SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
 endif
 
-SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/scalability/default_generator_config.yaml
+ifdef SCALABILITY_SCRAPE_INTERVAL
+SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeInterval=$(SCALABILITY_SCRAPE_INTERVAL)
+endif
 
-SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-scalability
-.PHONY: run-scalability
-run-scalability: envtest scalability-runner minimalkueue
+ifdef SCALABILITY_SCRAPE_URL
+SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeURL=$(SCALABILITY_SCRAPE_URL)
+endif
+
+SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/default_generator_config.yaml
+
+SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-performance-scheduler
+.PHONY: run-performance-scheduler
+run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 	mkdir -p $(SCALABILITY_RUN_DIR)
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(SCALABILITY_RUNNER) \
 		--o $(SCALABILITY_RUN_DIR) \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
-		--minimalKueue=$(ARTIFACTS)/minimalkueue $(SCALABILITY_EXTRA_ARGS)
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
 
-.PHONY: test-scalability
-test-scalability: gotestsum run-scalability
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/scalability/checker  \
+.PHONY: test-performance-scheduler
+test-performance-scheduler: gotestsum run-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
 		--summary=$(SCALABILITY_RUN_DIR)/summary.yaml \
 		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
-		--range=$(PROJECT_DIR)/test/scalability/default_rangespec.yaml
+		--range=$(PROJECT_DIR)/test/performance/scheduler/default_rangespec.yaml
 
-.PHONY: run-scalability-in-cluster
-run-scalability-in-cluster: envtest scalability-runner
-	mkdir -p $(ARTIFACTS)/run-scalability-in-cluster
+.PHONY: run-performance-scheduler-in-cluster
+run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
+	mkdir -p $(ARTIFACTS)/run-performance-scheduler-in-cluster
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(SCALABILITY_RUNNER) \
-		--o $(ARTIFACTS)/run-scalability-in-cluster \
+		--o $(ARTIFACTS)/run-performance-scheduler-in-cluster \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
-		--qps=1000 --burst=2000 --timeout=15m
+		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 15m0s
+
+.PHONY: lint-fix
+lint-fix: golangci-lint
+	$(GOLANGCI_LINT) run --fix --timeout 15m0s
 
 .PHONY: verify
 verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref prepare-release-branch
@@ -362,6 +376,7 @@ artifacts: kustomize yq helm
 	mv artifacts/kueue-$(GIT_TAG).tgz artifacts/kueue-chart-$(GIT_TAG).tgz
 	# Revert the image changes
 	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REGISTRY)/$(IMAGE_NAME)" | .controllerManager.manager.image.tag = "main" | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
+	#GO_BUILD_ENV="$(GO_BUILD_ENV)" GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts/bin" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize
@@ -405,6 +420,10 @@ importer-image-push: importer-image-build
 importer-image: PLATFORMS=linux/amd64
 importer-image: PUSH=--load
 importer-image: importer-image-build
+
+.PHONY: kueuectl
+kueuectl:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kueue cmd/kueuectl/main.go
 
 GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
 .PHONY: golangci-lint

@@ -109,7 +109,7 @@ func (j *JobSetWrapper) Label(k, v string) *JobSetWrapper {
 	return j
 }
 
-// Annotation sets annotations to the JobSet.
+// Annotations sets annotations to the JobSet.
 func (j *JobSetWrapper) Annotations(annotations map[string]string) *JobSetWrapper {
 	j.ObjectMeta.Annotations = annotations
 	return j
@@ -162,6 +162,7 @@ func (j *JobSetWrapper) Condition(c metav1.Condition) *JobSetWrapper {
 	return j
 }
 
+// ManagedBy adds a managedby.
 func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
 	j.Spec.ManagedBy = &c
 	return j

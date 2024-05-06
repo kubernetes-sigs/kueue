@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
-					Reason:  "AdmissionChecksRejected",
+					Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
 					Message: "Admission checks [check1] are rejected",
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -390,7 +390,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadFinished,
 							Status:  metav1.ConditionTrue,
-							Reason:  "AdmissionChecksRejected",
+							Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
 							Message: "Admission checks [check1] are rejected",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
@@ -402,12 +402,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadQuotaReserved,
 							Status:  metav1.ConditionFalse,
-							Reason:  "Pending",
-							Message: "By test",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.WorkloadRequeued,
-							Status:  metav1.ConditionTrue,
 							Reason:  "Pending",
 							Message: "By test",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),

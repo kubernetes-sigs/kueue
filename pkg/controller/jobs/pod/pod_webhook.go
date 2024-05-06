@@ -204,7 +204,7 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Validating create")
-	allErrs := jobframework.ValidateCreateForQueueName(pod)
+	allErrs := jobframework.ValidateJobOnCreate(pod)
 
 	allErrs = append(allErrs, validateManagedLabel(pod)...)
 
@@ -224,7 +224,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	newPod := FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&newPod.pod))
 	log.V(5).Info("Validating update")
-	allErrs := jobframework.ValidateUpdateForQueueName(oldPod, newPod)
+	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod)
 
 	allErrs = append(allErrs, validateManagedLabel(newPod)...)
 

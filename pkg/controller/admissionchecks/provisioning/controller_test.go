@@ -547,12 +547,15 @@ func TestReconcile(t *testing.T) {
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
 							{
-								Name:        "ps1",
-								Annotations: map[string]string{"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1"},
+								Name: "ps1",
+								Annotations: map[string]string{
+									"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1",
+									"cluster-autoscaler.kubernetes.io/provisioning-class-name":      "class1"},
 							},
 							{
-								Name:        "ps2",
-								Annotations: map[string]string{"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1"},
+								Name: "ps2",
+								Annotations: map[string]string{"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1",
+									"cluster-autoscaler.kubernetes.io/provisioning-class-name": "class1"},
 							},
 						},
 					}, kueue.AdmissionCheckState{

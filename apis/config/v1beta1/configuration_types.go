@@ -238,7 +238,8 @@ type RequeuingStrategy struct {
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	// When it is null, the workloads will repeatedly and endless re-queueing.
 	//
-	// Every backoff duration is about "10s*2^(n-1)+Rand" where:
+	// Every backoff duration is about "b*2^(n-1)+Rand" where:
+	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
 	// - "n" represents the "workloadStatus.requeueState.count",
 	// - "Rand" represents the random jitter.
 	// During this time, the workload is taken as an inadmissible and
@@ -248,6 +249,13 @@ type RequeuingStrategy struct {
 	// Defaults to null.
 	// +optional
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+
+	// BackoffBaseSeconds defines the base for the exponential backoff for
+	// re-queuing an evicted workload.
+	//
+	// Defaults to 10.
+	// +optional
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 }
 
 type RequeuingTimestamp string
@@ -299,6 +307,9 @@ type Integrations struct {
 	//  - "kubeflow.org/xgboostjob"
 	//  - "pod"
 	Frameworks []string `json:"frameworks,omitempty"`
+	// List of GroupVersionKinds that are managed for Kueue by external controllers;
+	// the expected format is `Kind.version.group.com`.
+	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
 	// PodOptions defines kueue controller behaviour for pod objects
 	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
 

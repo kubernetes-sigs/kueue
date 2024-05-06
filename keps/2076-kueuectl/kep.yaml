@@ -1,0 +1,28 @@
+title: Kueuectl
+kep-number: 2076
+authors:
+  - "@mwielgus"
+status: implementable
+creation-date: 2024-04-25
+reviewers:
+  - "@alculquicondor"
+approvers:
+  - "@alculquicondor"
+replaces:
+  - "/keps/487-kubectl-plugin"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.8"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.8"
+  beta: "v0.9"
+
+disable-supported: false
+

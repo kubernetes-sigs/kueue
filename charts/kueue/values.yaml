@@ -24,6 +24,7 @@ controllerManager:
       repository: gcr.io/k8s-staging-kueue/kueue
       # This should be set to 'IfNotPresent' for released version      
       pullPolicy: Always
+    podAnnotations: {}
     resources:
       limits:
         cpu: 500m
@@ -68,7 +69,7 @@ managerConfig:
     controller:
       groupKindConcurrency:
         Job.batch: 5
-        Pod.: 5
+        Pod: 5
         Workload.kueue.x-k8s.io: 5
         LocalQueue.kueue.x-k8s.io: 1
         ClusterQueue.kueue.x-k8s.io: 1
@@ -92,7 +93,7 @@ managerConfig:
       - "ray.io/raycluster"
       - "jobset.x-k8s.io/jobset"
       - "kubeflow.org/mxjob"
-      - "kubeflow.org/paddlejob"    
+      - "kubeflow.org/paddlejob"
       - "kubeflow.org/pytorchjob"
       - "kubeflow.org/tfjob"
       - "kubeflow.org/xgboostjob"
@@ -111,6 +112,7 @@ metricsService:
       protocol: TCP
       targetPort: https
   type: ClusterIP
+  annotations: {}
 webhookService:
   ipDualStack:
     enabled: false

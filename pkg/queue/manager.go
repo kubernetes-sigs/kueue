@@ -293,10 +293,10 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) bool {
 	m.Lock()
 	defer m.Unlock()
-	return m.addOrUpdateWorkload(w)
+	return m.AddOrUpdateWorkloadWithoutLock(w)
 }
 
-func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) bool {
 	qKey := workload.QueueKey(w)
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -453,7 +453,7 @@ func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) bool {
 	if oldW.Spec.QueueName != w.Spec.QueueName {
 		m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(oldW))
 	}
-	return m.addOrUpdateWorkload(w)
+	return m.AddOrUpdateWorkloadWithoutLock(w)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting

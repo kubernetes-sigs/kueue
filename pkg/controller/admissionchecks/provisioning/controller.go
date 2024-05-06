@@ -573,8 +573,10 @@ func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []ku
 	})
 	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
 		return kueue.PodSetUpdate{
-			Name:        refMap[ps.PodTemplateRef.Name],
-			Annotations: map[string]string{ConsumesAnnotationKey: pr.Name},
+			Name: refMap[ps.PodTemplateRef.Name],
+			Annotations: map[string]string{
+				ConsumesAnnotationKey:  pr.Name,
+				ClassNameAnnotationKey: pr.Spec.ProvisioningClassName},
 		}
 	})
 }
