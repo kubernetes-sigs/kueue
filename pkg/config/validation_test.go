@@ -19,6 +19,7 @@ package config
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -285,6 +286,66 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "waitForPodsReady.requeuingStrategy.backoffBaseSeconds",
+				},
+			},
+		},
+		"negative multiKueue.gcInterval": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval: &metav1.Duration{
+						Duration: -time.Second,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.gcInterval",
+				},
+			},
+		},
+		"negative multiKueue.workerLostTimeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					WorkerLostTimeout: &metav1.Duration{
+						Duration: -time.Second,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.workerLostTimeout",
+				},
+			},
+		},
+		"invalid .multiKueue.origin label value": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					Origin: ptr.To("=]"),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.origin",
+				},
+			},
+		},
+		"valid .multiKueue configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval: &metav1.Duration{
+						Duration: time.Second,
+					},
+					Origin: ptr.To("valid"),
+					WorkerLostTimeout: &metav1.Duration{
+						Duration: 2 * time.Second,
+					},
 				},
 			},
 		},
