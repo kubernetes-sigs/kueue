@@ -182,6 +182,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if requeueAfter > 0 {
 					return reconcile.Result{RequeueAfter: requeueAfter}, nil
 				}
+				if wl.Status.RequeueState != nil {
+					wl.Status.RequeueState.RequeueAt = nil
+				}
 				workload.SetRequeuedCondition(&wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true)
 				updated = true
 			}
