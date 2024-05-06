@@ -193,6 +193,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if updated {
 			return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		}
+	} else if !workload.IsEvictedByDeactivation(&wl) {
+		workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByDeactivation, "The workload is deactivated")
+		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
+			return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
+		}
+		return ctrl.Result{}, nil
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)

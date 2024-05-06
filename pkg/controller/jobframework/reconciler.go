@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -436,17 +435,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	// 8. handle workload is deactivated.
-	if !ptr.Deref(wl.Spec.Active, true) {
-		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByDeactivation, "The workload is deactivated")
-		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
-		}
-		return ctrl.Result{}, nil
-	}
-
-	// 9. handle job is unsuspended.
+	// 8. handle job is unsuspended.
 	if !workload.IsAdmitted(wl) {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
