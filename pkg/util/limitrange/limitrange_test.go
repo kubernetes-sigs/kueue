@@ -183,7 +183,7 @@ func TestTotalRequest(t *testing.T) {
 				"example.com/gpu":     resource.MustParse("2"),
 			},
 		},
-		"pod only with regular init containers. request max(regularContainers)": {
+		"pod only with regular init containers. request max( max(each initContainerUse), sum(containers) )": {
 			podSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{
 					*testingutil.MakeContainer().
@@ -212,7 +212,7 @@ func TestTotalRequest(t *testing.T) {
 				"example.com/gpu":     resource.MustParse("2"),
 			},
 		},
-		"pod only with sidecar containers. request sum(sidecar) + sum(containers)": {
+		"pod only with sidecar containers. request max( max(each initContainerUse), sum(sidecarContainers) + sum(containers) )": {
 			podSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{
 					*testingutil.MakeContainer().
@@ -243,7 +243,7 @@ func TestTotalRequest(t *testing.T) {
 				"example.com/gpu":     resource.MustParse("4"),
 			},
 		},
-		"pod only with regular init and sidecar containers. request max(regularContainers) + sum(sidecar)": {
+		"pod only with regular init and sidecar containers. request max( max(each InitContainerUse), sum(sidecarContainers) )": {
 			podSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{
 					*testingutil.MakeContainer().
@@ -267,11 +267,11 @@ func TestTotalRequest(t *testing.T) {
 				},
 			},
 			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("9"),
-				corev1.ResourceMemory: resource.MustParse("9Gi"),
+				corev1.ResourceCPU:    resource.MustParse("7"),
+				corev1.ResourceMemory: resource.MustParse("7Gi"),
 			},
 		},
-		"pod with regular init and sidecar containers. request max(max(regularCointainers) + sum(sidecar), sum(sidecar) + sum(containers))": {
+		"pod with regular init and sidecar containers. request max( max(each InitContainer), sum(sidecarContainers) + sum(containers) )": {
 			podSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{
 					*testingutil.MakeContainer().
@@ -310,7 +310,7 @@ func TestTotalRequest(t *testing.T) {
 				"example.com/gpu":     resource.MustParse("4"),
 			},
 		},
-		"adds overhead. request  max(max(regularCointainers) + sum(sidecar), sum(sidecar) + sum(containers)) + overhead": {
+		"adds overhead. request max( max(each InitContainer), sum(sidecarContainers) + sum(containers) ) + overhead": {
 			podSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{
 					*testingutil.MakeContainer().
@@ -345,7 +345,7 @@ func TestTotalRequest(t *testing.T) {
 				},
 			},
 			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("6"),
+				corev1.ResourceCPU:    resource.MustParse("5"),
 				corev1.ResourceMemory: resource.MustParse("5Gi"),
 				"example.com/gpu":     resource.MustParse("5"),
 			},
