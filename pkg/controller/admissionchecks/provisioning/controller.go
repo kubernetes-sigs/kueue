@@ -532,12 +532,12 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 					updated = true
 					// add the pod podSetUpdates
 					checkState.PodSetUpdates = podSetUpdates(wl, pr)
+					// propagate the message from the provisioning request status into the workload
+					// to change to the "successfully provisioned" message after provisioning
 					updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
 				}
 			case prAccepted && prProvisionedFalse:
-				// we propagate the message from the provisioning request status into the workload
-				// this happens for provisioned = false (ETA updates) and also for provisioned = true
-				// to change to the "successfully provisioned" message after provisioning
+				// propagate the ETA update from the provisioning request into the workload
 				updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message) || updated
 				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 			default:
