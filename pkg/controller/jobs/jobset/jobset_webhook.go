@@ -67,10 +67,8 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Applying defaults", "jobset", klog.KObj(jobSet))
 
 	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
-	if features.Enabled(features.MultiKueue) {
-		if jobSet.Spec.ManagedBy != nil && *jobSet.Spec.ManagedBy == jobsetapi.JobSetControllerName {
-			return nil
-		}
+
+	if canDefaultManagedBy(jobSet.Spec.ManagedBy) {
 		localQueueName, found := jobSet.Labels[constants.QueueLabel]
 		if !found {
 			return nil
@@ -89,6 +87,7 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 				continue
 			}
 			if admissionCheck.Controller == multikueue.ControllerName {
+				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", multikueue.ControllerName)
 				jobSet.Spec.ManagedBy = ptr.To(multikueue.ControllerName)
 				break
 			}
@@ -96,6 +95,11 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	return nil
+}
+
+func canDefaultManagedBy(jobSetSpecManagedBy *string) bool {
+	return features.Enabled(features.MultiKueue) &&
+		(jobSetSpecManagedBy == nil || *jobSetSpecManagedBy == jobsetapi.JobSetControllerName)
 }
 
 // +kubebuilder:webhook:path=/validate-jobset-x-k8s-io-v1alpha2-jobset,mutating=false,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create;update,versions=v1alpha2,name=vjobset.kb.io,admissionReviewVersions=v1

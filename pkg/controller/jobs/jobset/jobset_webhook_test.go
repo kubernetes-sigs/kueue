@@ -122,7 +122,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			multiKueueEnabled: true,
-			wantManagedBy:     ptr.To(jobset.JobSetControllerName),
+			wantManagedBy:     ptr.To(multikueue.ControllerName),
 		},
 		{
 			name: "TestDefault_WithQueueLabel",
@@ -232,6 +232,36 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			multiKueueEnabled: false,
 			wantManagedBy:     nil,
+		},
+		{
+			name: "TestDefault_UserSpecifiedManagedBy",
+			jobSet: &jobset.JobSet{
+				Spec: jobset.JobSetSpec{
+					ManagedBy: ptr.To("example.com/foo"),
+				},
+				ObjectMeta: ctrl.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "local-queue",
+					},
+					Namespace: "default",
+				},
+			},
+			queues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("local-queue", "default").
+					ClusterQueue("cluster-queue").
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("cluster-queue").
+					AdmissionChecks("admission-check").
+					Obj(),
+			},
+			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
+				ControllerName(multikueue.ControllerName).
+				Active(metav1.ConditionTrue).
+				Obj(),
+			multiKueueEnabled: true,
+			wantManagedBy:     ptr.To("example.com/foo"),
 		},
 	}
 
