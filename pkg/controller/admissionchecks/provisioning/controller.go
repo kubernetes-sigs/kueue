@@ -504,7 +504,6 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 
 			prFailed := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Failed)
 			prProvisioned := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
-			prProvisionedFalse := apimeta.IsStatusConditionFalse(pr.Status.Conditions, autoscaling.Provisioned)
 			prAccepted := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Accepted)
 			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 				"check", check,
