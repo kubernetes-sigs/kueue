@@ -422,26 +422,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 
-		// emit admission check messages in an event for job
 		if workload.HasQuotaReservation(wl) {
-			message := ""
-			for _, check := range wl.Status.AdmissionChecks {
-				if check.State == kueue.CheckStatePending && check.Message != "" {
-					if message != "" {
-						message += "; "
-					}
-					message += "Admission check: \"" + check.Name + "\", Message: \"" + check.Message + "\""
-				}
-			}
-			if message != "" {
-				if cJob, isComposable := job.(ComposableJob); isComposable {
-					cJob.ForEach(func(obj runtime.Object) {
-						r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedWorkload, message)
-					})
-				} else {
-					r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedWorkload, message)
-				}
-			}
+			r.recordAdmissionCheckUpdate(wl, job)
 		}
 		// update queue name if changed.
 		q := QueueName(job)
@@ -482,6 +464,28 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// workload is admitted and job is running, nothing to do.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job GenericJob) {
+	message := ""
+	object := job.Object()
+	for _, check := range wl.Status.AdmissionChecks {
+		if check.State == kueue.CheckStatePending && check.Message != "" {
+			if message != "" {
+				message += "; "
+			}
+			message += "Admission check: \"" + check.Name + "\", Message: \"" + check.Message + "\""
+		}
+	}
+	if message != "" {
+		if cJob, isComposable := job.(ComposableJob); isComposable {
+			cJob.ForEach(func(obj runtime.Object) {
+				r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedWorkload, message)
+			})
+		} else {
+			r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedWorkload, message)
+		}
+	}
 }
 
 // IsParentJobManaged checks whether the parent job is managed by kueue.
