@@ -224,11 +224,20 @@ func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] 
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) GetAdmissionCheck(name string) (AdmissionCheck, bool) {
+func (c *Cache) AdmissionChecksForClusterQueue(cqName string) []AdmissionCheck {
 	c.RLock()
 	defer c.RUnlock()
-	ac, ok := c.admissionChecks[name]
-	return ac, ok
+	cq, ok := c.clusterQueues[cqName]
+	if !ok || len(cq.AdmissionChecks) == 0 {
+		return nil
+	}
+	acs := make([]AdmissionCheck, 0, len(cq.AdmissionChecks))
+	for acName := range cq.AdmissionChecks {
+		if ac, ok := c.admissionChecks[acName]; ok {
+			acs = append(acs, ac)
+		}
+	}
+	return acs
 }
 
 func (c *Cache) ClusterQueueActive(name string) bool {
@@ -379,7 +388,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	metrics.ClearCacheMetrics(cq.Name)
 }
 
-func (c *Cache) GetClusterQueue(name string) (*ClusterQueue, bool) {
+func (c *Cache) ClusterQueue(name string) (*ClusterQueue, bool) {
 	c.RLock()
 	defer c.RUnlock()
 	cq, ok := c.clusterQueues[name]

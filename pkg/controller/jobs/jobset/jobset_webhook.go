@@ -77,15 +77,7 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		if err != nil {
 			return err
 		}
-		clusterQueue, found := w.cache.GetClusterQueue(clusterQueueName)
-		if !found {
-			return nil
-		}
-		for admissionCheckName := range clusterQueue.AdmissionChecks {
-			admissionCheck, ok := w.cache.GetAdmissionCheck(admissionCheckName)
-			if !ok {
-				continue
-			}
+		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
 			if admissionCheck.Controller == multikueue.ControllerName {
 				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", multikueue.ControllerName)
 				jobSet.Spec.ManagedBy = ptr.To(multikueue.ControllerName)

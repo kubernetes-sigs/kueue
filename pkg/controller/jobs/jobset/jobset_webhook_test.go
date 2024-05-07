@@ -263,6 +263,28 @@ func TestDefault(t *testing.T) {
 			multiKueueEnabled: true,
 			wantManagedBy:     ptr.To("example.com/foo"),
 		},
+		{
+			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",
+			jobSet: &jobset.JobSet{
+				ObjectMeta: ctrl.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "local-queue",
+					},
+					Namespace: "default",
+				},
+			},
+			queues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("local-queue", "default").
+					ClusterQueue("cluster-queue").
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("cluster-queue").
+					Obj(),
+			},
+			multiKueueEnabled: true,
+			wantManagedBy:     nil,
+		},
 	}
 
 	for _, tc := range testCases {
