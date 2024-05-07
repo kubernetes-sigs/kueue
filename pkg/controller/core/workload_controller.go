@@ -182,6 +182,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if requeueAfter > 0 {
 					return reconcile.Result{RequeueAfter: requeueAfter}, nil
 				}
+				if wl.Status.RequeueState != nil {
+					wl.Status.RequeueState.RequeueAt = nil
+				}
 				workload.SetRequeuedCondition(&wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true)
 				updated = true
 			}
@@ -190,6 +193,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if updated {
 			return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		}
+	} else if !workload.IsEvictedByDeactivation(&wl) {
+		workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByDeactivation, "The workload is deactivated")
+		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
+			return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
+		}
+		return ctrl.Result{}, nil
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)

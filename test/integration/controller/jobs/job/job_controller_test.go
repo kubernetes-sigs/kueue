@@ -2003,6 +2003,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 				g.Expect(createdJob.Status.Ready).ShouldNot(gomega.BeNil())
 				g.Expect(*createdJob.Status.Ready).Should(gomega.Equal(int32(1)))
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(ptr.To[int32](1)))
+				g.Expect(wl.Status.RequeueState.RequeueAt).Should(gomega.BeNil())
 				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,

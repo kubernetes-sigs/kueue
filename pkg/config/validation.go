@@ -19,11 +19,13 @@ package config
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/labels"
+	apimachineryvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -42,6 +44,7 @@ var (
 	namespaceSelectorPath      = podOptionsPath.Child("namespaceSelector")
 	waitForPodsReadyPath       = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath      = waitForPodsReadyPath.Child("requeuingStrategy")
+	multiKueuePath             = field.NewPath("multiKueue")
 )
 
 func validate(c *configapi.Configuration) field.ErrorList {
@@ -54,6 +57,28 @@ func validate(c *configapi.Configuration) field.ErrorList {
 	// Validate PodNamespaceSelector for the pod framework
 	allErrs = append(allErrs, validateIntegrations(c)...)
 
+	allErrs = append(allErrs, validateMultiKueue(c)...)
+
+	return allErrs
+}
+
+func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.MultiKueue != nil {
+		if c.MultiKueue.GCInterval != nil && c.MultiKueue.GCInterval.Duration < 0 {
+			allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("gcInterval"),
+				c.MultiKueue.GCInterval.Duration, constants.IsNegativeErrorMsg))
+		}
+		if c.MultiKueue.WorkerLostTimeout != nil && c.MultiKueue.WorkerLostTimeout.Duration < 0 {
+			allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("workerLostTimeout"),
+				c.MultiKueue.WorkerLostTimeout.Duration, constants.IsNegativeErrorMsg))
+		}
+		if c.MultiKueue.Origin != nil {
+			if errs := apimachineryvalidation.IsValidLabelValue(*c.MultiKueue.Origin); len(errs) != 0 {
+				allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("origin"), *c.MultiKueue.Origin, strings.Join(errs, ",")))
+			}
+		}
+	}
 	return allErrs
 }
 
