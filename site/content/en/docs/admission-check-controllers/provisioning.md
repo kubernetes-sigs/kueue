@@ -37,8 +37,8 @@ Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/ap
 
 ### Setup
 
-{{< include "/examples/provisioning/provisioning-setup.yaml" "yaml" >}}
+{{< include "examples/provisioning/provisioning-setup.yaml" "yaml" >}}
 
 ### Job using a ProvisioningRequest
 
-{{< include "/examples/provisioning/sample-job.yaml" "yaml" >}}
+{{< include "examples/provisioning/sample-job.yaml" "yaml" >}}
