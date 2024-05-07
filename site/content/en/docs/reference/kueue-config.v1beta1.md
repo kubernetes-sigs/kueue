@@ -443,7 +443,7 @@ with the incoming workload is strictly less than the share of the preemptee CQ.
 This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
 newest start time first.
-The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;].</li>
+The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].</li>
 </ul>
 </td>
 </tr>

@@ -1651,7 +1651,6 @@ func TestFairPreemptions(t *testing.T) {
 		},
 		"preempt from target and others even if over nominal": {
 			clusterQueues: baseCQs,
-			strategies:    []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare, config.LessThanInitialShare},
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("a1_low", "").Priority(-1).Request(corev1.ResourceCPU, "2").SimpleReserveQuota("a", "default", now).Obj(),
 				*utiltesting.MakeWorkload("a2_low", "").Priority(-1).Request(corev1.ResourceCPU, "1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -1664,7 +1663,6 @@ func TestFairPreemptions(t *testing.T) {
 		},
 		"prefer to preempt workloads that don't make the target CQ have the biggest share": {
 			clusterQueues: baseCQs,
-			strategies:    []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare, config.LessThanInitialShare},
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
 				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("b", "default", now).Obj(),
@@ -1678,7 +1676,6 @@ func TestFairPreemptions(t *testing.T) {
 		},
 		"preempt from different cluster queues if the end result has a smaller max share": {
 			clusterQueues: baseCQs,
-			strategies:    []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare, config.LessThanInitialShare},
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
 				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "2.5").SimpleReserveQuota("b", "default", now).Obj(),
@@ -1691,7 +1688,6 @@ func TestFairPreemptions(t *testing.T) {
 		},
 		"scenario above does not flap": {
 			clusterQueues: baseCQs,
-			strategies:    []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare, config.LessThanInitialShare},
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "3.5").SimpleReserveQuota("a", "default", now).Obj(),
 				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "2.5").SimpleReserveQuota("b", "default", now).Obj(),
@@ -1702,7 +1698,6 @@ func TestFairPreemptions(t *testing.T) {
 		},
 		"cannot preempt if it would make the candidate CQ go under nominal after preempting one element": {
 			clusterQueues: baseCQs,
-			strategies:    []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare, config.LessThanInitialShare},
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
 				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),

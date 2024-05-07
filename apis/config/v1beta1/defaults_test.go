@@ -571,7 +571,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:       defaultMultiKueue,
 				FairSharing: &FairSharing{
 					Enable:               true,
-					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare},
+					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare},
 				},
 			},
 		},

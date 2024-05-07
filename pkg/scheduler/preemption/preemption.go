@@ -288,19 +288,19 @@ func lessThanInitialShare(preemptorNewShare, preempteeOldShare, _ int) bool {
 // This function takes advantage of the properties of the preemption algorithm and the strategies.
 // The number of functions returned might not match the input slice.
 func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
-	result := []fsStrategy{lessThanOrEqualToFinalShare}
 	if len(s) == 0 {
-		return result
+		return []fsStrategy{lessThanOrEqualToFinalShare, lessThanInitialShare}
 	}
-	if s[0] == config.LessThanInitialShare {
-		result[0] = lessThanInitialShare
-		// This rule is a superset of the other rule, no need to check other strategies.
-		return result
+	strategies := make([]fsStrategy, len(s))
+	for i, strategy := range s {
+		switch strategy {
+		case config.LessThanOrEqualToFinalShare:
+			strategies[i] = lessThanOrEqualToFinalShare
+		case config.LessThanInitialShare:
+			strategies[i] = lessThanInitialShare
+		}
 	}
-	if len(s) == 1 {
-		return result
-	}
-	return append(result, lessThanInitialShare)
+	return strategies
 }
 
 func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*workload.Info {
@@ -359,8 +359,8 @@ func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner
 
 		for cqHeap.Len() > 0 && !fits {
 			candCQ := cqHeap.Pop()
-			// We can only reach here if the second strategy is LessThanInitialShare, in which
-			// case the last parameter for the strategy function is irrelevant.
+			// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
+			// in which case the last parameter for the strategy function is irrelevant.
 			if p.fsStrategies[1](newNominatedShareValue, candCQ.share, 0) {
 				// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
 				candWl := candCQ.workloads[0]

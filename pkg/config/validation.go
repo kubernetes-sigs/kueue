@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unsafe"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/sets"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
@@ -177,6 +177,31 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
+var (
+	validStrategySets = [][]configapi.PreemptionStrategy{
+		{
+			configapi.LessThanOrEqualToFinalShare,
+		},
+		{
+			configapi.LessThanInitialShare,
+		},
+		{
+			configapi.LessThanOrEqualToFinalShare,
+			configapi.LessThanInitialShare,
+		},
+	}
+
+	validStrategySetsStr = func() []string {
+		var ss []string
+		for _, s := range validStrategySets {
+			// Casting because strings.Join requires a slice of strings
+			strategies := *(*[]string)(unsafe.Pointer(&s))
+			ss = append(ss, strings.Join(strategies, ","))
+		}
+		return ss
+	}()
+)
+
 func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 	fs := c.FairSharing
 	if fs == nil {
@@ -186,17 +211,17 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 	if !fs.Enable && len(fs.PreemptionStrategies) != 0 {
 		allErrs = append(allErrs, field.Invalid(fsPreemptionStrategiesPath, fs.PreemptionStrategies, "Must be empty when fair sharing is disabled"))
 	}
-	strategies := sets.New[configapi.PreemptionStrategy]()
-	validStrategies := []configapi.PreemptionStrategy{configapi.LessThanInitialShare, configapi.LessThanOrEqualToFinalShare}
-	for i, s := range fs.PreemptionStrategies {
-		path := fsPreemptionStrategiesPath.Index(i)
-		if !slices.Contains(validStrategies, s) {
-			allErrs = append(allErrs, field.NotSupported(path, s, validStrategies))
+	if len(fs.PreemptionStrategies) > 0 {
+		validStrategy := false
+		for _, s := range validStrategySets {
+			if slices.Equal(s, fs.PreemptionStrategies) {
+				validStrategy = true
+				break
+			}
 		}
-		if strategies.Has(s) {
-			allErrs = append(allErrs, field.Duplicate(path, s))
+		if !validStrategy {
+			allErrs = append(allErrs, field.NotSupported(fsPreemptionStrategiesPath, fs.PreemptionStrategies, validStrategySetsStr))
 		}
-		strategies.Insert(s)
 	}
 	return allErrs
 }

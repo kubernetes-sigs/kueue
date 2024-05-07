@@ -363,7 +363,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"Unknown and duplicated preemption strategies": {
+		"unsupported preemption strategy": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				FairSharing: &configapi.FairSharing{
@@ -374,11 +374,7 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeNotSupported,
-					Field: "fairSharing.preemptionStrategies[1]",
-				},
-				&field.Error{
-					Type:  field.ErrorTypeDuplicate,
-					Field: "fairSharing.preemptionStrategies[3]",
+					Field: "fairSharing.preemptionStrategies",
 				},
 			},
 		},
