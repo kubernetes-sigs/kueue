@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.BeComparableTo(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  "Inadmissible",
+					Reason:  kueue.WorkloadInadmissible,
 					Message: message,
 				}, util.IgnoreConditionTimestampsAndObservedGeneration),
 			)
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.BeComparableTo(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  "Inadmissible",
+					Reason:  kueue.WorkloadInadmissible,
 					Message: message,
 				}, util.IgnoreConditionTimestampsAndObservedGeneration),
 			)
@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.BeComparableTo(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  "Inadmissible",
+					Reason:  kueue.WorkloadInadmissible,
 					Message: message,
 				}, util.IgnoreConditionTimestampsAndObservedGeneration),
 			)

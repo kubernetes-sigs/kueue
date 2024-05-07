@@ -331,6 +331,10 @@ const (
 )
 
 const (
+	// WorkloadInadmissible means that the Workload can't reserve quota
+	// due to LocalQueue or ClusterQueue doesn't exist or inactive.
+	WorkloadInadmissible = "Inadmissible"
+
 	// WorkloadEvictedByPreemption indicates that the workload was evicted
 	// in order to free resources for a workload with a higher priority.
 	WorkloadEvictedByPreemption = "Preempted"
@@ -347,6 +351,10 @@ const (
 	// because the ClusterQueue is Stopped.
 	WorkloadEvictedByClusterQueueStopped = "ClusterQueueStopped"
 
+	// WorkloadEvictedByLocalQueueStopped indicates that the workload was evicted
+	// because the LocalQueue is Stopped.
+	WorkloadEvictedByLocalQueueStopped = "LocalQueueStopped"
+
 	// WorkloadEvictedByDeactivation indicates that the workload was evicted
 	// because spec.active is set to false.
 	WorkloadEvictedByDeactivation = "InactiveWorkload"
@@ -362,6 +370,10 @@ const (
 	// WorkloadClusterQueueRestarted indicates that the workload was requeued because
 	// cluster queue was restarted after being stopped.
 	WorkloadClusterQueueRestarted = "ClusterQueueRestarted"
+
+	// WorkloadLocalQueueRestarted indicates that the workload was requeued because
+	// local queue was restarted after being stopped.
+	WorkloadLocalQueueRestarted = "LocalQueueRestarted"
 )
 
 const (

@@ -25,6 +25,7 @@ import (
 // with apply.
 type LocalQueueSpecApplyConfiguration struct {
 	ClusterQueue *v1beta1.ClusterQueueReference `json:"clusterQueue,omitempty"`
+	StopPolicy   *v1beta1.StopPolicy            `json:"stopPolicy,omitempty"`
 }
 
 // LocalQueueSpecApplyConfiguration constructs an declarative configuration of the LocalQueueSpec type for use with
@@ -38,5 +39,13 @@ func LocalQueueSpec() *LocalQueueSpecApplyConfiguration {
 // If called multiple times, the ClusterQueue field is set to the value of the last call.
 func (b *LocalQueueSpecApplyConfiguration) WithClusterQueue(value v1beta1.ClusterQueueReference) *LocalQueueSpecApplyConfiguration {
 	b.ClusterQueue = &value
+	return b
+}
+
+// WithStopPolicy sets the StopPolicy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StopPolicy field is set to the value of the last call.
+func (b *LocalQueueSpecApplyConfiguration) WithStopPolicy(value v1beta1.StopPolicy) *LocalQueueSpecApplyConfiguration {
+	b.StopPolicy = &value
 	return b
 }

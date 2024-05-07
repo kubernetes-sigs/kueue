@@ -759,6 +759,30 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"should set the WorkloadRequeued condition to true on LocalQueue started": {
+			cq: utiltesting.MakeClusterQueue("cq").Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByLocalQueueStopped,
+					Message: "The LocalQueue is stopped",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadLocalQueueRestarted,
+					Message: "The LocalQueue was restarted after being stopped",
+				}).
+				Obj(),
+		},
 		"should set the Evicted condition with InactiveWorkload reason when the .spec.active=False": {
 			workload: utiltesting.MakeWorkload("wl", "ns").Active(false).Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
@@ -918,6 +942,245 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"should set the Evicted condition with ClusterQueueStopped reason when the StopPolicy is HoldAndDrain": {
+			cq: utiltesting.MakeClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				Admitted(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				Admitted(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
+					Message: "The ClusterQueue is stopped",
+				}).
+				Obj(),
+		},
+		"should set the Evicted condition with LocalQueueStopped reason when the StopPolicy is HoldAndDrain": {
+			cq: utiltesting.MakeClusterQueue("cq").Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				Admitted(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				Admitted(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByLocalQueueStopped,
+					Message: "The LocalQueue is stopped",
+				}).
+				Obj(),
+		},
+		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was deleted": {
+			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is terminating or missing",
+				}).
+				Obj(),
+		},
+		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
+			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is stopped",
+				}).
+				Obj(),
+		},
+		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was deleted": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is terminating or missing",
+				}).
+				Obj(),
+		},
+		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was Hold": {
+			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is stopped",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved LocalQueue is not created": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq doesn't exist",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved LocalQueue StopPolicy=Hold": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").StopPolicy(kueue.Hold).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is inactive",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved LocalQueue StopPolicy=HoldAndDrain": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").StopPolicy(kueue.HoldAndDrain).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is inactive",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved ClusterQueue is not created": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq doesn't exist",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved ClusterQueue StopPolicy=Hold": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is inactive",
+				}).
+				Obj(),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -942,6 +1205,12 @@ func TestReconcile(t *testing.T) {
 				}
 				if err := qManager.AddClusterQueue(ctx, tc.cq); err != nil {
 					t.Errorf("couldn't add the cluster queue to the cache: %v", err)
+				}
+			}
+
+			if tc.lq != nil {
+				if err := cl.Create(ctx, tc.lq); err != nil {
+					t.Errorf("couldn't create the local queue: %v", err)
 				}
 				if err := qManager.AddLocalQueue(ctx, tc.lq); err != nil {
 					t.Errorf("couldn't add the local queue to the cache: %v", err)
