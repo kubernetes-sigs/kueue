@@ -118,7 +118,8 @@ workload pods - [KEP #1145](https://github.com/kubernetes-sigs/kueue/blob/main/k
   - `Failed=true` controller should retry AdmissionCheck with respect to the `RetryConfig` configuration, or mark the AdmissionCheck as `Rejected`
   - `BookingExpired=true` if a Workload is not `Admitted` controller should act the same as for `Failed=true`.
   - `CapacityRevoked=true` if a Workload is not `Finished` controller should mark it as `Inactive`, which will evict it.
-    Additionally, an event should be emitted to signalize this happening.
+    Additionally, an event should be emitted to signalize this happening. This can happen only if a user uses `batch.v1/Job` and
+    sets `.spec.backOffLimit > 0`.
 
 * Watch the admission of the workload - if it is again suspended or finished,
 the provisioning request should also be deleted (the last one can be achieved via
