@@ -50,6 +50,6 @@ integrations:
 #       - key: kubernetes.io/metadata.name
 #         operator: NotIn
 #         values: [ kube-system, kueue-system ]
-fairSharing:
-  enable: true
-  preemptionStrategies: [LessThanOrEqualToFinalShare]
+# fairSharing:
+#   enable: true
+#   preemptionStrategies: [LessThanOrEqualToFinalShare]
