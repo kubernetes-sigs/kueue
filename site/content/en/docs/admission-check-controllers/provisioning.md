@@ -55,8 +55,8 @@ Once Kueue creates a ProvisioningRequest for the job you submitted, modifying th
 
 ### Setup
 
-{{< include "/examples/provisioning/provisioning-setup.yaml" "yaml" >}}
+{{< include "examples/provisioning/provisioning-setup.yaml" "yaml" >}}
 
 ### Job using a ProvisioningRequest
 
-{{< include "/examples/provisioning/sample-job.yaml" "yaml" >}}
+{{< include "examples/provisioning/sample-job.yaml" "yaml" >}}
