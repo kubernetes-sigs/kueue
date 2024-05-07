@@ -110,25 +110,17 @@ func calculateMainContainersResources(containers []corev1.Container) corev1.Reso
 }
 
 func calculateInitContainersResources(initContainers []corev1.Container) corev1.ResourceList {
-	incrementalSum := calculateSidecarContainersIncrementalSum(initContainers)
-	total := corev1.ResourceList{}
+	maxInitContainerUsage := corev1.ResourceList{}
+	sidecarRunningUsage := corev1.ResourceList{}
 	for i := range initContainers {
-		initContainerUse := resource.MergeResourceListKeepSum(incrementalSum[i], initContainers[i].Resources.Requests)
-		total = resource.MergeResourceListKeepMax(total, initContainerUse)
-	}
-	return total
-}
-
-func calculateSidecarContainersIncrementalSum(initContainers []corev1.Container) []corev1.ResourceList {
-	results := make([]corev1.ResourceList, len(initContainers))
-	lastResult := corev1.ResourceList{}
-	for i := 1; i < len(initContainers); i++ {
-		if isSidecarContainer(initContainers[i-1]) {
-			lastResult = resource.MergeResourceListKeepSum(results[i-1], initContainers[i-1].Resources.Requests)
+		if isSidecarContainer(initContainers[i]) {
+			sidecarRunningUsage = resource.MergeResourceListKeepSum(sidecarRunningUsage, initContainers[i].Resources.Requests)
+		} else {
+			initContainerUse := resource.MergeResourceListKeepSum(initContainers[i].Resources.Requests, sidecarRunningUsage)
+			maxInitContainerUsage = resource.MergeResourceListKeepMax(maxInitContainerUsage, initContainerUse)
 		}
-		results[i] = lastResult
 	}
-	return results
+	return maxInitContainerUsage
 }
 
 func calculateSidecarContainersResources(initContainers []corev1.Container) corev1.ResourceList {
