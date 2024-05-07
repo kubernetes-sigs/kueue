@@ -396,7 +396,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,
 							Status:  metav1.ConditionFalse,
-							Reason:  "NoReservationNoChecks",
+							Reason:  "NoReservationUnsatisfiedChecks",
 							Message: "The workload has no reservation and not all checks ready",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
