@@ -504,6 +504,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 
 			prFailed := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Failed)
 			prProvisioned := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
+			prProvisionedFalse := apimeta.IsStatusConditionFalse(pr.Status.Conditions, autoscaling.Provisioned)
 			prAccepted := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Accepted)
 			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 				"check", check,
@@ -533,7 +534,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 					checkState.PodSetUpdates = podSetUpdates(wl, pr)
 					updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
 				}
-			case prAccepted:
+			case prAccepted && prProvisionedFalse:
 				// we propagate the message from the provisioning request status into the workload
 				// this happens for provisioned = false (ETA updates) and also for provisioned = true
 				// to change to the "successfully provisioned" message after provisioning
