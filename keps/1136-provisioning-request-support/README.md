@@ -116,9 +116,10 @@ will also need to watch `ProvisioningRequestConfigs`.
   - `Provisioned=true` controller should mark the AdmissionCheck as `Ready` and propagate the information about `ProvisioningRequest` name to
 workload pods - [KEP #1145](https://github.com/kubernetes-sigs/kueue/blob/main/keps/1145-additional-labels/kep.yaml) under `"cluster-autoscaler.kubernetes.io/consume-provisioning-request"`.
   - `Failed=true` controller should retry AdmissionCheck with respect to the `RetryConfig` configuration, or mark the AdmissionCheck as `Rejected`
-  - `BookingExpired=true` if a Workload is not `Admitted` controller should act the same as for `Failed=true`.
-  - `CapacityRevoked=true` if a Workload is not `Finished` controller should mark it as `Inactive`, which will evict it.
-    Additionally, an event should be emitted to signalize this happening. This can happen only if a user uses `batch.v1/Job` and
+  - `BookingExpired=true` if a Workload is not `Admitted`, the controller should act the same as for `Failed=true`.
+  - `CapacityRevoked=true` if a Workload is not `Finished`, the controller should mark it as `Inactive`, which will evict it.
+    Additionally, an event should be emitted to signalize this happening. This can happen only if the job
+    allows for retries, for example, in the case of `batch.v1/Job`, when the user
     sets `.spec.backOffLimit > 0`.
 
 * Watch the admission of the workload - if it is again suspended or finished,
