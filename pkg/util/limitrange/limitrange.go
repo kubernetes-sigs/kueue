@@ -81,23 +81,60 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 }
 
 // TotalRequests computes the total resource requests of a pod.
-// total = sum(max(sum(.containers[].requests), initContainers[].requests), overhead)
+//
+//	total = Max( Max(each InitContainerUse) , Sum(SidecarContainers) + Sum(Containers) ) + pod overhead
+//
+// where:
+//
+//	InitContainerUse(i) = Sum(SidecarContainers with index < i) + InitContainer(i)
 func TotalRequests(ps *corev1.PodSpec) corev1.ResourceList {
-	total := corev1.ResourceList{}
+	sumContainers := calculateMainContainersResources(ps.Containers)
+	maxInitContainers := calculateInitContainersResources(ps.InitContainers)
+	sumSidecarContainers := calculateSidecarContainersResources(ps.InitContainers)
 
-	// add the resource from the main containers
-	for i := range ps.Containers {
-		total = resource.MergeResourceListKeepSum(total, ps.Containers[i].Resources.Requests)
-	}
-
-	// take into account the maximum of any init containers
-	for i := range ps.InitContainers {
-		total = resource.MergeResourceListKeepMax(total, ps.InitContainers[i].Resources.Requests)
-	}
-
+	total := resource.MergeResourceListKeepMax(
+		maxInitContainers,
+		resource.MergeResourceListKeepSum(sumSidecarContainers, sumContainers),
+	)
 	// add the overhead
 	total = resource.MergeResourceListKeepSum(total, ps.Overhead)
 	return total
+}
+
+func calculateMainContainersResources(containers []corev1.Container) corev1.ResourceList {
+	total := corev1.ResourceList{}
+	for i := range containers {
+		total = resource.MergeResourceListKeepSum(total, containers[i].Resources.Requests)
+	}
+	return total
+}
+
+func calculateInitContainersResources(initContainers []corev1.Container) corev1.ResourceList {
+	maxInitContainerUsage := corev1.ResourceList{}
+	sidecarRunningUsage := corev1.ResourceList{}
+	for i := range initContainers {
+		if isSidecarContainer(initContainers[i]) {
+			sidecarRunningUsage = resource.MergeResourceListKeepSum(sidecarRunningUsage, initContainers[i].Resources.Requests)
+		} else {
+			initContainerUse := resource.MergeResourceListKeepSum(initContainers[i].Resources.Requests, sidecarRunningUsage)
+			maxInitContainerUsage = resource.MergeResourceListKeepMax(maxInitContainerUsage, initContainerUse)
+		}
+	}
+	return maxInitContainerUsage
+}
+
+func calculateSidecarContainersResources(initContainers []corev1.Container) corev1.ResourceList {
+	total := corev1.ResourceList{}
+	for i := range initContainers {
+		if isSidecarContainer(initContainers[i]) {
+			total = resource.MergeResourceListKeepSum(total, initContainers[i].Resources.Requests)
+		}
+	}
+	return total
+}
+
+func isSidecarContainer(container corev1.Container) bool {
+	return container.RestartPolicy != nil && *container.RestartPolicy == corev1.ContainerRestartPolicyAlways
 }
 
 // ValidatePodSpec verifies if the provided podSpec (ps) first into the boundaries of the summary (s).
