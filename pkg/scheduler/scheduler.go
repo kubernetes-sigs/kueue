@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/field"
@@ -51,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/routine"
+	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -125,7 +125,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 func (s *Scheduler) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
-	go wait.UntilWithContext(ctx, s.schedule, 0)
+	go wait.UntilWithBackoff(ctx, s.schedule)
 	return nil
 }
 
@@ -180,7 +180,7 @@ func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assignment cache
 	return false
 }
 
-func (s *Scheduler) schedule(ctx context.Context) {
+func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log := ctrl.LoggerFrom(ctx)
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
@@ -188,7 +188,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	headWorkloads := s.queues.Heads(ctx)
 	// If there are no elements, it means that the program is finishing.
 	if len(headWorkloads) == 0 {
-		return
+		return wait.SlowDown{}
 	}
 	startTime := time.Now()
 
@@ -295,6 +295,10 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		}
 	}
 	metrics.AdmissionAttempt(result, time.Since(startTime))
+	if result != metrics.AdmissionResultSuccess {
+		return wait.SlowDown{}
+	}
+	return wait.KeepGoing{}
 }
 
 type entryStatus string
