@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unsafe"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,6 +46,7 @@ var (
 	waitForPodsReadyPath       = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath      = waitForPodsReadyPath.Child("requeuingStrategy")
 	multiKueuePath             = field.NewPath("multiKueue")
+	fsPreemptionStrategiesPath = field.NewPath("fairSharing", "preemptionStrategies")
 )
 
 func validate(c *configapi.Configuration) field.ErrorList {
@@ -58,7 +60,7 @@ func validate(c *configapi.Configuration) field.ErrorList {
 	allErrs = append(allErrs, validateIntegrations(c)...)
 
 	allErrs = append(allErrs, validateMultiKueue(c)...)
-
+	allErrs = append(allErrs, validateFairSharing(c)...)
 	return allErrs
 }
 
@@ -172,5 +174,51 @@ func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
 		}
 	}
 
+	return allErrs
+}
+
+var (
+	validStrategySets = [][]configapi.PreemptionStrategy{
+		{
+			configapi.LessThanOrEqualToFinalShare,
+		},
+		{
+			configapi.LessThanInitialShare,
+		},
+		{
+			configapi.LessThanOrEqualToFinalShare,
+			configapi.LessThanInitialShare,
+		},
+	}
+
+	validStrategySetsStr = func() []string {
+		var ss []string
+		for _, s := range validStrategySets {
+			// Casting because strings.Join requires a slice of strings
+			strategies := *(*[]string)(unsafe.Pointer(&s))
+			ss = append(ss, strings.Join(strategies, ","))
+		}
+		return ss
+	}()
+)
+
+func validateFairSharing(c *configapi.Configuration) field.ErrorList {
+	fs := c.FairSharing
+	if fs == nil {
+		return nil
+	}
+	var allErrs field.ErrorList
+	if len(fs.PreemptionStrategies) > 0 {
+		validStrategy := false
+		for _, s := range validStrategySets {
+			if slices.Equal(s, fs.PreemptionStrategies) {
+				validStrategy = true
+				break
+			}
+		}
+		if !validStrategy {
+			allErrs = append(allErrs, field.NotSupported(fsPreemptionStrategiesPath, fs.PreemptionStrategies, validStrategySetsStr))
+		}
+	}
 	return allErrs
 }

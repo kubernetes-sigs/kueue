@@ -133,6 +133,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		ResourceGroups:                c.ResourceGroups, // Shallow copy is enough.
 		RGByResource:                  c.RGByResource,   // Shallow copy is enough.
 		FlavorFungibility:             c.FlavorFungibility,
+		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
 		Usage:                         make(FlavorResourceQuantities, len(c.Usage)),
 		Lendable:                      maps.Clone(c.Lendable),

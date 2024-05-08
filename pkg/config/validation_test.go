@@ -349,6 +349,30 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"unsupported preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					Enable:               true,
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, "UNKNOWN", configapi.LessThanInitialShare, configapi.LessThanOrEqualToFinalShare},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "fairSharing.preemptionStrategies",
+				},
+			},
+		},
+		"valid preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					Enable:               true,
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, configapi.LessThanInitialShare},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
