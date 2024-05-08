@@ -267,7 +267,7 @@ func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, 
 		return
 	}
 
-	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
+	if err := m.queue(ctx, mkc, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on create event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
