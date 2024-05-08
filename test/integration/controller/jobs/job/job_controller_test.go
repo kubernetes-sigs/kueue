@@ -2004,7 +2004,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 				g.Expect(*createdJob.Status.Ready).Should(gomega.Equal(int32(1)))
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
-				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(ptr.To[int32](1)))
+				// Assert count>0 since the workload may get requeued and evicted
+				// more than once before we mark the Job status as ready.
+				g.Expect(ptr.Deref(wl.Status.RequeueState.Count, 0)).Should(gomega.BeNumerically(">", 0))
 				g.Expect(wl.Status.RequeueState.RequeueAt).Should(gomega.BeNil())
 				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
 					gomega.BeComparableTo(metav1.Condition{
