@@ -222,18 +222,19 @@ performance-scheduler-runner:
 
 MINIMALKUEUE_RUNNER := $(PROJECT_DIR)/bin/minimalkueue
 .PHONY: minimalkueue
-minimalkueue: 
+minimalkueue:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MINIMALKUEUE_RUNNER) test/performance/scheduler/minimalkueue/main.go
 
 ifdef SCALABILITY_CPU_PROFILE
 SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
 endif
 
-ifdef SCALABILITY_KUEUE_LOGS
+ifndef NO_SCALABILITY_KUEUE_LOGS
 SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
 endif
 
-ifdef SCALABILITY_SCRAPE_INTERVAL
+SCALABILITY_SCRAPE_INTERVAL ?= 5s
+ifndef NO_SCALABILITY_SCRAPE
 SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeInterval=$(SCALABILITY_SCRAPE_INTERVAL)
 endif
 
