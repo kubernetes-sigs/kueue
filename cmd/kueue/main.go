@@ -215,7 +215,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	}
 
 	opts := []jobframework.Option{
-		jobframework.WithEnabledFrameworks(cfg.Integrations),
+		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
 	}
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
@@ -266,7 +266,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
 		jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions),
-		jobframework.WithEnabledFrameworks(cfg.Integrations),
+		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
 		jobframework.WithEnabledExternalFrameworks(cfg.Integrations.ExternalFrameworks),
 		jobframework.WithManagerName(constants.KueueName),
 		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
