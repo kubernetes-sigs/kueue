@@ -134,6 +134,19 @@ The label 'result' can have the following values:
 		}, []string{"cluster_queue"},
 	)
 
+	EvictedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evicted_workloads_total",
+			Help: `The number of evicted workloads per 'cluster_queue',
+The label 'reason' can have the following values:
+- "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.
+- "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.
+- "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.
+- "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
+- "InactiveWorkload" means that the workload was evicted because spec.active is set to false`,
+		}, []string{"cluster_queue", "reason"},
+	)
+
 	// Metrics tied to the cache.
 
 	ReservingActiveWorkloads = prometheus.NewGaugeVec(
@@ -231,6 +244,10 @@ func ReportPendingWorkloads(cqName string, active, inadmissible int) {
 	PendingWorkloads.WithLabelValues(cqName, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
+func ReportEvictedWorkloads(cqName, reason string) {
+	EvictedWorkloadsTotal.WithLabelValues(cqName, reason).Inc()
+}
+
 func ClearQueueSystemMetrics(cqName string) {
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
@@ -239,6 +256,7 @@ func ClearQueueSystemMetrics(cqName string) {
 	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
 	admissionWaitTime.DeleteLabelValues(cqName)
 	admissionChecksWaitTime.DeleteLabelValues(cqName)
+	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
@@ -341,6 +359,7 @@ func Register() {
 		QuotaReservedWorkloadsTotal,
 		quotaReservedWaitTime,
 		AdmittedWorkloadsTotal,
+		EvictedWorkloadsTotal,
 		admissionWaitTime,
 		admissionChecksWaitTime,
 		ClusterQueueResourceUsage,
