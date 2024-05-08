@@ -52,4 +52,4 @@ integrations:
 #         values: [ kube-system, kueue-system ]
 # fairSharing:
 #   enable: true
-#   preemptionStrategies: [LessThanOrEqualToFinalShare]
+#   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]

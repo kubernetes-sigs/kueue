@@ -106,7 +106,7 @@ managerConfig:
     #         values: [ kube-system, kueue-system ]
     # fairSharing:
     #   enable: true
-    #   preemptionStrategies: [LessThanOrEqualToFinalShare]
+    #   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:

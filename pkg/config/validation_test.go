@@ -349,20 +349,6 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"preemption strategies when fair sharing is disabled": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-				FairSharing: &configapi.FairSharing{
-					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "fairSharing.preemptionStrategies",
-				},
-			},
-		},
 		"unsupported preemption strategy": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
