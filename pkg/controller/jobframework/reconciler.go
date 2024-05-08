@@ -469,10 +469,10 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	if message != "" {
 		if cJob, isComposable := job.(ComposableJob); isComposable {
 			cJob.ForEach(func(obj runtime.Object) {
-				r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedWorkload, message)
+				r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, message)
 			})
 		} else {
-			r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedWorkload, message)
+			r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, message)
 		}
 	}
 }
