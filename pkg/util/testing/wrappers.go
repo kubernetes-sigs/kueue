@@ -32,6 +32,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utilResource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
 // PriorityClassWrapper wraps a PriorityClass.
@@ -1028,4 +1029,40 @@ func (mkc *MultiKueueClusterWrapper) Active(state metav1.ConditionStatus, reason
 func (mkc *MultiKueueClusterWrapper) Generation(num int64) *MultiKueueClusterWrapper {
 	mkc.ObjectMeta.Generation = num
 	return mkc
+}
+
+// ContainerWrapper wraps a corev1.Container.
+type ContainerWrapper struct{ corev1.Container }
+
+// MakeContainer wraps a ContainerWrapper with an empty ResourceList.
+func MakeContainer() *ContainerWrapper {
+	return &ContainerWrapper{
+		corev1.Container{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{},
+			},
+		},
+	}
+}
+
+// Obj returns the inner corev1.Container.
+func (c *ContainerWrapper) Obj() *corev1.Container {
+	return &c.Container
+}
+
+// WithResourceReq appends a resource request to the container.
+func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, quantity string) *ContainerWrapper {
+	requests := utilResource.MergeResourceListKeepFirst(c.Container.Resources.Requests, corev1.ResourceList{
+		resourceName: resource.MustParse(quantity),
+	})
+	c.Container.Resources.Requests = requests
+
+	return c
+}
+
+// AsSidecar makes the container a sidecar when used as an Init Container.
+func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
+	c.Container.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
+
+	return c
 }

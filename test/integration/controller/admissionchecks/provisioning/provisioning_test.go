@@ -317,7 +317,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Namespace: wlKey.Namespace,
 				Name:      provisioning.GetProvisioningRequestName(wlKey.Name, ac.Name, 1),
 			}
-			ginkgo.By("Setting the provision request as Not Provisioned and providing ETA", func() {
+			ginkgo.By("Setting the provision request as Accepted", func() {
 				createdRequest := &autoscaling.ProvisioningRequest{}
 				gomega.Eventually(func() error {
 					err := k8sClient.Get(ctx, provReqKey, createdRequest)
@@ -329,6 +329,16 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						Status: metav1.ConditionTrue,
 						Reason: "Reason",
 					})
+					return k8sClient.Status().Update(ctx, createdRequest)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("Setting the provision request as Not Provisioned and providing ETA", func() {
+				createdRequest := &autoscaling.ProvisioningRequest{}
+				gomega.Eventually(func() error {
+					err := k8sClient.Get(ctx, provReqKey, createdRequest)
+					if err != nil {
+						return err
+					}
 					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
 						Type:    autoscaling.Provisioned,
 						Status:  metav1.ConditionFalse,
