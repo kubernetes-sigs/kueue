@@ -444,7 +444,7 @@ func TestFSWatchAddRm(t *testing.T) {
 			}
 
 			if tc.wantParentDirs != nil {
-				if diff := cmp.Diff(tc.wantParentDirs, w.parentDirs, cmpopts.EquateEmpty()); diff != "" {
+				if diff := cmp.Diff(tc.wantParentDirs, w.parentDirToFiles, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("unexpected parent dir(-want/+got):\n%s", diff)
 				}
 			}

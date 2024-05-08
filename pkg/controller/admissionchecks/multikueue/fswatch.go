@@ -41,19 +41,19 @@ type KubeConfigFSWatcher struct {
 	lock          sync.RWMutex
 	clusterToFile map[string]string
 	// a single file can be potentially used by multiple clusters
-	fileToClusters map[string]set.Set[string]
-	parentDirs     map[string]set.Set[string]
-	reconcile      chan event.GenericEvent
+	fileToClusters   map[string]set.Set[string]
+	parentDirToFiles map[string]set.Set[string]
+	reconcile        chan event.GenericEvent
 }
 
 var _ manager.Runnable = (*KubeConfigFSWatcher)(nil)
 
 func newKubeConfigFSWatcher() *KubeConfigFSWatcher {
 	return &KubeConfigFSWatcher{
-		clusterToFile:  map[string]string{},
-		fileToClusters: map[string]set.Set[string]{},
-		parentDirs:     map[string]set.Set[string]{},
-		reconcile:      make(chan event.GenericEvent),
+		clusterToFile:    map[string]string{},
+		fileToClusters:   map[string]set.Set[string]{},
+		parentDirToFiles: map[string]set.Set[string]{},
+		reconcile:        make(chan event.GenericEvent),
 	}
 }
 
@@ -68,7 +68,7 @@ func (w *KubeConfigFSWatcher) Start(ctx context.Context) error {
 	}
 
 	go func() {
-		log := ctrl.LoggerFrom(ctx).WithName("secret-fs-watcher")
+		log := ctrl.LoggerFrom(ctx).WithName("kubeconfig-fs-watcher")
 		defer func() {
 			err := w.watcher.Close()
 			if err != nil {
@@ -121,7 +121,7 @@ func (w *KubeConfigFSWatcher) set(cluster, kcPath string) error {
 	defer w.lock.Unlock()
 
 	dir := path.Dir(kcPath)
-	if _, found := w.parentDirs[dir]; !found {
+	if _, found := w.parentDirToFiles[dir]; !found {
 		err := w.watcher.Add(dir)
 		if err != nil {
 			return err
@@ -134,10 +134,10 @@ func (w *KubeConfigFSWatcher) set(cluster, kcPath string) error {
 	} else {
 		w.fileToClusters[kcPath] = set.New(cluster)
 	}
-	if _, found := w.parentDirs[dir]; found {
-		w.parentDirs[dir].Insert(kcPath)
+	if _, found := w.parentDirToFiles[dir]; found {
+		w.parentDirToFiles[dir].Insert(kcPath)
 	} else {
-		w.parentDirs[dir] = set.New(kcPath)
+		w.parentDirToFiles[dir] = set.New(kcPath)
 		return w.watcher.Add(dir)
 	}
 	return nil
@@ -160,10 +160,10 @@ func (w *KubeConfigFSWatcher) remove(cluster string) {
 	}
 
 	if file_removed {
-		if s, found := w.parentDirs[dir]; found {
+		if s, found := w.parentDirToFiles[dir]; found {
 			s.Delete(kcPath)
 			if s.Len() == 0 {
-				delete(w.parentDirs, dir)
+				delete(w.parentDirToFiles, dir)
 			}
 		}
 	}
@@ -176,7 +176,7 @@ func (w *KubeConfigFSWatcher) cleanOldWatchDirs() error {
 
 	var errs []error
 	for _, dir := range w.watcher.WatchList() {
-		if _, found := w.parentDirs[dir]; !found {
+		if _, found := w.parentDirToFiles[dir]; !found {
 			err := w.watcher.Remove(dir)
 			if err != nil {
 				errs = append(errs, err)
