@@ -70,8 +70,6 @@ The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-evi
 
 The JobSet looks like the following:
 
-### Single Cluster Environment
-
 ```yaml
 # jobset-sample.yaml
 apiVersion: jobset.x-k8s.io/v1alpha2
@@ -126,10 +124,10 @@ spec:
                     - 100s
 ```
 
-### MultiKueue Environment
-
+{{% alert title="Note" color="note" %}}
 The same `jobset-sample.yaml` file from [single cluster environment](#single-cluster-environment) can be used in a [MultiKueue environment](#multikueue-environment).
 The `spec.managedBy` field will be set to `kueue.x-k8s.io/multikueue` automatically, if not specified.
+{{% /alert %}}
 
 You can run this JobSet with the following commands:
 
