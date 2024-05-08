@@ -170,7 +170,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				{
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionFalse,
-					Reason:             "NoChecks",
+					Reason:             "UnsatisfiedChecks",
 					ObservedGeneration: 1,
 				},
 			},
@@ -197,7 +197,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				{
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionFalse,
-					Reason:             "NoReservationNoChecks",
+					Reason:             "NoReservationUnsatisfiedChecks",
 					ObservedGeneration: 1,
 				},
 			},
