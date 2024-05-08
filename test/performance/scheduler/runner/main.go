@@ -64,15 +64,15 @@ var (
 	burst           = flag.Int("burst", 0, "qps used by the runner clients, use default if 0")
 
 	// metrics scarping
-	metricsScrapeInterval = flag.Duration("metricsScrapeInterval", 0, "the duration between two metrics scraping, if 0 the metrics scraping is disabled")
+	metricsScrapeInterval = flag.Duration("metricsScrapeInterval", 5*time.Second, "the duration between two metrics scraping, if 0 the metrics scraping is disabled")
 	metricsScrapeURL      = flag.String("metricsScrapeURL", "", "the URL to scrape metrics from, ignored when minimal kueue is used")
 
 	// related to minimalkueue
 	minimalKueuePath = flag.String("minimalKueue", "", "path to minimalkueue, run in the hosts default cluster if empty")
 	withCpuProfile   = flag.Bool("withCPUProfile", false, "generate a CPU profile for minimalkueue")
-	withLogs         = flag.Bool("withLogs", false, "capture minimalkueue logs")
+	withLogs         = flag.Bool("withLogs", true, "capture minimalkueue logs")
 	logLevel         = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
-	logToFile        = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
+	logToFile        = flag.Bool("logToFile", true, "capture minimalkueue logs to files")
 )
 
 var (

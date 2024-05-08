@@ -222,24 +222,8 @@ performance-scheduler-runner:
 
 MINIMALKUEUE_RUNNER := $(PROJECT_DIR)/bin/minimalkueue
 .PHONY: minimalkueue
-minimalkueue: 
+minimalkueue:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MINIMALKUEUE_RUNNER) test/performance/scheduler/minimalkueue/main.go
-
-ifdef SCALABILITY_CPU_PROFILE
-SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
-endif
-
-ifdef SCALABILITY_KUEUE_LOGS
-SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
-endif
-
-ifdef SCALABILITY_SCRAPE_INTERVAL
-SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeInterval=$(SCALABILITY_SCRAPE_INTERVAL)
-endif
-
-ifdef SCALABILITY_SCRAPE_URL
-SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeURL=$(SCALABILITY_SCRAPE_URL)
-endif
 
 SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/default_generator_config.yaml
 
@@ -252,7 +236,7 @@ run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 		--o $(SCALABILITY_RUN_DIR) \
 		--crds=$(PROJECT_DIR)/config/components/crd/bases \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
-		--minimalKueue=$(MINIMALKUEUE_RUNNER) $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) $(SCALABILITY_EXTRA_ARGS)
 
 .PHONY: test-performance-scheduler
 test-performance-scheduler: gotestsum run-performance-scheduler
@@ -268,7 +252,7 @@ run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 	$(SCALABILITY_RUNNER) \
 		--o $(ARTIFACTS)/run-performance-scheduler-in-cluster \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
-		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
+		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_EXTRA_ARGS)
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
