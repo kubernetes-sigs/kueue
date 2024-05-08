@@ -74,10 +74,6 @@ succeeds.
 
 ### Risks and Mitigations
 
-There doesn't seem to be much risks or mitigations.
-[Two phase admission process](https://github.com/kubernetes-sigs/kueue/tree/main/keps/993-two-phase-admission)
-was added specifically for use cases like this.
-
 #### BookingExpired condition
 
 Kueue's support for the BookingExpired condition in ProvisioningRequest poses a risk. The Cluster Autoscaler may set `BookingExpired=true`,
