@@ -126,12 +126,12 @@ func WithIntegrationOptions(integrationName string, opts any) Option {
 }
 
 // WithEnabledFrameworks adds framework names enabled in the ConfigAPI.
-func WithEnabledFrameworks(i *configapi.Integrations) Option {
+func WithEnabledFrameworks(frameworks []string) Option {
 	return func(o *Options) {
-		if i == nil || len(i.Frameworks) == 0 {
+		if len(frameworks) == 0 {
 			return
 		}
-		o.EnabledFrameworks = sets.New(i.Frameworks...)
+		o.EnabledFrameworks = sets.New(frameworks...)
 	}
 }
 

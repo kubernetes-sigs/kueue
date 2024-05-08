@@ -37,7 +37,6 @@ import (
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -51,9 +50,7 @@ func TestSetupControllers(t *testing.T) {
 	}{
 		"setup controllers succeed": {
 			opts: []Option{
-				WithEnabledFrameworks(&configapi.Integrations{
-					Frameworks: []string{"batch/job", "kubeflow.org/mpijob"},
-				}),
+				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob"}),
 				WithEnabledExternalFrameworks([]string{
 					"Foo.v1.example.com",
 					"Bar.v2.example.com",
@@ -66,9 +63,7 @@ func TestSetupControllers(t *testing.T) {
 		},
 		"mapper doesn't have kubeflow.org/mpijob, but no error occur": {
 			opts: []Option{
-				WithEnabledFrameworks(&configapi.Integrations{
-					Frameworks: []string{"batch/job", "kubeflow.org/mpijob"},
-				}),
+				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob"}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
@@ -131,9 +126,7 @@ func TestSetupIndexes(t *testing.T) {
 					Obj(),
 			},
 			opts: []Option{
-				WithEnabledFrameworks(&configapi.Integrations{
-					Frameworks: []string{"batch/job"},
-				}),
+				WithEnabledFrameworks([]string{"batch/job"}),
 			},
 			filter:        client.MatchingFields{GetOwnerKey(batchv1.SchemeGroupVersion.WithKind("Job")): "alpha"},
 			wantWorkloads: []string{"alpha-wl"},
@@ -148,9 +141,7 @@ func TestSetupIndexes(t *testing.T) {
 					Obj(),
 			},
 			opts: []Option{
-				WithEnabledFrameworks(&configapi.Integrations{
-					Frameworks: []string{"batch/job"},
-				}),
+				WithEnabledFrameworks([]string{"batch/job"}),
 			},
 			filter:                client.MatchingFields{GetOwnerKey(kubeflow.SchemeGroupVersionKind): "alpha"},
 			wantFieldMatcherError: true,
