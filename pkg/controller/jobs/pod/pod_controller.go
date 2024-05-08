@@ -445,7 +445,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 						LastTransitionTime: metav1.Time{
 							Time: time.Now(),
 						},
-						Reason:  "StoppedByKueue",
+						Reason:  string(stopReason),
 						Message: eventMsg,
 					},
 				},

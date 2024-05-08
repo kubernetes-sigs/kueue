@@ -316,7 +316,7 @@ func TestReconciler(t *testing.T) {
 				StatusConditions(corev1.PodCondition{
 					Type:    "TerminationTarget",
 					Status:  corev1.ConditionTrue,
-					Reason:  "StoppedByKueue",
+					Reason:  string(jobframework.StopReasonWorkloadEvicted),
 					Message: "Preempted to accommodate a higher priority Workload",
 				}).
 				Obj()},
@@ -471,7 +471,7 @@ func TestReconciler(t *testing.T) {
 				StatusConditions(corev1.PodCondition{
 					Type:    "TerminationTarget",
 					Status:  corev1.ConditionTrue,
-					Reason:  "StoppedByKueue",
+					Reason:  string(jobframework.StopReasonNotAdmitted),
 					Message: "Not admitted by cluster queue",
 				}).
 				Obj()},
@@ -2908,7 +2908,7 @@ func TestReconciler(t *testing.T) {
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
 						Status:  corev1.ConditionTrue,
-						Reason:  "StoppedByKueue",
+						Reason:  string(jobframework.StopReasonWorkloadEvicted),
 						Message: "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -2931,7 +2931,7 @@ func TestReconciler(t *testing.T) {
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
 						Status:  corev1.ConditionTrue,
-						Reason:  "StoppedByKueue",
+						Reason:  string(jobframework.StopReasonWorkloadEvicted),
 						Message: "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
