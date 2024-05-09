@@ -1,0 +1,59 @@
+# This workflow builds ODH Kueue container image and publish to Quay
+
+name: Build and Publish image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to be used for kueue image  i.e.: v0.0.1'
+        required: true
+  push:
+    tags:
+      - '*'
+
+jobs:
+    build-and-publish:
+      runs-on: ubuntu-latest  
+      env:
+        GOPATH: ${{ github.workspace }}/go
+      steps:
+        - name: Environment dump
+          shell: bash
+          run: |
+            echo "GOPATH = ${GOPATH}"
+            echo "TAG = ${{ github.event.inputs.version }}"
+
+        - name: Checkout
+          uses: actions/checkout@v4
+
+        - name: Set Go
+          uses: actions/setup-go@v5
+          with:
+            go-version-file: go.mod
+
+        - name: Run go mod
+          shell: bash
+          run: |
+            go mod download
+
+        - name: Login to Quay.io
+          id: docker-login-quay
+          shell: bash
+          run: |
+            docker login --username ${{ secrets.QUAY_USERNAME }} --password ${{ secrets.QUAY_PASSWORD }} quay.io
+
+        - name: Image Build and Push
+          env:
+            CGO_ENABLED: 1
+            PLATFORMS: linux/amd64
+            TARGETARCH: amd64
+            IMAGE_REGISTRY: quay.io/opendatahub
+            GIT_TAG: ${{ github.event.inputs.version }}
+          run: |
+            make image-push
+
+        - name: Logout from Quay.io
+          if: always() && steps.docker-login-quay.outcome == 'success'
+          run: |
+            docker logout quay.io
