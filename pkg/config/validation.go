@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -54,20 +55,35 @@ var (
 	requeuingStrategyPath             = waitForPodsReadyPath.Child("requeuingStrategy")
 	multiKueuePath                    = field.NewPath("multiKueue")
 	fsPreemptionStrategiesPath        = field.NewPath("fairSharing", "preemptionStrategies")
+	internalCertManagementPath        = field.NewPath("internalCertManagement")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
 	var allErrs field.ErrorList
-
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
-
 	allErrs = append(allErrs, validateQueueVisibility(c)...)
-
-	// Validate PodNamespaceSelector for the pod framework
 	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
-
 	allErrs = append(allErrs, validateMultiKueue(c)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
+	allErrs = append(allErrs, validateInternalCertManagement(c)...)
+	return allErrs
+}
+
+func validateInternalCertManagement(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.InternalCertManagement == nil || !ptr.Deref(c.InternalCertManagement.Enable, false) {
+		return allErrs
+	}
+	if svcName := c.InternalCertManagement.WebhookServiceName; svcName != nil {
+		if errs := apimachineryvalidation.IsDNS1035Label(*svcName); len(errs) != 0 {
+			allErrs = append(allErrs, field.Invalid(internalCertManagementPath.Child("webhookServiceName"), svcName, strings.Join(errs, ",")))
+		}
+	}
+	if secName := c.InternalCertManagement.WebhookSecretName; secName != nil {
+		if errs := apimachineryvalidation.IsDNS1123Subdomain(*secName); len(errs) != 0 {
+			allErrs = append(allErrs, field.Invalid(internalCertManagementPath.Child("webhookSecretName"), secName, strings.Join(errs, ",")))
+		}
+	}
 	return allErrs
 }
 

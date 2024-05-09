@@ -466,6 +466,55 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"invalid .internalCertManagement.webhookSecretName": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:            ptr.To(true),
+					WebhookSecretName: ptr.To(":)"),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "internalCertManagement.webhookSecretName",
+				},
+			},
+		},
+		"invalid .internalCertManagement.webhookServiceName": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To("0-invalid"),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "internalCertManagement.webhookServiceName",
+				},
+			},
+		},
+		"disabled .internalCertManagement with invalid .internalCertManagement.webhookServiceName": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(false),
+					WebhookServiceName: ptr.To("0-invalid"),
+				},
+			},
+		},
+		"valid .internalCertManagement": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To("webhook-svc"),
+					WebhookSecretName:  ptr.To("webhook-sec"),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
