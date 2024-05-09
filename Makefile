@@ -14,19 +14,15 @@
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
-GOBIN=$(shell go env GOPATH)/bin
+	GOBIN=$(shell go env GOPATH)/bin
 else
-GOBIN=$(shell go env GOBIN)
+	GOBIN=$(shell go env GOBIN)
 endif
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
-GO_TEST_FLAGS ?= -race
 # Use go.mod go version as a single source of truth of GO version.
 GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
-
-# Use go.mod go version as a single source of truth of Ginkgo version.
-GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
@@ -57,27 +53,6 @@ BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BUILDER_IMAGE ?= golang:$(GO_VERSION)
 CGO_ENABLED ?= 0
 
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.29
-
-INTEGRATION_TARGET ?= ./test/integration/...
-
-E2E_TARGET ?= ./test/e2e/...
-
-E2E_KIND_VERSION ?= kindest/node:v1.29.2
-
-# E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
-E2E_K8S_VERSIONS ?= 1.27.11 1.28.7 1.29.2
-
-# For local testing, we should allow user to use different kind cluster name
-# Default will delete default kind cluster
-KIND_CLUSTER_NAME ?= kind
-
-# Number of processes to use during integration tests to run specs within a
-# suite in parallel. Suites still run sequentially. User may set this value to 1
-# to run without parallelism.
-INTEGRATION_NPROCS ?= 4
-
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -104,9 +79,6 @@ LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 RELEASE_VERSION=v0.6.2
 RELEASE_BRANCH=main
 
-# JobSet Version
-JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
-
 .PHONY: all
 all: generate fmt vet build
 
@@ -125,7 +97,11 @@ all: generate fmt vet build
 
 .PHONY: help
 help: ## Display this help.
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
+include Makefile-deps.mk
+
+include Makefile-test.mk
 
 ##@ Development
 
@@ -181,96 +157,6 @@ toc-verify:
 vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
-.PHONY: test
-test: gotestsum ## Run tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
-
-.PHONY: test-integration
-test-integration: gomod-download envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd kf-training-operator-crd  cluster-autoscaler-crd ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GINKGO) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
-
-CREATE_KIND_CLUSTER ?= true
-.PHONY: test-e2e
-test-e2e: kustomize ginkgo yq gomod-download jobset-operator-crd kueuectl run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
-
-.PHONY: test-multikueue-e2e
-test-multikueue-e2e: kustomize ginkgo yq gomod-download jobset-operator-crd run-test-multikueue-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
-
-
-E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
-MULTIKUEUE-E2E_TARGETS := $(addprefix run-test-multikueue-e2e-,${E2E_K8S_VERSIONS})
-.PHONY: test-e2e-all
-test-e2e-all: ginkgo $(E2E_TARGETS) $(MULTIKUEUE-E2E_TARGETS)
-
-FORCE:
-
-run-test-e2e-%: K8S_VERSION = $(@:run-test-e2e-%=%)
-run-test-e2e-%: FORCE
-	@echo Running e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/e2e-test.sh
-
-run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
-run-test-multikueue-e2e-%: FORCE
-	@echo Running multikueue e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/multikueue-e2e-test.sh
-
-SCALABILITY_RUNNER := $(PROJECT_DIR)/bin/performance-scheduler-runner
-.PHONY: performance-scheduler-runner
-performance-scheduler-runner:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(SCALABILITY_RUNNER) test/performance/scheduler/runner/main.go
-
-MINIMALKUEUE_RUNNER := $(PROJECT_DIR)/bin/minimalkueue
-.PHONY: minimalkueue
-minimalkueue:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MINIMALKUEUE_RUNNER) test/performance/scheduler/minimalkueue/main.go
-
-ifdef SCALABILITY_CPU_PROFILE
-SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
-endif
-
-ifndef NO_SCALABILITY_KUEUE_LOGS
-SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
-endif
-
-SCALABILITY_SCRAPE_INTERVAL ?= 5s
-ifndef NO_SCALABILITY_SCRAPE
-SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeInterval=$(SCALABILITY_SCRAPE_INTERVAL)
-endif
-
-ifdef SCALABILITY_SCRAPE_URL
-SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeURL=$(SCALABILITY_SCRAPE_URL)
-endif
-
-SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/default_generator_config.yaml
-
-SCALABILITY_RUN_DIR := $(ARTIFACTS)/run-performance-scheduler
-.PHONY: run-performance-scheduler
-run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
-	mkdir -p $(SCALABILITY_RUN_DIR)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(SCALABILITY_RUNNER) \
-		--o $(SCALABILITY_RUN_DIR) \
-		--crds=$(PROJECT_DIR)/config/components/crd/bases \
-		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
-		--minimalKueue=$(MINIMALKUEUE_RUNNER) $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
-
-.PHONY: test-performance-scheduler
-test-performance-scheduler: gotestsum run-performance-scheduler
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
-		--summary=$(SCALABILITY_RUN_DIR)/summary.yaml \
-		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
-		--range=$(PROJECT_DIR)/test/performance/scheduler/default_rangespec.yaml
-
-.PHONY: run-performance-scheduler-in-cluster
-run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
-	mkdir -p $(ARTIFACTS)/run-performance-scheduler-in-cluster
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(SCALABILITY_RUNNER) \
-		--o $(ARTIFACTS)/run-performance-scheduler-in-cluster \
-		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
-		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
-
 .PHONY: ci-lint
 ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 15m0s
@@ -278,6 +164,10 @@ ci-lint: golangci-lint
 .PHONY: lint-fix
 lint-fix: golangci-lint
 	$(GOLANGCI_LINT) run --fix --timeout 15m0s
+
+.PHONY: shell-lint
+shell-lint: ## Run shell linting.
+	$(PROJECT_DIR)/hack/verify-shellcheck.sh
 
 .PHONY: verify
 verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref prepare-release-branch
@@ -361,7 +251,7 @@ site-server: hugo
 
 ##@ Release
 .PHONY: artifacts
-artifacts: kustomize yq helm
+artifacts: kustomize yq helm ## Generate release artifacts.
 	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
 	if [ -d artifacts ]; then rm -rf artifacts; fi
 	mkdir -p artifacts
@@ -381,17 +271,17 @@ artifacts: kustomize yq helm
 	#GO_BUILD_ENV="$(GO_BUILD_ENV)" GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts/bin" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
 .PHONY: prepare-release-branch
-prepare-release-branch: yq kustomize
+prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
 	@$(call clean-manifests)
 
-##@ Tools
+##@ Debug
 
 # Build an image that can be used with kubectl debug
 # Developers don't need to build this image, as it will be available as gcr.io/k8s-staging-kueue/debug
 .PHONY: debug-image-push
-debug-image-push:
+debug-image-push: ## Build and push the debug image to the registry
 	$(IMAGE_BUILD_CMD) -t $(IMAGE_REGISTRY)/debug:$(GIT_TAG) \
 		--platform=$(PLATFORMS) \
 		--push ./hack/debugpod
@@ -426,96 +316,6 @@ importer-image: importer-image-build
 .PHONY: kueuectl
 kueuectl:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kueue cmd/kueuectl/main.go
-
-GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
-.PHONY: golangci-lint
-golangci-lint: ## Download golangci-lint locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.57.2
-
-CONTROLLER_GEN = $(PROJECT_DIR)/bin/controller-gen
-.PHONY: controller-gen
-controller-gen: ## Download controller-gen locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen
-
-.PHONY: shell-lint
-shell-lint:
-	./hack/verify-shellcheck.sh
-
-KUSTOMIZE = $(PROJECT_DIR)/bin/kustomize
-.PHONY: kustomize
-kustomize: ## Download kustomize locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kustomize/kustomize/v4@v4.5.7
-
-ENVTEST = $(PROJECT_DIR)/bin/setup-envtest
-.PHONY: envtest
-envtest: ## Download envtest-setup locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20240320141353-395cfc7486e6
-
-GINKGO = $(PROJECT_DIR)/bin/ginkgo
-.PHONY: ginkgo
-ginkgo: ## Download ginkgo locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
-
-GOTESTSUM = $(PROJECT_DIR)/bin/gotestsum
-.PHONY: gotestsum
-gotestsum: ## Download gotestsum locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@v1.8.2
-
-KIND = $(PROJECT_DIR)/bin/kind
-.PHONY: kind
-kind:
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.20.0
-
-YQ = $(PROJECT_DIR)/bin/yq
-.PHONY: yq
-yq: ## Download yq locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/mikefarah/yq/v4@v4.34.1
-
-HELM = $(PROJECT_DIR)/bin/helm
-.PHONY: helm
-helm: ## Download helm locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install helm.sh/helm/v3/cmd/helm@v3.12.1
-
-GENREF = $(PROJECT_DIR)/bin/genref
-.PHONY: genref
-genref: ## Download genref locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@v0.28.0
-
-HUGO = $(PROJECT_DIR)/bin/hugo
-.PHONY: hugo
-hugo:
-	@GOBIN=$(PROJECT_DIR)/bin CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@v0.124.1
-
-MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
-.PHONY: mpi-operator-crd
-mpi-operator-crd:
-	mkdir -p $(PROJECT_DIR)/dep-crds/mpi-operator/
-	cp -f $(MPIROOT)/manifests/base/* $(PROJECT_DIR)/dep-crds/mpi-operator/
-
-KFTRAININGROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/training-operator)
-.PHONY: kf-training-operator-crd
-kf-training-operator-crd:
-	mkdir -p $(PROJECT_DIR)/dep-crds/training-operator/
-	cp -f $(KFTRAININGROOT)/manifests/base/crds/* $(PROJECT_DIR)/dep-crds/training-operator/
-
-RAYROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
-.PHONY: ray-operator-crd
-ray-operator-crd:
-	mkdir -p $(PROJECT_DIR)/dep-crds/ray-operator/
-	cp -f $(RAYROOT)/config/crd/bases/* $(PROJECT_DIR)/dep-crds/ray-operator/
-
-JOBSETROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" sigs.k8s.io/jobset)
-.PHONY: jobset-operator-crd
-jobset-operator-crd:
-	mkdir -p $(PROJECT_DIR)/dep-crds/jobset-operator/
-	cp -f $(JOBSETROOT)/config/components/crd/bases/* $(PROJECT_DIR)/dep-crds/jobset-operator/
-
-
-CAROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler/apis)
-.PHONY: cluster-autoscaler-crd
-cluster-autoscaler-crd:
-	mkdir -p $(PROJECT_DIR)/dep-crds/cluster-autoscaler/
-	cp -f $(CAROOT)/config/crd/* $(PROJECT_DIR)/dep-crds/cluster-autoscaler/
 
 .PHONY: generate-apiref
 generate-apiref: genref
