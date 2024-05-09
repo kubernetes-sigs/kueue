@@ -23,7 +23,7 @@ func UntilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal) 
 func untilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal, timer clock.Timer) {
 	mgr := speedyBackoffManager{
 		backingOff:  ptr.To(false),
-		rateLimiter: workqueue.NewItemExponentialFailureRateLimiter(time.Millisecond, time.Millisecond*100),
+		rateLimiter: workqueue.NewItemExponentialFailureRateLimiter(initialBackoff, maxBackoff),
 		timer:       timer,
 	}
 	wait.BackoffUntil(func() {
