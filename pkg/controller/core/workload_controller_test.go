@@ -744,6 +744,54 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"should set the Evicted condition with InactiveWorkload reason when the .spec.active=False and Admitted when the Workload has Evicted=False condition": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Message: "The workload is deactivated",
+				}).
+				Obj(),
+		},
+		"should keep the previous eviction reason when the Workload is already evicted by other reason even thou the Workload is deactivated.": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				Obj(),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
