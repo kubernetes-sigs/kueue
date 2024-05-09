@@ -81,7 +81,7 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			if admissionCheck.Controller == multikueue.ControllerName {
 				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", multikueue.ControllerName)
 				jobSet.Spec.ManagedBy = ptr.To(multikueue.ControllerName)
-				break
+				return nil
 			}
 		}
 	}

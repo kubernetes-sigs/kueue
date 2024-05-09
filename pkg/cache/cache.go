@@ -388,13 +388,6 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	metrics.ClearCacheMetrics(cq.Name)
 }
 
-func (c *Cache) ClusterQueue(name string) (*ClusterQueue, bool) {
-	c.RLock()
-	defer c.RUnlock()
-	cq, ok := c.clusterQueues[name]
-	return cq, ok
-}
-
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
 	c.Lock()
 	defer c.Unlock()
