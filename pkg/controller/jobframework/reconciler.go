@@ -463,7 +463,7 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 			if message != "" {
 				message += "; "
 			}
-			message += "Admission check: \"" + check.Name + "\", Message: \"" + check.Message + "\""
+			message += check.Name + ": " + check.Message
 		}
 	}
 	if message != "" {
