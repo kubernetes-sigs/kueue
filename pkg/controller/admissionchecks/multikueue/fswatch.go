@@ -99,11 +99,14 @@ func (w *KubeConfigFSWatcher) Start(ctx context.Context) error {
 	return nil
 }
 
-func (w *KubeConfigFSWatcher) notifyPathWrite(path string) {
+func (w *KubeConfigFSWatcher) clustersForPath(path string) []string {
 	w.lock.RLock()
-	clusters := w.fileToClusters[path].UnsortedList()
-	w.lock.RUnlock()
-	for _, c := range clusters {
+	defer w.lock.RUnlock()
+	return w.fileToClusters[path].UnsortedList()
+}
+
+func (w *KubeConfigFSWatcher) notifyPathWrite(path string) {
+	for _, c := range w.clustersForPath(path) {
 		w.reconcile <- event.GenericEvent{Object: &kueuealpha.MultiKueueCluster{ObjectMeta: metav1.ObjectMeta{Name: c}}}
 	}
 }

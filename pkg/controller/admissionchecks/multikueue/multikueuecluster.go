@@ -176,7 +176,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 		err := rc.startWatcher(watchCtx, kind, watcher)
 		if err != nil {
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
-			ctrl.LoggerFrom(watchCtx).V(2).Error(err, "Unable to start the watcher", "kind", kind)
+			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to start the watcher", "kind", kind)
 			// however let's not accept this for now.
 			rc.failedConnAttempts++
 			return ptr.To(retryAfter(rc.failedConnAttempts)), err
@@ -209,7 +209,7 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKu
 			default:
 				wlKey, err := w.GetWorkloadKey(r.Object)
 				if err != nil {
-					log.V(2).Error(err, "Cannot get workload key", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
+					log.Error(err, "Cannot get workload key", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
 				} else {
 					rc.queueWorkloadEvent(ctx, wlKey)
 				}
@@ -263,7 +263,7 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 	lst := &kueue.WorkloadList{}
 	err := rc.client.List(ctx, lst, client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
-		log.V(2).Error(err, "Listing remote workloads")
+		log.Error(err, "Listing remote workloads")
 		return
 	}
 
@@ -272,7 +272,7 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		wlLog := log.WithValues("remoteWl", klog.KObj(&remoteWl))
 		err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(&remoteWl), localWl)
 		if client.IgnoreNotFound(err) != nil {
-			wlLog.V(2).Error(err, "Reading local workload")
+			wlLog.Error(err, "Reading local workload")
 			continue
 		}
 
@@ -291,13 +291,13 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownnerKind", controller)
 				err := adapter.DeleteRemoteObject(ctx, rc.client, types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace})
 				if client.IgnoreNotFound(err) != nil {
-					wlLog.V(2).Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
+					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}
 			}
 		}
 		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
 		if err := rc.client.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
-			wlLog.V(2).Error(err, "Deleting remote workload")
+			wlLog.Error(err, "Deleting remote workload")
 		}
 	}
 }
@@ -545,7 +545,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 				if cluster.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
 					err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.KubeConfig.Location)
 					if err != nil {
-						filterLog.V(2).Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(cluster))
+						filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(cluster))
 					}
 				}
 			}
@@ -561,14 +561,14 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 			if clusterNew.Spec.KubeConfig.LocationType == kueuealpha.SecretLocationType && clusterOld.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
 				err := c.fsWatcher.Remove(clusterOld.Name)
 				if err != nil {
-					filterLog.V(2).Error(err, "Remove FS watch", "cluster", klog.KObj(clusterOld))
+					filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(clusterOld))
 				}
 			}
 
 			if clusterNew.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
 				err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.KubeConfig.Location)
 				if err != nil {
-					filterLog.V(2).Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(clusterNew))
+					filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(clusterNew))
 				}
 			}
 			return true
@@ -578,7 +578,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 				if cluster.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
 					err := c.fsWatcher.Remove(cluster.Name)
 					if err != nil {
-						filterLog.V(2).Error(err, "Remove FS watch", "cluster", klog.KObj(cluster))
+						filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(cluster))
 					}
 				}
 			}

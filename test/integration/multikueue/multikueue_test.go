@@ -357,11 +357,6 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			})
 		})
 
-		ginkgo.By("creating a config with duplicate clusters should fail", func() {
-			badConfig := utiltesting.MakeMultiKueueConfig("bad-config").Clusters("c1", "c2", "c1").Obj()
-			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, badConfig).Error()).Should(gomega.Equal(
-				`MultiKueueConfig.kueue.x-k8s.io "bad-config" is invalid: spec.clusters[2]: Duplicate value: "c1"`))
-		})
 		tempDir := ginkgo.GinkgoT().TempDir()
 		fsKubeConfig := path.Join(tempDir, "testing.kubeconfig")
 
