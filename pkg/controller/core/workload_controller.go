@@ -199,7 +199,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
 			return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 		}
-		metrics.ReportEvictedWorkloads(string(wl.Status.Admission.ClusterQueue), kueue.WorkloadEvictedByDeactivation)
+		if wl.Status.Admission != nil {
+			metrics.ReportEvictedWorkloads(string(wl.Status.Admission.ClusterQueue), kueue.WorkloadEvictedByDeactivation)
+		}
 		return ctrl.Result{}, nil
 	}
 
