@@ -224,6 +224,22 @@ func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] 
 	return c.updateClusterQueues()
 }
 
+func (c *Cache) AdmissionChecksForClusterQueue(cqName string) []AdmissionCheck {
+	c.RLock()
+	defer c.RUnlock()
+	cq, ok := c.clusterQueues[cqName]
+	if !ok || len(cq.AdmissionChecks) == 0 {
+		return nil
+	}
+	acs := make([]AdmissionCheck, 0, len(cq.AdmissionChecks))
+	for acName := range cq.AdmissionChecks {
+		if ac, ok := c.admissionChecks[acName]; ok {
+			acs = append(acs, ac)
+		}
+	}
+	return acs
+}
+
 func (c *Cache) ClusterQueueActive(name string) bool {
 	return c.clusterQueueInStatus(name, active)
 }
