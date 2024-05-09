@@ -3589,7 +3589,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    jobframework.ReasonUpdatedAdmissionCheck,
-					Message:   "acName1: Not admitted.; acName2 Test message.",
+					Message:   "acName1: Not admitted.; acName2: Test message.",
 				},
 			},
 		},
