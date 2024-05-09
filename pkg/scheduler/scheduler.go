@@ -188,7 +188,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	headWorkloads := s.queues.Heads(ctx)
 	// If there are no elements, it means that the program is finishing.
 	if len(headWorkloads) == 0 {
-		return wait.SlowDown{}
+		return wait.KeepGoing
 	}
 	startTime := time.Now()
 
@@ -296,9 +296,9 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	}
 	metrics.AdmissionAttempt(result, time.Since(startTime))
 	if result != metrics.AdmissionResultSuccess {
-		return wait.SlowDown{}
+		return wait.SlowDown
 	}
-	return wait.KeepGoing{}
+	return wait.KeepGoing
 }
 
 type entryStatus string

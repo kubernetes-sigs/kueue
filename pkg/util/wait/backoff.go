@@ -14,7 +14,18 @@ import (
 // applies backoff depending on the SpeedSignal f returns.  Backoff increases
 // exponentially, ranging from 1ms to 100ms.
 func UntilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal) {
-	mgr := defaultBackoffManager()
+	// create and drain timer, allowing reuse of same timer via timer.Reset
+	timer := clock.RealClock{}.NewTimer(0)
+	<-timer.C()
+	untilWithBackoff(ctx, f, timer)
+}
+
+func untilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal, timer clock.Timer) {
+	mgr := speedyBackoffManager{
+		backingOff:  ptr.To(false),
+		rateLimiter: workqueue.NewItemExponentialFailureRateLimiter(time.Millisecond, time.Millisecond*100),
+		timer:       timer,
+	}
 	wait.BackoffUntil(func() {
 		mgr.toggleBackoff(f(ctx))
 	}, mgr, false, ctx.Done())
@@ -22,16 +33,21 @@ func UntilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal) 
 
 // SpeedSignal indicates whether we should run the function again immediately,
 // or apply backoff.
-type SpeedSignal interface{}
+type SpeedSignal bool
 
-// KeepGoing signals to continue immediately.
-type KeepGoing struct{ SpeedSignal }
+const (
+	// KeepGoing signals to continue immediately.
+	KeepGoing SpeedSignal = true
+	// SlowDown signals to backoff.
+	SlowDown SpeedSignal = false
 
-// SlowDown signals to backoff.
-type SlowDown struct{ SpeedSignal }
+	noBackoff      = time.Millisecond * 0
+	initialBackoff = time.Millisecond * 1
+	maxBackoff     = time.Millisecond * 100
+)
 
 func (s *speedyBackoffManager) toggleBackoff(speedSignal SpeedSignal) {
-	switch speedSignal.(type) {
+	switch speedSignal {
 	case KeepGoing:
 		if *s.backingOff {
 			*s.backingOff = false
@@ -46,28 +62,15 @@ type speedyBackoffManager struct {
 	backingOff  *bool
 	rateLimiter workqueue.RateLimiter
 	timer       clock.Timer
-	wait.BackoffManager
 }
+
+var _ wait.BackoffManager = (*speedyBackoffManager)(nil)
 
 func (s speedyBackoffManager) Backoff() clock.Timer {
-	s.timer.Reset(s.backoffDuration())
-	return s.timer
-}
-
-func defaultBackoffManager() speedyBackoffManager {
-	// create and drain timer, allowing reuse of same timer via timer.Reset
-	timer := clock.RealClock{}.NewTimer(0)
-	<-timer.C()
-	return speedyBackoffManager{
-		backingOff:  ptr.To(false),
-		rateLimiter: workqueue.NewItemExponentialFailureRateLimiter(time.Millisecond, time.Millisecond*100),
-		timer:       timer,
-	}
-}
-
-func (s *speedyBackoffManager) backoffDuration() time.Duration {
 	if *s.backingOff {
-		return s.rateLimiter.When("")
+		s.timer.Reset(s.rateLimiter.When(""))
+	} else {
+		s.timer.Reset(noBackoff)
 	}
-	return 0
+	return s.timer
 }
