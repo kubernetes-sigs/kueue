@@ -193,7 +193,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if updated {
 			return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		}
-	} else if !workload.IsEvictedByDeactivation(&wl) {
+	} else if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 		// if job is not active and does not have condition reason of WorkloadEvictedByDeactivation, update its condition
 		workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByDeactivation, "The workload is deactivated")
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
