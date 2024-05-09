@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		gomega.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, managerMultikueueSecret1)).To(gomega.Succeed())
 		gomega.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, managerMultikueueSecret2)).To(gomega.Succeed())
 	})
-	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters", func() {
+	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by secret", func() {
 		ac := utiltesting.MakeAdmissionCheck("testing-ac").
 			ControllerName(multikueue.ControllerName).
 			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "testing-config").
@@ -317,21 +317,78 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
+	})
 
+	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by file", func() {
+		ac := utiltesting.MakeAdmissionCheck("testing-ac").
+			ControllerName(multikueue.ControllerName).
+			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Obj()
+		ginkgo.By("creating the admission check with missing config, it's set inactive", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, ac) })
+
+			ginkgo.By("wait for the check's active state update", func() {
+				updatedAc := kueue.AdmissionCheck{}
+				acKey := client.ObjectKeyFromObject(ac)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElements(
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.AdmissionCheckActive,
+							Status:  metav1.ConditionFalse,
+							Reason:  "BadConfig",
+							Message: `Cannot load the AdmissionChecks parameters: MultiKueueConfig.kueue.x-k8s.io "testing-config" not found`,
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.AdmissionChecksSingleInstanceInClusterQueue,
+							Status:  metav1.ConditionTrue,
+							Reason:  multikueue.SingleInstanceReason,
+							Message: multikueue.SingleInstanceMessage,
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.FlavorIndependentAdmissionCheck,
+							Status:  metav1.ConditionTrue,
+							Reason:  multikueue.FlavorIndependentCheckReason,
+							Message: multikueue.FlavorIndependentCheckMessage,
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.By("creating a config with duplicate clusters should fail", func() {
+			badConfig := utiltesting.MakeMultiKueueConfig("bad-config").Clusters("c1", "c2", "c1").Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, badConfig).Error()).Should(gomega.Equal(
+				`MultiKueueConfig.kueue.x-k8s.io "bad-config" is invalid: spec.clusters[2]: Duplicate value: "c1"`))
+		})
 		tempDir := ginkgo.GinkgoT().TempDir()
 		fsKubeConfig := path.Join(tempDir, "testing.kubeconfig")
 
-		ginkgo.By("setting the cluster's kubeconfig to a missing file, the cluster and admission check become inactive", func() {
-			ginkgo.By("change kubeconfig location", func() {
-				updatedCluster := kueuealpha.MultiKueueCluster{}
-				clusterKey := client.ObjectKeyFromObject(cluster)
+		config := utiltesting.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()
+		ginkgo.By("creating the config, the admission check's state is updated", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, config)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, config) })
+
+			ginkgo.By("wait for the check's active state update", func() {
+				updatedAc := kueue.AdmissionCheck{}
+				acKey := client.ObjectKeyFromObject(ac)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
-					updatedCluster.Spec.KubeConfig.LocationType = kueuealpha.PathLocationType
-					updatedCluster.Spec.KubeConfig.Location = fsKubeConfig
-					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatedAc)).To(gomega.Succeed())
+					g.Expect(updatedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.AdmissionCheckActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoUsableClusters",
+						Message: `Missing clusters: [testing-cluster]`,
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
+		})
+
+		cluster := utiltesting.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueuealpha.PathLocationType, fsKubeConfig).Obj()
+		ginkgo.By("creating the cluster, its Active state is updated, the admission check's state is updated", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
 
 			ginkgo.By("wait for the cluster's active state update", func() {
 				updatedCluster := kueuealpha.MultiKueueCluster{}
@@ -360,12 +417,13 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
-
 		})
+
+		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("creating the kubeconfig file, the cluster and admission check become active", func() {
 			gomega.Expect(os.WriteFile(fsKubeConfig, w1Kubeconfig, 0666)).Should(gomega.Succeed())
-
 			ginkgo.By("wait for the cluster's active state update", func() {
 				updatedCluster := kueuealpha.MultiKueueCluster{}
 				clusterKey := client.ObjectKeyFromObject(cluster)

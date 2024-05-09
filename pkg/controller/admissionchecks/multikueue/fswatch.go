@@ -72,7 +72,7 @@ func (w *KubeConfigFSWatcher) Start(ctx context.Context) error {
 		defer func() {
 			err := w.watcher.Close()
 			if err != nil {
-				log.V(2).Error(err, "Closing kubeconfigs FS Watcher")
+				log.Error(err, "Closing kubeconfigs FS Watcher")
 			}
 		}()
 		watchedEvents := fsnotify.Write | fsnotify.Create | fsnotify.Remove | fsnotify.Rename
@@ -88,7 +88,7 @@ func (w *KubeConfigFSWatcher) Start(ctx context.Context) error {
 
 				}
 			case err := <-w.watcher.Errors:
-				log.V(2).Error(err, "Kubeconfigs FS Watch")
+				log.Error(err, "Kubeconfigs FS Watch")
 			case <-ctx.Done():
 				log.V(2).Info("End kubeconfigs FS Watch")
 				return
@@ -103,7 +103,6 @@ func (w *KubeConfigFSWatcher) notifyPathWrite(path string) {
 	w.lock.RLock()
 	clusters := w.fileToClusters[path].UnsortedList()
 	w.lock.RUnlock()
-	//TODO: maybe manage "..data" pattern
 	for _, c := range clusters {
 		w.reconcile <- event.GenericEvent{Object: &kueuealpha.MultiKueueCluster{ObjectMeta: metav1.ObjectMeta{Name: c}}}
 	}
@@ -177,8 +176,7 @@ func (w *KubeConfigFSWatcher) cleanOldWatchDirs() error {
 	var errs []error
 	for _, dir := range w.watcher.WatchList() {
 		if _, found := w.parentDirToFiles[dir]; !found {
-			err := w.watcher.Remove(dir)
-			if err != nil {
+			if err := w.watcher.Remove(dir); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -205,8 +203,7 @@ func (w *KubeConfigFSWatcher) AddOrUpdate(cluster, path string) error {
 		w.remove(cluster)
 	}
 
-	err := w.set(cluster, path)
-	if err != nil {
+	if err := w.set(cluster, path); err != nil {
 		return err
 	}
 

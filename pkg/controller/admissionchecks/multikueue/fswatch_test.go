@@ -96,7 +96,7 @@ func TestFSWatch(t *testing.T) {
 			},
 			wantEventsForClusters: set.New("c1"),
 		},
-		"single crete link": {
+		"single create link": {
 			prepareFnc: func(basePath string) error {
 				return os.WriteFile(path.Join(basePath, "c1.kubeconfig.src"), []byte("123"), 0666)
 			},
@@ -158,8 +158,7 @@ func TestFSWatch(t *testing.T) {
 
 			gotAddErrors := map[string]error{}
 			for c, p := range tc.clusters {
-				err := watcher.AddOrUpdate(c, path.Join(basePath, p))
-				if err != nil {
+				if err := watcher.AddOrUpdate(c, path.Join(basePath, p)); err != nil {
 					gotAddErrors[c] = err
 				}
 			}
