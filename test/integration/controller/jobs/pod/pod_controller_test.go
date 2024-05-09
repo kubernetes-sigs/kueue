@@ -330,7 +330,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 							corev1.PodCondition{
 								Type:    "TerminationTarget",
 								Status:  "True",
-								Reason:  string(jobframework.StopReasonWorkloadEvicted),
+								Reason:  "Preempted",
 								Message: "By test",
 							},
 							cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime"),

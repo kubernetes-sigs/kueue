@@ -761,7 +761,13 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	}
 
 	if jws, implements := job.(ComposableJob); implements {
-		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
+		reason := stopReason
+		if stopReason == StopReasonWorkloadEvicted {
+			if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
+				reason = StopReason(evCond.Reason)
+			}
+		}
+		stoppedNow, err := jws.Stop(ctx, r.client, info, reason, eventMsg)
 		for _, objStoppedNow := range stoppedNow {
 			r.record.Event(objStoppedNow, corev1.EventTypeNormal, ReasonStopped, eventMsg)
 		}

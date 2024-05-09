@@ -316,7 +316,7 @@ func TestReconciler(t *testing.T) {
 				StatusConditions(corev1.PodCondition{
 					Type:    "TerminationTarget",
 					Status:  corev1.ConditionTrue,
-					Reason:  string(jobframework.StopReasonWorkloadEvicted),
+					Reason:  "Preempted",
 					Message: "Preempted to accommodate a higher priority Workload",
 				}).
 				Obj()},
@@ -2908,7 +2908,7 @@ func TestReconciler(t *testing.T) {
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
 						Status:  corev1.ConditionTrue,
-						Reason:  string(jobframework.StopReasonWorkloadEvicted),
+						Reason:  "Preempted",
 						Message: "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -2931,7 +2931,7 @@ func TestReconciler(t *testing.T) {
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
 						Status:  corev1.ConditionTrue,
-						Reason:  string(jobframework.StopReasonWorkloadEvicted),
+						Reason:  "Preempted",
 						Message: "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -2989,6 +2989,79 @@ func TestReconciler(t *testing.T) {
 					EventType: "Normal",
 					Reason:    "Stopped",
 					Message:   "Preempted to accommodate a higher priority Workload",
+				},
+			},
+		},
+		"preemption reason should be propagated to TerminationTarget": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("1").
+					StatusConditions(corev1.PodCondition{
+						Type:    "TerminationTarget",
+						Status:  corev1.ConditionTrue,
+						Reason:  "PodsReadyTimeout",
+						Message: "Workload evicted due to a PodsReady timeout",
+					}).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 3).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "PodsReadyTimeout",
+						Message:            "Workload evicted due to a PodsReady timeout",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 3).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "PodsReadyTimeout",
+						Message:            "Workload evicted due to a PodsReady timeout",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Workload evicted due to a PodsReady timeout",
 				},
 			},
 		},
