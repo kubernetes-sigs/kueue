@@ -136,7 +136,8 @@ The label 'result' can have the following values:
 
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "evicted_workloads_total",
+			Subsystem: constants.KueueName,
+			Name:      "evicted_workloads_total",
 			Help: `The number of evicted workloads per 'cluster_queue',
 The label 'reason' can have the following values:
 - "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.
