@@ -2604,7 +2604,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    jobframework.ReasonUpdatedAdmissionCheck,
-					Message:   "acName1: Some message; acName2: Another message.",
+					Message:   "acName1: Some message.; acName2: Another message.",
 				},
 			},
 		},
