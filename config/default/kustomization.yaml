@@ -42,11 +42,6 @@ patches:
 # Expose port used by the visibility server
 - path: manager_visibility_patch.yaml
 
-transformers:
-# Sets the namespace for the role binding as kube-system instead of default kueue-system
-- role_binding_visibility_transformer.yaml
-
-
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
 # Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
 # 'CERTMANAGER' needs to be enabled to use ca injection
