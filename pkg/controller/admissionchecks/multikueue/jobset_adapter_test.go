@@ -311,7 +311,7 @@ func TestWlReconcileJobset(t *testing.T) {
 
 			managerClient := manageBuilder.Build()
 
-			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin)
+			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil)
 
 			worker1Builder, _ := getClientBuilder()
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &jobset.JobSetList{Items: tc.worker1JobSets})

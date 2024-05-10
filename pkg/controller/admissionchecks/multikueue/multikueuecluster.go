@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -175,7 +176,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 		err := rc.startWatcher(watchCtx, kind, watcher)
 		if err != nil {
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
-			ctrl.LoggerFrom(watchCtx).V(2).Error(err, "Unable to start the watcher", "kind", kind)
+			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to start the watcher", "kind", kind)
 			// however let's not accept this for now.
 			rc.failedConnAttempts++
 			return ptr.To(retryAfter(rc.failedConnAttempts)), err
@@ -208,7 +209,7 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKu
 			default:
 				wlKey, err := w.GetWorkloadKey(r.Object)
 				if err != nil {
-					log.V(2).Error(err, "Cannot get workload key", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
+					log.Error(err, "Cannot get workload key", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
 				} else {
 					rc.queueWorkloadEvent(ctx, wlKey)
 				}
@@ -262,7 +263,7 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 	lst := &kueue.WorkloadList{}
 	err := rc.client.List(ctx, lst, client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
-		log.V(2).Error(err, "Listing remote workloads")
+		log.Error(err, "Listing remote workloads")
 		return
 	}
 
@@ -271,7 +272,7 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		wlLog := log.WithValues("remoteWl", klog.KObj(&remoteWl))
 		err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(&remoteWl), localWl)
 		if client.IgnoreNotFound(err) != nil {
-			wlLog.V(2).Error(err, "Reading local workload")
+			wlLog.Error(err, "Reading local workload")
 			continue
 		}
 
@@ -290,13 +291,13 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownnerKind", controller)
 				err := adapter.DeleteRemoteObject(ctx, rc.client, types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace})
 				if client.IgnoreNotFound(err) != nil {
-					wlLog.V(2).Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
+					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}
 			}
 		}
 		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
 		if err := rc.client.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
-			wlLog.V(2).Error(err, "Deleting remote workload")
+			wlLog.Error(err, "Deleting remote workload")
 		}
 	}
 }
@@ -331,6 +332,8 @@ type clustersReconciler struct {
 	// watchEndedCh - an event chan used to request the reconciliation of the clusters for which the watch loop
 	// has ended (connection lost).
 	watchEndedCh chan event.GenericEvent
+
+	fsWatcher *KubeConfigFSWatcher
 }
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
@@ -499,7 +502,7 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string) *clustersReconciler {
+func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:     c,
 		configNamespace: namespace,
@@ -508,6 +511,7 @@ func newClustersReconciler(c client.Client, namespace string, gcInterval time.Du
 		gcInterval:      gcInterval,
 		origin:          origin,
 		watchEndedCh:    make(chan event.GenericEvent, eventChBufferSize),
+		fsWatcher:       fsWatcher,
 	}
 }
 
@@ -525,10 +529,69 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		},
 	}
 
+	fsWatcherHndl := handler.Funcs{
+		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+			// batch the events
+			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
+				Name: e.Object.GetName(),
+			}}, 100*time.Millisecond)
+		},
+	}
+
+	filterLog := mgr.GetLogger().WithName("MultiKueueCluster filter")
+	filter := predicate.Funcs{
+		CreateFunc: func(ce event.CreateEvent) bool {
+			if cluster, isCluster := ce.Object.(*kueuealpha.MultiKueueCluster); isCluster {
+				if cluster.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+					err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.KubeConfig.Location)
+					if err != nil {
+						filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(cluster))
+					}
+				}
+			}
+			return true
+		},
+		UpdateFunc: func(ue event.UpdateEvent) bool {
+			clusterNew, isClusterNew := ue.ObjectNew.(*kueuealpha.MultiKueueCluster)
+			clusterOld, isClusterOld := ue.ObjectOld.(*kueuealpha.MultiKueueCluster)
+			if !isClusterNew || !isClusterOld {
+				return true
+			}
+
+			if clusterNew.Spec.KubeConfig.LocationType == kueuealpha.SecretLocationType && clusterOld.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+				err := c.fsWatcher.Remove(clusterOld.Name)
+				if err != nil {
+					filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(clusterOld))
+				}
+			}
+
+			if clusterNew.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+				err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.KubeConfig.Location)
+				if err != nil {
+					filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(clusterNew))
+				}
+			}
+			return true
+		},
+		DeleteFunc: func(de event.DeleteEvent) bool {
+			if cluster, isCluster := de.Object.(*kueuealpha.MultiKueueCluster); isCluster {
+				if cluster.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+					err := c.fsWatcher.Remove(cluster.Name)
+					if err != nil {
+						filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(cluster))
+					}
+				}
+			}
+			return true
+		},
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueuealpha.MultiKueueCluster{}).
 		Watches(&corev1.Secret{}, &secretHandler{client: c.localClient}).
 		WatchesRawSource(&source.Channel{Source: c.watchEndedCh}, syncHndl).
+		WatchesRawSource(&source.Channel{Source: c.fsWatcher.reconcile}, fsWatcherHndl).
+		WithEventFilter(filter).
 		Complete(c)
 }
 

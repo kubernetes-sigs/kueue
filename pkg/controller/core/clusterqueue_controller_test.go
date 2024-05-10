@@ -224,9 +224,9 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 }
 
 type cqMetrics struct {
-	NominalDPs   []testingmetrics.GaugeDataPoint
-	BorrowingDPs []testingmetrics.GaugeDataPoint
-	UsageDPs     []testingmetrics.GaugeDataPoint
+	NominalDPs   []testingmetrics.MetricDataPoint
+	BorrowingDPs []testingmetrics.MetricDataPoint
+	UsageDPs     []testingmetrics.MetricDataPoint
 }
 
 func allMetricsForQueue(name string) cqMetrics {
@@ -237,8 +237,8 @@ func allMetricsForQueue(name string) cqMetrics {
 	}
 }
 
-func resourceDataPoint(cohort, name, flavor, res string, v float64) testingmetrics.GaugeDataPoint {
-	return testingmetrics.GaugeDataPoint{
+func resourceDataPoint(cohort, name, flavor, res string, v float64) testingmetrics.MetricDataPoint {
+	return testingmetrics.MetricDataPoint{
 		Labels: map[string]string{
 			"cohort":        cohort,
 			"cluster_queue": name,
@@ -299,13 +299,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 		"no change": {
 			queue: baseQueue.DeepCopy(),
 			wantMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
 			},
@@ -313,13 +313,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 		"update-in-place": {
 			queue: baseQueue.DeepCopy(),
 			wantMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
 			},
@@ -331,13 +331,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 3),
 				},
 			},
@@ -345,13 +345,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 		"change-cohort": {
 			queue: baseQueue.DeepCopy(),
 			wantMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
 			},
@@ -361,13 +361,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort2", "name", "flavor", string(corev1.ResourceCPU), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort2", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort2", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
 			},
@@ -375,13 +375,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 		"add-rm-flavor": {
 			queue: baseQueue.DeepCopy(),
 			wantMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
 			},
@@ -392,13 +392,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor2", string(corev1.ResourceCPU), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor2", string(corev1.ResourceCPU), 2),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor2", string(corev1.ResourceCPU), 2),
 				},
 			},
@@ -406,13 +406,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 		"add-rm-resource": {
 			queue: baseQueue.DeepCopy(),
 			wantMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
 			},
@@ -423,13 +423,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceMemory), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceMemory), 2),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceMemory), 2),
 				},
 			},
@@ -437,13 +437,13 @@ func TestRecordResourceMetrics(t *testing.T) {
 		"drop-usage": {
 			queue: baseQueue.DeepCopy(),
 			wantMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
-				UsageDPs: []testingmetrics.GaugeDataPoint{
+				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
 			},
@@ -453,10 +453,10 @@ func TestRecordResourceMetrics(t *testing.T) {
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
-				NominalDPs: []testingmetrics.GaugeDataPoint{
+				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
 				},
-				BorrowingDPs: []testingmetrics.GaugeDataPoint{
+				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
 			},
@@ -464,7 +464,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 	}
 
 	opts := []cmp.Option{
-		cmpopts.SortSlices(func(a, b testingmetrics.GaugeDataPoint) bool { return a.Less(&b) }),
+		cmpopts.SortSlices(func(a, b testingmetrics.MetricDataPoint) bool { return a.Less(&b) }),
 		cmpopts.EquateEmpty(),
 	}
 

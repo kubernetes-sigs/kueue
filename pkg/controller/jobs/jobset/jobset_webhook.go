@@ -21,16 +21,24 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 type JobSetWebhook struct {
 	manageJobsWithoutQueueName bool
+	queues                     *queue.Manager
+	cache                      *cache.Cache
 }
 
 // SetupJobSetWebhook configures the webhook for kubeflow JobSet.
@@ -38,6 +46,8 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &JobSetWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		queues:                     options.Queues,
+		cache:                      options.Cache,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&jobsetapi.JobSet{}).
@@ -57,7 +67,31 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Applying defaults", "jobset", klog.KObj(jobSet))
 
 	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
+
+	if canDefaultManagedBy(jobSet.Spec.ManagedBy) {
+		localQueueName, found := jobSet.Labels[constants.QueueLabel]
+		if !found {
+			return nil
+		}
+		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(jobSet.ObjectMeta.Namespace, localQueueName))
+		if err != nil {
+			return err
+		}
+		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
+			if admissionCheck.Controller == multikueue.ControllerName {
+				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", multikueue.ControllerName)
+				jobSet.Spec.ManagedBy = ptr.To(multikueue.ControllerName)
+				return nil
+			}
+		}
+	}
+
 	return nil
+}
+
+func canDefaultManagedBy(jobSetSpecManagedBy *string) bool {
+	return features.Enabled(features.MultiKueue) &&
+		(jobSetSpecManagedBy == nil || *jobSetSpecManagedBy == jobsetapi.JobSetControllerName)
 }
 
 // +kubebuilder:webhook:path=/validate-jobset-x-k8s-io-v1alpha2-jobset,mutating=false,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create;update,versions=v1alpha2,name=vjobset.kb.io,admissionReviewVersions=v1

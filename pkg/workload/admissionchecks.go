@@ -47,7 +47,7 @@ func SyncAdmittedCondition(w *kueue.Workload) bool {
 	switch {
 	case !hasReservation && !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "NoReservationNoChecks"
+		newCondition.Reason = "NoReservationUnsatisfiedChecks"
 		newCondition.Message = "The workload has no reservation and not all checks ready"
 	case !hasReservation:
 		newCondition.Status = metav1.ConditionFalse
@@ -55,7 +55,7 @@ func SyncAdmittedCondition(w *kueue.Workload) bool {
 		newCondition.Message = "The workload has no reservation"
 	case !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "NoChecks"
+		newCondition.Reason = "UnsatisfiedChecks"
 		newCondition.Message = "The workload has not all checks ready"
 	}
 

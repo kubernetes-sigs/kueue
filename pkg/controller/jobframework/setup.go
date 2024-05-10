@@ -47,6 +47,11 @@ var (
 func SetupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
+	for fwkName := range options.EnabledExternalFrameworks {
+		if err := RegisterExternalJobType(fwkName); err != nil {
+			return err
+		}
+	}
 	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
 		logger := log.WithValues("jobFrameworkName", name)
 		fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", name)

@@ -23,6 +23,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -34,11 +35,13 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -73,10 +76,13 @@ type Options struct {
 	WaitForPodsReady           bool
 	KubeServerVersion          *kubeversion.ServerVersionFetcher
 	// IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
-	IntegrationOptions map[string]any
-	EnabledFrameworks  sets.Set[string]
-	ManagerName        string
-	LabelKeysToCopy    []string
+	IntegrationOptions        map[string]any
+	EnabledFrameworks         sets.Set[string]
+	EnabledExternalFrameworks sets.Set[string]
+	ManagerName               string
+	LabelKeysToCopy           []string
+	Queues                    *queue.Manager
+	Cache                     *cache.Cache
 }
 
 // Option configures the reconciler.
@@ -125,12 +131,22 @@ func WithIntegrationOptions(integrationName string, opts any) Option {
 }
 
 // WithEnabledFrameworks adds framework names enabled in the ConfigAPI.
-func WithEnabledFrameworks(i *configapi.Integrations) Option {
+func WithEnabledFrameworks(frameworks []string) Option {
 	return func(o *Options) {
-		if i == nil || len(i.Frameworks) == 0 {
+		if len(frameworks) == 0 {
 			return
 		}
-		o.EnabledFrameworks = sets.New(i.Frameworks...)
+		o.EnabledFrameworks = sets.New(frameworks...)
+	}
+}
+
+// WithEnabledExternalFrameworks adds framework names managed by external controller in the Config API.
+func WithEnabledExternalFrameworks(exFrameworks []string) Option {
+	return func(o *Options) {
+		if len(exFrameworks) == 0 {
+			return
+		}
+		o.EnabledExternalFrameworks = sets.New(exFrameworks...)
 	}
 }
 
@@ -145,6 +161,20 @@ func WithManagerName(n string) Option {
 func WithLabelKeysToCopy(n []string) Option {
 	return func(o *Options) {
 		o.LabelKeysToCopy = n
+	}
+}
+
+// WithQueues adds the queue manager.
+func WithQueues(q *queue.Manager) Option {
+	return func(o *Options) {
+		o.Queues = q
+	}
+}
+
+// WithCache adds the cache manager.
+func WithCache(c *cache.Cache) Option {
+	return func(o *Options) {
+		o.Cache = c
 	}
 }
 
@@ -307,6 +337,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 2. handle job is finished.
 	if message, success, finished := job.Finished(); finished {
+		log.V(3).Info("The workload is already finished")
 		if wl != nil && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 			reason := kueue.WorkloadFinishedReasonSucceeded
 			if !success {
@@ -330,6 +361,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 3. handle workload is nil.
 	if wl == nil {
+		log.V(3).Info("The workload is nil, handle job with no workload")
 		err := r.handleJobWithNoWorkload(ctx, job, object)
 		if err != nil {
 			if IsUnretryableError(err) {
@@ -343,6 +375,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 4. update reclaimable counts if implemented by the job
 	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable {
+		log.V(3).Info("update reclaimable counts if implemented by the job")
 		reclPods, err := jobRecl.ReclaimablePods()
 		if err != nil {
 			log.Error(err, "Getting reclaimable pods")
@@ -362,7 +395,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 5. handle WaitForPodsReady only for a standalone job.
 	// handle a job when waitForPodsReady is enabled, and it is the main job
 	if r.waitForPodsReady {
-		log.V(5).Info("Handling a job when waitForPodsReady is enabled")
+		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
 		condition := generatePodsReadyCondition(job, wl)
 		// optimization to avoid sending the update request if the status didn't change
 		if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
@@ -377,6 +410,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 6. handle eviction
 	if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
+		log.V(3).Info("Handling a job with evicted condition")
 		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -420,6 +454,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 
+		if workload.HasQuotaReservation(wl) {
+			r.recordAdmissionCheckUpdate(wl, job)
+		}
 		// update queue name if changed.
 		q := QueueName(job)
 		if wl.Spec.QueueName != q {
@@ -449,6 +486,28 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// workload is admitted and job is running, nothing to do.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job GenericJob) {
+	message := ""
+	object := job.Object()
+	for _, check := range wl.Status.AdmissionChecks {
+		if check.State == kueue.CheckStatePending && check.Message != "" {
+			if message != "" {
+				message += "; "
+			}
+			message += check.Name + ": " + check.Message
+		}
+	}
+	if message != "" {
+		if cJob, isComposable := job.(ComposableJob); isComposable {
+			cJob.ForEach(func(obj runtime.Object) {
+				r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, message)
+			})
+		} else {
+			r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, message)
+		}
+	}
 }
 
 // IsParentJobManaged checks whether the parent job is managed by kueue.

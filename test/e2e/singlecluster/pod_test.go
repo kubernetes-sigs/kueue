@@ -125,6 +125,9 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						var pCopy corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(testing.BeNotFoundError())
 					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
 					var wl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, gKey, &wl)).Should(testing.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

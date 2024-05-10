@@ -842,6 +842,14 @@ made.</p>
 </ul>
 </td>
 </tr>
+<tr><td><code>fairSharing</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>fairSharing defines the properties of the ClusterQueue when participating in fair sharing.
+The values are only relevant if fair sharing is enabled in the Kueue configuration.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -915,6 +923,39 @@ current state.</p>
 <td>
    <p>PendingWorkloadsStatus contains the information exposed about the current
 status of the pending workloads in the cluster queue.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
+    
+
+**Appears in:**
+
+- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+
+<p>FairSharing contains the properties of the ClusterQueue when participating in fair sharing.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>weight</code> <B>[Required]</B><br/>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
+</td>
+<td>
+   <p>weight gives a comparative advantage to this ClusterQueue when competing for unused
+resources in the cohort against other ClusterQueues.
+The share of a ClusterQueue is based on the dominant resource usage above nominal
+quotas for each resource, divided by the weight.
+Admission prioritizes scheduling workloads from ClusterQueues with the lowest share
+and preempting workloads from the ClusterQueues with the highest share.
+A zero weight implies infinite share value, meaning that this ClusterQueue will always
+be at disadvantage against other ClusterQueues.</p>
 </td>
 </tr>
 </tbody>

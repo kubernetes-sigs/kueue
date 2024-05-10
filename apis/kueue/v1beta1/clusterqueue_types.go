@@ -121,6 +121,10 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
 	// +kubebuilder:default="None"
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
+
+	// fairSharing defines the properties of the ClusterQueue when participating in fair sharing.
+	// The values are only relevant if fair sharing is enabled in the Kueue configuration.
+	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
 // AdmissionCheckStrategy defines a strategy for a AdmissionCheck.
@@ -462,6 +466,20 @@ type BorrowWithinCohort struct {
 	//
 	// +optional
 	MaxPriorityThreshold *int32 `json:"maxPriorityThreshold,omitempty"`
+}
+
+// FairSharing contains the properties of the ClusterQueue when participating in fair sharing.
+type FairSharing struct {
+	// weight gives a comparative advantage to this ClusterQueue when competing for unused
+	// resources in the cohort against other ClusterQueues.
+	// The share of a ClusterQueue is based on the dominant resource usage above nominal
+	// quotas for each resource, divided by the weight.
+	// Admission prioritizes scheduling workloads from ClusterQueues with the lowest share
+	// and preempting workloads from the ClusterQueues with the highest share.
+	// A zero weight implies infinite share value, meaning that this ClusterQueue will always
+	// be at disadvantage against other ClusterQueues.
+	// +kubebuilder:default=1
+	Weight *resource.Quantity `json:"weight,omitempty"`
 }
 
 // +genclient

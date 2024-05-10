@@ -36,7 +36,7 @@ import (
 )
 
 var (
-	errQueueDoesNotExist         = errors.New("queue doesn't exist")
+	ErrQueueDoesNotExist         = errors.New("queue doesn't exist")
 	errClusterQueueDoesNotExist  = errors.New("clusterQueue doesn't exist")
 	errClusterQueueAlreadyExists = errors.New("clusterQueue already exists")
 )
@@ -218,7 +218,7 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 	defer m.Unlock()
 	qImpl, ok := m.localQueues[Key(q)]
 	if !ok {
-		return errQueueDoesNotExist
+		return ErrQueueDoesNotExist
 	}
 	if qImpl.ClusterQueue != string(q.Spec.ClusterQueue) {
 		oldCQ := m.clusterQueues[qImpl.ClusterQueue]
@@ -255,7 +255,7 @@ func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
 
 	qImpl, ok := m.localQueues[Key(q)]
 	if !ok {
-		return 0, errQueueDoesNotExist
+		return 0, ErrQueueDoesNotExist
 	}
 
 	return int32(len(qImpl.items)), nil
@@ -568,13 +568,18 @@ func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
 	return cq.Snapshot()
 }
 
-func (m *Manager) ClusterQueueFromLocalQueue(lqName string) (string, error) {
+// ClusterQueueFromLocalQueue returns ClusterQueue name, with a QueueKey(namespace/localQueueName) as the parameter
+func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey string) (string, error) {
 	m.RLock()
 	defer m.RUnlock()
-	if lq, ok := m.localQueues[lqName]; ok {
+	if lq, ok := m.localQueues[localQueueKey]; ok {
 		return lq.ClusterQueue, nil
 	}
-	return "", errQueueDoesNotExist
+	return "", ErrQueueDoesNotExist
+}
+
+func QueueKey(namespace, name string) string {
+	return fmt.Sprintf("%s/%s", namespace, name)
 }
 
 // UpdateSnapshot computes the new snapshot and replaces if it differs from the

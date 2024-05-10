@@ -88,7 +88,9 @@ func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
-		scheduler.WithFairSharing(true))
+		scheduler.WithFairSharing(&config.FairSharing{
+			Enable: true,
+		}))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

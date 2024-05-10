@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 )
 
-func expectFilteredMetricsCount(t *testing.T, vec *prometheus.GaugeVec, count int, kvs ...string) {
+func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count int, kvs ...string) {
 	labels := prometheus.Labels{}
 	for i := 0; i < len(kvs)/2; i++ {
 		labels[kvs[i*2]] = kvs[i*2+1]
@@ -145,4 +145,16 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 1, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
+}
+
+func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
+	ReportEvictedWorkloads("cluster_queue1", "Preempted")
+	ReportEvictedWorkloads("cluster_queue1", "Evicted")
+
+	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 2, "cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Preempted")
+	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Evicted")
+	// clear
+	ClearQueueSystemMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
 }

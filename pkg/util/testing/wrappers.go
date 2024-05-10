@@ -662,6 +662,14 @@ func (c *ClusterQueueWrapper) Label(k, v string) *ClusterQueueWrapper {
 	return c
 }
 
+func (c *ClusterQueueWrapper) FairWeight(w resource.Quantity) *ClusterQueueWrapper {
+	if c.Spec.FairSharing == nil {
+		c.Spec.FairSharing = &kueue.FairSharing{}
+	}
+	c.Spec.FairSharing.Weight = ptr.To(w)
+	return c
+}
+
 // Condition sets a condition on the ClusterQueue.
 func (c *ClusterQueueWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string) *ClusterQueueWrapper {
 	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
