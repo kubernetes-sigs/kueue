@@ -3,10 +3,10 @@ title: "Pending Workloads on-demand"
 date: 2023-12-05
 weight: 3
 description: >
-  Obtain the pending Workloads via the on-demand visibility API
+  Monitor pending Workloads with the on-demand visibility API
 ---
 
-This page shows you how to monitor pending workloads with VisibilityOnDemand feature.
+This page shows you how to monitor pending workloads with `VisibilityOnDemand` feature.
 
 The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator), and [batch users](/docs/tasks#batch-user) for [Local Queue Visibility section](#local-queue-visibility).
 
@@ -22,9 +22,17 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation) in version v0.6.0 or later.
 
-### Enabling feature VisibilityOnDemand
+### Enable the VisibilityOnDemand feature gate
 
-VisibilityOnDemand is an `Alpha` feature disabled by default, check the [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) section of the [Installation](/docs/installation/) for details.
+VisibilityOnDemand is an `Alpha` feature disabled by default. To use the visibility API  change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`.
+
+### Install the visibility API
+
+To install the visibility API, run the following command
+
+```shell
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/visibility-api.yaml
+```
 
 ## Monitor pending workloads on demand
 
@@ -40,7 +48,7 @@ run the following command:
 kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/single-clusterqueue-setup.yaml
 ```
 
-Now, let's create 10 jobs
+Now, let's create 6 jobs
 
 {{< include "examples/jobs/sample-job.yaml" "yaml" >}}
 
@@ -49,6 +57,8 @@ using a command:
 ```shell
 for i in {1..6}; do kubectl create -f https://kueue.sigs.k8s.io/examples/jobs/sample-job.yaml; done
 ```
+
+3 of them saturate the ClusterQueue and the other 3 should be pending.
 
 ### Cluster Queue visibility
 

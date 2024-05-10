@@ -10,6 +10,7 @@ description: >
 - [Before you begin](#before-you-begin)
 - [Install a released version](#install-a-released-version)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
+  - [Add visibility API to monitor pending workloads](#add-visibility-api-to-monitor-pending-workloads)
   - [Uninstall](#uninstall)
 - [Install a custom-configured released version](#install-a-custom-configured-released-version)
 - [Install the latest development version](#install-the-latest-development-version)
@@ -19,6 +20,7 @@ description: >
   - [Uninstall](#uninstall-2)
 - [Install via Helm](#install-via-helm)
 - [Change the feature gates configuration](#change-the-feature-gates-configuration)
+- [What's next](#whats-next)
 
 <!-- /toc -->
 
@@ -65,6 +67,19 @@ to scrape metrics from kueue components, run the following command:
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/prometheus.yaml
 ```
+
+### Add visibility API to monitor pending workloads
+
+> _Available in Kueue v0.6.0 and later_
+
+To add the visibility API that enables monitoring pending workloads, change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`, and run the following command
+
+```shell
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/visibility-api.yaml
+```
+
+See [the visibility API](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand) for more details.
+
 
 ### Uninstall
 
