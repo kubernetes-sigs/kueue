@@ -23,6 +23,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -453,6 +454,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 
+		if workload.HasQuotaReservation(wl) {
+			r.recordAdmissionCheckUpdate(wl, job)
+		}
 		// update queue name if changed.
 		q := QueueName(job)
 		if wl.Spec.QueueName != q {
@@ -482,6 +486,28 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// workload is admitted and job is running, nothing to do.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job GenericJob) {
+	message := ""
+	object := job.Object()
+	for _, check := range wl.Status.AdmissionChecks {
+		if check.State == kueue.CheckStatePending && check.Message != "" {
+			if message != "" {
+				message += "; "
+			}
+			message += check.Name + ": " + check.Message
+		}
+	}
+	if message != "" {
+		if cJob, isComposable := job.(ComposableJob); isComposable {
+			cJob.ForEach(func(obj runtime.Object) {
+				r.record.Eventf(obj, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, message)
+			})
+		} else {
+			r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, message)
+		}
+	}
 }
 
 // IsParentJobManaged checks whether the parent job is managed by kueue.

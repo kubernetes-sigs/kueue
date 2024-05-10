@@ -2498,6 +2498,116 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
 		},
+		"admission check message is emitted as event for job": {
+			job: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(false).
+					Active(false).
+					Queue("foo").
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+						Reason: "Reason",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "acName",
+						State:   kueue.CheckStatePending,
+						Message: "Not admitted, ETA: 2024-02-22T10:36:40Z.",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(false).
+					Active(false).
+					Queue("foo").
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+						Reason: "Reason",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "acName",
+						State:   kueue.CheckStatePending,
+						Message: "Not admitted, ETA: 2024-02-22T10:36:40Z.",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    jobframework.ReasonUpdatedAdmissionCheck,
+					Message:   "acName: Not admitted, ETA: 2024-02-22T10:36:40Z.",
+				},
+			},
+		},
+		"multiple admission check messages are emitted as a single event for job": {
+			job: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(false).
+					Active(false).
+					Queue("foo").
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+						Reason: "Reason",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "acName1",
+						State:   kueue.CheckStatePending,
+						Message: "Some message.",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "acName2",
+						State:   kueue.CheckStatePending,
+						Message: "Another message.",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(false).
+					Active(false).
+					Queue("foo").
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+						Reason: "Reason",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "acName1",
+						State:   kueue.CheckStatePending,
+						Message: "Some message.",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "acName2",
+						State:   kueue.CheckStatePending,
+						Message: "Another message.",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    jobframework.ReasonUpdatedAdmissionCheck,
+					Message:   "acName1: Some message.; acName2: Another message.",
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
