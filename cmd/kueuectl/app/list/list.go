@@ -18,8 +18,9 @@ package list
 
 import (
 	"github.com/spf13/cobra"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 const (
@@ -27,7 +28,7 @@ const (
   kueuectl list localqueue`
 )
 
-func NewListCmd(clientGetter genericclioptions.RESTClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewListCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "list",
 		Short:   "Display resources",

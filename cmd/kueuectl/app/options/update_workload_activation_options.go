@@ -28,7 +28,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
@@ -59,7 +58,7 @@ func NewUpdateWorkloadActivationOptions(streams genericiooptions.IOStreams, oper
 }
 
 // Complete completes all the required options
-func (o *UpdateWorkloadActivationOptions) Complete(clientGetter genericclioptions.RESTClientGetter, cmd *cobra.Command, args []string) error {
+func (o *UpdateWorkloadActivationOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.Name = args[0]
 
 	var err error
@@ -68,12 +67,7 @@ func (o *UpdateWorkloadActivationOptions) Complete(clientGetter genericclioption
 		return err
 	}
 
-	config, err := clientGetter.ToRESTConfig()
-	if err != nil {
-		return err
-	}
-
-	clientset, err := versioned.NewForConfig(config)
+	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
 		return err
 	}

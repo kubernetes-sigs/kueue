@@ -18,7 +18,6 @@ package resume
 
 import (
 	"github.com/spf13/cobra"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
@@ -29,7 +28,7 @@ const (
   kueuectl resume workload my-workload`
 )
 
-func NewResumeCmd(clientGetter genericclioptions.RESTClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewResumeCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "resume",
 		Short:   "Resume the resource",

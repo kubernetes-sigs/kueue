@@ -17,17 +17,24 @@ limitations under the License.
 package list
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
+	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
-func TestFilterList(t *testing.T) {
+const defaultNamespace = "default"
+
+func TestLocalQueueFilter(t *testing.T) {
 	testCases := map[string]struct {
 		options *LocalQueueOptions
 		in      *v1beta1.LocalQueueList
@@ -89,58 +96,137 @@ func TestFilterList(t *testing.T) {
 	}
 }
 
-func TestPrintLocalQueueList(t *testing.T) {
+func TestLocalQueueCmd(t *testing.T) {
 	testStartTime := time.Now()
 
 	testCases := map[string]struct {
-		options *LocalQueueOptions
-		in      *v1beta1.LocalQueueList
-		out     []metav1.TableRow
+		ns         string
+		objs       []runtime.Object
+		args       []string
+		wantOut    string
+		wantOutErr string
+		wantErr    error
 	}{
-		"should print local queue list": {
-			options: &LocalQueueOptions{},
-			in: &v1beta1.LocalQueueList{
-				Items: []v1beta1.LocalQueue{
-					{
-						TypeMeta: metav1.TypeMeta{},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "lq",
-							CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
-						},
-						Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
-						Status: v1beta1.LocalQueueStatus{
-							PendingWorkloads:  1,
-							AdmittedWorkloads: 2,
-						},
-					},
-				},
+		"should print local queue list with namespace filter": {
+			ns: "ns1",
+			objs: []runtime.Object{
+				utiltesting.MakeLocalQueue("lq1", "ns1").
+					ClusterQueue("cq1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(1).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltesting.MakeLocalQueue("lq2", "ns2").
+					ClusterQueue("cq2").
+					PendingWorkloads(2).
+					AdmittedWorkloads(2).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
 			},
-			out: []metav1.TableRow{
-				{
-					Cells: []any{"lq", v1beta1.ClusterQueueReference("cq1"), int32(1), int32(2), "60m"},
-					Object: runtime.RawExtension{
-						Object: &v1beta1.LocalQueue{
-							TypeMeta: metav1.TypeMeta{},
-							ObjectMeta: metav1.ObjectMeta{
-								Name:              "lq",
-								CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
-							},
-							Spec: v1beta1.LocalQueueSpec{ClusterQueue: "cq1"},
-							Status: v1beta1.LocalQueueStatus{
-								PendingWorkloads:  1,
-								AdmittedWorkloads: 2,
-							},
-						},
-					},
-				},
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
+lq1    cq1            1                   1                    60m
+`,
+		},
+		"should print local queue list with clusterqueue filter": {
+			args: []string{"--clusterqueue", "cq1"},
+			objs: []runtime.Object{
+				utiltesting.MakeLocalQueue("lq1", defaultNamespace).
+					ClusterQueue("cq1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(1).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltesting.MakeLocalQueue("lq2", defaultNamespace).
+					ClusterQueue("cq2").
+					PendingWorkloads(2).
+					AdmittedWorkloads(2).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
 			},
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
+lq1    cq1            1                   1                    60m
+`,
+		},
+		"should print local queue list with label selector filter": {
+			args: []string{"--selector", "key=value1"},
+			objs: []runtime.Object{
+				utiltesting.MakeLocalQueue("lq1", defaultNamespace).
+					ClusterQueue("cq1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(1).
+					Label("key", "value1").
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltesting.MakeLocalQueue("lq2", defaultNamespace).
+					ClusterQueue("cq2").
+					PendingWorkloads(2).
+					AdmittedWorkloads(2).
+					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
+					Label("key", "value2").
+					Obj(),
+			},
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
+lq1    cq1            1                   1                    60m
+`,
+		},
+		"should print local queue list with label selector filter (short flag)": {
+			args: []string{"-l", "foo=bar"},
+			objs: []runtime.Object{
+				utiltesting.MakeLocalQueue("lq1", defaultNamespace).
+					ClusterQueue("cq1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(1).
+					Label("foo", "bar").
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltesting.MakeLocalQueue("lq2", defaultNamespace).
+					ClusterQueue("cq2").
+					PendingWorkloads(2).
+					AdmittedWorkloads(2).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
+lq1    cq1            1                   1                    60m
+`,
+		},
+		"should print not found error": {
+			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", defaultNamespace),
+		},
+		"should print not found error with all-namespaces filter": {
+			args:       []string{"-A"},
+			wantOutErr: "No resources found\n",
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			out := printLocalQueueList(tc.in)
-			if diff := cmp.Diff(tc.out, out); diff != "" {
-				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
+			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
+
+			tf := cmdtesting.NewTestClientGetter()
+			if len(tc.ns) > 0 {
+				tf.WithNamespace(tc.ns)
+			} else {
+				tf.WithNamespace(defaultNamespace)
+			}
+
+			tf.ClientSet = fake.NewSimpleClientset(tc.objs...)
+
+			cmd := NewLocalQueueCmd(tf, streams)
+			cmd.SetArgs(tc.args)
+
+			gotErr := cmd.Execute()
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+
+			gotOut := out.String()
+			if diff := cmp.Diff(tc.wantOut, gotOut); diff != "" {
+				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
+			}
+
+			gotOutErr := outErr.String()
+			if diff := cmp.Diff(tc.wantOutErr, gotOutErr); diff != "" {
+				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
 		})
 	}

@@ -517,6 +517,21 @@ func MakeLocalQueue(name, ns string) *LocalQueueWrapper {
 	}}
 }
 
+// Creation sets the creation timestamp of the LocalQueue.
+func (q *LocalQueueWrapper) Creation(t time.Time) *LocalQueueWrapper {
+	q.CreationTimestamp = metav1.NewTime(t)
+	return q
+}
+
+// Label sets the label on the LocalQueue.
+func (q *LocalQueueWrapper) Label(k, v string) *LocalQueueWrapper {
+	if q.Labels == nil {
+		q.Labels = make(map[string]string)
+	}
+	q.Labels[k] = v
+	return q
+}
+
 // Obj returns the inner LocalQueue.
 func (q *LocalQueueWrapper) Obj() *kueue.LocalQueue {
 	return &q.LocalQueue
@@ -531,6 +546,12 @@ func (q *LocalQueueWrapper) ClusterQueue(c string) *LocalQueueWrapper {
 // PendingWorkloads updates the pendingWorkloads in status.
 func (q *LocalQueueWrapper) PendingWorkloads(n int32) *LocalQueueWrapper {
 	q.Status.PendingWorkloads = n
+	return q
+}
+
+// AdmittedWorkloads updates the admittedWorkloads in status.
+func (q *LocalQueueWrapper) AdmittedWorkloads(n int32) *LocalQueueWrapper {
+	q.Status.AdmittedWorkloads = n
 	return q
 }
 

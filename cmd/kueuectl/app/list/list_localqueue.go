@@ -27,9 +27,9 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 const (
@@ -63,7 +63,7 @@ func NewLocalQueueOptions(streams genericiooptions.IOStreams) *LocalQueueOptions
 	}
 }
 
-func NewLocalQueueCmd(clientGetter genericclioptions.RESTClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewLocalQueueOptions(streams)
 
 	cmd := &cobra.Command{
@@ -91,7 +91,7 @@ func NewLocalQueueCmd(clientGetter genericclioptions.RESTClientGetter, streams g
 }
 
 // Complete completes all the required options
-func (o *LocalQueueOptions) Complete(clientGetter genericclioptions.RESTClientGetter, cmd *cobra.Command, args []string) error {
+func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
 	var err error
 
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
@@ -99,12 +99,7 @@ func (o *LocalQueueOptions) Complete(clientGetter genericclioptions.RESTClientGe
 		return err
 	}
 
-	config, err := clientGetter.ToRESTConfig()
-	if err != nil {
-		return err
-	}
-
-	clientset, err := versioned.NewForConfig(config)
+	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
 		return err
 	}

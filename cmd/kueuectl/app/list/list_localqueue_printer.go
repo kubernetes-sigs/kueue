@@ -57,8 +57,9 @@ func (p *listLocalQueuePrinter) PrintObj(obj runtime.Object, out io.Writer) erro
 	return printer.PrintObj(table, out)
 }
 
-func (p *listLocalQueuePrinter) WithNamespace() {
+func (p *listLocalQueuePrinter) WithNamespace() *listLocalQueuePrinter {
 	p.printOptions.WithNamespace = true
+	return p
 }
 
 func newLocalQueueTablePrinter() *listLocalQueuePrinter {
