@@ -2,10 +2,10 @@ package wait
 
 import (
 	"context"
-	"reflect"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 )
@@ -24,11 +24,6 @@ func makeSpyTimer() SpyTimer {
 	timer := clock.RealClock{}.NewTimer(0)
 	<-timer.C()
 	return SpyTimer{history: ptr.To([]time.Duration{}), Timer: timer}
-}
-
-func makeCancelableContext() (context.Context, context.CancelFunc) {
-	ctx := context.Background()
-	return context.WithCancel(ctx)
 }
 
 func ms(m time.Duration) time.Duration {
@@ -72,7 +67,7 @@ func TestUntilWithBackoff(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			timer := makeSpyTimer()
-			ctx, cancel := makeCancelableContext()
+			ctx, cancel := context.WithCancel(context.Background())
 
 			i := 0
 			f := func(ctx context.Context) SpeedSignal {
@@ -86,8 +81,8 @@ func TestUntilWithBackoff(t *testing.T) {
 			}
 			untilWithBackoff(ctx, f, timer)
 
-			if !reflect.DeepEqual((*timer.history), testCase.expected) {
-				t.Fatal(*timer.history, "!=", testCase.expected)
+			if diff := cmp.Diff((*timer.history), testCase.expected); diff != "" {
+				t.Errorf("Unexpected backoff time (-want,+got):\n%s", diff)
 			}
 		})
 	}
