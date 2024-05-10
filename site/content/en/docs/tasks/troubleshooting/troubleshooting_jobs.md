@@ -6,17 +6,19 @@ description: >
   Troubleshooting the status of a Job
 ---
 
-This doc is about troubleshooting pending kubernetes Jobs, however, most of the ideas can be extrapolated
-to other supported CRDs.
+This doc is about troubleshooting pending [Kubernetes Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/),
+however, most of the ideas can be extrapolated to other [supported job types](/docs/tasks/run).
+
+See the [Kueue overview](/docs/overview/#high-level-kueue-operation) to visualize the components that collaborate to run a Job.
+
+In the remaining of the document, let's assume your Job is called `my-job` and it's in the `my-namespace` namespace.
 
 ## Identifying the Workload for your Job
 
-For each Job (a Kubernetes Job or a CRD), Kueue creates a [Workload](/docs/concepts/workload) object to hold the
-information about the admission of the Job. The Workload object allows Kueue to make admission decisions without
-knowing the specifics of each CRD.
+For each Job, Kueue creates a [Workload](/docs/concepts/workload) object to hold the
+details about the admission of the Job, wether it was admitted or not.
 
-There are multiple ways to find the Workload for a Job. In the following examples, let's assume your
-Job is called `my-job` in the `my-namespace` namespace.
+There are multiple ways to find the Workload for a Job.
 
 1. You can obtain the Workload name from the Job events, running the following command:
 
@@ -47,7 +49,7 @@ Job is called `my-job` in the `my-namespace` namespace.
 
 3. You can list all of the workloads in the same namespace of your job and identify the one
    that matches the format `<api-name>-<job-name>-<hash>`.
-   The command may look like the following:
+   You can run a command like the following:
 
    ```bash
    kubectl get workloads -n my-namespace | grep job-my-job
@@ -60,16 +62,29 @@ Job is called `my-job` in the `my-namespace` namespace.
    job-my-job-19797   user-queue   cluster-queue   9m45s
    ```
 
-## Is my Job running?
+Once you have identified the name of the Workload, you can obtain all details by
+running the following comand:
 
-To know whether your Job is running, look for the value of the `.spec.suspend` field, by
+```bash
+kubectl describe workload -n my-namespace job-my-job-19797
+```
+
+## Is my Job suspended?
+
+To know whether your Job is suspended, look for the value of the `.spec.suspend` field, by
 running the following command:
 
 ```
 kubectl get job -n my-namespace my-job -o jsonpath='{.spec.suspend}'
 ```
 
-If your Job is running, the output will be `false`.
+When a job is suspended, Kubernetes will not create any [Pods](https://kubernetes.io/docs/concepts/workloads/pods/)
+for it or it will terminate and delete them if they were already running.
+
+A job is suspended when Kueue hasn't admitted it yet or when it was preempted to
+accommodate another job. To understand why your job is suspended,
+check the corresponding Workload object.
+
 
 ## Is my Job admitted?
 
@@ -250,3 +265,60 @@ status:
 
 The `Evicted` condition shows that the Workload was preempted and the `QuotaReserved` condition with `status: "True"`
 shows that Kueue already attempted to admit it again, unsuccessfully in this case.
+
+## Are the Pods of my Job running?
+
+When a Job is not suspended, Kubernetes creates Pods for it.
+To check how many of these Pods are scheduled and running, you can first check the Job status.
+
+Run the following command to obtain the full status of a Job:
+
+```bash
+kubectl get job -n my-namespace my-job -o yaml
+```
+
+The output will be similar to the following:
+```yaml
+...
+status:
+  active: 5
+  ready: 4
+  succeeded: 1
+  ...
+```
+
+The `active` field shows how many Pods for the Job exist, and the `ready` field shows how many of them are running.
+
+To list all the pods of the Job, you can can run the following command:
+
+```bash
+kubectl get pods -n my-namespace -l batch.kubernetes.io/job-name=my-job
+```
+
+The output will be similar to the following:
+
+```
+NAME             READY   STATUS    RESTARTS   AGE
+my-job-0-nxmpx   1/1     Running   0          3m20s
+my-job-1-vgms2   1/1     Running   0          3m20s
+my-job-2-74gw7   1/1     Running   0          3m20s
+my-job-3-d4559   1/1     Running   0          3m20s
+my-job-4-pg75n   0/1     Pending   0          3m20s
+```
+
+If a Pod or Pods are stuck in `Pending`, you can run the following command
+to check the latest events issued for the Pod
+
+```
+kubectl describe pod -n my-namespace my-job-0-pg75n
+```
+
+If the Pod is unschedulable, the output will be similar to the following:
+
+```
+Events:
+  Type     Reason             Age                From                Message
+  ----     ------             ----               ----                -------
+  Warning  FailedScheduling   13s (x2 over 15s)  default-scheduler   0/9 nodes are available: 9 node(s) didn't match Pod's node affinity/selector. preemption: 0/9 nodes are available: 9 Preemption is not helpful for scheduling.
+  Normal   NotTriggerScaleUp  13s                cluster-autoscaler  pod didn't trigger scale-up:
+```
