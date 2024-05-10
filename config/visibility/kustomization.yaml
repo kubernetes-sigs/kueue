@@ -10,3 +10,7 @@ commonLabels:
 
 resources:
 - ../components/visibility
+
+transformers:
+# Sets the namespace for the role binding as kube-system instead of default kueue-system
+- role_binding_visibility_transformer.yaml
