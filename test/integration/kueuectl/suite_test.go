@@ -18,6 +18,8 @@ package kueuectl
 
 import (
 	"context"
+	"os"
+	"path"
 	"path/filepath"
 	"testing"
 
@@ -32,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	// +kubebuilder:scaffold:imports
@@ -44,6 +47,10 @@ var (
 	fwk         *framework.Framework
 	crdPath     = filepath.Join("..", "..", "..", "config", "components", "crd", "bases")
 	webhookPath = filepath.Join("..", "..", "..", "config", "components", "webhook")
+
+	kueuectlPath   string
+	kassetsPath    string
+	kubeconfigPath string
 )
 
 func TestKueuectl(t *testing.T) {
@@ -55,6 +62,13 @@ var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
+
+	kassetsPath = os.Getenv("KUBEBUILDER_ASSETS")
+	kueuectlPath = path.Join(os.Getenv("KUEUE_BIN"), "kubectl-kueue")
+	kubeconfigPath = path.Join(ginkgo.GinkgoT().TempDir(), "testing.kubeconfig")
+	configBites, err := utiltesting.RestConfigToKubeConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(os.WriteFile(kubeconfigPath, configBites, 0666)).To(gomega.Succeed())
 })
 
 var _ = ginkgo.AfterSuite(func() {
