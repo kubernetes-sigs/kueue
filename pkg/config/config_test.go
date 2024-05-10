@@ -38,12 +38,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 func TestLoad(t *testing.T) {
-	test_scheme := runtime.NewScheme()
-	err := configapi.AddToScheme(test_scheme)
+	testScheme := runtime.NewScheme()
+	err := configapi.AddToScheme(testScheme)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,6 +214,7 @@ clientConnection:
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+
 	integrationsConfig := filepath.Join(tmpDir, "integrations.yaml")
 	if err := os.WriteFile(integrationsConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -220,9 +222,12 @@ kind: Configuration
 integrations:
   frameworks:
   - batch/job
+  externalFrameworks:
+  - Foo.v1.example.com
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+
 	queueVisibilityConfig := filepath.Join(tmpDir, "queueVisibility.yaml")
 	if err := os.WriteFile(queueVisibilityConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -234,6 +239,7 @@ queueVisibility:
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+
 	podIntegrationOptionsConfig := filepath.Join(tmpDir, "podIntegrationOptions.yaml")
 	if err := os.WriteFile(podIntegrationOptionsConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -268,6 +274,7 @@ multiKueue:
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 		Metrics: metricsserver.Options{
@@ -656,7 +663,8 @@ multiKueue:
 				Integrations: &configapi.Integrations{
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
-					Frameworks: []string{job.FrameworkName},
+					Frameworks:         []string{job.FrameworkName},
+					ExternalFrameworks: []string{"Foo.v1.example.com"},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -814,7 +822,7 @@ multiKueue:
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			options, cfg, err := Load(test_scheme, tc.configFile)
+			options, cfg, err := Load(testScheme, tc.configFile)
 			if tc.wantError == nil {
 				if err != nil {
 					t.Errorf("Unexpected error:%s", err)
@@ -835,14 +843,14 @@ multiKueue:
 }
 
 func TestEncode(t *testing.T) {
-	test_scheme := runtime.NewScheme()
-	err := configapi.AddToScheme(test_scheme)
+	testScheme := runtime.NewScheme()
+	err := configapi.AddToScheme(testScheme)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	defaultConfig := &configapi.Configuration{}
-	test_scheme.Default(defaultConfig)
+	testScheme.Default(defaultConfig)
 
 	testcases := []struct {
 		name       string
@@ -853,7 +861,7 @@ func TestEncode(t *testing.T) {
 
 		{
 			name:   "empty",
-			scheme: test_scheme,
+			scheme: testScheme,
 			cfg:    &configapi.Configuration{},
 			wantResult: map[string]any{
 				"apiVersion":                 "config.kueue.x-k8s.io/v1beta1",
@@ -866,7 +874,7 @@ func TestEncode(t *testing.T) {
 		},
 		{
 			name:   "default",
-			scheme: test_scheme,
+			scheme: testScheme,
 			cfg:    defaultConfig,
 			wantResult: map[string]any{
 				"apiVersion": "config.kueue.x-k8s.io/v1beta1",

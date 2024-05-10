@@ -357,6 +357,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					return k8sClient.Status().Update(ctx, &createdWl)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+				util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByAdmissionCheck, 1)
+
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					g.Expect(createdWl.Status.Conditions).To(gomega.ContainElements(
@@ -396,7 +398,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,
 							Status:  metav1.ConditionFalse,
-							Reason:  "NoReservationNoChecks",
+							Reason:  "NoReservationUnsatisfiedChecks",
 							Message: "The workload has no reservation and not all checks ready",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{

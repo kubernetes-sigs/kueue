@@ -1103,7 +1103,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			CRDPath: crdPath,
 		}
 		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup(nil))
+		ctx, k8sClient = fwk.RunManager(cfg, managerAndControllersSetup(true, nil))
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()
@@ -1896,7 +1896,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 })
 
-var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady with requeuing strategy is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
@@ -1915,10 +1915,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 			Timeout:        &metav1.Duration{Duration: 10 * time.Millisecond},
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
-				BackoffBaseSeconds: ptr.To[int32](1),
+				BackoffBaseSeconds: ptr.To[int32](2),
 			},
 		}
-		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup(
+		ctx, k8sClient = fwk.RunManager(cfg, managerAndControllersSetup(
+			false,
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
 		))
@@ -1949,7 +1950,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 	})
 
 	ginkgo.When("workload evicted due pods ready timeout", func() {
-		ginkgo.It("should requeued after job status ready", func() {
+		ginkgo.It("should re-queue a workload evicted due to PodsReady timeout after the backoff elapses", func() {
 			ginkgo.By("creating job")
 			job := testingjob.MakeJob("job", ns.Name).Queue(lq.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -1957,13 +1958,14 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 			wl := &kueue.Workload{}
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
-			jobKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
-			createdJob := &batchv1.Job{}
+			ginkgo.By("setting quota reservation")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the workload is evicted")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
-				g.Expect(createdJob.Status.Ready, 0).Should(gomega.BeNil())
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
 					gomega.BeComparableTo(metav1.Condition{
@@ -1993,15 +1995,8 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("setting job status ready")
-			createdJob.Status.Ready = ptr.To(int32(1))
-			gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
-
 			ginkgo.By("checking the workload is requeued")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
-				g.Expect(createdJob.Status.Ready).ShouldNot(gomega.BeNil())
-				g.Expect(*createdJob.Status.Ready).Should(gomega.Equal(int32(1)))
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
 				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(ptr.To[int32](1)))
@@ -2009,27 +2004,27 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler when waitForP
 				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
-						Status:  metav1.ConditionTrue,
+						Status:  metav1.ConditionFalse,
 						Reason:  kueue.WorkloadPodsReady,
-						Message: "All pods were ready or succeeded since the workload admission",
+						Message: "Not all pods are ready or succeeded",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadQuotaReserved,
-						Message: fmt.Sprintf("Quota reserved in ClusterQueue %s", cq.Name),
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadQuotaReserved,
-						Message: fmt.Sprintf("Previously: Exceeded the PodsReady timeout %s", wlKey.String()),
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadAdmitted,
-						Message: "The workload is admitted",
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,

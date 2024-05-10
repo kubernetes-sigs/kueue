@@ -38,10 +38,10 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "e2e-"}}
+		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "ns-"}}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-		cq = testing.MakeClusterQueue("e2e-cq").Obj()
+		cq = testing.MakeClusterQueue("cq").Obj()
 		gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 	})
 
@@ -72,6 +72,32 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
 					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta1.ClusterQueueReference(cq.Name)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should create a local queue with unknown cluster queue", func() {
+			lqName := "lq"
+			cqName := "cq-unknown"
+
+			ginkgo.By("Create a local queue with unknown cluster queue", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(output)
+
+				kueuectl.SetArgs([]string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--ignore-unknown-cq"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			})
+
+			ginkgo.By("Check that the local queue successfully created", func() {
+				var createdQueue v1beta1.LocalQueue
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
+					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
+					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(v1beta1.ClusterQueueReference(cqName)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

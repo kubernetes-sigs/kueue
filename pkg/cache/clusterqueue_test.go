@@ -17,10 +17,12 @@ limitations under the License.
 package cache
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -787,6 +789,7 @@ func TestDominantResourceShare(t *testing.T) {
 	}{
 		"no cohort": {
 			cq: ClusterQueue{
+				FairWeight: oneQuantity,
 				Usage: FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 1_000,
@@ -814,6 +817,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"usage below nominal": {
 			cq: ClusterQueue{
+				FairWeight: oneQuantity,
 				Usage: FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 1_000,
@@ -847,6 +851,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"usage above nominal": {
 			cq: ClusterQueue{
+				FairWeight: oneQuantity,
 				Usage: FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 3_000,
@@ -882,6 +887,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"one resource above nominal": {
 			cq: ClusterQueue{
+				FairWeight: oneQuantity,
 				Usage: FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 3_000,
@@ -917,6 +923,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"usage with workload above nominal": {
 			cq: ClusterQueue{
+				FairWeight: oneQuantity,
 				Usage: FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 1_000,
@@ -958,6 +965,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"A resource with zero lendable": {
 			cq: ClusterQueue{
+				FairWeight: oneQuantity,
 				Usage: FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 1_000,
@@ -1000,6 +1008,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"multiple flavors": {
 			cq: ClusterQueue{
+				FairWeight: oneQuantity,
 				Usage: FlavorResourceQuantities{
 					"on-demand": {
 						corev1.ResourceCPU: 15_000,
@@ -1043,6 +1052,97 @@ func TestDominantResourceShare(t *testing.T) {
 			},
 			wantDRName:  corev1.ResourceCPU,
 			wantDRValue: 25, // ((15+10-20)+0)*1000/200 (spot under nominal)
+		},
+		"above nominal with integer weight": {
+			cq: ClusterQueue{
+				FairWeight: resource.MustParse("2"),
+				Usage: FlavorResourceQuantities{
+					"default": {
+						"example.com/gpu": 7,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						"example.com/gpu": 10,
+					},
+				},
+			},
+			wantDRName:  "example.com/gpu",
+			wantDRValue: 100, // ((7-5)*1000/10)/2
+		},
+		"above nominal with decimal weight": {
+			cq: ClusterQueue{
+				FairWeight: resource.MustParse("0.5"),
+				Usage: FlavorResourceQuantities{
+					"default": {
+						"example.com/gpu": 7,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						"example.com/gpu": 10,
+					},
+				},
+			},
+			wantDRName:  "example.com/gpu",
+			wantDRValue: 400, // ((7-5)*1000/10)/(1/2)
+		},
+		"above nominal with zero weight": {
+			cq: ClusterQueue{
+				Usage: FlavorResourceQuantities{
+					"default": {
+						"example.com/gpu": 7,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						"example.com/gpu": 10,
+					},
+				},
+			},
+			wantDRValue: math.MaxInt,
 		},
 	}
 	for name, tc := range cases {

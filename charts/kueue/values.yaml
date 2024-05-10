@@ -104,6 +104,9 @@ managerConfig:
     #       - key: kubernetes.io/metadata.name
     #         operator: NotIn
     #         values: [ kube-system, kueue-system ]
+    # fairSharing:
+    #   enable: true
+    #   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:

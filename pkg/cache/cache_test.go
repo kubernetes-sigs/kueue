@@ -132,6 +132,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"b": {
 					Name:                          "b",
@@ -161,6 +162,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"c": {
 					Name:                          "c",
@@ -171,6 +173,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"d": {
 					Name:                          "d",
@@ -181,6 +184,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"e": {
 					Name:                          "e",
@@ -209,6 +213,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"f": {
 					Name:                          "f",
@@ -222,6 +227,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
+					FairWeight: oneQuantity,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -252,6 +258,28 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					},
+					FairWeight: oneQuantity,
+				},
+			},
+		},
+		{
+			name: "add ClusterQueue with fair sharing weight",
+			operation: func(cache *Cache) error {
+				cq := utiltesting.MakeClusterQueue("foo").FairWeight(resource.MustParse("2")).Obj()
+				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+					return fmt.Errorf("Failed to add ClusterQueue: %w", err)
+				}
+				return nil
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:                          "foo",
+					AllocatableResourceGeneration: 1,
+					NamespaceSelector:             labels.Everything(),
+					Status:                        active,
+					FlavorFungibility:             defaultFlavorFungibility,
+					Preemption:                    defaultPreemption,
+					FairWeight:                    resource.MustParse("2"),
 				},
 			},
 		},
@@ -299,6 +327,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"b": {
 					Name:                          "b",
@@ -328,6 +357,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"c": {
 					Name:                          "c",
@@ -338,6 +368,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"d": {
 					Name:                          "d",
@@ -348,6 +379,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"e": {
 					Name:                          "e",
@@ -378,6 +410,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"f": {
 					Name:                          "f",
@@ -391,6 +424,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
+					FairWeight: oneQuantity,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -465,6 +499,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"b": {
 					Name:                          "b",
@@ -475,6 +510,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"c": {
 					Name:                          "c",
@@ -485,6 +521,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"d": {
 					Name:                          "d",
@@ -495,6 +532,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"e": {
 					Name:                          "e",
@@ -531,6 +569,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"f": {
 					Name:                          "f",
@@ -544,6 +583,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
+					FairWeight: oneQuantity,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -595,6 +635,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"c": {
 					Name:                          "c",
@@ -605,6 +646,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"e": {
 					Name:                          "e",
@@ -635,6 +677,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"f": {
 					Name:                          "f",
@@ -648,6 +691,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
+					FairWeight: oneQuantity,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -697,6 +741,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"b": {
 					Name:                          "b",
@@ -726,6 +771,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"c": {
 					Name:                          "c",
@@ -736,6 +782,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"d": {
 					Name:                          "d",
@@ -746,6 +793,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage:                         FlavorResourceQuantities{},
 					Status:                        active,
 					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"e": {
 					Name:                          "e",
@@ -774,6 +822,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 				"f": {
 					Name:                          "f",
@@ -787,6 +836,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
 					},
+					FairWeight: oneQuantity,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -902,6 +952,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
 				},
 			},
 		},
@@ -929,6 +980,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
 					},
+					FairWeight: oneQuantity,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
@@ -959,7 +1011,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
-					}},
+					},
+					FairWeight: oneQuantity,
+				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
 		},
@@ -990,7 +1044,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
-					}},
+					},
+					FairWeight: oneQuantity,
+				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
 		},
@@ -1021,7 +1077,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmissionChecks: map[string]sets.Set[kueue.ResourceFlavorReference]{
 						"check1": sets.New[kueue.ResourceFlavorReference](),
 						"check2": sets.New[kueue.ResourceFlavorReference](),
-					}},
+					},
+					FairWeight: oneQuantity,
+				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
 		},
@@ -1072,6 +1130,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Lendable: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 10_000,
 					},
+					FairWeight: oneQuantity,
 					Workloads: map[string]*workload.Info{
 						"ns/reserving": {
 							ClusterQueue: "cq1",
@@ -1164,6 +1223,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
+					FairWeight:                    oneQuantity,
 					GuaranteedQuota: FlavorResourceQuantities{
 						"on-demand": {
 							corev1.ResourceCPU:    2_000,

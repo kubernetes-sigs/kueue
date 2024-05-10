@@ -34,7 +34,7 @@ import (
 
 // +kubebuilder:docs-gen:collapse=Imports
 
-var _ = ginkgo.Describe("Jobset", func() {
+var _ = ginkgo.Describe("JobSet", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {

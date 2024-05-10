@@ -1775,6 +1775,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusPending)
+			util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByClusterQueueStopped, 1)
 
 			ginkgo.By("Checking the condition of workload is evicted", func() {
 				createdWl := kueue.Workload{}
