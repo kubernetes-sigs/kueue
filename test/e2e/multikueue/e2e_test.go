@@ -113,7 +113,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				g.Expect(k8sManagerClient.Get(ctx, acKey, &updatedAc)).To(gomega.Succeed())
 				g.Expect(apimeta.IsStatusConditionTrue(updatedAc.Status.Conditions, kueue.AdmissionCheckActive)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 		})
 		managerFlavor = utiltesting.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, managerFlavor)).Should(gomega.Succeed())

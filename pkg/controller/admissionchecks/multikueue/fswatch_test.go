@@ -178,7 +178,6 @@ func TestFSWatch(t *testing.T) {
 			if diff := cmp.Diff(tc.wantEventsForClusters, gotEventsForClusters); diff != "" {
 				t.Errorf("unexpected events for clusters(-want/+got):\n%s", diff)
 			}
-
 		})
 	}
 }
@@ -455,5 +454,4 @@ func TestFSWatchAddRm(t *testing.T) {
 			}
 		})
 	}
-
 }

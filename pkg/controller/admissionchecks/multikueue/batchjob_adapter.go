@@ -63,7 +63,6 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 		} else {
 			return nil
 		}
-
 	}
 
 	remoteJob = batchv1.Job{

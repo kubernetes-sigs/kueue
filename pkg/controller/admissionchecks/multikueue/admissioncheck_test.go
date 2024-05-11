@@ -286,7 +286,6 @@ func TestReconcile(t *testing.T) {
 				cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type })); diff != "" {
 				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
 			}
-
 		})
 	}
 }

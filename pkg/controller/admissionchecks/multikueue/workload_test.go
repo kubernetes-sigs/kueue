@@ -704,7 +704,6 @@ func TestWlReconcile(t *testing.T) {
 					w2remoteClient.pendingReconnect.Store(true)
 				}
 				cRec.remoteClients["worker2"] = w2remoteClient
-
 			}
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)

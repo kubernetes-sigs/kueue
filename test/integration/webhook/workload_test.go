@@ -113,13 +113,11 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 			}
 			gomega.Expect(k8sClient.Create(ctx, &workload)).Should(testing.BeAPIError(testing.InvalidError))
 		})
-
 	})
 })
 
 var _ = ginkgo.Describe("Workload validating webhook", func() {
 	ginkgo.Context("When creating a Workload", func() {
-
 		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
 			podSets := make([]kueue.PodSet, podSetsCapacity)
 			for i := range podSets {
@@ -367,7 +365,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs)
 				return k8sClient.Status().Update(ctx, wl)
 			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
-
 		},
 			ginkgo.Entry("podSetUpdates have the same number of podSets",
 				func() *kueue.Workload {
@@ -444,7 +441,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			})
 			gomega.Expect(err).Should(testing.BeAPIError(testing.ForbiddenError), "error: %v", err)
 		})
-
 	})
 
 	ginkgo.Context("When updating a Workload", func() {
@@ -459,7 +455,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			priorityClass = testing.MakePriorityClass("priority-class").PriorityValue(100).Obj()
 			gomega.Expect(k8sClient.Create(ctx, workloadPriorityClass)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, priorityClass)).To(gomega.Succeed())
-
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -793,7 +788,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				newWL.Status.Admission.ClusterQueue = "foo-cluster-queue"
 				return k8sClient.Status().Update(ctx, &newWL)
 			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
-
 		})
 
 		ginkgo.It("Should have priority once priorityClassName is set", func() {
@@ -954,6 +948,5 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				return k8sClient.Status().Update(ctx, wl)
 			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
 		})
-
 	})
 })

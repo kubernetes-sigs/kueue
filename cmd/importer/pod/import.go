@@ -83,7 +83,6 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 
 		if err := createWorkload(ctx, c, wl); err != nil {
 			return false, fmt.Errorf("creating workload: %w", err)
-
 		}
 
 		//make its admission and update its status

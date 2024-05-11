@@ -538,7 +538,6 @@ func (r *JobReconciler) getParentWorkload(ctx context.Context, job GenericJob, o
 
 	// In theory the parent can own multiple Workloads, we cannot do too much about it, maybe log it.
 	return &wlList.Items[0], nil
-
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
@@ -1043,7 +1042,6 @@ func GetPodSetsInfoFromWorkload(wl *kueue.Workload) []podset.PodSetInfo {
 	}
 
 	return slices.Map(wl.Spec.PodSets, podset.FromPodSet)
-
 }
 
 type ReconcilerSetup func(*builder.Builder, client.Client) *builder.Builder

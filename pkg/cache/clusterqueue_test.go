@@ -374,10 +374,8 @@ func TestFitInCohort(t *testing.T) {
 			if got != tc.wantFit {
 				t.Errorf("Unexpected result, %v", got)
 			}
-
 		})
 	}
-
 }
 
 func TestClusterQueueUpdate(t *testing.T) {

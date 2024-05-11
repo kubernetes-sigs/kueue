@@ -3755,7 +3755,6 @@ func TestReconciler(t *testing.T) {
 					// Make life easier when changing the hashing function.
 					hash, _ := getRoleHash(p)
 					t.Logf("note, the hash for pod[%v] = %s", i, hash)
-
 				}
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}

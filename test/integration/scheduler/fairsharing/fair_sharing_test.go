@@ -35,7 +35,6 @@ import (
 )
 
 var _ = ginkgo.Describe("Scheduler", func() {
-
 	var (
 		defaultFlavor *kueue.ResourceFlavor
 		ns            *corev1.Namespace
@@ -51,7 +50,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-
 	})
 
 	ginkgo.AfterEach(func() {
@@ -59,7 +57,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	})
 
 	ginkgo.When("Preemption is disabled", func() {
-
 		var (
 			cqA      *kueue.ClusterQueue
 			lqA      *kueue.LocalQueue
@@ -146,7 +143,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	})
 
 	ginkgo.When("Preemption is enabled", func() {
-
 		var (
 			cqA *kueue.ClusterQueue
 			lqA *kueue.LocalQueue
@@ -236,7 +232,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectReservingActiveWorkloadsMetric(cqC, 1)
 		})
 	})
-
 })
 
 func finishRunningWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {

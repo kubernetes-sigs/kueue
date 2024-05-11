@@ -60,7 +60,6 @@ const (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
 			CRDPath: crdPath,
@@ -310,7 +309,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 
 	ginkgo.When("The parent job is managed by kueue", func() {
-
 		ginkgo.It("Should suspend a job if the parent workload does not exist", func() {
 			ginkgo.By("creating the parent job")
 			parentJob := testingjob.MakeJob(parentJobName, ns.Name).Label(constants.PrebuiltWorkloadLabel, "missing").Obj()
@@ -470,7 +468,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 					// The workload is not marked as finished.
 					g.Expect(apimeta.IsStatusConditionTrue(createdWl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeFalse())
-
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -527,7 +524,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 			})
 		})
-
 	})
 
 	ginkgo.It("Should finish the preemption when the job becomes inactive", func() {
@@ -1327,7 +1323,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
-
 			})
 
 			ginkgo.By("the node selector should be restored", func() {
@@ -1506,7 +1501,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			gomega.Eventually(func() []kueue.ReclaimablePod {
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				return wl.Status.ReclaimablePods
-
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{{
 				Name:  "main",
 				Count: 1,
@@ -1891,7 +1885,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 					Should(gomega.Succeed())
 				g.Expect(sampleJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 		})
 	})
 })

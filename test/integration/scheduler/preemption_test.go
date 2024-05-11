@@ -536,7 +536,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptorBetaWl)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, useAllAlphaWl, pendingAlphaWl)
 		})
-
 	})
 
 	ginkgo.Context("When most quota is in a shared ClusterQueue in a cohort", func() {
@@ -727,7 +726,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bBestEffortLowWl,
 				testing.MakeAdmission(bBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "one", "1").Obj(),
 			)
-
 		})
 	})
 
@@ -792,5 +790,4 @@ var _ = ginkgo.Describe("Preemption", func() {
 				testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "alpha", "4").Obj())
 		})
 	})
-
 })

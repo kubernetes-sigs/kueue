@@ -112,19 +112,15 @@ func TestSearch(t *testing.T) {
 					total += v
 				}
 				return total, total <= tc.countLimit
-
 			})
 			count, found := red.Search()
 			if count != tc.wantCount {
-
 				t.Errorf("Unexpected count:%d, want: %d", count, tc.wantCount)
 			}
 
 			if found != tc.wantFound {
 				t.Errorf("Unexpected found:%v, want: %v", found, tc.wantFound)
-
 			}
 		})
 	}
-
 }

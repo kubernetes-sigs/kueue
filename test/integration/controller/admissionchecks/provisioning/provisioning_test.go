@@ -43,7 +43,6 @@ const (
 )
 
 var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-
 	var (
 		defaultMaxRetries        = provisioning.MaxRetries
 		defaultMinBackoffSeconds = provisioning.MinBackoffSeconds
@@ -150,7 +149,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					},
 				).
 				Obj()
-
 		})
 
 		ginkgo.AfterEach(func() {
@@ -530,7 +528,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						"p3":                "v3",
 						"ValidUntilSeconds": "0",
 					}))
-
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -557,7 +554,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						"p2":                "v2.2",
 						"ValidUntilSeconds": "0",
 					}))
-
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -791,7 +787,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					},
 				).
 				Obj()
-
 		})
 
 		ginkgo.AfterEach(func() {
@@ -892,7 +887,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should retry when ProvisioningRequestConfig has MaxRetries>o, and every Provisioning request retry fails", func() {
-
 			ginkgo.By("Setting the admission check to the workload", func() {
 				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func() error {

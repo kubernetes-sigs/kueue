@@ -392,7 +392,6 @@ func resourcesToReserve(e *entry, cq *cache.ClusterQueue) cache.FlavorResourceQu
 					reservedUsage[flavor][resource] = min(usage, cqQuota.Nominal+*cqQuota.BorrowingLimit-cq.Usage[flavor][resource])
 				}
 			}
-
 		}
 	}
 	return reservedUsage
@@ -431,11 +430,9 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 			}
 			preemptionTargets := s.preemptor.GetTargets(*wl, assignment, snap)
 			if len(preemptionTargets) > 0 {
-
 				return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
 			}
 			return nil, false
-
 		})
 		if pa, found := reducer.Search(); found {
 			return pa.assignment, pa.preemptionTargets

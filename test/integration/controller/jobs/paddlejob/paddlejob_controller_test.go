@@ -47,7 +47,6 @@ const (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
 			CRDPath:     crdPath,
