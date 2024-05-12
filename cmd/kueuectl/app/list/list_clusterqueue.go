@@ -30,34 +30,19 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
-	"k8s.io/kubectl/pkg/util/templates"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
-
-var (
-	cqShort   = `List ClusterQueues`
-	cqLong    = templates.LongDesc(`Lists all ClusterQueues, potentially limiting output to those that are active/inactive and matching the label selector.`)
-	cqExample = templates.Examples(`
-		# List ClusterQueue
-		kueuectl list clusterqueue`)
-)
-
-type clusterQueueActive string
 
 const (
-	// No filter
-	clusterQueueActiveAll   clusterQueueActive = "*"
-	clusterQueueActiveEmpty clusterQueueActive = ""
-
-	// Truthy values
-	clusterQueueActiveTrue clusterQueueActive = "true"
-
-	// Falsy values
-	clusterQueueActiveFalse clusterQueueActive = "false"
+	cqShort   = `List ClusterQueues`
+	cqLong    = `Lists all ClusterQueues, potentially limiting output to those that are active/inactive and matching the label selector.`
+	cqExample = `  # List ClusterQueue
+  kueuectl list clusterqueue`
 )
 
 type ClusterQueueOptions struct {
@@ -68,32 +53,32 @@ type ClusterQueueOptions struct {
 	FieldSelector string
 
 	// Kueuectl flags
-	// Active is the flag to filter */true/false (all/active/inactive) cluster queues
+	// Active is an optional flag to filter true/false (active/inactive) cluster queues
 	// Active means the cluster queue has kueue.ClusterQueueActive condition with status=metav1.ConditionTrue
-	Active string
+	Active []bool
 
-	Client kueuev1beta1.KueueV1beta1Interface
+	Client                       kueuev1beta1.KueueV1beta1Interface
+	clusterQueueListRequestLimit int64
 
 	PrintObj printers.ResourcePrinterFunc
-
-	// ctx is the context for the command
-	ctx context.Context
 
 	genericiooptions.IOStreams
 }
 
 func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOptions {
 	return &ClusterQueueOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
-		IOStreams:  streams,
+		PrintFlags:                   genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
+		Active:                       make([]bool, 0),
+		clusterQueueListRequestLimit: 300,
+		IOStreams:                    streams,
 	}
 }
 
-func NewClusterQueueCmd(clientGetter genericclioptions.RESTClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewClusterQueueOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "clusterqueue [--selector key1=value1] [--field-selector key1=value1] [--active=*|true|false]",
+		Use:                   "clusterqueue [--selector key1=value1] [--field-selector key1=value1] [--active=true|false]",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"cq"},
 		Short:                 cqShort,
@@ -102,24 +87,22 @@ func NewClusterQueueCmd(clientGetter genericclioptions.RESTClientGetter, streams
 		Run: func(cmd *cobra.Command, args []string) {
 			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
 			cobra.CheckErr(o.Validate())
-			cobra.CheckErr(o.Run())
+			cobra.CheckErr(o.Run(cmd.Context()))
 		},
-		SuggestFor: []string{"ps"},
 	}
 
 	o.PrintFlags.AddFlags(cmd)
 
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
-	addClusterQueueActiveFilterFlagVar(cmd, &o.Active)
+	addActiveFilterFlagVar(cmd, &o.Active)
 
 	return cmd
 }
 
 // Complete takes the command arguments and infers any remaining options.
-func (o *ClusterQueueOptions) Complete(clientGetter genericclioptions.RESTClientGetter, cmd *cobra.Command, args []string) error {
+func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
 	var err error
-	o.ctx = cmd.Context()
 
 	config, err := clientGetter.ToRESTConfig()
 	if err != nil {
@@ -144,7 +127,7 @@ func (o *ClusterQueueOptions) Complete(clientGetter genericclioptions.RESTClient
 	}
 
 	if len(args) > 0 {
-		activeFlag, err := cmd.Flags().GetString("active")
+		activeFlag, err := cmd.Flags().GetBoolSlice("active")
 		if err != nil {
 			return err
 		}
@@ -156,51 +139,57 @@ func (o *ClusterQueueOptions) Complete(clientGetter genericclioptions.RESTClient
 
 func (o *ClusterQueueOptions) Validate() error {
 	if !o.validActiveFlagOptionProvided() {
-		return fmt.Errorf("invalid value for --active flag: %s", o.Active)
+		return fmt.Errorf("only one active flag can be provided")
 	}
 	return nil
 }
 
 func (o *ClusterQueueOptions) validActiveFlagOptionProvided() bool {
-	return o.Active == string(clusterQueueActiveAll) ||
-		o.Active == string(clusterQueueActiveEmpty) ||
-		o.Active == string(clusterQueueActiveTrue) ||
-		o.Active == string(clusterQueueActiveFalse)
+	return len(o.Active) == 0 || len(o.Active) == 1
 }
 
 // Run prints the cluster queues.
-func (o *ClusterQueueOptions) Run() error {
-	opts := metav1.ListOptions{LabelSelector: o.LabelSelector, FieldSelector: o.FieldSelector}
-	list, err := o.Client.ClusterQueues().List(o.ctx, opts)
-	if err != nil {
-		return err
+func (o *ClusterQueueOptions) Run(ctx context.Context) error {
+	continueToken := ""
+	for {
+		cql, err := o.Client.ClusterQueues().List(ctx, metav1.ListOptions{
+			LabelSelector: o.LabelSelector,
+			FieldSelector: o.FieldSelector,
+			Limit:         o.clusterQueueListRequestLimit,
+			Continue:      continueToken,
+		})
+		if err != nil {
+			return err
+		}
+		if len(cql.Items) == 0 {
+			return nil
+		}
+
+		o.applyActiveFilter(cql)
+
+		if err := o.PrintObj(cql, o.Out); err != nil {
+			return err
+		}
+
+		if cql.Continue == "" {
+			return nil
+		}
+		continueToken = cql.Continue
 	}
-
-	if len(list.Items) == 0 {
-		return nil
-	}
-
-	o.applyActiveFilter(list)
-
-	return o.PrintObj(list, o.Out)
 }
 
 func (o *ClusterQueueOptions) applyActiveFilter(cql *v1beta1.ClusterQueueList) {
-	if o.Active == string(clusterQueueActiveAll) || o.Active == string(clusterQueueActiveEmpty) {
+	if o.Active == nil || len(o.Active) == 0 {
 		return
 	}
 
 	filtered := make([]v1beta1.ClusterQueue, 0, len(cql.Items))
 	for _, cq := range cql.Items {
-		switch o.Active {
-		case string(clusterQueueActiveTrue):
-			if isActiveStatus(&cq) {
-				filtered = append(filtered, cq)
-			}
-		case string(clusterQueueActiveFalse):
-			if !isActiveStatus(&cq) {
-				filtered = append(filtered, cq)
-			}
+		if o.Active[0] && isActiveStatus(&cq) {
+			filtered = append(filtered, cq)
+		}
+		if !o.Active[0] && !isActiveStatus(&cq) {
+			filtered = append(filtered, cq)
 		}
 	}
 	cql.Items = filtered
@@ -248,5 +237,5 @@ func toTableRow(cq *v1beta1.ClusterQueue) metav1.TableRow {
 }
 
 func isActiveStatus(cq *v1beta1.ClusterQueue) bool {
-	return meta.IsStatusConditionPresentAndEqual(cq.Status.Conditions, v1beta1.ClusterQueueActive, metav1.ConditionTrue)
+	return meta.IsStatusConditionTrue(cq.Status.Conditions, v1beta1.ClusterQueueActive)
 }

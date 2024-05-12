@@ -16,6 +16,8 @@ kubectl kueue list [TYPE]
 ### Examples:
 
 ```bash
+# List cluster queues
+kubectl kueue list clusterqueue
 # List workloads
 kubectl kueue list localqueue my-local-queue
 ```
@@ -27,3 +29,4 @@ The following table includes a list of all the supported resource types and thei
 | Name       | Short | API version            | Namespaced | Kind       |
 |------------|-------|------------------------|------------|------------|
 | localqueue | lq    | kueue.x-k8s.io/v1beta1 | true       | LocalQueue |
+| clusterqueue | cq | kueue.x-k8s.io/v1beta1 | false | ClusterQueue |

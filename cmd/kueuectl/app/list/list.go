@@ -30,12 +30,14 @@ const (
 
 func NewListCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "list",
-		Short:   "Display resources",
-		Example: listExample,
+		Use:        "list",
+		Short:      "Display resources",
+		Example:    listExample,
+		SuggestFor: []string{"ps"},
 	}
 
 	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams))
+	cmd.AddCommand(NewClusterQueueCmd(clientGetter, streams))
 
 	return cmd
 }
