@@ -81,7 +81,7 @@ func TestUntilWithBackoff(t *testing.T) {
 			}
 			untilWithBackoff(ctx, f, timer)
 
-			if diff := cmp.Diff((*timer.history), testCase.expected); diff != "" {
+			if diff := cmp.Diff(testCase.expected, *timer.history); diff != "" {
 				t.Errorf("Unexpected backoff time (-want,+got):\n%s", diff)
 			}
 		})

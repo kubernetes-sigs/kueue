@@ -7,7 +7,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 )
 
 // UntilWithBackoff runs f in a loop until context indicates finished. It
@@ -22,13 +21,13 @@ func UntilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal) 
 
 func untilWithBackoff(ctx context.Context, f func(context.Context) SpeedSignal, timer clock.Timer) {
 	mgr := speedyBackoffManager{
-		backingOff:  ptr.To(false),
+		backingOff:  false,
 		rateLimiter: workqueue.NewItemExponentialFailureRateLimiter(initialBackoff, maxBackoff),
 		timer:       timer,
 	}
 	wait.BackoffUntil(func() {
 		mgr.toggleBackoff(f(ctx))
-	}, mgr, false, ctx.Done())
+	}, &mgr, false, ctx.Done())
 }
 
 // SpeedSignal indicates whether we should run the function again immediately,
@@ -49,17 +48,17 @@ const (
 func (s *speedyBackoffManager) toggleBackoff(speedSignal SpeedSignal) {
 	switch speedSignal {
 	case KeepGoing:
-		if *s.backingOff {
-			*s.backingOff = false
+		if s.backingOff {
+			s.backingOff = false
 			s.rateLimiter.Forget("")
 		}
 	case SlowDown:
-		*s.backingOff = true
+		s.backingOff = true
 	}
 }
 
 type speedyBackoffManager struct {
-	backingOff  *bool
+	backingOff  bool
 	rateLimiter workqueue.RateLimiter
 	timer       clock.Timer
 }
@@ -67,7 +66,7 @@ type speedyBackoffManager struct {
 var _ wait.BackoffManager = (*speedyBackoffManager)(nil)
 
 func (s speedyBackoffManager) Backoff() clock.Timer {
-	if *s.backingOff {
+	if s.backingOff {
 		s.timer.Reset(s.rateLimiter.When(""))
 	} else {
 		s.timer.Reset(noBackoff)
