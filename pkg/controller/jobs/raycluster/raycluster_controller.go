@@ -161,12 +161,8 @@ func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 }
 
 func (j *RayCluster) Finished() (message string, success, finished bool) {
-	success = true
-	if j.Status.State == rayv1.Failed {
-		success = false
-	}
 	// Technically a RayCluster is never "finished"
-	return j.Status.Reason, success, false
+	return j.Status.Reason, j.Status.State != rayv1.Failed, false
 }
 
 func (j *RayCluster) PodsReady() bool {

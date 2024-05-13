@@ -278,22 +278,13 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 }
 
 func (j *Job) Finished() (message string, success, finished bool) {
-	var conditionType batchv1.JobConditionType
 	for _, c := range j.Status.Conditions {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
-			conditionType = c.Type
-			finished = true
-			message = c.Message
-			break
+			return c.Message, c.Type != batchv1.JobFailed, true
 		}
 	}
 
-	success = true
-	if conditionType == batchv1.JobFailed {
-		success = false
-	}
-
-	return message, success, finished
+	return "", true, false
 }
 
 func (j *Job) PodsReady() bool {
