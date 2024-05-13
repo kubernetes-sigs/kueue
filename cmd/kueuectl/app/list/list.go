@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package resume
+package list
 
 import (
 	"github.com/spf13/cobra"
@@ -24,20 +24,18 @@ import (
 )
 
 const (
-	resumeExample = `  # Resume the workload 
-  kueuectl resume workload my-workload`
+	listExample = `  # List LocalQueue 
+  kueuectl list localqueue`
 )
 
-func NewResumeCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewListCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "resume",
-		Short:   "Resume the resource",
-		Example: resumeExample,
+		Use:     "list",
+		Short:   "Display resources",
+		Example: listExample,
 	}
 
-	util.AddDryRunFlag(cmd)
-
-	cmd.AddCommand(NewWorkloadCmd(clientGetter, streams))
+	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams))
 
 	return cmd
 }

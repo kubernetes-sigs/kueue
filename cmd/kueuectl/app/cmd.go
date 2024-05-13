@@ -24,8 +24,10 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/create"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/resume"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/stop"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 type KueuectlOptions struct {
@@ -60,9 +62,12 @@ func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	}
 	configFlags.AddFlags(flags)
 
-	cmd.AddCommand(create.NewCreateCmd(configFlags, o.IOStreams))
-	cmd.AddCommand(resume.NewResumeCmd(configFlags, o.IOStreams))
-	cmd.AddCommand(stop.NewStopCmd(configFlags, o.IOStreams))
+	clientGetter := util.NewClientGetter(configFlags)
+
+	cmd.AddCommand(create.NewCreateCmd(clientGetter, o.IOStreams))
+	cmd.AddCommand(resume.NewResumeCmd(clientGetter, o.IOStreams))
+	cmd.AddCommand(stop.NewStopCmd(clientGetter, o.IOStreams))
+	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams))
 
 	return cmd
 }

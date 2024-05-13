@@ -18,10 +18,10 @@ package resume
 
 import (
 	"github.com/spf13/cobra"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/options"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 const (
@@ -30,7 +30,7 @@ const (
   kueuectl resume workload my-workload`
 )
 
-func NewWorkloadCmd(clientGetter genericclioptions.RESTClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := options.NewUpdateWorkloadActivationOptions(streams, "resumed", true)
 
 	cmd := &cobra.Command{

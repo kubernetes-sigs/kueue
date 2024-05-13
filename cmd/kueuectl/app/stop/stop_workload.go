@@ -18,10 +18,10 @@ package stop
 
 import (
 	"github.com/spf13/cobra"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/options"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 const (
@@ -32,7 +32,7 @@ was preempted (using .spec.active field).`
   kueuectl stop workload my-workload`
 )
 
-func NewWorkloadCmd(clientGetter genericclioptions.RESTClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := options.NewUpdateWorkloadActivationOptions(streams, "stopped", false)
 
 	cmd := &cobra.Command{
