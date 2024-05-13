@@ -823,7 +823,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		reason := stopReason
 		if stopReason == StopReasonWorkloadEvicted {
 			if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
-				reason = StopReason(string(StopReasonWorkloadEvicted) + "Reason" + evCond.Reason)
+				reason = StopReason(string(StopReasonWorkloadEvicted) + "DueTo" + evCond.Reason)
 			}
 		}
 		stoppedNow, err := jws.Stop(ctx, r.client, info, reason, eventMsg)
