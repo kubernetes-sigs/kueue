@@ -22,8 +22,8 @@ widely used by the community.
 
 ## Overview of Requirements
 
-Kueue uses the [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime). If you are
-unfamiliar with the controller-runtime, we recommend becoming familiar with it and with
+Kueue uses the [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime). 
+We recommend becoming familiar with it and with
 [Kubebuilder](https://github.com/kubernetes-sigs/kubebuilder) before starting to build a Kueue integration.
 
 Whether you are building an external or built-in integration, your main tasks are
