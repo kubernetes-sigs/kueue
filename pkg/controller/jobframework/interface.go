@@ -63,13 +63,13 @@ type JobWithReclaimablePods interface {
 	ReclaimablePods() ([]kueue.ReclaimablePod, error)
 }
 
-type StopReason int
+type StopReason string
 
 const (
-	StopReasonWorkloadDeleted StopReason = iota
-	StopReasonWorkloadEvicted
-	StopReasonNoMatchingWorkload
-	StopReasonNotAdmitted
+	StopReasonWorkloadDeleted    StopReason = "WorkloadDeleted"
+	StopReasonWorkloadEvicted    StopReason = "WorkloadEvicted"
+	StopReasonNoMatchingWorkload StopReason = "NoMatchingWorkload"
+	StopReasonNotAdmitted        StopReason = "NotAdmitted"
 )
 
 type JobWithCustomStop interface {
