@@ -59,6 +59,11 @@ func TestUntilWithBackoff(t *testing.T) {
 			expected: []time.Duration{ms(0), ms(0), ms(0), ms(0), ms(0)},
 		},
 		{
+			name:     "reset before reaching max backoff",
+			signals:  []SpeedSignal{SlowDown, SlowDown, SlowDown, KeepGoing, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, KeepGoing},
+			expected: []time.Duration{ms(0), ms(1), ms(2), ms(4), ms(0), ms(1), ms(2), ms(4), ms(8), ms(16), ms(32), ms(64), ms(0)},
+		},
+		{
 			name:     "double until max then reset",
 			signals:  []SpeedSignal{SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, SlowDown, KeepGoing},
 			expected: []time.Duration{ms(0), ms(1), ms(2), ms(4), ms(8), ms(16), ms(32), ms(64), ms(100), ms(100), ms(0)},
