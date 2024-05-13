@@ -108,7 +108,8 @@ the default Kueue Configuration
 struct ([v1beta1@main](https://pkg.go.dev/sigs.k8s.io/kueue@main/apis/config/v1beta1#Configuration)).
 The contents of the ConfigMap are similar to the following:
 
-> __The `namespace` and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
+> __The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later.
+The `integrations.externalFrameworks` field is available in Kueue v0.7.0 and later.__
 
 ```yaml
 apiVersion: v1
@@ -142,9 +143,12 @@ data:
       - "batch/job"
     # - "kubeflow.org/mpijob"
     # - "ray.io/rayjob"
+    # externalFrameworks:
+    # - "Foo.v1.example.com"
 ```
 
-__The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
+__The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later.
+The `integrations.externalFrameworks` field is available in Kueue v0.7.0 and later.__
 
 > **Note**
 > See [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) to learn

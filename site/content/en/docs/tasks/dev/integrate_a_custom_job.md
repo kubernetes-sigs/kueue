@@ -89,7 +89,8 @@ Here are completed external integrations you can learn from:
 
 ### Registration
 
-Add your framework's GroupVersionKind to `.integrations.externalFrameworks` in [controller_manager_config.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/components/manager/controller_manager_config.yaml)
+Add your framework's GroupVersionKind to `.integrations.externalFrameworks` in [controller_manager_config.yaml](
+https://kueue.sigs.k8s.io/docs/installation/#install-a-custom-configured-released-version).
 
 ### Job Framework
 
