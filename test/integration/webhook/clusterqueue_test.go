@@ -63,7 +63,6 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	})
 
 	ginkgo.When("Creating a ClusterQueue", func() {
-
 		ginkgo.DescribeTable("Defaulting on creation", func(cq, wantCQ kueue.ClusterQueue) {
 			gomega.Expect(k8sClient.Create(ctx, &cq)).Should(gomega.Succeed())
 			defer func() {

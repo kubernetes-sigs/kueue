@@ -152,8 +152,6 @@ func TestMappingMatch(t *testing.T) {
 			if tc.wantQueue != gotQueue {
 				t.Errorf("unexpected queue want %q got %q", tc.wantQueue, gotQueue)
 			}
-
 		})
 	}
-
 }

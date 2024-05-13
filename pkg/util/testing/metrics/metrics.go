@@ -32,7 +32,6 @@ type MetricDataPoint struct {
 }
 
 func (a *MetricDataPoint) Less(b *MetricDataPoint) bool {
-
 	keys := maps.Keys(a.Labels)
 	sort.Strings(keys)
 	for _, k := range keys {
@@ -58,7 +57,6 @@ func (a *MetricDataPoint) Less(b *MetricDataPoint) bool {
 		return false
 	}
 	return a.Value < b.Value
-
 }
 
 func CollectFilteredGaugeVec(v prometheus.Collector, labels map[string]string) []MetricDataPoint {

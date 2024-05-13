@@ -172,7 +172,6 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
 		if !meta.IsStatusConditionTrue(target.Obj.Status.Conditions, kueue.WorkloadEvicted) {
-
 			origin := "ClusterQueue"
 			reason := "InClusterQueue"
 			if cq.Name != target.ClusterQueue {

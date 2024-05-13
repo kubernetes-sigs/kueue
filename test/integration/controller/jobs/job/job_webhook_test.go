@@ -40,7 +40,6 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-
 		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
 				CRDPath:     crdPath,

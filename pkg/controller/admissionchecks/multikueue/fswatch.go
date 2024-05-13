@@ -85,7 +85,6 @@ func (w *KubeConfigFSWatcher) Start(ctx context.Context) error {
 					w.notifyPathWrite(ev.Name)
 				default:
 					log.V(2).Info("Ignore event", "name", ev.Name, "op", ev.Op)
-
 				}
 			case err := <-w.watcher.Errors:
 				log.Error(err, "Kubeconfigs FS Watch")
@@ -94,7 +93,6 @@ func (w *KubeConfigFSWatcher) Start(ctx context.Context) error {
 				return
 			}
 		}
-
 	}()
 	return nil
 }

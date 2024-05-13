@@ -32,7 +32,6 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-
 		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
 				CRDPath:     crdPath,

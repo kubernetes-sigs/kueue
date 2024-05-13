@@ -527,7 +527,6 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				createdWorkload := &kueue.Workload{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-
 		})
 	})
 
@@ -599,7 +598,6 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Reason:  "Admitted",
 					Message: "The workload is admitted",
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -649,7 +647,6 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				createdWorkload := &kueue.Workload{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-
 		})
 	})
 
@@ -700,7 +697,6 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, createdWorkload)).To(gomega.Succeed())
-
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -779,7 +775,6 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Reason:  "Admitted",
 					Message: "The workload is admitted",
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {

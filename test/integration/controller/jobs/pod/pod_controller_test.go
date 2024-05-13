@@ -1096,7 +1096,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						}
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
-
 			})
 
 			ginkgo.It("Should finalize workload if pods are absent", func() {
@@ -1208,7 +1207,6 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

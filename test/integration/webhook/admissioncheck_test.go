@@ -15,7 +15,6 @@ import (
 
 var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 	ginkgo.When("Creating a AdmissionCheck", func() {
-
 		ginkgo.DescribeTable("Defaulting on creating", func(ac, wantAC kueue.AdmissionCheck) {
 			gomega.Expect(k8sClient.Create(ctx, &ac)).Should(gomega.Succeed())
 			defer func() {

@@ -81,7 +81,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 					return false
 				}
 				return workload.HasQuotaReservation(createdWorkload)
-
 			}, util.Timeout, util.Interval).Should(gomega.BeFalse())
 			gomega.Expect(k8sClient.Delete(ctx, sampleJob)).Should(gomega.Succeed())
 		})
@@ -146,7 +145,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return workload.HasQuotaReservation(createdWorkload) &&
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 		})
 
@@ -310,7 +308,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 					g.Expect(ptr.Deref(updatedJob.Spec.Parallelism, 0)).To(gomega.Equal(int32(2)))
 					g.Expect(ptr.Deref(updatedJob.Spec.Completions, 0)).To(gomega.Equal(int32(4)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 			})
 
 			ginkgo.By("Wait for the job to finish", func() {
@@ -322,7 +319,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 					}
 					return workload.HasQuotaReservation(createdWorkload) &&
 						apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-
 				}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 			})
 		})
@@ -377,7 +373,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return nil
 					}
 					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
-
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
 
@@ -387,7 +382,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return false
 					}
 					return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
-
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -399,7 +393,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return false
 					}
 					return ptr.Deref(createdJob.Spec.Suspend, false)
-
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -427,7 +420,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return workload.HasQuotaReservation(createdWorkload) &&
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 		})
 
@@ -443,7 +435,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return nil
 					}
 					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
-
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
 
@@ -487,7 +478,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return false
 					}
 					return ptr.Deref(createdJob.Spec.Suspend, false)
-
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 		})

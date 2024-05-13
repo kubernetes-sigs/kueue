@@ -39,7 +39,6 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-
 		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
 				CRDPath:     crdPath,
@@ -74,7 +73,6 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 	})
 
 	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-
 		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
 				CRDPath:     crdPath,

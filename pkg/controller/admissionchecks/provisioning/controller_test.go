@@ -749,7 +749,6 @@ func TestReconcile(t *testing.T) {
 				gotWl := &kueue.Workload{}
 				if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotWl); err != nil {
 					t.Errorf("unexpected error getting workload %q", name)
-
 				}
 
 				if diff := cmp.Diff(wantWl, gotWl, wlCmpOptions...); diff != "" {
@@ -761,7 +760,6 @@ func TestReconcile(t *testing.T) {
 				gotRequest := &autoscaling.ProvisioningRequest{}
 				if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotRequest); err != nil {
 					t.Errorf("unexpected error getting request %q", name)
-
 				}
 
 				if diff := cmp.Diff(wantRequest, gotRequest, reqCmpOptions...); diff != "" {
@@ -773,7 +771,6 @@ func TestReconcile(t *testing.T) {
 				gotTemplate := &corev1.PodTemplate{}
 				if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotTemplate); err != nil {
 					t.Errorf("unexpected error getting template %q", name)
-
 				}
 
 				if diff := cmp.Diff(wantTemplate, gotTemplate, tmplCmpOptions...); diff != "" {
@@ -793,7 +790,6 @@ func TestReconcile(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestActiveOrLastPRForChecks(t *testing.T) {

@@ -419,7 +419,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status when workloads have reclaimable pods", func() {
-
 			ginkgo.By("Creating ResourceFlavors", func() {
 				onDemandFlavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
 				gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
@@ -592,7 +591,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 			})
-
 		})
 	})
 
@@ -692,7 +690,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status conditions when admission checks are created", func() {
-
 			cpuArchAFlavor = testing.MakeResourceFlavor(flavorCPUArchA).Obj()
 			gomega.Expect(k8sClient.Create(ctx, cpuArchAFlavor)).To(gomega.Succeed())
 

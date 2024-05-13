@@ -190,7 +190,6 @@ func main() {
 			log.Error(err, "Scraper start")
 			os.Exit(1)
 		}
-
 	}
 
 	err = runManager(ctx, cfg, errCh, wg, recorder)

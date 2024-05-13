@@ -208,7 +208,6 @@ func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
 }
 
 func podSetsCounts(wl *kueue.Workload) map[string]int32 {
-
 	ret := make(map[string]int32, len(wl.Spec.PodSets))
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]

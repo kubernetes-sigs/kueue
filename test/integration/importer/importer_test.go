@@ -62,7 +62,6 @@ var _ = ginkgo.Describe("Importer", func() {
 
 		lq = utiltesting.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
 		gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
-
 	})
 
 	ginkgo.AfterEach(func() {
@@ -73,7 +72,6 @@ var _ = ginkgo.Describe("Importer", func() {
 
 	ginkgo.When("Kueue is started after import", func() {
 		ginkgo.It("Should keep the imported pods admitted", func() {
-
 			pod1 := utiltestingpod.MakePod("pod1", ns.Name).
 				Label("src.lbl", "src-val").
 				Request(corev1.ResourceCPU, "2").
@@ -161,5 +159,4 @@ var _ = ginkgo.Describe("Importer", func() {
 			})
 		})
 	})
-
 })

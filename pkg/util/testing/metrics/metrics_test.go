@@ -129,6 +129,5 @@ func TestCollect(t *testing.T) {
 				t.Errorf("Unexpected data points (-want,+got):\n%s", diff)
 			}
 		})
-
 	}
 }

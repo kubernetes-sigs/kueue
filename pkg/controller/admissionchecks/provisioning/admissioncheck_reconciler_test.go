@@ -152,7 +152,6 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 			gotAc := &kueue.AdmissionCheck{}
 			if err := k8sclient.Get(ctx, types.NamespacedName{Name: tc.check.Name}, gotAc); err != nil {
 				t.Errorf("unexpected error getting check %q", tc.check.Name)
-
 			}
 
 			gotCondition := apimeta.FindStatusCondition(gotAc.Status.Conditions, kueue.AdmissionCheckActive)

@@ -703,7 +703,6 @@ func ExpectEventsForObjects(eventWatcher watch.Interface, objs sets.Set[types.Na
 readCh:
 	for !gotObjs.Equal(objs) {
 		select {
-
 		case evt, ok := <-eventWatcher.ResultChan():
 			gomega.Expect(ok).To(gomega.BeTrue())
 			event, ok := evt.Object.(*corev1.Event)

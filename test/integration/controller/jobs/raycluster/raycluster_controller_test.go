@@ -324,7 +324,6 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 			return childCluster.Spec.Suspend
 		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
 	})
-
 })
 
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {

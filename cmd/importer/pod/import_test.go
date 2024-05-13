@@ -204,7 +204,6 @@ func TestImportNamespace(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWorkloads, wlList.Items, wlCmpOpts...); diff != "" {
 				t.Errorf("Unexpected workloads (-want/+got)\n%s", diff)
 			}
-
 		})
 	}
 }

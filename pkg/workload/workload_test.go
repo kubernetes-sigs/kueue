@@ -756,6 +756,5 @@ func TestAdmissionCheckStrategy(t *testing.T) {
 				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
 			}
 		})
-
 	}
 }

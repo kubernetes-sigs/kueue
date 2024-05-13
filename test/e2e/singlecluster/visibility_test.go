@@ -386,7 +386,6 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 		})
 		ginkgo.It("Should allow fetching information about position of pending workloads from different LocalQueues from different Namespaces", func() {
-
 			ginkgo.By("Create a LocalQueue in a different Namespace", func() {
 				localQueueB = testing.MakeLocalQueue("b", nsB.Name).ClusterQueue(clusterQueue.Name).Obj()
 				gomega.Expect(k8sClient.Create(ctx, localQueueB)).Should(gomega.Succeed())

@@ -530,7 +530,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				createWl := &kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createWl)).To(gomega.Succeed())
 				gomega.Expect(*createWl.Status.Admission.PodSetAssignments[0].Count).To(gomega.Equal(int32(1)))
-
 			})
 		})
 	})

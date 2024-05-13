@@ -83,7 +83,6 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		newCondition.Status = metav1.ConditionFalse
 		newCondition.Reason = "BadConfig"
 		newCondition.Message = fmt.Sprintf("Cannot load the AdmissionChecks parameters: %s", err.Error())
-
 	} else {
 		var missingClusters []string
 		var inactiveClusters []string

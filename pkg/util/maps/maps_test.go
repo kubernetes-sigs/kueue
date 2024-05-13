@@ -61,7 +61,6 @@ func TestToRefMap(t *testing.T) {
 				}
 			}
 		})
-
 	}
 }
 
