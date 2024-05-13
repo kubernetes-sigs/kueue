@@ -316,7 +316,7 @@ func TestReconciler(t *testing.T) {
 				StatusConditions(corev1.PodCondition{
 					Type:    "TerminationTarget",
 					Status:  corev1.ConditionTrue,
-					Reason:  "WorkloadEvicted-Preempted",
+					Reason:  "WorkloadEvictedReasonPreempted",
 					Message: "Preempted to accommodate a higher priority Workload",
 				}).
 				Obj()},
@@ -2908,7 +2908,7 @@ func TestReconciler(t *testing.T) {
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
 						Status:  corev1.ConditionTrue,
-						Reason:  "WorkloadEvicted-Preempted",
+						Reason:  "WorkloadEvictedReasonPreempted",
 						Message: "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -2931,7 +2931,7 @@ func TestReconciler(t *testing.T) {
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
 						Status:  corev1.ConditionTrue,
-						Reason:  "WorkloadEvicted-Preempted",
+						Reason:  "WorkloadEvictedReasonPreempted",
 						Message: "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -2992,7 +2992,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"preemption reason should be propagated to TerminationTarget": {
+		"preemption reason should be propagated to termination target": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3014,7 +3014,7 @@ func TestReconciler(t *testing.T) {
 					StatusConditions(corev1.PodCondition{
 						Type:    "TerminationTarget",
 						Status:  corev1.ConditionTrue,
-						Reason:  "WorkloadEvicted-PodsReadyTimeout",
+						Reason:  "WorkloadEvictedReasonPodsReadyTimeout",
 						Message: "Workload evicted due to a PodsReady timeout",
 					}).
 					Obj(),
