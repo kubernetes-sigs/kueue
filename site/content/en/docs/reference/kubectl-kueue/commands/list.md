@@ -1,7 +1,7 @@
 ---
 title: "kubectl kueue list"
 linkTitle: "List"
-date: 2024-05-10
+date: 2024-05-13
 weight: 10
 description: >
   List resource
@@ -18,15 +18,20 @@ kubectl kueue list [TYPE]
 ```bash
 # List cluster queues
 kubectl kueue list clusterqueue
+
+# List local queues
+kubectl kueue list localqueue
+
 # List workloads
-kubectl kueue list localqueue my-local-queue
+kubectl kueue list workload
 ```
 
 ## Resource types
 
 The following table includes a list of all the supported resource types and their abbreviated aliases:
 
-| Name       | Short | API version            | Namespaced | Kind       |
-|------------|-------|------------------------|------------|------------|
-| localqueue | lq    | kueue.x-k8s.io/v1beta1 | true       | LocalQueue |
-| clusterqueue | cq | kueue.x-k8s.io/v1beta1 | false | ClusterQueue |
+| Name         | Short | API version            | Namespaced | Kind         |
+|--------------|-------|------------------------|------------|--------------|
+| localqueue   | lq    | kueue.x-k8s.io/v1beta1 | true       | LocalQueue   |
+| clusterqueue | cq    | kueue.x-k8s.io/v1beta1 | false      | ClusterQueue |
+| workload     | wl    | kueue.x-k8s.io/v1beta1 | true       | WorkLoad     |

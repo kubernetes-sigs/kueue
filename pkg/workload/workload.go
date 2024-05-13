@@ -43,6 +43,13 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
+const (
+	StatusPending       = "pending"
+	StatusQuotaReserved = "quotaReserved"
+	StatusAdmitted      = "admitted"
+	StatusFinished      = "finished"
+)
+
 var (
 	admissionManagedConditions = []string{
 		kueue.WorkloadQuotaReserved,
@@ -52,6 +59,19 @@ var (
 		kueue.WorkloadRequeued,
 	}
 )
+
+func Status(w *kueue.Workload) string {
+	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
+		return StatusFinished
+	}
+	if IsAdmitted(w) {
+		return StatusAdmitted
+	}
+	if HasQuotaReservation(w) {
+		return StatusQuotaReserved
+	}
+	return StatusPending
+}
 
 type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int

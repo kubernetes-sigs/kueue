@@ -38,6 +38,7 @@ func NewListCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStrea
 
 	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams))
 	cmd.AddCommand(NewClusterQueueCmd(clientGetter, streams))
+	cmd.AddCommand(NewWorkloadCmd(clientGetter, streams))
 
 	return cmd
 }

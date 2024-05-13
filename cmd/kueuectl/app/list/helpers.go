@@ -37,7 +37,12 @@ func addAllNamespacesFlagVar(cmd *cobra.Command, p *bool) {
 
 func addClusterQueueFilterFlagVar(cmd *cobra.Command, p *string) {
 	cmd.Flags().StringVarP(p, "clusterqueue", "c", "",
-		"Filter by cluster queue name which associated with the local queue.")
+		"Filter by cluster queue name which is associated with the resource.")
+}
+
+func addLocalQueueFilterFlagVar(cmd *cobra.Command, p *string) {
+	cmd.Flags().StringVarP(p, "localqueue", "q", "",
+		"Filter by local queue name which is associated with the resource.")
 }
 
 func addActiveFilterFlagVar(cmd *cobra.Command, p *[]bool) {

@@ -1,6 +1,7 @@
 package testing
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -21,7 +22,9 @@ var _ util.ClientGetter = (*TestClientGetter)(nil)
 
 func NewTestClientGetter() *TestClientGetter {
 	clientConfig := &clientcmd.DeferredLoadingClientConfig{}
-	configFlags := genericclioptions.NewTestConfigFlags().WithClientConfig(clientConfig)
+	configFlags := genericclioptions.NewTestConfigFlags().
+		WithClientConfig(clientConfig).
+		WithNamespace(metav1.NamespaceDefault)
 	return &TestClientGetter{
 		ClientGetter: util.NewClientGetter(configFlags),
 		ClientSet:    fake.NewSimpleClientset(),
