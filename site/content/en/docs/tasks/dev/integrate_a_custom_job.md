@@ -10,19 +10,18 @@ Kueue has built-in integrations for several Job types, including
 Kubernetes batch Job, MPIJob, RayJob and JobSet.
 
 There are two options for adding an additional integration for a Job-like CRD with Kueue:
-- Writing an external controller
 - As part of the Kueue repository
+- Writing an external controller
 
 This guide is for [platform developers](/docs/tasks#platform-developer) and describes how
-to build a new integration.  We recommend building your new integration as an external
-controller that uses Kueue's job framework as a library. By reusing Kueue's job framework,
-your controller will be significantly easier to write and will be properly structured to
-be eventually contributed to Kueue as a built-in integration if your Job type becomes
-widely used by the community.
+to build a new integration. Integrations should be built using the APIs provided by
+Kueue's `jobframework` package. This will both simplify development and ensure that
+your controller will be properly structured to become a core built-in integration if your
+Job type is widely used by the community.
 
 ## Overview of Requirements
 
-Kueue uses the [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime). 
+Kueue uses the [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime).
 We recommend becoming familiar with it and with
 [Kubebuilder](https://github.com/kubernetes-sigs/kubebuilder) before starting to build a Kueue integration.
 
@@ -46,26 +45,6 @@ your CRD:
    - You will need to register webhooks that set the initial value of the `suspend` field in instances
      of your CRD and validate Kueue invariants on creation and update operations.
    - You will need to instantiate a `Workload` indexer for your CRD.
-
-## Building an External Integration
-
-Here are completed external integrations you can learn from:
-   - [AppWrapper](https://github.com/project-codeflare/appwrapper)
-
-### Registration
-
-Add your framework's GroupVersionKind to `.integrations.externalFrameworks` in [controller_manager_config.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/components/manager/controller_manager_config.yaml)
-
-### Job Framework
-
-Add a dependency on Kueue to your `go.mod`, import the `jobframework` and use it as described above to
-create your controller and webhook implementations. In the `main` function of your controller, instantiate the controller-runtime manager
-and register your webhook, indexer, and controller.
-
-For a concrete example, consult these pieces of the AppWrapper controller:
-   - [workload_controller.go](https://github.com/project-codeflare/appwrapper/blob/main/internal/controller/workload/workload_controller.go)
-   - [appwrapper_webhook.go](https://github.com/project-codeflare/appwrapper/blob/main/internal/webhook/appwrapper_webhook.go)
-   - [setup.go](https://github.com/project-codeflare/appwrapper/blob/main/pkg/controller/setup.go)
 
 ## Building a Built-in Integration
 
@@ -102,3 +81,23 @@ Add required dependencies to compile your code. For example, using `go get githu
 Update the [Makefile](https://github.com/kubernetes-sigs/kueue/blob/main/Makefile) for testing.
    - Add commands which copy the CRD of your custom job to the Kueue project.
    - Add your custom job operator CRD dependencies into `test-integration`.
+
+## Building an External Integration
+
+Here are completed external integrations you can learn from:
+   - [AppWrapper](https://github.com/project-codeflare/appwrapper)
+
+### Registration
+
+Add your framework's GroupVersionKind to `.integrations.externalFrameworks` in [controller_manager_config.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/components/manager/controller_manager_config.yaml)
+
+### Job Framework
+
+Add a dependency on Kueue to your `go.mod`, import the `jobframework` and use it as described above to
+create your controller and webhook implementations. In the `main` function of your controller, instantiate the controller-runtime manager
+and register your webhook, indexer, and controller.
+
+For a concrete example, consult these pieces of the AppWrapper controller:
+   - [workload_controller.go](https://github.com/project-codeflare/appwrapper/blob/main/internal/controller/workload/workload_controller.go)
+   - [appwrapper_webhook.go](https://github.com/project-codeflare/appwrapper/blob/main/internal/webhook/appwrapper_webhook.go)
+   - [setup.go](https://github.com/project-codeflare/appwrapper/blob/main/pkg/controller/setup.go)
