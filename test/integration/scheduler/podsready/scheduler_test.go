@@ -281,22 +281,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				g.Expect(ptr.Deref(prodWl.Spec.Active, true)).Should(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("verify the re-activated inactive 'prod' workload re-queue state is reset")
-			// TODO: Once we move a logic to issue the Eviction with InactiveWorkload reason, we need to remove the below updates.
-			// REF: https://github.com/kubernetes-sigs/kueue/issues/1841
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
-				apimeta.SetStatusCondition(&prodWl.Status.Conditions, metav1.Condition{
-					Type:    kueue.WorkloadEvicted,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByDeactivation,
-					Message: "evicted by Test",
-				})
-				g.Expect(k8sClient.Status().Update(ctx, prodWl)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed(), "Job reconciler should add an Evicted condition with InactiveWorkload to the Workload")
-
 			// should observe a metrics of WorkloadEvictedByDeactivation
 			util.ExpectEvictedWorkloadsTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByDeactivation, 1)
+
+			ginkgo.By("verify the re-activated inactive 'prod' workload re-queue state is reset")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				prodWl.Spec.Active = ptr.To(true)
