@@ -18,7 +18,7 @@ package generator
 
 import (
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -120,7 +120,7 @@ func TestLoadConfig(t *testing.T) {
         request: 20
 `
 	tempDir := t.TempDir()
-	fPath := path.Join(tempDir, "config.yaml")
+	fPath := filepath.Join(tempDir, "config.yaml")
 	err := os.WriteFile(fPath, []byte(testContent), os.FileMode(0600))
 	if err != nil {
 		t.Fatalf("unable to create the test file: %s", err)

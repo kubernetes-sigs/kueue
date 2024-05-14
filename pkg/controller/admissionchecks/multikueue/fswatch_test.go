@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
@@ -43,13 +43,13 @@ func TestFSWatch(t *testing.T) {
 		"empty": {},
 		"single cluster existing file": {
 			prepareFnc: func(basePath string) error {
-				return os.WriteFile(path.Join(basePath, "c1.kubeconfig"), []byte("123"), 0666)
+				return os.WriteFile(filepath.Join(basePath, "c1.kubeconfig"), []byte("123"), 0666)
 			},
 			clusters: map[string]string{
 				"c1": "c1.kubeconfig",
 			},
 			opFnc: func(basePath string) error {
-				return os.WriteFile(path.Join(basePath, "c1.kubeconfig"), []byte("123456"), 0666)
+				return os.WriteFile(filepath.Join(basePath, "c1.kubeconfig"), []byte("123456"), 0666)
 			},
 			wantEventsForClusters: set.New("c1"),
 		},
@@ -58,55 +58,55 @@ func TestFSWatch(t *testing.T) {
 				"c1": "c1.kubeconfig",
 			},
 			opFnc: func(basePath string) error {
-				return os.WriteFile(path.Join(basePath, "c1.kubeconfig"), []byte("123456"), 0666)
+				return os.WriteFile(filepath.Join(basePath, "c1.kubeconfig"), []byte("123456"), 0666)
 			},
 			wantEventsForClusters: set.New("c1"),
 		},
 		"single existing file deleted": {
 			prepareFnc: func(basePath string) error {
-				return os.WriteFile(path.Join(basePath, "c1.kubeconfig"), []byte("123"), 0666)
+				return os.WriteFile(filepath.Join(basePath, "c1.kubeconfig"), []byte("123"), 0666)
 			},
 			clusters: map[string]string{
 				"c1": "c1.kubeconfig",
 			},
 			opFnc: func(basePath string) error {
-				return os.Remove(path.Join(basePath, "c1.kubeconfig"))
+				return os.Remove(filepath.Join(basePath, "c1.kubeconfig"))
 			},
 			wantEventsForClusters: set.New("c1"),
 		},
 		"single cluster file rename to": {
 			prepareFnc: func(basePath string) error {
-				return os.WriteFile(path.Join(basePath, "c1.kubeconfig.old"), []byte("123"), 0666)
+				return os.WriteFile(filepath.Join(basePath, "c1.kubeconfig.old"), []byte("123"), 0666)
 			},
 			clusters: map[string]string{
 				"c1": "c1.kubeconfig",
 			},
 			opFnc: func(basePath string) error {
-				return os.Rename(path.Join(basePath, "c1.kubeconfig.old"), path.Join(basePath, "c1.kubeconfig"))
+				return os.Rename(filepath.Join(basePath, "c1.kubeconfig.old"), filepath.Join(basePath, "c1.kubeconfig"))
 			},
 			wantEventsForClusters: set.New("c1"),
 		},
 		"single cluster file rename from": {
 			prepareFnc: func(basePath string) error {
-				return os.WriteFile(path.Join(basePath, "c1.kubeconfig"), []byte("123"), 0666)
+				return os.WriteFile(filepath.Join(basePath, "c1.kubeconfig"), []byte("123"), 0666)
 			},
 			clusters: map[string]string{
 				"c1": "c1.kubeconfig",
 			},
 			opFnc: func(basePath string) error {
-				return os.Rename(path.Join(basePath, "c1.kubeconfig"), path.Join(basePath, "c1.kubeconfig.new"))
+				return os.Rename(filepath.Join(basePath, "c1.kubeconfig"), filepath.Join(basePath, "c1.kubeconfig.new"))
 			},
 			wantEventsForClusters: set.New("c1"),
 		},
 		"single create link": {
 			prepareFnc: func(basePath string) error {
-				return os.WriteFile(path.Join(basePath, "c1.kubeconfig.src"), []byte("123"), 0666)
+				return os.WriteFile(filepath.Join(basePath, "c1.kubeconfig.src"), []byte("123"), 0666)
 			},
 			clusters: map[string]string{
 				"c1": "c1.kubeconfig",
 			},
 			opFnc: func(basePath string) error {
-				return os.Symlink(path.Join(basePath, "c1.kubeconfig.src"), path.Join(basePath, "c1.kubeconfig"))
+				return os.Symlink(filepath.Join(basePath, "c1.kubeconfig.src"), filepath.Join(basePath, "c1.kubeconfig"))
 			},
 			wantEventsForClusters: set.New("c1"),
 		},
@@ -116,16 +116,16 @@ func TestFSWatch(t *testing.T) {
 			// fixed https://github.com/fsnotify/fsnotify/issues/636.
 			skipOnDarwin: true,
 			prepareFnc: func(basePath string) error {
-				if err := os.WriteFile(path.Join(basePath, "c1.kubeconfig.src"), []byte("123"), 0666); err != nil {
+				if err := os.WriteFile(filepath.Join(basePath, "c1.kubeconfig.src"), []byte("123"), 0666); err != nil {
 					return err
 				}
-				return os.Symlink(path.Join(basePath, "c1.kubeconfig.src"), path.Join(basePath, "c1.kubeconfig"))
+				return os.Symlink(filepath.Join(basePath, "c1.kubeconfig.src"), filepath.Join(basePath, "c1.kubeconfig"))
 			},
 			clusters: map[string]string{
 				"c1": "c1.kubeconfig",
 			},
 			opFnc: func(basePath string) error {
-				return os.Remove(path.Join(basePath, "c1.kubeconfig"))
+				return os.Remove(filepath.Join(basePath, "c1.kubeconfig"))
 			},
 			wantEventsForClusters: set.New("c1"),
 		},
@@ -168,7 +168,7 @@ func TestFSWatch(t *testing.T) {
 
 			gotAddErrors := map[string]error{}
 			for c, p := range tc.clusters {
-				if err := watcher.AddOrUpdate(c, path.Join(basePath, p)); err != nil {
+				if err := watcher.AddOrUpdate(c, filepath.Join(basePath, p)); err != nil {
 					gotAddErrors[c] = err
 				}
 			}
@@ -196,10 +196,10 @@ func TestFSWatchAddRm(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	basePath := t.TempDir()
-	f1Path := path.Join(basePath, "file.one")
-	f2Path := path.Join(basePath, "file.two")
-	f3Dir := path.Join(basePath, "d1")
-	f3Path := path.Join(f3Dir, "file.three")
+	f1Path := filepath.Join(basePath, "file.one")
+	f2Path := filepath.Join(basePath, "file.two")
+	f3Dir := filepath.Join(basePath, "d1")
+	f3Path := filepath.Join(f3Dir, "file.three")
 	steps := []struct {
 		name               string
 		skipOnDarwin       bool
