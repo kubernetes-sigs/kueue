@@ -118,12 +118,6 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if !workload.HasQuotaReservation(wl) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-		// 1.2 workload has no reservation or is finished
-		log.V(5).Info("workload with no reservation, delete owned requests")
-		return reconcile.Result{}, c.deleteOwnedProvisionRequests(ctx, req.Namespace, req.Name)
-	}
-
 	// get the lists of relevant checks
 	relevantChecks, err := admissioncheck.FilterForController(ctx, c.client, wl.Status.AdmissionChecks, ControllerName)
 	if err != nil {
@@ -134,14 +128,26 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	if err := c.client.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
 	}
+
 	ownedPrs := list.Items
 	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, relevantChecks, ownedPrs)
+
+	err = c.syncCheckStates(ctx, wl, relevantChecks, activeOrLastPRForChecks)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) {
+		//1.2 workload has no reservation or is finished
+		log.V(5).Info("workload with no reservation or is finished")
+		return reconcile.Result{}, nil
+	}
 
 	if workload.IsAdmitted(wl) {
 		// check the state of the provision requests, eventually toggle the checks to false
 		// otherwise there is nothing to here
-		log.V(5).Info("workload admitted, sync checks")
-		return reconcile.Result{}, c.syncCheckStates(ctx, wl, relevantChecks, activeOrLastPRForChecks)
+		log.V(5).Info("workload admitted")
+		return reconcile.Result{}, nil
 	}
 
 	err = c.deleteUnusedProvisioningRequests(ctx, ownedPrs, activeOrLastPRForChecks)
@@ -157,10 +163,6 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	err = c.syncCheckStates(ctx, wl, relevantChecks, activeOrLastPRForChecks)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
 	if requeAfter != nil {
 		return reconcile.Result{RequeueAfter: *requeAfter}, nil
 	}
@@ -209,7 +211,6 @@ func (c *Controller) deleteOwnedProvisionRequests(ctx context.Context, namespace
 	if err := c.client.List(ctx, list, client.InNamespace(namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: name}); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-
 	for i := range list.Items {
 		if err := c.client.Delete(ctx, &list.Items[i]); client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("delete requests for %s/%s: %w", namespace, name, err)
@@ -489,8 +490,6 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
 	log := ctrl.LoggerFrom(ctx)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
-	wlPatch := workload.BaseSSAWorkload(wl)
-	recorderMessages := make([]string, 0, len(checks))
 	updated := false
 	for _, check := range checks {
 		checkState := *checksMap[check]
@@ -513,14 +512,28 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			prFailed := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Failed)
 			prProvisioned := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
 			prAccepted := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Accepted)
+			prBookingExpired := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.BookingExpired)
+			prCapacityRevoked := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.CapacityRevoked)
 			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 				"check", check,
 				"prName", pr.Name,
 				"failed", prFailed,
 				"provisioned", prProvisioned,
-				"accepted", prAccepted)
-
+				"accepted", prAccepted,
+				"bookingExpired", prBookingExpired,
+				"capacityRevoked", prCapacityRevoked)
 			switch {
+			case prCapacityRevoked:
+				if workload.IsActive(wl) && !workload.IsFinished(wl) {
+					// happens only if the job allows retries and a user sets .spec.backOffLimit > 0
+					updated = updateCheckState(&checkState, kueue.CheckStateRejected) || updated
+					updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
+					wl.Spec.Active = ptr.To(false)
+					if err := c.client.Update(ctx, wl); err != nil {
+						return err
+					}
+					c.record.Eventf(pr, corev1.EventTypeNormal, "CapacityRevoked", "Capacity for %v, has been revoked", pr.Name)
+				}
 			case prFailed:
 				if checkState.State != kueue.CheckStateRejected {
 					if attempt := getAttempt(ctx, pr, wl.Name, check); attempt <= MaxRetries {
@@ -554,23 +567,24 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			}
 		}
 
+		wlPatch := workload.BaseSSAWorkload(wl)
 		existingCondition := workload.FindAdmissionCheck(wlPatch.Status.AdmissionChecks, checkState.Name)
+		var message string
 		if existingCondition != nil && existingCondition.State != checkState.State {
-			message := fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existingCondition.State, checkState.State)
+			message = fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existingCondition.State, checkState.State)
 			if checkState.Message != "" {
 				message += fmt.Sprintf(" with message %s", checkState.Message)
 			}
-			recorderMessages = append(recorderMessages, message)
 		}
-
 		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
-	}
-	if updated {
-		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership); err != nil {
-			return err
-		}
-		for i := range recorderMessages {
-			c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
+
+		if updated {
+			if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership); err != nil {
+				return err
+			}
+			if message != "" {
+				c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(message))
+			}
 		}
 	}
 	return nil

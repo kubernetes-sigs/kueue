@@ -616,6 +616,11 @@ func IsFinished(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
 }
 
+// IsActive returns true if the workload is active.
+func IsActive(w *kueue.Workload) bool {
+	return *w.Spec.Active
+}
+
 // IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
 func IsEvictedByDeactivation(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)

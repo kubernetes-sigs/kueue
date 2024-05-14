@@ -83,6 +83,7 @@ func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType stri
 
 func TestReconcile(t *testing.T) {
 	baseWorkload := utiltesting.MakeWorkload("wl", TestNamespace).
+		Active(true).
 		PodSets(
 			*utiltesting.MakePodSet("ps1", 4).
 				Request(corev1.ResourceCPU, "1").
@@ -791,6 +792,117 @@ func TestReconcile(t *testing.T) {
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
+					Obj(),
+			},
+		},
+		"workloads status gets deactivated when is not finished and receives the provisioning request's CapacityRevoked condition": {
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config1",
+					},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+					},
+				},
+			},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest,
+					[]metav1.Condition{
+						{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.Accepted,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.CapacityRevoked,
+							Status: metav1.ConditionTrue,
+						},
+					}),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateRejected,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Active(false).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl-check1-1"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "CapacityRevoked",
+					Message:   "Capacity for wl-check1-1, has been revoked",
+				},
+			},
+		},
+		"workloads status doesnt get deactivated when it's finished and receives the provisioning request's CapacityRevoked condition": {
+			workload: utiltesting.WorkloadWithConditions(baseWorkload, []metav1.Condition{
+				{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "ByTest",
+					Message: "Finished by test",
+				}}),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config1",
+					},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+					},
+				},
+			},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest,
+					[]metav1.Condition{
+						{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.Accepted,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.CapacityRevoked,
+							Status: metav1.ConditionTrue,
+						},
+					}),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStatePending,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Finished().
+					Active(true).
 					Obj(),
 			},
 		},
