@@ -55,6 +55,11 @@ func newRunningWorkload(wlInfo *workload.Info) *v1alpha1.RunningWorkload {
 			UID:        ref.UID,
 		})
 	}
+	admittedTime, err := workload.GetAdmissionTime(wlInfo.Obj)
+	if err != nil {
+		// this should never happen
+		return nil
+	}
 	return &v1alpha1.RunningWorkload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              wlInfo.Obj.Name,
@@ -62,6 +67,7 @@ func newRunningWorkload(wlInfo *workload.Info) *v1alpha1.RunningWorkload {
 			OwnerReferences:   ownerReferences,
 			CreationTimestamp: wlInfo.Obj.CreationTimestamp,
 		},
-		Priority: *wlInfo.Obj.Spec.Priority,
+		Priority:      *wlInfo.Obj.Spec.Priority,
+		AdmissionTime: metav1.NewTime(admittedTime),
 	}
 }

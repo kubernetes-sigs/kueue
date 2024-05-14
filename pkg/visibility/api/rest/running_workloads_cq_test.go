@@ -37,25 +37,22 @@ import (
 
 func TestRunningWorkloadsInCQ(t *testing.T) {
 	const (
-		nsName     = "foo"
-		cqNameA    = "cqA"
-		cqNameB    = "cqB"
-		lqNameA    = "lqA"
-		lqNameB    = "lqB"
-		flavorName = "flavor"
-		lowPrio    = 50
-		highPrio   = 100
+		nsName   = "foo"
+		cqNameA  = "cqA"
+		lqNameA  = "lqA"
+		lqNameB  = "lqB"
+		lowPrio  = 50
+		highPrio = 100
 	)
 
 	var (
-		defaultQueryParams = &visibility.PendingWorkloadOptions{
+		defaultQueryParams = &visibility.RunningWorkloadOptions{
 			Offset: 0,
-			Limit:  constants.DefaultPendingWorkloadsLimit,
+			Limit:  constants.DefaultRunningWorkloadsLimit,
 		}
 	)
 
 	var (
-		f1 = utiltesting.MakeResourceFlavor("flavor1").Obj()
 		q1 = utiltesting.MakeFlavorQuotas("flavor1").Resource("cpu", "10").Obj()
 	)
 
@@ -77,7 +74,7 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 	}
 
 	var (
-		adA = utiltesting.MakeAdmission(cqNameA).Obj()
+		adA = utiltesting.MakeAdmission(cqNameA).PodSets(podSetFlavors...).Obj()
 	)
 
 	scheme := runtime.NewScheme()
@@ -91,8 +88,6 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 	now := time.Now()
 	cases := map[string]struct {
 		clusterQueues []*kueue.ClusterQueue
-		queues        []*kueue.LocalQueue
-		flavors       []*kueue.ResourceFlavor
 		workloads     []*kueue.Workload
 		req           *runningReq
 		wantResp      *runningResp
@@ -102,21 +97,9 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).ResourceGroup(*q1).Obj(),
 			},
-			flavors: []*kueue.ResourceFlavor{
-				f1,
-			},
-			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsName).ClusterQueue(cqNameA).Obj(),
-			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Creation(now).Admission(adA).Obj(),
-				utiltesting.MakeWorkload("b", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(lowPrio).Creation(now).Admission(adA).Obj(),
+				utiltesting.MakeWorkload("a", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Creation(now).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("b", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(lowPrio).Creation(now).Admitted(true).Obj(),
 			},
 			req: &runningReq{
 				queueName:   cqNameA,
@@ -146,30 +129,11 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).ResourceGroup(*q1).Obj(),
 			},
-			flavors: []*kueue.ResourceFlavor{
-				f1,
-			},
-			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsName).ClusterQueue(cqNameA).Obj(),
-				utiltesting.MakeLocalQueue(lqNameB, nsName).ClusterQueue(cqNameA).Obj(),
-			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("lqA-high-prio", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Creation(now).Admission(adA).Obj(),
-				utiltesting.MakeWorkload("lqA-low-prio", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(lowPrio).Creation(now).Admission(adA).Obj(),
-				utiltesting.MakeWorkload("lqB-high-prio", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Admission(adA).Obj(),
-				utiltesting.MakeWorkload("lqB-low-prio", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Admission(adA).Obj(),
+				utiltesting.MakeWorkload("lqA-high-prio", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Creation(now).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqA-low-prio", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(lowPrio).Creation(now).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqB-high-prio", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqB-low-prio", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Admitted(true).Obj(),
 			},
 			req: &runningReq{
 				queueName:   cqNameA,
@@ -215,29 +179,14 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).ResourceGroup(*q1).Obj(),
 			},
-			flavors: []*kueue.ResourceFlavor{
-				f1,
-			},
-			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsName).ClusterQueue(cqNameA).Obj(),
-			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Admission(adA).Creation(now).Obj(),
-				utiltesting.MakeWorkload("b", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Admission(adA).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("c", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Admission(adA).Creation(now.Add(time.Second * 2)).Obj(),
+				utiltesting.MakeWorkload("a", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Admitted(true).Creation(now).Obj(),
+				utiltesting.MakeWorkload("b", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Admitted(true).Creation(now.Add(time.Second)).Obj(),
+				utiltesting.MakeWorkload("c", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Admitted(true).Creation(now.Add(time.Second * 2)).Obj(),
 			},
 			req: &runningReq{
 				queueName: cqNameA,
-				queryParams: &visibility.PendingWorkloadOptions{
+				queryParams: &visibility.RunningWorkloadOptions{
 					Limit: 2,
 				},
 			},
@@ -265,31 +214,16 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).ResourceGroup(*q1).Obj(),
 			},
-			flavors: []*kueue.ResourceFlavor{
-				f1,
-			},
-			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsName).ClusterQueue(cqNameA).Obj(),
-			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Admission(adA).Creation(now).Obj(),
-				utiltesting.MakeWorkload("b", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Admission(adA).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("c", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Admission(adA).Creation(now.Add(time.Second * 2)).Obj(),
+				utiltesting.MakeWorkload("a", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Admitted(true).Creation(now).Obj(),
+				utiltesting.MakeWorkload("b", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Admitted(true).Creation(now.Add(time.Second)).Obj(),
+				utiltesting.MakeWorkload("c", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Admitted(true).Creation(now.Add(time.Second * 2)).Obj(),
 			},
 			req: &runningReq{
 				queueName: cqNameA,
-				queryParams: &visibility.PendingWorkloadOptions{
+				queryParams: &visibility.RunningWorkloadOptions{
 					Offset: 1,
-					Limit:  constants.DefaultPendingWorkloadsLimit,
+					Limit:  constants.DefaultRunningWorkloadsLimit,
 				},
 			},
 			wantResp: &runningResp{
@@ -316,29 +250,14 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).ResourceGroup(*q1).Obj(),
 			},
-			flavors: []*kueue.ResourceFlavor{
-				f1,
-			},
-			queues: []*kueue.LocalQueue{
-				utiltesting.MakeLocalQueue(lqNameA, nsName).ClusterQueue(cqNameA).Obj(),
-			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Admission(adA).Creation(now).Obj(),
-				utiltesting.MakeWorkload("b", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Admission(adA).Creation(now.Add(time.Second)).Obj(),
-				utiltesting.MakeWorkload("c", nsName).PodSets(podSets...).ReserveQuota(&kueue.Admission{
-					ClusterQueue:      cqNameA,
-					PodSetAssignments: podSetFlavors,
-				}).Queue(lqNameA).Priority(highPrio).Admission(adA).Creation(now.Add(time.Second * 2)).Obj(),
+				utiltesting.MakeWorkload("a", nsName).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Creation(now).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("b", nsName).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("c", nsName).ReserveQuota(adA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Admitted(true).Obj(),
 			},
 			req: &runningReq{
 				queueName: cqNameA,
-				queryParams: &visibility.PendingWorkloadOptions{
+				queryParams: &visibility.RunningWorkloadOptions{
 					Offset: 1,
 					Limit:  1,
 				},
@@ -359,9 +278,6 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).ResourceGroup(*q1).Obj(),
 			},
-			flavors: []*kueue.ResourceFlavor{
-				f1,
-			},
 			req: &runningReq{
 				queueName:   cqNameA,
 				queryParams: defaultQueryParams,
@@ -372,9 +288,6 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			req: &runningReq{
 				queueName:   "nonexistent-queue",
 				queryParams: defaultQueryParams,
-			},
-			flavors: []*kueue.ResourceFlavor{
-				f1,
 			},
 			wantResp: &runningResp{
 				wantErr: errors.NewNotFound(visibility.Resource("clusterqueue"), "nonexistent-queue"),
@@ -392,11 +305,6 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			for _, cq := range tc.clusterQueues {
 				if err := cCache.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("Adding cluster queue %s: %v", cq.Name, err)
-				}
-			}
-			for _, q := range tc.queues {
-				if err := cCache.AddLocalQueue(q); err != nil {
-					t.Fatalf("Adding queue %q: %v", q.Name, err)
 				}
 			}
 			for _, w := range tc.workloads {
@@ -425,8 +333,8 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 				sort.Slice(tc.wantResp.wantRunningWorkloads, func(i, j int) bool {
 					return less(tc.wantResp.wantRunningWorkloads[i], tc.wantResp.wantRunningWorkloads[j])
 				})
-				if diff := cmp.Diff(tc.wantResp.wantRunningWorkloads, runningWorkloadsInfo.Items, cmpopts.EquateEmpty()); diff != "" {
-					t.Errorf("Pending workloads differ: (-want,+got):\n%s", diff)
+				if diff := cmp.Diff(tc.wantResp.wantRunningWorkloads, runningWorkloadsInfo.Items, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(visibility.RunningWorkload{}, "AdmissionTime")); diff != "" {
+					t.Errorf("Running workloads differ: (-want,+got):\n%s", diff)
 				}
 			}
 		})

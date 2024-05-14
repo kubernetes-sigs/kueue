@@ -18,20 +18,20 @@ import (
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 )
 
-type req struct {
+type pendingReq struct {
 	nsName      string
 	queueName   string
 	queryParams *visibility.PendingWorkloadOptions
 }
 
-type resp struct {
+type pendingResp struct {
 	wantErr              error
 	wantPendingWorkloads []visibility.PendingWorkload
 }
 
 type runningReq struct {
 	queueName   string
-	queryParams *visibility.PendingWorkloadOptions
+	queryParams *visibility.RunningWorkloadOptions
 }
 
 type runningResp struct {

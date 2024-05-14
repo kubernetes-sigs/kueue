@@ -557,6 +557,19 @@ func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }
 
+func GetAdmissionTime(w *kueue.Workload) (time.Time, error) {
+	for _, cond := range w.Status.Conditions {
+		if cond.Type != kueue.WorkloadAdmitted {
+			continue
+		}
+		if cond.Status != metav1.ConditionTrue {
+			return time.Time{}, fmt.Errorf("workload not admitted")
+		}
+		return cond.LastTransitionTime.Time, nil
+	}
+	return time.Time{}, fmt.Errorf("workload not admitted")
+}
+
 // IsFinished returns true if the workload is finished.
 func IsFinished(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)

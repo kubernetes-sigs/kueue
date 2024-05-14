@@ -91,6 +91,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary":     schema_kueue_apis_visibility_v1alpha1_PendingWorkloadsSummary(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummaryList": schema_kueue_apis_visibility_v1alpha1_PendingWorkloadsSummaryList(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkload":             schema_kueue_apis_visibility_v1alpha1_RunningWorkload(ref),
+		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkloadOptions":      schema_kueue_apis_visibility_v1alpha1_RunningWorkloadOptions(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkloadsSummary":     schema_kueue_apis_visibility_v1alpha1_RunningWorkloadsSummary(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.RunningWorkloadsSummaryList": schema_kueue_apis_visibility_v1alpha1_RunningWorkloadsSummaryList(ref),
 	}
@@ -2914,12 +2915,61 @@ func schema_kueue_apis_visibility_v1alpha1_RunningWorkload(ref common.ReferenceC
 							Format:      "int32",
 						},
 					},
+					"admissionTime": {
+						SchemaProps: spec.SchemaProps{
+							Description: "AdmissionTime indecates the time workloads admitted",
+							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
+						},
+					},
 				},
-				Required: []string{"priority"},
+				Required: []string{"priority", "admissionTime"},
 			},
 		},
 		Dependencies: []string{
-			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "k8s.io/apimachinery/pkg/apis/meta/v1.Time"},
+	}
+}
+
+func schema_kueue_apis_visibility_v1alpha1_RunningWorkloadOptions(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "RunningWorkloadOptions are query params used in the visibility queries",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"offset": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Offset indicates position of the first pending workload that should be fetched, starting from 0. 0 by default",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"limit": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Limit indicates max number of pending workloads that should be fetched. 1000 by default",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+				},
+				Required: []string{"offset"},
+			},
+		},
 	}
 }
 

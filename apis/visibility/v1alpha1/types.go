@@ -86,6 +86,8 @@ type RunningWorkload struct {
 
 	// Priority indicates the workload's priority
 	Priority int32 `json:"priority"`
+	// AdmissionTime indecates the time workloads admitted
+	AdmissionTime metav1.Time `json:"admissionTime"`
 }
 
 // +k8s:openapi-gen=true
@@ -133,6 +135,22 @@ type PendingWorkloadsSummaryList struct {
 // +k8s:conversion-gen:explicit-from=net/url.Values
 // +k8s:defaulter-gen=true
 
+// RunningWorkloadOptions are query params used in the visibility queries
+type RunningWorkloadOptions struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// Offset indicates position of the first pending workload that should be fetched, starting from 0. 0 by default
+	Offset int64 `json:"offset"`
+
+	// Limit indicates max number of pending workloads that should be fetched. 1000 by default
+	Limit int64 `json:"limit,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +k8s:openapi-gen=true
+// +k8s:conversion-gen:explicit-from=net/url.Values
+// +k8s:defaulter-gen=true
+
 // PendingWorkloadOptions are query params used in the visibility queries
 type PendingWorkloadOptions struct {
 	metav1.TypeMeta `json:",inline"`
@@ -149,5 +167,6 @@ func init() {
 		&PendingWorkloadsSummary{},
 		&PendingWorkloadOptions{},
 		&RunningWorkloadsSummary{},
+		&RunningWorkloadOptions{},
 	)
 }

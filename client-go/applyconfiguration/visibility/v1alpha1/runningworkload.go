@@ -27,7 +27,8 @@ import (
 // with apply.
 type RunningWorkloadApplyConfiguration struct {
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Priority                         *int32 `json:"priority,omitempty"`
+	Priority                         *int32       `json:"priority,omitempty"`
+	AdmissionTime                    *metav1.Time `json:"admissionTime,omitempty"`
 }
 
 // RunningWorkloadApplyConfiguration constructs an declarative configuration of the RunningWorkload type for use with
@@ -183,5 +184,13 @@ func (b *RunningWorkloadApplyConfiguration) ensureObjectMetaApplyConfigurationEx
 // If called multiple times, the Priority field is set to the value of the last call.
 func (b *RunningWorkloadApplyConfiguration) WithPriority(value int32) *RunningWorkloadApplyConfiguration {
 	b.Priority = &value
+	return b
+}
+
+// WithAdmissionTime sets the AdmissionTime field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AdmissionTime field is set to the value of the last call.
+func (b *RunningWorkloadApplyConfiguration) WithAdmissionTime(value metav1.Time) *RunningWorkloadApplyConfiguration {
+	b.AdmissionTime = &value
 	return b
 }

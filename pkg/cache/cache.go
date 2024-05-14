@@ -699,8 +699,8 @@ func (c *Cache) RunningWorkload(name string) ([]*workload.Info, error) {
 
 	count := 0
 	wkls := make([]*workload.Info, 0, len(cq.Workloads))
-	for k, wkl := range cq.Workloads {
-		if _, ok := c.assumedWorkloads[k]; ok {
+	for _, wkl := range cq.Workloads {
+		if !workload.IsAdmitted(wkl.Obj) || workload.IsFinished(wkl.Obj) {
 			continue
 		}
 		wkls = append(wkls, wkl)

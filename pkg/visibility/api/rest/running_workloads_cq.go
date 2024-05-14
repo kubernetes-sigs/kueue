@@ -48,7 +48,7 @@ func NewRunningWorkloadsInCqREST(c *cache.Cache) *runningWorkloadsInCqREST {
 
 // New implements rest.Storage interface
 func (m *runningWorkloadsInCqREST) New() runtime.Object {
-	return &v1alpha1.PendingWorkloadsSummary{}
+	return &v1alpha1.RunningWorkloadsSummary{}
 }
 
 // Destroy implements rest.Storage interface
@@ -59,15 +59,15 @@ var (
 )
 
 // Get implements rest.GetterWithOptions interface
-// It fetches information about pending workloads and returns according to query params
+// It fetches information about running workloads and returns according to query params
 func (m *runningWorkloadsInCqREST) Get(ctx context.Context, name string, opts runtime.Object) (runtime.Object, error) {
 	debugLog.V(1).Info("got a request")
-	pendingWorkloadOpts, ok := opts.(*v1alpha1.PendingWorkloadOptions)
+	runningWorkloadOpts, ok := opts.(*v1alpha1.RunningWorkloadOptions)
 	if !ok {
 		return nil, fmt.Errorf("invalid options object: %#v", opts)
 	}
-	limit := pendingWorkloadOpts.Limit
-	offset := pendingWorkloadOpts.Offset
+	limit := runningWorkloadOpts.Limit
+	offset := runningWorkloadOpts.Offset
 
 	wls := make([]v1alpha1.RunningWorkload, 0, limit)
 	runningWorkloadsInfo, err := m.c.RunningWorkload(name)
@@ -77,7 +77,6 @@ func (m *runningWorkloadsInCqREST) Get(ctx context.Context, name string, opts ru
 	}
 
 	for index := int(offset); index < int(offset+limit) && index < len(runningWorkloadsInfo); index++ {
-		// Update positions in LocalQueue
 		wlInfo := runningWorkloadsInfo[index]
 		wls = append(wls, *newRunningWorkload(wlInfo))
 	}
@@ -88,8 +87,8 @@ func (m *runningWorkloadsInCqREST) Get(ctx context.Context, name string, opts ru
 // NewGetOptions creates a new options object
 func (m *runningWorkloadsInCqREST) NewGetOptions() (runtime.Object, bool, string) {
 	// If no query parameters were passed the generated defaults function are not executed so it's necessary to set default values here as well
-	return &v1alpha1.PendingWorkloadOptions{
-		Limit: constants.DefaultPendingWorkloadsLimit,
+	return &v1alpha1.RunningWorkloadOptions{
+		Limit: constants.DefaultRunningWorkloadsLimit,
 	}, false, ""
 }
 
