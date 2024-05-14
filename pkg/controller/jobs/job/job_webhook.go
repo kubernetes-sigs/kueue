@@ -98,10 +98,8 @@ func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 		v, err := strconv.Atoi(strVal)
 		if err != nil {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, job.Annotations[JobMinParallelismAnnotation], err.Error()))
-		} else {
-			if int32(v) >= job.podsCount() || v <= 0 {
-				allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
-			}
+		} else if int32(v) >= job.podsCount() || v <= 0 {
+			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
 		}
 	}
 	if strVal, found := job.Annotations[JobCompletionsEqualParallelismAnnotation]; found {

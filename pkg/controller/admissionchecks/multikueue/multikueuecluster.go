@@ -219,7 +219,7 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKu
 		// If the context is not yet Done , queue a reconcile to attempt reconnection
 		if ctx.Err() == nil {
 			oldReconnect := rc.pendingReconnect.Swap(true)
-			//reconnect if this is the first watch failing.
+			// reconnect if this is the first watch failing.
 			if !oldReconnect {
 				log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
 				rc.queueWatchEndedEvent(ctx)
@@ -239,10 +239,8 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.Name
 	localWl := &kueue.Workload{}
 	if err := rc.localClient.Get(ctx, wlKey, localWl); err == nil {
 		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
-	} else {
-		if !apierrors.IsNotFound(err) {
-			ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
-		}
+	} else if !apierrors.IsNotFound(err) {
+		ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
 	}
 }
 

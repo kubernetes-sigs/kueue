@@ -119,7 +119,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	if !workload.HasQuotaReservation(wl) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-		//1.2 workload has no reservation or is finished
+		// 1.2 workload has no reservation or is finished
 		log.V(5).Info("workload with no reservation, delete owned requests")
 		return reconcile.Result{}, c.deleteOwnedProvisionRequests(ctx, req.Namespace, req.Name)
 	}
@@ -222,7 +222,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 	log := ctrl.LoggerFrom(ctx)
 	var requeAfter *time.Duration
 	for _, checkName := range relevantChecks {
-		//get the config
+		// get the config
 		prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
 		if err != nil {
 			// the check is not active
@@ -819,7 +819,7 @@ func remainingTime(prc *kueue.ProvisioningRequestConfig, failuresCount int32, la
 	maxBackoff := 30 * time.Minute
 	backoffDuration := defaultBackoff
 	for i := 1; i < int(failuresCount); i++ {
-		backoffDuration = backoffDuration * 2
+		backoffDuration *= 2
 		if backoffDuration >= maxBackoff {
 			backoffDuration = maxBackoff
 			break

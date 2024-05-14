@@ -171,11 +171,12 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme) fi
 	}
 	for idx, framework := range c.Integrations.ExternalFrameworks {
 		gvk, _ := schema.ParseKindArg(framework)
-		if gvk == nil {
+		switch {
+		case gvk == nil:
 			allErrs = append(allErrs, field.Invalid(integrationsExternalFrameworkPath.Index(idx), framework, "must be format, 'Kind.version.group.com'"))
-		} else if managedFrameworks.Has(gvk.String()) {
+		case managedFrameworks.Has(gvk.String()):
 			allErrs = append(allErrs, field.Duplicate(integrationsExternalFrameworkPath.Index(idx), framework))
-		} else {
+		default:
 			managedFrameworks = managedFrameworks.Insert(gvk.String())
 		}
 	}

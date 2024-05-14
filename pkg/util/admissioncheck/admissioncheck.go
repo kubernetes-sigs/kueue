@@ -116,11 +116,11 @@ func refValidForGK(ref *kueue.AdmissionCheckParametersReference, gk schema.Group
 	return true, nil
 }
 
-func IndexerByConfigFunction(ControllerName string, gvk schema.GroupVersionKind) client.IndexerFunc {
+func IndexerByConfigFunction(controllerName string, gvk schema.GroupVersionKind) client.IndexerFunc {
 	gk := gvk.GroupKind()
 	return func(obj client.Object) []string {
 		ac, isAc := obj.(*kueue.AdmissionCheck)
-		if !isAc || ac == nil || ac.Spec.ControllerName != ControllerName {
+		if !isAc || ac == nil || ac.Spec.ControllerName != controllerName {
 			return nil
 		}
 		if isvalid, _ := refValidForGK(ac.Spec.Parameters, gk); !isvalid {
@@ -131,14 +131,14 @@ func IndexerByConfigFunction(ControllerName string, gvk schema.GroupVersionKind)
 }
 
 // FilterForController - returns a list of check names controlled by ControllerName.
-func FilterForController(ctx context.Context, c client.Client, states []kueue.AdmissionCheckState, ControllerName string) ([]string, error) {
+func FilterForController(ctx context.Context, c client.Client, states []kueue.AdmissionCheckState, controllerName string) ([]string, error) {
 	var retActive []string
 	for _, state := range states {
 		ac := &kueue.AdmissionCheck{}
 
 		if err := c.Get(ctx, types.NamespacedName{Name: state.Name}, ac); client.IgnoreNotFound(err) != nil {
 			return nil, err
-		} else if err == nil && ac.Spec.ControllerName == ControllerName {
+		} else if err == nil && ac.Spec.ControllerName == controllerName {
 			retActive = append(retActive, ac.Name)
 		}
 	}

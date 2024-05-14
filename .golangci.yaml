@@ -6,14 +6,9 @@ linters-settings:
   gocritic:
     enabled-checks:
       - dupImport
-    disabled-checks: # temporarily disabled checks, will fix them later
+    disabled-checks:
       - appendAssign
-      - assignOp
-      - captLocal
-      - commentFormatting
-      - elseif
       - exitAfterDefer
-      - ifElseChain
   goimports:
     local-prefixes: sigs.k8s.io/kueue
   govet:

@@ -63,10 +63,8 @@ func Check(ctx context.Context, c client.Client, cache *util.ImportCache, jobs u
 		var pv int32
 		if pc, found := cache.PriorityClasses[p.Spec.PriorityClassName]; found {
 			pv = pc.Value
-		} else {
-			if p.Spec.PriorityClassName != "" {
-				return false, fmt.Errorf("%q: %w", p.Spec.PriorityClassName, util.ErrPCNotFound)
-			}
+		} else if p.Spec.PriorityClassName != "" {
+			return false, fmt.Errorf("%q: %w", p.Spec.PriorityClassName, util.ErrPCNotFound)
 		}
 
 		log.V(2).Info("Successfully checked", "clusterQueue", klog.KObj(cq), "resourceFalvor", klog.KObj(rf), "priority", pv)

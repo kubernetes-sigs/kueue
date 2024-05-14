@@ -85,7 +85,7 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		//make its admission and update its status
+		// make its admission and update its status
 		info := workload.NewInfo(wl)
 		cq := cache.ClusterQueues[string(lq.Spec.ClusterQueue)]
 		admission := kueue.Admission{

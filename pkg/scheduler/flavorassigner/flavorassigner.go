@@ -465,14 +465,12 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				bestAssignment = assignments
 				bestAssignmentMode = representativeMode
 			}
-		} else {
-			if representativeMode > bestAssignmentMode {
-				bestAssignment = assignments
-				bestAssignmentMode = representativeMode
-				if bestAssignmentMode == Fit {
-					// All the resources fit in the cohort, no need to check more flavors.
-					return bestAssignment, nil
-				}
+		} else if representativeMode > bestAssignmentMode {
+			bestAssignment = assignments
+			bestAssignmentMode = representativeMode
+			if bestAssignmentMode == Fit {
+				// All the resources fit in the cohort, no need to check more flavors.
+				return bestAssignment, nil
 			}
 		}
 	}

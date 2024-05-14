@@ -866,7 +866,7 @@ func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q s
 	case "Default":
 		target = lr.Spec.Limits[0].Default
 	case "Max":
-	//nothing
+	// nothing
 	default:
 		panic("Unexpected member " + member)
 	}
@@ -1052,10 +1052,10 @@ func (mkc *MultiKueueClusterWrapper) Obj() *kueuealpha.MultiKueueCluster {
 	return &mkc.MultiKueueCluster
 }
 
-func (mkc *MultiKueueClusterWrapper) KubeConfig(LocationType kueuealpha.LocationType, location string) *MultiKueueClusterWrapper {
+func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueuealpha.LocationType, location string) *MultiKueueClusterWrapper {
 	mkc.Spec.KubeConfig = kueuealpha.KubeConfig{
 		Location:     location,
-		LocationType: LocationType,
+		LocationType: locationType,
 	}
 	return mkc
 }
