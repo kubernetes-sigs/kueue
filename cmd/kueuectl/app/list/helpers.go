@@ -39,3 +39,8 @@ func addClusterQueueFilterFlagVar(cmd *cobra.Command, p *string) {
 	cmd.Flags().StringVarP(p, "clusterqueue", "c", "",
 		"Filter by cluster queue name which associated with the local queue.")
 }
+
+func addActiveFilterFlagVar(cmd *cobra.Command, p *[]bool) {
+	cmd.Flags().BoolSliceVar(p, "active", make([]bool, 0),
+		"Filter by active status. Valid values: 'true' and 'false'.")
+}

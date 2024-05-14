@@ -4,7 +4,7 @@ linkTitle: "Kubectl Kueue Plugin"
 date: 2024-05-09
 weight: 10
 description: >
-  The kubectl-kueue plugin, kueuectl, allows you to list, create, resume and stop kueue resources such as localqueue and workload.
+  The kubectl-kueue plugin, kueuectl, allows you to list, create, resume and stop kueue resources such as clusterqueues, localqueues and workloads.
 ---
 
 ## Syntax

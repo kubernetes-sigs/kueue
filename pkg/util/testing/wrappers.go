@@ -708,6 +708,24 @@ func (c *ClusterQueueWrapper) Generation(num int64) *ClusterQueueWrapper {
 	return c
 }
 
+// Creation sets the creation timestamp of the ClusterQueue.
+func (c *ClusterQueueWrapper) Creation(t time.Time) *ClusterQueueWrapper {
+	c.CreationTimestamp = metav1.NewTime(t)
+	return c
+}
+
+// PendingWorkloads sets the pendingWorkloads in status.
+func (c *ClusterQueueWrapper) PendingWorkloads(n int32) *ClusterQueueWrapper {
+	c.Status.PendingWorkloads = n
+	return c
+}
+
+// AdmittedWorkloads sets the admittedWorkloads in status.
+func (c *ClusterQueueWrapper) AdmittedWorkloads(n int32) *ClusterQueueWrapper {
+	c.Status.AdmittedWorkloads = n
+	return c
+}
+
 // FlavorQuotasWrapper wraps a FlavorQuotas object.
 type FlavorQuotasWrapper struct{ kueue.FlavorQuotas }
 
