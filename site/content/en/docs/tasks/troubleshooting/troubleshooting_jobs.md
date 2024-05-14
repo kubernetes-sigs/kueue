@@ -16,7 +16,7 @@ In this document, assume that your Job is called `my-job` and it's in the `my-na
 ## Identifying the Workload for your Job
 
 For each Job, Kueue creates a [Workload](/docs/concepts/workload) object to hold the
-details about the admission of the Job, wether it was admitted or not.
+details about the admission of the Job, whether it was admitted or not.
 
 To find the Workload for a Job, you can use any of the following steps:
 
