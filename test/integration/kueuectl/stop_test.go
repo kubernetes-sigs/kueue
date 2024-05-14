@@ -17,6 +17,8 @@ limitations under the License.
 package kueuectl
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -24,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
@@ -74,6 +77,74 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wl.Name, Namespace: ns.Name}, wl)).To(gomega.Succeed())
 					g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Stopping a ClusterQueue", func() {
+		ginkgo.It("Should stop a ClusterQueue and drain workloads", func() {
+			cq := testing.MakeClusterQueue("cq-1").Obj()
+			ginkgo.By("Create a ClusterQueue", func() {
+				gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			})
+
+			createdClusterQueue := &v1beta1.ClusterQueue{}
+			ginkgo.By("Get created ClusterQueue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(cq.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(v1beta1.None))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Stop created ClusterQueue", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+				kueuectl.SetArgs([]string{"stop", "clusterqueue", cq.Name})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				fmt.Println(output.String())
+			})
+
+			ginkgo.By("Check that the ClusterQueue is successfully stopped", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					g.Expect(cq.Spec.StopPolicy).Should(gomega.Equal(ptr.To(v1beta1.HoldAndDrain)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should stop a ClusterQueue and finish workloads", func() {
+			cq := testing.MakeClusterQueue("cq-2").Obj()
+			ginkgo.By("Create a ClusterQueue", func() {
+				gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			})
+
+			createdClusterQueue := &v1beta1.ClusterQueue{}
+			ginkgo.By("Get created ClusterQueue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(cq.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(v1beta1.None))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Stop created ClusterQueue", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+				kueuectl.SetArgs([]string{"stop", "clusterqueue", cq.Name, "--keep-already-running"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				fmt.Println(output.String())
+			})
+
+			ginkgo.By("Check that the ClusterQueue is successfully stopped", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					g.Expect(cq.Spec.StopPolicy).Should(gomega.Equal(ptr.To(v1beta1.Hold)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

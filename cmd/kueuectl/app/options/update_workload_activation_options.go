@@ -101,6 +101,8 @@ func (o *UpdateWorkloadActivationOptions) Run(ctx context.Context) error {
 		return err
 	}
 
+	// TODO ask if there should be a check if wl != nil
+
 	wlOriginal := wl.DeepCopy()
 	wl.Spec.Active = ptr.To(o.Active)
 
