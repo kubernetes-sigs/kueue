@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -203,19 +202,10 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
 							Flavors: []v1beta1.FlavorQuotas{
-								{
-									Name: "alpha",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:         "cpu",
-											NominalQuota: resource.MustParse("0"),
-										},
-										{
-											Name:         "memory",
-											NominalQuota: resource.MustParse("0"),
-										},
-									},
-								},
+								*testing.MakeFlavorQuotas("alpha").
+									Resource("cpu", "0").
+									Resource("memory", "0").
+									Obj(),
 							},
 						},
 					}))
@@ -251,32 +241,14 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
 							Flavors: []v1beta1.FlavorQuotas{
-								{
-									Name: "alpha",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:         "cpu",
-											NominalQuota: resource.MustParse("0"),
-										},
-										{
-											Name:         "memory",
-											NominalQuota: resource.MustParse("0"),
-										},
-									},
-								},
-								{
-									Name: "beta",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:         "cpu",
-											NominalQuota: resource.MustParse("0"),
-										},
-										{
-											Name:         "memory",
-											NominalQuota: resource.MustParse("0"),
-										},
-									},
-								},
+								*testing.MakeFlavorQuotas("alpha").
+									Resource("cpu", "0").
+									Resource("memory", "0").
+									Obj(),
+								*testing.MakeFlavorQuotas("beta").
+									Resource("cpu", "0").
+									Resource("memory", "0").
+									Obj(),
 							},
 						},
 					}))
@@ -312,46 +284,22 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
 							Flavors: []v1beta1.FlavorQuotas{
-								{
-									Name: "alpha",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:         "cpu",
-											NominalQuota: resource.MustParse("0"),
-										},
-										{
-											Name:         "memory",
-											NominalQuota: resource.MustParse("0"),
-										},
-									},
-								},
-								{
-									Name: "gamma",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:         "cpu",
-											NominalQuota: resource.MustParse("0"),
-										},
-										{
-											Name:         "memory",
-											NominalQuota: resource.MustParse("0"),
-										},
-									},
-								},
+								*testing.MakeFlavorQuotas("alpha").
+									Resource("cpu", "0").
+									Resource("memory", "0").
+									Obj(),
+								*testing.MakeFlavorQuotas("gamma").
+									Resource("cpu", "0").
+									Resource("memory", "0").
+									Obj(),
 							},
 						},
 						{
 							CoveredResources: []corev1.ResourceName{"gpu"},
 							Flavors: []v1beta1.FlavorQuotas{
-								{
-									Name: "beta",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:         "gpu",
-											NominalQuota: resource.MustParse("0"),
-										},
-									},
-								},
+								*testing.MakeFlavorQuotas("beta").
+									Resource("gpu", "0").
+									Obj(),
 							},
 						},
 					}))
@@ -394,23 +342,10 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
 							Flavors: []v1beta1.FlavorQuotas{
-								{
-									Name: "alpha",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:           "cpu",
-											NominalQuota:   resource.MustParse("0"),
-											BorrowingLimit: ptr.To(resource.MustParse("0")),
-											LendingLimit:   ptr.To(resource.MustParse("0")),
-										},
-										{
-											Name:           "memory",
-											NominalQuota:   resource.MustParse("0"),
-											BorrowingLimit: ptr.To(resource.MustParse("0")),
-											LendingLimit:   ptr.To(resource.MustParse("0")),
-										},
-									},
-								},
+								*testing.MakeFlavorQuotas("alpha").
+									Resource("cpu", "0", "0", "0").
+									Resource("memory", "0", "0", "0").
+									Obj(),
 							},
 						},
 					}))
@@ -463,56 +398,22 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 						{
 							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
 							Flavors: []v1beta1.FlavorQuotas{
-								{
-									Name: "alpha",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:           "cpu",
-											NominalQuota:   resource.MustParse("2"),
-											BorrowingLimit: ptr.To(resource.MustParse("1")),
-											LendingLimit:   ptr.To(resource.MustParse("0")),
-										},
-										{
-											Name:           "memory",
-											NominalQuota:   resource.MustParse("2"),
-											BorrowingLimit: ptr.To(resource.MustParse("1")),
-											LendingLimit:   ptr.To(resource.MustParse("0")),
-										},
-									},
-								},
-								{
-									Name: "gamma",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:           "cpu",
-											NominalQuota:   resource.MustParse("2"),
-											BorrowingLimit: ptr.To(resource.MustParse("1")),
-											LendingLimit:   ptr.To(resource.MustParse("0")),
-										},
-										{
-											Name:           "memory",
-											NominalQuota:   resource.MustParse("2"),
-											BorrowingLimit: ptr.To(resource.MustParse("1")),
-											LendingLimit:   ptr.To(resource.MustParse("0")),
-										},
-									},
-								},
+								*testing.MakeFlavorQuotas("alpha").
+									Resource("cpu", "2", "1", "0").
+									Resource("memory", "2", "1", "0").
+									Obj(),
+								*testing.MakeFlavorQuotas("gamma").
+									Resource("cpu", "2", "1", "0").
+									Resource("memory", "2", "1", "0").
+									Obj(),
 							},
 						},
 						{
 							CoveredResources: []corev1.ResourceName{"gpu"},
 							Flavors: []v1beta1.FlavorQuotas{
-								{
-									Name: "beta",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:           "gpu",
-											NominalQuota:   resource.MustParse("2"),
-											BorrowingLimit: ptr.To(resource.MustParse("1")),
-											LendingLimit:   ptr.To(resource.MustParse("0")),
-										},
-									},
-								},
+								*testing.MakeFlavorQuotas("beta").
+									Resource("gpu", "2", "1", "0").
+									Obj(),
 							},
 						},
 					}))

@@ -22,9 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -49,23 +47,10 @@ func TestCreateClusterQueue(t *testing.T) {
 					{
 						CoveredResources: []corev1.ResourceName{},
 						Flavors: []v1beta1.FlavorQuotas{
-							{
-								Name: "alpha",
-								Resources: []v1beta1.ResourceQuota{
-									{
-										Name:           "cpu",
-										NominalQuota:   resource.MustParse("0"),
-										BorrowingLimit: ptr.To(resource.MustParse("0")),
-										LendingLimit:   ptr.To(resource.MustParse("0")),
-									},
-									{
-										Name:           "memory",
-										NominalQuota:   resource.MustParse("0"),
-										BorrowingLimit: ptr.To(resource.MustParse("0")),
-										LendingLimit:   ptr.To(resource.MustParse("0")),
-									},
-								},
-							},
+							*utiltesting.MakeFlavorQuotas("alpha").
+								Resource("cpu", "0", "0", "0").
+								Resource("memory", "0", "0", "0").
+								Obj(),
 						},
 					},
 				},
@@ -87,23 +72,10 @@ func TestCreateClusterQueue(t *testing.T) {
 						{
 							CoveredResources: []corev1.ResourceName{},
 							Flavors: []v1beta1.FlavorQuotas{
-								{
-									Name: "alpha",
-									Resources: []v1beta1.ResourceQuota{
-										{
-											Name:           "cpu",
-											NominalQuota:   resource.MustParse("0"),
-											BorrowingLimit: ptr.To(resource.MustParse("0")),
-											LendingLimit:   ptr.To(resource.MustParse("0")),
-										},
-										{
-											Name:           "memory",
-											NominalQuota:   resource.MustParse("0"),
-											BorrowingLimit: ptr.To(resource.MustParse("0")),
-											LendingLimit:   ptr.To(resource.MustParse("0")),
-										},
-									},
-								},
+								*utiltesting.MakeFlavorQuotas("alpha").
+									Resource("cpu", "0", "0", "0").
+									Resource("memory", "0", "0", "0").
+									Obj(),
 							},
 						},
 					},
