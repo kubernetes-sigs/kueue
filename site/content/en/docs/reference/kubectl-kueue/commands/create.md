@@ -21,6 +21,26 @@ kubectl kueue create localqueue my-local-queue -c my-cluster-queue
 
 # Create a local queue with unknown cluster queue
 kubectl kueue create localqueue my-local-queue -c my-cluster-queue -i
+
+# Create a ClusterQueue 
+kueuectl create clusterqueue my-cluster-queue
+  
+# Create a ClusterQueue with cohort, namespace selector and other details
+kueuectl create clusterqueue my-cluster-queue \
+  --cohort=cohortname \
+  --queuing-strategy=StrictFIFO \
+  --namespace-selector=fooX=barX,fooY=barY \
+  --reclaim-within-cohort=Any \
+  --preemption-within-cluster-queue=LowerPriority
+
+# Create a ClusterQueue with nominal quota and one resource flavor named alpha
+kueuectl create clusterqueue my-cluster-queue --nominal-quota=alpha:cpu=0;memory=0
+
+# Create a ClusterQueue multiple resource flavors named alpha, beta and gamma
+kueuectl create clusterqueue my-cluster-queue \
+  --nominal-quota=alpha:cpu=0;memory=0,beta:gpu=0,gamma:cpu=0;memory=0 \
+  --borrowing-limit=alpha:cpu=0;memory=0,beta:gpu=0,gamma:cpu=0;memory=0 \
+  --lending-limit=alpha:cpu=0;memory=0,beta:gpu=0,gamma:cpu=0;memory=0
 ```
 
 ## Resource types
@@ -30,3 +50,4 @@ The following table includes a list of all the supported resource types and thei
 | Name       | Short | API version            | Namespaced | Kind       |
 |------------|-------|------------------------|------------|------------|
 | localqueue | lq    | kueue.x-k8s.io/v1beta1 | true       | LocalQueue |
+| clusterqueue | cq    | kueue.x-k8s.io/v1beta1 | false       | ClusterQueue |
