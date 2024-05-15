@@ -18,6 +18,7 @@ package create
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -66,6 +67,11 @@ const (
 	nominalQuota                 = "nominal-quota"
 	borrowingLimit               = "borrowing-limit"
 	lendingLimit                 = "lending-limit"
+)
+
+var (
+	errResourceQuotaNotFound = errors.New("resource quota not found")
+	errInvalidFlavor         = errors.New("invalid flavor")
 )
 
 type ClusterQueueOptions struct {
@@ -178,13 +184,12 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 		o.PreemptionWithinClusterQueue = v1beta1.PreemptionPolicy(o.UserSpecifiedPreemptionWithinClusterQueue)
 	}
 
+	var err error
 	if cmd.Flags().Changed(nominalQuota) || cmd.Flags().Changed(borrowingLimit) || cmd.Flags().Changed(lendingLimit) {
-		nominalQuotas := parseUserSpecifiedResourceQuotas(o.UserSpecifiedNominalQuota, nominalQuota)
-		borrowingLimits := parseUserSpecifiedResourceQuotas(o.UserSpecifiedBorrowingLimit, borrowingLimit)
-		lendingLimits := parseUserSpecifiedResourceQuotas(o.UserSpecifiedLendingLimit, lendingLimit)
-
-		resourceGroups := mergeResourcesByFlavor(slices.Concat(nominalQuotas, borrowingLimits, lendingLimits))
-		o.ResourceGroups = mergeFlavorsByCoveredResources(resourceGroups)
+		err = o.parseResourceGroups()
+	}
+	if err != nil {
+		return err
 	}
 
 	clientset, err := clientGetter.KueueClientSet()
@@ -259,6 +264,21 @@ func (o *ClusterQueueOptions) createClusterQueue() *v1beta1.ClusterQueue {
 	}
 }
 
+func (o *ClusterQueueOptions) parseResourceGroups() error {
+	nominalQuotas := parseUserSpecifiedResourceQuotas(o.UserSpecifiedNominalQuota, nominalQuota)
+	borrowingLimits := parseUserSpecifiedResourceQuotas(o.UserSpecifiedBorrowingLimit, borrowingLimit)
+	lendingLimits := parseUserSpecifiedResourceQuotas(o.UserSpecifiedLendingLimit, lendingLimit)
+
+	resourceGroups, err := mergeResourcesByFlavor(slices.Concat(nominalQuotas, borrowingLimits, lendingLimits))
+	if err != nil {
+		return err
+	}
+
+	o.ResourceGroups = mergeFlavorsByCoveredResources(resourceGroups)
+
+	return nil
+}
+
 func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) []v1beta1.ResourceGroup {
 	var resourceGroups []v1beta1.ResourceGroup
 	for _, r := range resources {
@@ -330,32 +350,40 @@ func parseKeyValue(str, sep string) (string, string) {
 	return strings.TrimSpace(pair[0]), strings.TrimSpace(pair[1])
 }
 
-func mergeResourcesByFlavor(resourceGroups []v1beta1.ResourceGroup) []v1beta1.ResourceGroup {
+func mergeResourcesByFlavor(resourceGroups []v1beta1.ResourceGroup) ([]v1beta1.ResourceGroup, error) {
 	var mergedResources []v1beta1.ResourceGroup
 
 	indexByFlavor := make(map[string]int)
 	var index int
 	for _, rg := range resourceGroups {
 		flavorName := string(rg.Flavors[0].Name)
-		if idx, found := indexByFlavor[flavorName]; found {
-			mergedResources[idx].Flavors[0].Resources = mergeResourceQuotas(mergedResources[idx].Flavors[0].Resources, rg.Flavors[0].Resources)
+		idx, found := indexByFlavor[flavorName]
+		if !found {
+			mergedResources = append(mergedResources, rg)
+			indexByFlavor[flavorName] = index
+			index++
 			continue
 		}
-		mergedResources = append(mergedResources, rg)
-		indexByFlavor[flavorName] = index
-		index++
+
+		var err error
+		mergedResources[idx].Flavors[0].Resources, err = mergeResourceQuotas(mergedResources[idx].Flavors[0].Resources, rg.Flavors[0].Resources)
+		if err != nil {
+			// multiple FlavorQuotas with same name have been found but resources listed don't match
+			return mergedResources, errInvalidFlavor
+		}
 	}
 
-	return mergedResources
+	return mergedResources, nil
 }
 
-func mergeResourceQuotas(rQuotas1, rQuotas2 []v1beta1.ResourceQuota) []v1beta1.ResourceQuota {
+func mergeResourceQuotas(rQuotas1, rQuotas2 []v1beta1.ResourceQuota) ([]v1beta1.ResourceQuota, error) {
 	var mergedResourceQuotas []v1beta1.ResourceQuota
 
 	for _, rq1 := range rQuotas1 {
 		idx := slices.IndexFunc(rQuotas2, func(rq v1beta1.ResourceQuota) bool { return rq.Name == rq1.Name })
 		if idx == -1 {
-			continue
+			// both ResourceQuota lists should contain exactly the same resource names
+			return mergedResourceQuotas, errResourceQuotaNotFound
 		}
 
 		rq2 := rQuotas2[idx]
@@ -372,7 +400,7 @@ func mergeResourceQuotas(rQuotas1, rQuotas2 []v1beta1.ResourceQuota) []v1beta1.R
 		mergedResourceQuotas = append(mergedResourceQuotas, rq1)
 	}
 
-	return mergedResourceQuotas
+	return mergedResourceQuotas, nil
 }
 
 func mergeFlavorsByCoveredResources(resourceGroups []v1beta1.ResourceGroup) []v1beta1.ResourceGroup {

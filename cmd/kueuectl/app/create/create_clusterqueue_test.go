@@ -20,12 +20,14 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestCreateClusterQueue(t *testing.T) {
@@ -114,6 +116,258 @@ func TestCreateClusterQueue(t *testing.T) {
 			cq := tc.options.createClusterQueue()
 			if diff := cmp.Diff(tc.expected, cq); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestParseResourceQuotas(t *testing.T) {
+	testCases := map[string]struct {
+		quotaArgs          []string
+		borrowingArgs      []string
+		lendingArgs        []string
+		wantErr            error
+		wantResourceGroups []v1beta1.ResourceGroup
+	}{
+		"should create one resource group with one flavor and nominalQuota set": {
+			quotaArgs: []string{"alpha:cpu=1;memory=1"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1").
+							Resource("memory", "1").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create one resource group with one flavor and borrowingLimit set": {
+			borrowingArgs: []string{"alpha:cpu=1;memory=1"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("cpu", "0", "1").
+							Resource("memory", "0", "1").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create one resource group with one flavor and lendingLimit set": {
+			lendingArgs: []string{"alpha:cpu=1;memory=1"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("cpu", "0", "", "1").
+							Resource("memory", "0", "", "1").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create one resource group with two flavors and nominalQuota set": {
+			quotaArgs: []string{"alpha:gpu=1", "beta:gpu=2"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"gpu"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("gpu", "1").
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("beta").
+							Resource("gpu", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create two resource groups when flavors list resources in different order": {
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:memory=2;cpu=2"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1").
+							Resource("memory", "1").
+							Obj(),
+					},
+				},
+				{
+					CoveredResources: []corev1.ResourceName{"memory", "cpu"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("beta").
+							Resource("memory", "2").
+							Resource("cpu", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create two resource groups with one flavor each and nominalQuota set": {
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:gpu=2"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1").
+							Resource("memory", "1").
+							Obj(),
+					},
+				},
+				{
+					CoveredResources: []corev1.ResourceName{"gpu"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("beta").
+							Resource("gpu", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create two resource groups with multiple flavors and nominalQuota set": {
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:gpu=2", "gamma:cpu=2;memory=2"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1").
+							Resource("memory", "1").
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("gamma").
+							Resource("cpu", "2").
+							Resource("memory", "2").
+							Obj(),
+					},
+				},
+				{
+					CoveredResources: []corev1.ResourceName{"gpu"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("beta").
+							Resource("gpu", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should fail to create a resource group with an invalid flavor and one quota set": {
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "alpha:gpu=2"},
+			wantErr:   errInvalidFlavor,
+		},
+		"should create one resource group with one flavor and all quotas set": {
+			quotaArgs:     []string{"alpha:cpu=1;memory=2"},
+			borrowingArgs: []string{"alpha:cpu=1;memory=2"},
+			lendingArgs:   []string{"alpha:cpu=1;memory=2"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1", "1", "1").
+							Resource("memory", "2", "2", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create one resource group with two flavors and all quotas set": {
+			quotaArgs:     []string{"alpha:gpu=1", "beta:gpu=2"},
+			borrowingArgs: []string{"alpha:gpu=1", "beta:gpu=2"},
+			lendingArgs:   []string{"alpha:gpu=1", "beta:gpu=2"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"gpu"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("gpu", "1", "1", "1").
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("beta").
+							Resource("gpu", "2", "2", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create two resource groups with one flavor each and all quotas set": {
+			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:gpu=2"},
+			borrowingArgs: []string{"alpha:cpu=1;memory=1", "beta:gpu=2"},
+			lendingArgs:   []string{"alpha:cpu=1;memory=1", "beta:gpu=2"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1", "1", "1").
+							Resource("memory", "1", "1", "1").
+							Obj(),
+					},
+				},
+				{
+					CoveredResources: []corev1.ResourceName{"gpu"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("beta").
+							Resource("gpu", "2", "2", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create two resource groups with multiple flavors and all quotas set": {
+			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:gpu=2", "gamma:cpu=2;memory=2"},
+			borrowingArgs: []string{"alpha:cpu=1;memory=1", "beta:gpu=2", "gamma:cpu=2;memory=2"},
+			lendingArgs:   []string{"alpha:cpu=1;memory=1", "beta:gpu=2", "gamma:cpu=2;memory=2"},
+			wantResourceGroups: []v1beta1.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1", "1", "1").
+							Resource("memory", "1", "1", "1").
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("gamma").
+							Resource("cpu", "2", "2", "2").
+							Resource("memory", "2", "2", "2").
+							Obj(),
+					},
+				},
+				{
+					CoveredResources: []corev1.ResourceName{"gpu"},
+					Flavors: []v1beta1.FlavorQuotas{
+						*utiltesting.MakeFlavorQuotas("beta").
+							Resource("gpu", "2", "2", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should fail to create a resource group with an invalid flavor and multiple quotas set": {
+			quotaArgs:     []string{"alpha:cpu=1;memory=1"},
+			borrowingArgs: []string{"alpha:gpu=2"},
+			wantErr:       errInvalidFlavor,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cqOptions := ClusterQueueOptions{
+				UserSpecifiedNominalQuota:   tc.quotaArgs,
+				UserSpecifiedBorrowingLimit: tc.borrowingArgs,
+				UserSpecifiedLendingLimit:   tc.lendingArgs,
+			}
+			gotErr := cqOptions.parseResourceGroups()
+
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(cqOptions.ResourceGroups, tc.wantResourceGroups); diff != "" {
+				t.Errorf("Unexpected ResourceGroups (-want,+got):\n%s", diff)
 			}
 		})
 	}
