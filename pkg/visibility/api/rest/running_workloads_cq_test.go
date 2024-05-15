@@ -175,6 +175,60 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 					}},
 			},
 		},
+		"single ClusterQueue and two LocalQueue setup with four running workloads and two pending workloads and default query parameters": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue(cqNameA).ResourceGroup(*q1).Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("lqA-1", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqA-2", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqB-1", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second)).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqB-2", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second)).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqA-pending", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now.Add(time.Second * 2)).Obj(),
+				utiltesting.MakeWorkload("lqB-pending", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second * 2)).Obj(),
+				utiltesting.MakeWorkload("lqA-finished", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now.Add(time.Second * 2)).Finished().Obj(),
+				utiltesting.MakeWorkload("lqB-finished", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second * 2)).Finished().Obj(),
+			},
+			req: &runningReq{
+				queueName:   cqNameA,
+				queryParams: defaultQueryParams,
+			},
+			wantResp: &runningResp{
+				wantRunningWorkloads: []visibility.RunningWorkload{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqA-1",
+							Namespace:         nsName,
+							CreationTimestamp: v1.NewTime(now),
+						},
+						Priority: 0,
+					},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqB-1",
+							Namespace:         nsName,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+						},
+						Priority: 0,
+					},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqA-2",
+							Namespace:         nsName,
+							CreationTimestamp: v1.NewTime(now),
+						},
+						Priority: 0,
+					},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqB-2",
+							Namespace:         nsName,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+						},
+						Priority: 0,
+					}},
+			},
+		},
 		"limit query parameter set": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).ResourceGroup(*q1).Obj(),

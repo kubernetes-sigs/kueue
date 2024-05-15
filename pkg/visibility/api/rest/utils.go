@@ -60,6 +60,10 @@ func newRunningWorkload(wlInfo *workload.Info) *v1alpha1.RunningWorkload {
 		// this should never happen
 		return nil
 	}
+	var priority int32 = 0
+	if wlInfo.Obj.Spec.Priority != nil {
+		priority = *wlInfo.Obj.Spec.Priority
+	}
 	return &v1alpha1.RunningWorkload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              wlInfo.Obj.Name,
@@ -67,7 +71,7 @@ func newRunningWorkload(wlInfo *workload.Info) *v1alpha1.RunningWorkload {
 			OwnerReferences:   ownerReferences,
 			CreationTimestamp: wlInfo.Obj.CreationTimestamp,
 		},
-		Priority:      *wlInfo.Obj.Spec.Priority,
+		Priority:      priority,
 		AdmissionTime: metav1.NewTime(admittedTime),
 	}
 }

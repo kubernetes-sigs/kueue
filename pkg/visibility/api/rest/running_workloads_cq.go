@@ -54,14 +54,9 @@ func (m *runningWorkloadsInCqREST) New() runtime.Object {
 // Destroy implements rest.Storage interface
 func (m *runningWorkloadsInCqREST) Destroy() {}
 
-var (
-	debugLog = ctrl.Log.WithName("visibility-server")
-)
-
 // Get implements rest.GetterWithOptions interface
 // It fetches information about running workloads and returns according to query params
 func (m *runningWorkloadsInCqREST) Get(ctx context.Context, name string, opts runtime.Object) (runtime.Object, error) {
-	debugLog.V(1).Info("got a request")
 	runningWorkloadOpts, ok := opts.(*v1alpha1.RunningWorkloadOptions)
 	if !ok {
 		return nil, fmt.Errorf("invalid options object: %#v", opts)
@@ -71,7 +66,6 @@ func (m *runningWorkloadsInCqREST) Get(ctx context.Context, name string, opts ru
 
 	wls := make([]v1alpha1.RunningWorkload, 0, limit)
 	runningWorkloadsInfo, err := m.c.RunningWorkload(name)
-	debugLog.V(1).Info("got runningWorkloads", "len", len(runningWorkloadsInfo))
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +74,6 @@ func (m *runningWorkloadsInCqREST) Get(ctx context.Context, name string, opts ru
 		wlInfo := runningWorkloadsInfo[index]
 		wls = append(wls, *newRunningWorkload(wlInfo))
 	}
-	debugLog.V(1).Info("response", "len", len(wls))
 	return &v1alpha1.RunningWorkloadsSummary{Items: wls}, nil
 }
 
