@@ -37,7 +37,7 @@ func isProvisioned(pr *autoscaling.ProvisioningRequest) bool {
 	return apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
 }
 
-func isNotProvisioned(pr *autoscaling.ProvisioningRequest) bool {
+func isProvisionedFalse(pr *autoscaling.ProvisioningRequest) bool {
 	return apimeta.IsStatusConditionFalse(pr.Status.Conditions, autoscaling.Provisioned)
 }
 
@@ -107,7 +107,7 @@ func remainingTime(prc *kueue.ProvisioningRequestConfig, failuresCount int32, la
 	maxBackoff := 30 * time.Minute
 	backoffDuration := defaultBackoff
 	for i := 1; i < int(failuresCount); i++ {
-		backoffDuration = backoffDuration * 2
+		backoffDuration *= 2
 		if backoffDuration >= maxBackoff {
 			backoffDuration = maxBackoff
 			break

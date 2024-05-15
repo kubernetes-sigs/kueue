@@ -133,7 +133,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) {
-		//1.2 workload has no reservation or is finished
+		// 1.2 workload has no reservation or is finished
 		log.V(5).Info("workload with no reservation or is finished")
 		return reconcile.Result{}, nil
 	}
@@ -224,11 +224,13 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		shouldCreatePr := false
 		if exists {
 			switch {
-			case isCapacityRevoked(oldPr) && workload.IsActive(wl) && !workload.IsFinished(wl):
-				if err := c.deactivateWorkload(ctx, wl); err != nil {
-					return nil, err
+			case isCapacityRevoked(oldPr):
+				if workload.IsActive(wl) && !workload.IsFinished(wl) {
+					if err := c.deactivateWorkload(ctx, wl); err != nil {
+						return nil, err
+					}
+					c.record.Eventf(oldPr, corev1.EventTypeNormal, "CapacityRevoked", "Capacity for %v, has been revoked", oldPr.Name)
 				}
-				c.record.Eventf(oldPr, corev1.EventTypeNormal, "CapacityRevoked", "Capacity for %v, has been revoked", oldPr.Name)
 			case isFailed(oldPr):
 				attempt = getAttempt(ctx, oldPr, wl.Name, checkName)
 				if attempt <= MaxRetries {
@@ -469,12 +471,6 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 				"bookingExpired", isBookingExpired(pr),
 				"capacityRevoked", isCapacityRevoked(pr))
 			switch {
-			case isCapacityRevoked(pr):
-				if workload.IsActive(wl) && !workload.IsFinished(wl) {
-					// happens only if the job allows retries and a user sets .spec.backOffLimit > 0
-					updated = updateCheckState(&checkState, kueue.CheckStateRejected) || updated
-					updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
-				}
 			case isFailed(pr):
 				if checkState.State != kueue.CheckStateRejected {
 					if attempt := getAttempt(ctx, pr, wl.Name, check); attempt <= MaxRetries {
@@ -488,6 +484,12 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 					}
 				}
+			case isCapacityRevoked(pr):
+				if workload.IsActive(wl) && !workload.IsFinished(wl) {
+					// happens only if the job allows retries and a user sets .spec.backOffLimit > 0
+					updated = updateCheckState(&checkState, kueue.CheckStateRejected) || updated
+					updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
+				}
 			case isProvisioned(pr):
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
 					updated = true
@@ -497,7 +499,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 					// to change to the "successfully provisioned" message after provisioning
 					updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
 				}
-			case isAccepted(pr) && isNotProvisioned(pr):
+			case isAccepted(pr) && isProvisionedFalse(pr):
 				// propagate the ETA update from the provisioning request into the workload
 				provisionedCond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned)
 				updated = updateCheckMessage(&checkState, provisionedCond.Message) || updated
@@ -742,49 +744,4 @@ func limitObjectName(fullName string) string {
 	h.Write([]byte(fullName))
 	hashBytes := hex.EncodeToString(h.Sum(nil))
 	return fmt.Sprintf("%s-%s", fullName[:objNameMaxPrefixLength], hashBytes[:objNameHashLength])
-}
-
-func matches(pr *autoscaling.ProvisioningRequest, workloadName, checkName string) bool {
-	attemptRegex := getAttemptRegex(workloadName, checkName)
-	matches := attemptRegex.FindStringSubmatch(pr.Name)
-	return len(matches) > 0
-}
-
-func getAttempt(ctx context.Context, pr *autoscaling.ProvisioningRequest, workloadName, checkName string) int32 {
-	logger := log.FromContext(ctx)
-	attemptRegex := getAttemptRegex(workloadName, checkName)
-	matches := attemptRegex.FindStringSubmatch(pr.Name)
-	if len(matches) > 0 {
-		number, err := strconv.Atoi(matches[1])
-		if err != nil {
-			logger.Error(err, "Parsing the attempt number from provisioning request", "requestName", pr.Name)
-			return 1
-		} else {
-			return int32(number)
-		}
-	} else {
-		logger.Info("No attempt suffix in provisioning request", "requestName", pr.Name)
-		return 1
-	}
-}
-
-func getAttemptRegex(workloadName, checkName string) *regexp.Regexp {
-	prefix := getProvisioningRequestNamePrefix(workloadName, checkName)
-	escapedPrefix := regexp.QuoteMeta(prefix)
-	return regexp.MustCompile("^" + escapedPrefix + "([0-9]+)$")
-}
-
-func remainingTime(prc *kueue.ProvisioningRequestConfig, failuresCount int32, lastFailureTime time.Time) time.Duration {
-	defaultBackoff := time.Duration(MinBackoffSeconds) * time.Second
-	maxBackoff := 30 * time.Minute
-	backoffDuration := defaultBackoff
-	for i := 1; i < int(failuresCount); i++ {
-		backoffDuration = backoffDuration * 2
-		if backoffDuration >= maxBackoff {
-			backoffDuration = maxBackoff
-			break
-		}
-	}
-	timeElapsedSinceLastFailure := time.Since(lastFailureTime)
-	return backoffDuration - timeElapsedSinceLastFailure
 }
