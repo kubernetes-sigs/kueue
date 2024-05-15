@@ -214,8 +214,8 @@ func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 var (
 	// the legacy names are no longer defined in the api, only in k/2/apis/batch
 	legacyJobNameLabel       = "job-name"
-	legacyControllerUidLabel = "controller-uid"
-	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUidLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+	legacyControllerUIDLabel = "controller-uid"
+	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
 )
 
 func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {

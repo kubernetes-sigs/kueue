@@ -150,16 +150,16 @@ func (w *KubeConfigFSWatcher) remove(cluster string) {
 	kcPath := w.clusterToFile[cluster]
 	dir := path.Dir(kcPath)
 
-	file_removed := false
+	fileRemoved := false
 	if s, found := w.fileToClusters[kcPath]; found {
 		s.Delete(cluster)
 		if s.Len() == 0 {
 			delete(w.fileToClusters, kcPath)
-			file_removed = true
+			fileRemoved = true
 		}
 	}
 
-	if file_removed {
+	if fileRemoved {
 		if s, found := w.parentDirToFiles[dir]; found {
 			s.Delete(kcPath)
 			if s.Len() == 0 {

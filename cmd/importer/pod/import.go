@@ -135,9 +135,9 @@ func Import(ctx context.Context, c client.Client, cache *util.ImportCache, jobs 
 }
 
 func checkError(err error) (retry, reload bool, timeout time.Duration) {
-	retry_seconds, retry := apierrors.SuggestsClientDelay(err)
+	retrySeconds, retry := apierrors.SuggestsClientDelay(err)
 	if retry {
-		return true, false, time.Duration(retry_seconds) * time.Second
+		return true, false, time.Duration(retrySeconds) * time.Second
 	}
 
 	if apierrors.IsConflict(err) {

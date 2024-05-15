@@ -69,7 +69,7 @@ var (
 
 	// related to minimalkueue
 	minimalKueuePath = flag.String("minimalKueue", "", "path to minimalkueue, run in the hosts default cluster if empty")
-	withCpuProfile   = flag.Bool("withCPUProfile", false, "generate a CPU profile for minimalkueue")
+	withCPUProfile   = flag.Bool("withCPUProfile", false, "generate a CPU profile for minimalkueue")
 	withLogs         = flag.Bool("withLogs", false, "capture minimalkueue logs")
 	logLevel         = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
 	logToFile        = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
@@ -148,7 +148,7 @@ func main() {
 		}
 
 		// start the minimal kueue manager process
-		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCpuProfile, *withLogs, *logToFile, *logLevel, errCh, wg, metricsPort)
+		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withLogs, *logToFile, *logLevel, errCh, wg, metricsPort)
 		if err != nil {
 			log.Error(err, "MinimalKueue start")
 			os.Exit(1)

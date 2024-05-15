@@ -1967,7 +1967,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj(),
 	}
-	clusterQueue_cohort := []kueue.ClusterQueue{
+	clusterQueueCohort := []kueue.ClusterQueue{
 		*utiltesting.MakeClusterQueue("eng-cohort-alpha").
 			Cohort("cohort").
 			QueueingStrategy(kueue.StrictFIFO).
@@ -2118,7 +2118,7 @@ func TestLastSchedulingContext(t *testing.T) {
 		},
 		{
 			name: "borrow before next flavor",
-			cqs:  clusterQueue_cohort,
+			cqs:  clusterQueueCohort,
 			admittedWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "50").
@@ -2150,7 +2150,7 @@ func TestLastSchedulingContext(t *testing.T) {
 		},
 		{
 			name: "borrow after all flavors",
-			cqs:  clusterQueue_cohort,
+			cqs:  clusterQueueCohort,
 			admittedWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "50").
@@ -2182,7 +2182,7 @@ func TestLastSchedulingContext(t *testing.T) {
 		},
 		{
 			name: "when the next flavor is full, but can borrow on first",
-			cqs:  clusterQueue_cohort,
+			cqs:  clusterQueueCohort,
 			admittedWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "40").
@@ -2220,7 +2220,7 @@ func TestLastSchedulingContext(t *testing.T) {
 		},
 		{
 			name: "when the next flavor is full, but can preempt on first",
-			cqs:  clusterQueue_cohort,
+			cqs:  clusterQueueCohort,
 			admittedWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("placeholder-alpha", "default").
 					Priority(-1).

@@ -764,7 +764,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, podLookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 
 				// cache the uid of the workload it should be the same until the execution ends otherwise the workload was recreated
-				wlUid := createdWorkload.UID
+				wlUID := createdWorkload.UID
 
 				ginkgo.By("Failing the running pod")
 
@@ -809,7 +809,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				gomega.Eventually(func(g gomega.Gomega) []metav1.Condition {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.UID).To(gomega.Equal(wlUid))
+					g.Expect(createdWorkload.UID).To(gomega.Equal(wlUID))
 					return createdWorkload.Status.Conditions
 				}, util.Timeout, util.Interval).Should(gomega.ContainElement(
 					gomega.BeComparableTo(

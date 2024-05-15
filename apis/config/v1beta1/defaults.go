@@ -60,6 +60,8 @@ func getOperatorNamespace() string {
 }
 
 // SetDefaults_Configuration sets default values for ComponentConfig.
+//
+//nolint:revive // format required by generated code for defaulting
 func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.Namespace == nil {
 		cfg.Namespace = ptr.To(getOperatorNamespace())

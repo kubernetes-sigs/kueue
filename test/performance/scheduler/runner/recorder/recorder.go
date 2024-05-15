@@ -92,7 +92,7 @@ type WLEvent struct {
 }
 
 type WLState struct {
-	Id int
+	ID int
 	types.NamespacedName
 	ClassName        string
 	FirstEventTime   time.Time
@@ -114,7 +114,7 @@ var WLStateCsvHeader = []string{
 
 func (wls *WLState) CsvRecord() []string {
 	return []string{
-		strconv.Itoa(wls.Id),
+		strconv.Itoa(wls.ID),
 		wls.ClassName,
 		wls.Namespace,
 		wls.Name,
@@ -178,7 +178,7 @@ func (r *Recorder) recordWLEvent(ev *WLEvent) {
 	state, found := r.Store.WL[ev.UID]
 	if !found {
 		state = &WLState{
-			Id:             len(r.Store.WL),
+			ID:             len(r.Store.WL),
 			NamespacedName: ev.NamespacedName,
 			ClassName:      ev.ClassName,
 			FirstEventTime: ev.Time,
