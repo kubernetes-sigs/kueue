@@ -32,7 +32,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
@@ -106,7 +105,7 @@ func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOpt
 	}
 }
 
-func NewClusterQueueCmd(clientGetter genericclioptions.RESTClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewClusterQueueOptions(streams)
 
 	cmd := &cobra.Command{
@@ -158,7 +157,7 @@ func NewClusterQueueCmd(clientGetter genericclioptions.RESTClientGetter, streams
 }
 
 // Complete completes all the required options
-func (o *ClusterQueueOptions) Complete(clientGetter genericclioptions.RESTClientGetter, cmd *cobra.Command, args []string) error {
+func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.Name = args[0]
 
 	if cmd.Flags().Changed(queuingStrategy) {
@@ -188,12 +187,7 @@ func (o *ClusterQueueOptions) Complete(clientGetter genericclioptions.RESTClient
 		o.ResourceGroups = mergeFlavorsByCoveredResources(resourceGroups)
 	}
 
-	config, err := clientGetter.ToRESTConfig()
-	if err != nil {
-		return err
-	}
-
-	clientset, err := versioned.NewForConfig(config)
+	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
 		return err
 	}
