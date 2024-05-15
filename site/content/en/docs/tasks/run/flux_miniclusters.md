@@ -65,4 +65,4 @@ spec:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-For equivalent instructions for doing this in Python, see [Run Python Jobs](/docs/tasks/run_python_jobs/#flux-operator-job).
+For equivalent instructions for doing this in Python, see [Run Python Jobs](/docs/tasks/run/python_jobs/#flux-operator-job).
