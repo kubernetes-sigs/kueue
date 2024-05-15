@@ -37,7 +37,7 @@ func GetFreePort() (int, error) {
 	}
 	defer l.Close()
 	l.Close()
-	if taddr, isTcp := l.Addr().(*net.TCPAddr); isTcp {
+	if taddr, isTCP := l.Addr().(*net.TCPAddr); isTCP {
 		return taddr.Port, nil
 	}
 	return 0, errors.New("cannot get a free tcp address")

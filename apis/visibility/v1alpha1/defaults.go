@@ -30,6 +30,7 @@ func addDefaultingFuncs(scheme *runtime.Scheme) error {
 	return RegisterDefaults(scheme)
 }
 
+//nolint:revive // format required by generated code for defaulting
 func SetDefaults_PendingWorkloadOptions(obj *PendingWorkloadOptions) {
 	if obj.Limit == 0 {
 		obj.Limit = constants.DefaultPendingWorkloadsLimit

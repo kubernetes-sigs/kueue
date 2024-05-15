@@ -588,13 +588,13 @@ func getRoleHash(p corev1.Pod) (string, error) {
 		},
 	}
 
-	shapeJson, err := json.Marshal(shape)
+	shapeJSON, err := json.Marshal(shape)
 	if err != nil {
 		return "", err
 	}
 
 	// Trim hash to 8 characters and return
-	return fmt.Sprintf("%x", sha256.Sum256(shapeJson))[:8], nil
+	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
 }
 
 // Load loads all pods in the group
@@ -951,14 +951,14 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		wl.Spec.PodSets = p.PodSets()
 
 		wl.Name = jobframework.GetWorkloadNameForOwnerWithGVK(p.pod.GetName(), p.pod.GetUID(), p.GVK())
-		jobUid := string(object.GetUID())
-		if errs := validation.IsValidLabelValue(jobUid); len(errs) == 0 {
-			wl.Labels[controllerconsts.JobUIDLabel] = jobUid
+		jobUID := string(object.GetUID())
+		if errs := validation.IsValidLabelValue(jobUID); len(errs) == 0 {
+			wl.Labels[controllerconsts.JobUIDLabel] = jobUID
 		} else {
 			log.V(2).Info(
 				"Validation of the owner job UID label has failed. Creating workload without the label.",
 				"ValidationErrors", errs,
-				"LabelValue", jobUid,
+				"LabelValue", jobUID,
 			)
 		}
 

@@ -380,7 +380,7 @@ func (a *Assignment) append(requests workload.Requests, psAssignment *PodSetAssi
 // reasons or failure.
 func (a *FlavorAssigner) findFlavorForPodSetResource(
 	log logr.Logger,
-	psId int,
+	psID int,
 	requests workload.Requests,
 	resName corev1.ResourceName,
 	assignmentUsage cache.FlavorResourceQuantities,
@@ -394,7 +394,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 
 	status := &Status{}
 	requests = filterRequestedResources(requests, resourceGroup.CoveredResources)
-	podSpec := &a.wl.Obj.Spec.PodSets[psId].Template.Spec
+	podSpec := &a.wl.Obj.Spec.PodSets[psID].Template.Spec
 
 	var bestAssignment ResourceAssignment
 	bestAssignmentMode := NoFit
@@ -402,7 +402,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	// We will only check against the flavors' labels for the resource.
 	selector := flavorSelector(podSpec, resourceGroup.LabelKeys)
 	assignedFlavorIdx := -1
-	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psId, resName)
+	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psID, resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		flvQuotas := resourceGroup.Flavors[idx]
 		flavor, exist := a.resourceFlavors[flvQuotas.Name]

@@ -888,14 +888,14 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}
-	jobUid := string(job.Object().GetUID())
-	if errs := validation.IsValidLabelValue(jobUid); len(errs) == 0 {
-		wl.Labels[controllerconsts.JobUIDLabel] = jobUid
+	jobUID := string(job.Object().GetUID())
+	if errs := validation.IsValidLabelValue(jobUID); len(errs) == 0 {
+		wl.Labels[controllerconsts.JobUIDLabel] = jobUID
 	} else {
 		log.V(2).Info(
 			"Validation of the owner job UID label has failed. Creating workload without the label.",
 			"ValidationErrors", errs,
-			"LabelValue", jobUid,
+			"LabelValue", jobUID,
 		)
 	}
 
