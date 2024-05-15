@@ -24,6 +24,7 @@ linters:
   enable:
     - copyloopvar
     - dupword
+    - durationcheck
     - ginkgolinter
     - gocritic
     - goimports

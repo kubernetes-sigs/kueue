@@ -42,8 +42,8 @@ func makeSpyTimer() SpyTimer {
 	return SpyTimer{history: ptr.To([]time.Duration{}), Timer: timer}
 }
 
-func ms(m time.Duration) time.Duration {
-	return time.Millisecond * m
+func ms(m int) time.Duration {
+	return time.Duration(m) * time.Millisecond
 }
 
 func TestUntilWithBackoff(t *testing.T) {
