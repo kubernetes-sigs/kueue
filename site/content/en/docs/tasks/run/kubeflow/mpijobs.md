@@ -46,4 +46,4 @@ This example is based on https://github.com/kubeflow/mpi-operator/blob/ccf2756f7
 
 {{< include "examples/jobs/sample-mpijob.yaml" "yaml" >}}
 
-For equivalent instructions for doing this in Python, see [Run Python Jobs](/docs/tasks/run_python_jobs/#mpi-operator-job).
+For equivalent instructions for doing this in Python, see [Run Python Jobs](/docs/tasks/run/python_jobs/#mpi-operator-job).
