@@ -72,6 +72,7 @@ const (
 var (
 	errResourceQuotaNotFound = errors.New("resource quota not found")
 	errInvalidFlavor         = errors.New("invalid flavor")
+	errInvalidResourceGroup  = errors.New("invalid resource group")
 )
 
 type ClusterQueueOptions struct {
@@ -274,7 +275,12 @@ func (o *ClusterQueueOptions) parseResourceGroups() error {
 		return err
 	}
 
-	o.ResourceGroups = mergeFlavorsByCoveredResources(resourceGroups)
+	resourceGroups, err = mergeFlavorsByCoveredResources(resourceGroups)
+	if err != nil {
+		return err
+	}
+
+	o.ResourceGroups = resourceGroups
 
 	return nil
 }
@@ -403,26 +409,30 @@ func mergeResourceQuotas(rQuotas1, rQuotas2 []v1beta1.ResourceQuota) ([]v1beta1.
 	return mergedResourceQuotas, nil
 }
 
-func mergeFlavorsByCoveredResources(resourceGroups []v1beta1.ResourceGroup) []v1beta1.ResourceGroup {
+func mergeFlavorsByCoveredResources(resourceGroups []v1beta1.ResourceGroup) ([]v1beta1.ResourceGroup, error) {
 	var mergedResources []v1beta1.ResourceGroup
 
-	indexByResourceGroup := make(map[string]int)
+	indexByResourceGroupID := make(map[string]int)
 	var index int
 	for _, rg := range resourceGroups {
-		coveredResources := getCoveredResourcesAString(rg.CoveredResources)
-		if idx, found := indexByResourceGroup[coveredResources]; found {
+		resourcesGroupID := getResourcesGroupID(rg.CoveredResources)
+		if idx, found := indexByResourceGroupID[resourcesGroupID]; found {
 			mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
 			continue
 		}
+
+		if !isResourceGroupValid(indexByResourceGroupID, resourcesGroupID) {
+			return mergedResources, errInvalidResourceGroup
+		}
 		mergedResources = append(mergedResources, rg)
-		indexByResourceGroup[coveredResources] = index
+		indexByResourceGroupID[resourcesGroupID] = index
 		index++
 	}
 
-	return mergedResources
+	return mergedResources, nil
 }
 
-func getCoveredResourcesAString(coveredResources []corev1.ResourceName) string {
+func getResourcesGroupID(coveredResources []corev1.ResourceName) string {
 	var s []string
 	for _, cr := range coveredResources {
 		s = append(s, string(cr))
@@ -430,4 +440,15 @@ func getCoveredResourcesAString(coveredResources []corev1.ResourceName) string {
 	slices.Sort(s)
 
 	return strings.Join(s, ".")
+}
+
+func isResourceGroupValid(indexByResourceGroup map[string]int, newResourceGroup string) bool {
+	// check that new resource groups dooesn't share resources with another group
+	for k := range indexByResourceGroup {
+		if strings.Contains(k, newResourceGroup) {
+			return false
+		}
+	}
+
+	return true
 }

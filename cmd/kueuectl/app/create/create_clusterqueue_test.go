@@ -229,6 +229,10 @@ func TestParseResourceQuotas(t *testing.T) {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "alpha:gpu=2"},
 			wantErr:   errInvalidFlavor,
 		},
+		"should fail to create when one resource is shared by multiple resource groups": {
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:cpu=1"},
+			wantErr:   errInvalidResourceGroup,
+		},
 		"should create one resource group with one flavor and all quotas set": {
 			quotaArgs:     []string{"alpha:cpu=1;memory=2"},
 			borrowingArgs: []string{"alpha:cpu=1;memory=2"},
