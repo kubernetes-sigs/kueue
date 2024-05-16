@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package stop
+package resume
 
 import (
 	"context"
@@ -36,15 +36,14 @@ import (
 
 const (
 	cqLong    = `Puts the given ClusterQueue on hold.`
-	cqExample = `  # Stop the clusterqueue
-  kueuectl stop clusterqueue my-clusterqueue`
+	cqExample = `  # Resume the clusterqueue
+  kueuectl resume clusterqueue my-clusterqueue`
 )
 
 type ClusterQueueOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
-	ClusterQueueName   string
-	KeepAlreadyRunning bool
+	ClusterQueueName string
 
 	Client kueuev1beta1.KueueV1beta1Interface
 
@@ -64,10 +63,10 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 	o := NewClusterQueueOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "clusterqueue NAME [--keep-already-running]",
+		Use:                   "clusterqueue NAME",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"cq"},
-		Short:                 "Stop the ClusterQueue",
+		Short:                 "Resume the ClusterQueue",
 		Long:                  cqLong,
 		Example:               cqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
@@ -78,8 +77,6 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 	}
 
 	o.PrintFlags.AddFlags(cmd)
-
-	addKeepAlreadyRunningFlagVar(cmd, &o.KeepAlreadyRunning)
 
 	return cmd
 }
@@ -117,7 +114,7 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	}
 
 	cqOriginal := cq.DeepCopy()
-	o.stopClusterQueue(cq)
+	o.resumeClusterQueue(cq)
 
 	opts := metav1.PatchOptions{}
 	patch := client.MergeFrom(cqOriginal)
@@ -134,10 +131,6 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	return o.PrintObj(cq, o.Out)
 }
 
-func (o *ClusterQueueOptions) stopClusterQueue(cq *v1beta1.ClusterQueue) {
-	if o.KeepAlreadyRunning {
-		cq.Spec.StopPolicy = ptr.To(v1beta1.Hold)
-	} else {
-		cq.Spec.StopPolicy = ptr.To(v1beta1.HoldAndDrain)
-	}
+func (o *ClusterQueueOptions) resumeClusterQueue(cq *v1beta1.ClusterQueue) {
+	cq.Spec.StopPolicy = ptr.To(v1beta1.None)
 }

@@ -38,6 +38,7 @@ func NewResumeCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 	util.AddDryRunFlag(cmd)
 
 	cmd.AddCommand(NewWorkloadCmd(clientGetter, streams))
+	cmd.AddCommand(NewClusterQueueCmd(clientGetter, streams))
 
 	return cmd
 }

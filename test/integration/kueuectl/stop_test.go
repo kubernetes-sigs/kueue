@@ -17,8 +17,6 @@ limitations under the License.
 package kueuectl
 
 import (
-	"fmt"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -105,7 +103,6 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 				kueuectl.SetArgs([]string{"stop", "clusterqueue", cq.Name})
 				err := kueuectl.Execute()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				fmt.Println(output.String())
 			})
 
 			ginkgo.By("Check that the ClusterQueue is successfully stopped", func() {
@@ -138,7 +135,6 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 				kueuectl.SetArgs([]string{"stop", "clusterqueue", cq.Name, "--keep-already-running"})
 				err := kueuectl.Execute()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				fmt.Println(output.String())
 			})
 
 			ginkgo.By("Check that the ClusterQueue is successfully stopped", func() {
