@@ -724,10 +724,19 @@ func (p *Pod) notRunnableNorSucceededPods() []corev1.Pod {
 	return utilslices.Pick(p.list.Items, func(p *corev1.Pod) bool { return !isPodRunnableOrSucceeded(p) })
 }
 
+func isUnschedulable(p *corev1.Pod) bool {
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && c.Reason == corev1.PodReasonUnschedulable {
+			return true
+		}
+	}
+	return false
+}
+
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
 // A Pod cannot run if it's gated and has a deletionTimestamp.
 func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
-	if p.DeletionTimestamp != nil && len(p.Spec.SchedulingGates) > 0 {
+	if p.DeletionTimestamp != nil && (len(p.Spec.SchedulingGates) > 0 || isUnschedulable(p)) {
 		return false
 	}
 	return p.Status.Phase != corev1.PodFailed
@@ -1039,6 +1048,8 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 	// Cleanup excess pods for each workload pod set (role)
 	activePods := p.runnableOrSucceededPods()
 	inactivePods := p.notRunnableNorSucceededPods()
+
+	log.Info("pods", "active", activePods, "inactive", inactivePods)
 
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
