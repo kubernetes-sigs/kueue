@@ -225,14 +225,6 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
-		"should fail to create a resource group with an invalid flavor and one quota set": {
-			quotaArgs: []string{"alpha:cpu=1;memory=1", "alpha:gpu=2"},
-			wantErr:   errInvalidFlavor,
-		},
-		"should fail to create when one resource is shared by multiple resource groups": {
-			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:cpu=1"},
-			wantErr:   errInvalidResourceGroup,
-		},
 		"should create one resource group with one flavor and all quotas set": {
 			quotaArgs:     []string{"alpha:cpu=1;memory=2"},
 			borrowingArgs: []string{"alpha:cpu=1;memory=2"},
@@ -319,10 +311,38 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
+		"should fail to create a resource group with an invalid flavor and one quota set": {
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "alpha:gpu=2"},
+			wantErr:   errInvalidFlavor,
+		},
+		"should fail to create when one resource is shared by multiple resource groups": {
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:cpu=1"},
+			wantErr:   errInvalidResourceGroup,
+		},
 		"should fail to create a resource group with an invalid flavor and multiple quotas set": {
 			quotaArgs:     []string{"alpha:cpu=1;memory=1"},
 			borrowingArgs: []string{"alpha:gpu=2"},
 			wantErr:       errInvalidFlavor,
+		},
+		"should fail when invalid resource quotas": {
+			quotaArgs: []string{"alpha:cpu=;memory=1"},
+			wantErr:   errInvalidResourcesSpec,
+		},
+		"should fail when invalid resources separator": {
+			quotaArgs: []string{"alpha:cpu=0,memory=1"},
+			wantErr:   errInvalidResourcesSpec,
+		},
+		"should fail when invalid param": {
+			quotaArgs: []string{"alpha"},
+			wantErr:   errInvalidResourcesSpec,
+		},
+		"should fail when invalid flavor specification": {
+			quotaArgs: []string{"alpha=cpu=0;memory=1"},
+			wantErr:   errInvalidResourcesSpec,
+		},
+		"should fail when invalid quantity": {
+			quotaArgs: []string{"alpha:cpu=a;memory=1"},
+			wantErr:   errInvalidResourceQuota,
 		},
 	}
 	for name, tc := range testCases {

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -73,6 +74,8 @@ var (
 	errResourceQuotaNotFound = errors.New("resource quota not found")
 	errInvalidFlavor         = errors.New("invalid flavor")
 	errInvalidResourceGroup  = errors.New("invalid resource group")
+	errInvalidResourceQuota  = errors.New("invalid resource quota")
+	errInvalidResourcesSpec  = errors.New("invalid resources specification")
 )
 
 type ClusterQueueOptions struct {
@@ -266,9 +269,20 @@ func (o *ClusterQueueOptions) createClusterQueue() *v1beta1.ClusterQueue {
 }
 
 func (o *ClusterQueueOptions) parseResourceGroups() error {
-	nominalQuotas := parseUserSpecifiedResourceQuotas(o.UserSpecifiedNominalQuota, nominalQuota)
-	borrowingLimits := parseUserSpecifiedResourceQuotas(o.UserSpecifiedBorrowingLimit, borrowingLimit)
-	lendingLimits := parseUserSpecifiedResourceQuotas(o.UserSpecifiedLendingLimit, lendingLimit)
+	nominalQuotas, err := parseUserSpecifiedResourceQuotas(o.UserSpecifiedNominalQuota, nominalQuota)
+	if err != nil {
+		return err
+	}
+
+	borrowingLimits, err := parseUserSpecifiedResourceQuotas(o.UserSpecifiedBorrowingLimit, borrowingLimit)
+	if err != nil {
+		return err
+	}
+
+	lendingLimits, err := parseUserSpecifiedResourceQuotas(o.UserSpecifiedLendingLimit, lendingLimit)
+	if err != nil {
+		return err
+	}
 
 	resourceGroups, err := mergeResourcesByFlavor(slices.Concat(nominalQuotas, borrowingLimits, lendingLimits))
 	if err != nil {
@@ -285,25 +299,40 @@ func (o *ClusterQueueOptions) parseResourceGroups() error {
 	return nil
 }
 
-func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) []v1beta1.ResourceGroup {
+func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]v1beta1.ResourceGroup, error) {
 	var resourceGroups []v1beta1.ResourceGroup
+
+	regex := regexp.MustCompile(`^(\w+):(\w+=\w+;)*\w+=\w+;?$`)
 	for _, r := range resources {
-		resourceGroups = append(resourceGroups, toResourceGroup(r, quotaType))
+		if !regex.MatchString(r) {
+			return resourceGroups, errInvalidResourcesSpec
+		}
+
+		rg, err := toResourceGroup(r, quotaType)
+		if err != nil {
+			return resourceGroups, err
+		}
+
+		resourceGroups = append(resourceGroups, rg)
 	}
 
-	return resourceGroups
+	return resourceGroups, nil
 }
 
-func toResourceGroup(spec, quotaType string) v1beta1.ResourceGroup {
+func toResourceGroup(spec, quotaType string) (v1beta1.ResourceGroup, error) {
 	flavorName, userSpecifiedResources := parseKeyValue(spec, ":")
 	resourceSpecs := strings.Split(userSpecifiedResources, ";")
+	flavorQuotas, err := toFlavorQuotas(flavorName, resourceSpecs, quotaType)
+	if err != nil {
+		return v1beta1.ResourceGroup{}, err
+	}
 
 	return v1beta1.ResourceGroup{
 		CoveredResources: getCoveredResources(resourceSpecs),
 		Flavors: []v1beta1.FlavorQuotas{
-			toFlavorQuotas(flavorName, resourceSpecs, quotaType),
+			flavorQuotas,
 		},
-	}
+	}, nil
 }
 
 func getCoveredResources(resourceSpecs []string) []corev1.ResourceName {
@@ -316,26 +345,34 @@ func getCoveredResources(resourceSpecs []string) []corev1.ResourceName {
 	return coveredResources
 }
 
-func toFlavorQuotas(name string, resourceSpecs []string, quotaType string) v1beta1.FlavorQuotas {
+func toFlavorQuotas(name string, resourceSpecs []string, quotaType string) (v1beta1.FlavorQuotas, error) {
 	resourceQuotas := make([]v1beta1.ResourceQuota, 0, len(resourceSpecs))
 	for _, spec := range resourceSpecs {
-		resourceQuotas = append(resourceQuotas, toResourceQuota(spec, quotaType))
+		rq, err := toResourceQuota(spec, quotaType)
+		if err != nil {
+			return v1beta1.FlavorQuotas{}, err
+		}
+
+		resourceQuotas = append(resourceQuotas, rq)
 	}
 
 	return v1beta1.FlavorQuotas{
 		Name:      v1beta1.ResourceFlavorReference(name),
 		Resources: resourceQuotas,
-	}
+	}, nil
 }
 
-func toResourceQuota(spec, quotaType string) v1beta1.ResourceQuota {
+func toResourceQuota(spec, quotaType string) (v1beta1.ResourceQuota, error) {
 	name, quota := parseKeyValue(spec, "=")
-
 	rq := v1beta1.ResourceQuota{
 		Name: corev1.ResourceName(name),
 	}
 
-	quantity := resource.MustParse(quota)
+	quantity, err := resource.ParseQuantity(quota)
+	if err != nil {
+		return v1beta1.ResourceQuota{}, errInvalidResourceQuota
+	}
+
 	switch quotaType {
 	case nominalQuota:
 		rq.NominalQuota = quantity
@@ -345,7 +382,7 @@ func toResourceQuota(spec, quotaType string) v1beta1.ResourceQuota {
 		rq.LendingLimit = ptr.To(quantity)
 	}
 
-	return rq
+	return rq, nil
 }
 
 func parseKeyValue(str, sep string) (string, string) {
