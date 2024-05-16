@@ -159,7 +159,7 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
-		"should create two resource groups when flavors list resources in different order": {
+		"should create one resource group when flavors listing resources in different order": {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:memory=2;cpu=2"},
 			wantResourceGroups: []v1beta1.ResourceGroup{
 				{
@@ -169,11 +169,6 @@ func TestParseResourceQuotas(t *testing.T) {
 							Resource("cpu", "1").
 							Resource("memory", "1").
 							Obj(),
-					},
-				},
-				{
-					CoveredResources: []corev1.ResourceName{"memory", "cpu"},
-					Flavors: []v1beta1.FlavorQuotas{
 						*utiltesting.MakeFlavorQuotas("beta").
 							Resource("memory", "2").
 							Resource("cpu", "2").

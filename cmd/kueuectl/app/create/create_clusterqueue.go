@@ -427,5 +427,7 @@ func getCoveredResourcesAString(coveredResources []corev1.ResourceName) string {
 	for _, cr := range coveredResources {
 		s = append(s, string(cr))
 	}
+	slices.Sort(s)
+
 	return strings.Join(s, ".")
 }
