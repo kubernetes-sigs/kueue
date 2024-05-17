@@ -307,7 +307,7 @@ var (
 	workloadCmpOpts = []cmp.Option{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(
-			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion", "Status.RequeueState.RequeueAt",
+			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",
 		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
@@ -646,8 +646,6 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByDeactivation,
 					Message: "The workload is deactivated",
 				}).
-				// The fake test not allow to save state with nil values when updating by Patch/Apply. So we are skipping this case.
-				// RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
@@ -700,7 +698,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadBackoffFinished,
 					Message: "The workload backoff was finished",
 				}).
-				RequeueState(ptr.To[int32](1), nil).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),
 		},
 		"shouldn't set the WorkloadRequeued condition when backoff expires and workload finished": {
@@ -791,7 +789,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
-		"should set the Evicted condition with InactiveWorkload reason when the .spec.active=False and Admitted when the Workload has Evicted=False condition": {
+		"should set the Evicted condition with InactiveWorkload reason when the .spec.active is False, Admitted, and the Workload has Evicted=False condition": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				Active(false).
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -815,7 +813,88 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
-		"should keep the previous eviction reason when the Workload is already evicted by other reason even thou the Workload is deactivated.": {
+		"[backoffLimitCount: 0] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  ptr.To[int32](0),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+				}),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Message: "The workload is deactivated by exceeded the maximum number of re-queuing retries",
+				}).
+				Obj(),
+		},
+		"[backoffLimitCount: 100] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition, and the requeueState.count equals to backoffLimitCount": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+				}),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				RequeueState(ptr.To[int32](100), nil).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Message: "The workload is deactivated by exceeded the maximum number of re-queuing retries",
+				}).
+				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
+				RequeueState(ptr.To[int32](100), nil).
+				Obj(),
+		},
+		"should keep the previous eviction reason when the Workload is already evicted by other reason even though the Workload is deactivated.": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				Active(false).
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -882,24 +961,9 @@ func TestReconcile(t *testing.T) {
 				}
 				gotWorkload = nil
 			}
-
 			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
-
-			if tc.wantWorkload != nil {
-				if requeueState := tc.wantWorkload.Status.RequeueState; requeueState != nil && requeueState.RequeueAt != nil {
-					gotRequeueState := gotWorkload.Status.RequeueState
-					if gotRequeueState != nil && gotRequeueState.RequeueAt != nil {
-						if !gotRequeueState.RequeueAt.Equal(requeueState.RequeueAt) {
-							t.Errorf("Unexpected requeueState.requeueAt; gotRequeueAt %v needs to be after requeueAt %v", requeueState.RequeueAt, gotRequeueState.RequeueAt)
-						}
-					} else {
-						t.Errorf("Unexpected nil requeueState.requeuAt; requeueState.requeueAt shouldn't be nil")
-					}
-				}
-			}
-
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}

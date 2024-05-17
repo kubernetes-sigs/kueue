@@ -193,7 +193,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 	var _ = ginkgo.Context("Short PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
-			podsReadyTimeout = 3 * time.Second
+			podsReadyTimeout = 250 * time.Millisecond
 			requeuingBackoffLimitCount = ptr.To[int32](2)
 		})
 
@@ -249,47 +249,60 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("create the 'prod' workload")
 			prodWl := testing.MakeWorkload("prod", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
+
 			ginkgo.By("checking the 'prod' workload is admitted")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
-			ginkgo.By("exceed the timeout for the 'prod' workload")
-			time.Sleep(podsReadyTimeout)
+			util.AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+
 			ginkgo.By("finish the eviction, and the workload is pending by backoff")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
+				Count: ptr.To[int32](1),
+			}, false)
 			// To avoid flakiness, we don't verify if the workload has a QuotaReserved=false with pending reason here.
 
 			ginkgo.By("verify the 'prod' workload gets re-admitted twice")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
-			time.Sleep(podsReadyTimeout)
+			util.AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
+				Count: ptr.To[int32](2),
+			}, false)
+
+			ginkgo.By("the workload exceeded re-queue backoff limit should be deactivated")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 3)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 3)
 			time.Sleep(podsReadyTimeout)
-			ginkgo.By("evicted re-admitted workload should have 2 in the re-queue count")
-			util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), ptr.To[int32](2))
-			ginkgo.By("the workload exceeded re-queue backoff limit should be deactivated")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				g.Expect(ptr.Deref(prodWl.Spec.Active, true)).Should(gomega.BeFalse())
+				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
+				workload.SetRequeuedCondition(prodWl, kueue.WorkloadEvictedByDeactivation, "by test", false)
+				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, prodWl, true)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 			// should observe a metrics of WorkloadEvictedByDeactivation
 			util.ExpectEvictedWorkloadsTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByDeactivation, 1)
 
-			ginkgo.By("verify the re-activated inactive 'prod' workload re-queue state is reset")
+			ginkgo.By("the reactivated workload should not be deactivated by the scheduler unless exceeding the backoffLimitCount")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				prodWl.Spec.Active = ptr.To(true)
 				g.Expect(k8sClient.Update(ctx, prodWl)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed(), "Reactivate inactive Workload")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
-				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 4)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 4)
+			util.AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
+				Count: ptr.To[int32](1),
+			}, false)
 		})
 
 		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
@@ -427,9 +440,17 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			})
 
 			ginkgo.By("verifying if all workloads have a proper re-queue count", func() {
-				util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(wl1), ptr.To[int32](2))
-				util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(wl2), ptr.To[int32](1))
-				util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(wl3), ptr.To[int32](1))
+				// Here, we focus on verifying if the requeuingTimestamp works well.
+				// So, we don't check if the .status.requeueState.requeueAt is reset.
+				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl1), &kueue.RequeueState{
+					Count: ptr.To[int32](2),
+				}, true)
+				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl2), &kueue.RequeueState{
+					Count: ptr.To[int32](1),
+				}, true)
+				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl3), &kueue.RequeueState{
+					Count: ptr.To[int32](1),
+				}, true)
 			})
 		})
 	})
@@ -604,7 +625,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 	var _ = ginkgo.Context("Short PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
-			podsReadyTimeout = 3 * time.Second
+			podsReadyTimeout = 250 * time.Millisecond
 		})
 
 		ginkgo.It("Should re-admit a timed out workload", func() {
@@ -624,8 +645,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
-			time.Sleep(podsReadyTimeout)
-			util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), ptr.To[int32](2))
+			util.AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
+				Count: ptr.To[int32](2),
+			}, false)
 			gomega.Expect(ptr.Deref(prodWl.Spec.Active, true)).Should(gomega.BeTrue())
 		})
 	})
@@ -695,10 +718,16 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				// To avoid flakiness, we don't verify if the workload has a QuotaReserved=false with pending reason here.
 			})
 			ginkgo.By("verifying if all workloads have a proper re-queue count", func() {
-				util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(wl1), ptr.To[int32](2))
-				util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(wl2), ptr.To[int32](1))
+				// Here, we focus on verifying if the requeuingTimestamp works well.
+				// So, we don't check if the .status.requeueState.requeueAt is reset.
+				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl1), &kueue.RequeueState{
+					Count: ptr.To[int32](2),
+				}, true)
+				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl2), &kueue.RequeueState{
+					Count: ptr.To[int32](1),
+				}, true)
 				ginkgo.By("wl3 had never been admitted", func() {
-					util.ExpectWorkloadToHaveRequeueCount(ctx, k8sClient, client.ObjectKeyFromObject(wl3), nil)
+					util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl3), nil, false)
 				})
 			})
 		})
