@@ -431,6 +431,11 @@ func (p *PodSetWrapper) NodeSelector(kv map[string]string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) NodeName(name string) *PodSetWrapper {
+	p.Template.Spec.NodeName = name
+	return p
+}
+
 func (p *PodSetWrapper) Labels(kv map[string]string) *PodSetWrapper {
 	p.Template.Labels = kv
 	return p
