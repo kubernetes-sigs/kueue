@@ -737,10 +737,9 @@ func (p *Pod) notRunnableNorSucceededPods() []corev1.Pod {
 }
 
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
-// A Pod cannot run if it's gated and has a deletionTimestamp.
+// A Pod cannot run if it's gated or has no node assignment while having a deletionTimestamp.
 func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
-	isPendingWithoutNode := p.Status.Phase == corev1.PodPending && p.Spec.NodeName == ""
-	if p.DeletionTimestamp != nil && (isPendingWithoutNode || len(p.Spec.SchedulingGates) > 0) {
+	if p.DeletionTimestamp != nil && len(p.Spec.NodeName) == 0 {
 		return false
 	}
 	return p.Status.Phase != corev1.PodFailed
@@ -1084,8 +1083,6 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 	// Cleanup excess pods for each workload pod set (role)
 	activePods := p.runnableOrSucceededPods()
 	inactivePods := p.notRunnableNorSucceededPods()
-
-	log.Info("pods", "active", activePods, "inactive", inactivePods)
 
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
