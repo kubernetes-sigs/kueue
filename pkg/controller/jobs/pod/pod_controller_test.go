@@ -3775,11 +3775,6 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Delete().
 					StatusPhase(corev1.PodPending).
-					StatusConditions(corev1.PodCondition{
-						Type:   corev1.PodScheduled,
-						Status: corev1.ConditionFalse,
-						Reason: corev1.PodReasonUnschedulable,
-					}).
 					Group("test-group").
 					GroupTotalCount("2").
 					CreationTimestamp(time.Now().Add(-time.Hour)).
