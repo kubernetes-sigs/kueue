@@ -39,7 +39,7 @@ type Configuration struct {
 	ControllerManager `json:",inline"`
 
 	// ManageJobsWithoutQueueName controls whether or not Kueue reconciles
-	// batch/v1.Jobs that don't set the annotation kueue.x-k8s.io/queue-name.
+	// jobs that don't set the annotation kueue.x-k8s.io/queue-name.
 	// If set to true, then those jobs will be suspended and never started unless
 	// they are assigned a queue and eventually admitted. This also applies to
 	// jobs created before starting the kueue controller.
