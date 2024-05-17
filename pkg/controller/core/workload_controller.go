@@ -161,18 +161,33 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Workload")
 
-	if ptr.Deref(wl.Spec.Active, true) {
-		// If a deactivated workload is re-activated, we need to reset the RequeueState.
-		if wl.Status.RequeueState != nil && workload.IsEvictedByDeactivation(&wl) {
+	if !ptr.Deref(wl.Spec.Active, true) {
+		var updated bool
+		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+			message := "The workload is deactivated"
+
+			// The deactivation reason could be deduced as the maximum number of re-queuing retries if the workload met all criteria below:
+			//  1. The waitForPodsReady feature is enabled, which means that it has "PodsReady" condition.
+			//  2. The workload has already exceeded the PodsReadyTimeout.
+			//  3. The number of re-queued has already reached the waitForPodsReady.requeuingBackoffLimitCount.
+			if apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadPodsReady) &&
+				((!workload.HasRequeueState(&wl) && ptr.Equal(r.requeuingBackoffLimitCount, ptr.To[int32](0))) ||
+					(workload.HasRequeueState(&wl) && ptr.Equal(wl.Status.RequeueState.Count, r.requeuingBackoffLimitCount))) {
+				message = fmt.Sprintf("%s due to exceeding the maximum number of re-queuing retries", message)
+			}
+			workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByDeactivation, message)
+			updated = true
+		}
+		if wl.Status.RequeueState != nil {
 			wl.Status.RequeueState = nil
-			return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
+			updated = true
 		}
-	} else if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-		workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByDeactivation, "The workload is deactivated")
-		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
-			return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
+		if updated {
+			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
+				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
+			}
+			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, nil
 	}
 
 	if len(wl.ObjectMeta.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
