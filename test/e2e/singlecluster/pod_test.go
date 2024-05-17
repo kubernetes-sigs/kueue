@@ -203,7 +203,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
 						var p corev1.Pod
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
 						var p corev1.Pod
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
