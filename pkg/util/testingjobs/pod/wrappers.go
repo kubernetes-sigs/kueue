@@ -158,6 +158,12 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 	return p
 }
 
+// NodeName sets a node name to the Pod.
+func (p *PodWrapper) NodeName(name string) *PodWrapper {
+	p.Spec.NodeName = name
+	return p
+}
+
 // Request adds a resource request to the default container.
 func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
