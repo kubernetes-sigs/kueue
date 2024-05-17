@@ -1601,6 +1601,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
+					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -1611,6 +1612,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
+					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -1622,6 +1624,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
+					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -1632,6 +1635,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
+					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -1651,7 +1655,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").NodeName("test-node").Obj()).
 					Queue("test-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
