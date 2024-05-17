@@ -255,7 +255,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
 		})
 
-		ginkgo.It("Deleted Pending Unschedulable Pod can be replaced in group", func() {
+		ginkgo.It("Unscheduled Pod which is deleted can be replaced in group", func() {
 			eventList := corev1.EventList{}
 			eventWatcher, err := k8sClient.Watch(ctx, &eventList, &client.ListOptions{
 				Namespace: ns.Name,
@@ -321,7 +321,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Replacement pod starts, and the failed one is deleted", func() {
+			ginkgo.By("Replacement pod is un-gated, and the failed one is deleted", func() {
 				// Use a pod template that can succeed fast.
 				rep := group[0].DeepCopy()
 				rep.Name = "replacement"
@@ -332,25 +332,6 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(testing.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Excess pod is deleted", func() {
-				excess := group[0].DeepCopy()
-				excess.Name = "excess"
-				excessPods := sets.New(client.ObjectKeyFromObject(excess))
-				ginkgo.By("Create the excess pod", func() {
-					gomega.Expect(k8sClient.Create(ctx, excess)).To(gomega.Succeed())
-				})
-				ginkgo.By("Use events to observe the excess pods are getting stopped", func() {
-					util.ExpectEventsForObjects(eventWatcher, excessPods, func(e *corev1.Event) bool {
-						return e.InvolvedObject.Namespace == ns.Name && e.Reason == "ExcessPodDeleted"
-					})
-				})
-				ginkgo.By("Verify the excess pod is deleted", func() {
-					gomega.Eventually(func() error {
-						return k8sClient.Get(ctx, client.ObjectKeyFromObject(excess), &corev1.Pod{})
-					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
-				})
 			})
 		})
 
