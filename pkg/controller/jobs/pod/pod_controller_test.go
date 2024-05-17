@@ -1601,6 +1601,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
+					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -1611,6 +1612,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
+					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -1622,6 +1624,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
+					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -1632,6 +1635,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Queue("test-queue").
 					Group("test-group").
+					NodeName("test-node").
 					GroupTotalCount("2").
 					Delete().
 					Obj(),
@@ -1651,7 +1655,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").NodeName("test-node").Obj()).
 					Queue("test-queue").
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
@@ -3302,6 +3306,108 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "test-group", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "OwnerReferencesAdded",
+					Message:   "Added 1 owner reference(s)",
+				},
+			},
+		},
+		"deleted unschedulable pods are finalized": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Delete().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now()).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "replacement", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
 				{
 					Key:       types.NamespacedName{Name: "test-group", Namespace: "ns"},
 					EventType: "Normal",

@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -202,7 +203,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
 						var p corev1.Pod
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -262,6 +263,85 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
+		})
+
+		ginkgo.It("Unscheduled Pod which is deleted can be replaced in group", func() {
+			eventList := corev1.EventList{}
+			eventWatcher, err := k8sClient.Watch(ctx, &eventList, &client.ListOptions{
+				Namespace: ns.Name,
+			})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.DeferCleanup(func() {
+				eventWatcher.Stop()
+			})
+
+			group := podtesting.MakePod("group", ns.Name).
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "1").
+				MakeGroup(2)
+
+			// The first pod has a node selector for a missing node.
+			group[0].Spec.NodeSelector = map[string]string{"missing-node-key": "missing-node-value"}
+
+			ginkgo.By("Group starts", func() {
+				for _, p := range group {
+					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					for _, origPod := range group {
+						var p corev1.Pod
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the second pod is no longer pending", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var p corev1.Pod
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[1]), &p)).To(gomega.Succeed())
+					g.Expect(p.Status.Phase).NotTo(gomega.Equal(corev1.PodPending))
+					g.Expect(p.Spec.NodeName).NotTo(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the first pod is Unschedulable", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var p corev1.Pod
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
+					g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodPending))
+					g.Expect(p.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonUnschedulable,
+					}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastProbeTime", "LastTransitionTime", "Message"))))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Deleting the pod it remains Unschedulable", func() {
+				gomega.Expect(k8sClient.Delete(ctx, group[0])).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					var p corev1.Pod
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
+					g.Expect(p.DeletionTimestamp.IsZero()).NotTo(gomega.BeTrue())
+					g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodPending))
+					g.Expect(p.Spec.NodeName).To(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Replacement pod is un-gated, and the failed one is deleted", func() {
+				rep := group[0].DeepCopy()
+				rep.Name = "replacement"
+				gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					var p corev1.Pod
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
+					g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(testing.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.It("should allow to schedule a group of diverse pods", func() {
