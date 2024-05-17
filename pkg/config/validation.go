@@ -112,6 +112,10 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	if !WaitForPodsReadyIsEnabled(c) {
 		return allErrs
 	}
+	if c.WaitForPodsReady.Timeout != nil && c.WaitForPodsReady.Timeout.Duration < 0 {
+		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("timeout"),
+			c.WaitForPodsReady.Timeout, constants.IsNegativeErrorMsg))
+	}
 	if strategy := c.WaitForPodsReady.RequeuingStrategy; strategy != nil {
 		if strategy.Timestamp != nil &&
 			*strategy.Timestamp != configapi.CreationTimestamp && *strategy.Timestamp != configapi.EvictionTimestamp {

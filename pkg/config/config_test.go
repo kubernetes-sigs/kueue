@@ -152,9 +152,12 @@ apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 waitForPodsReady:
   enable: true
+  timeout: 50s
+  blockAdmission: false
   requeuingStrategy:
     timestamp: Creation
     backoffLimitCount: 10
+    backoffBaseSeconds: 30
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -547,12 +550,12 @@ multiKueue:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Enable:         true,
-					BlockAdmission: ptr.To(true),
-					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
+					BlockAdmission: ptr.To(false),
+					Timeout:        &metav1.Duration{Duration: 50 * time.Second},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
 						BackoffLimitCount:  ptr.To[int32](10),
-						BackoffBaseSeconds: ptr.To[int32](10),
+						BackoffBaseSeconds: ptr.To[int32](30),
 					},
 				},
 				ClientConnection: defaultClientConnection,

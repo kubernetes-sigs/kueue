@@ -324,29 +324,39 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"supported waitForPodsReady.requeuingStrategy.timestamp": {
+		"negative waitForPodsReady.timeout": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Enable: true,
-					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp: ptr.To(configapi.CreationTimestamp),
+					Timeout: &metav1.Duration{
+						Duration: -1,
 					},
 				},
 			},
-			wantErr: nil,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.timeout",
+				},
+			},
 		},
-		"non-negative waitForPodsReady.requeuingStrategy.backoffLimitCount": {
+		"valid waitForPodsReady": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Enable: true,
+					Timeout: &metav1.Duration{
+						Duration: 50,
+					},
+					BlockAdmission: ptr.To(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						BackoffLimitCount: ptr.To[int32](10),
+						Timestamp:          ptr.To(configapi.CreationTimestamp),
+						BackoffLimitCount:  ptr.To[int32](10),
+						BackoffBaseSeconds: ptr.To[int32](30),
 					},
 				},
 			},
-			wantErr: nil,
 		},
 		"negative waitForPodsReady.requeuingStrategy.backoffLimitCount": {
 			cfg: &configapi.Configuration{
