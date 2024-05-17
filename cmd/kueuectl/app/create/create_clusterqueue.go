@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
@@ -470,10 +471,7 @@ func mergeFlavorsByCoveredResources(resourceGroups []v1beta1.ResourceGroup) ([]v
 }
 
 func getResourcesGroupID(coveredResources []corev1.ResourceName) string {
-	var s []string
-	for _, cr := range coveredResources {
-		s = append(s, string(cr))
-	}
+	s := utilslices.Map(coveredResources, func(rn *corev1.ResourceName) string { return string(*rn) })
 	slices.Sort(s)
 
 	return strings.Join(s, ".")
