@@ -18,7 +18,7 @@ package util
 
 import (
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -76,7 +76,7 @@ var testMappingRules = MappingRules{
 
 func TestMappingFromFile(t *testing.T) {
 	tdir := t.TempDir()
-	fPath := path.Join(tdir, "mapping.yaml")
+	fPath := filepath.Join(tdir, "mapping.yaml")
 	err := os.WriteFile(fPath, []byte(testContent), os.FileMode(0600))
 	if err != nil {
 		t.Fatalf("unable to create the test file: %s", err)

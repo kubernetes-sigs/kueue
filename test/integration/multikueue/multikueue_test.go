@@ -19,7 +19,7 @@ package multikueue
 import (
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -358,7 +358,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		})
 
 		tempDir := ginkgo.GinkgoT().TempDir()
-		fsKubeConfig := path.Join(tempDir, "testing.kubeconfig")
+		fsKubeConfig := filepath.Join(tempDir, "testing.kubeconfig")
 
 		config := utiltesting.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()
 		ginkgo.By("creating the config, the admission check's state is updated", func() {

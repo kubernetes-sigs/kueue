@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"syscall"
@@ -131,7 +132,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		kubeconfigPath := path.Join(*outputDir, "kubeconfig")
+		kubeconfigPath := filepath.Join(*outputDir, "kubeconfig")
 		err = os.WriteFile(kubeconfigPath, kubeconfig, 00660)
 		if err != nil {
 			log.Error(err, "Write kubeconfig")
@@ -184,7 +185,7 @@ func main() {
 	}
 
 	if *metricsScrapeInterval != 0 && *metricsScrapeURL != "" {
-		dumpTar := path.Join(*outputDir, "metricsDump.tgz")
+		dumpTar := filepath.Join(*outputDir, "metricsDump.tgz")
 		err := runScraper(ctx, *metricsScrapeInterval, dumpTar, *metricsScrapeURL, errCh, wg)
 		if err != nil {
 			log.Error(err, "Scraper start")
@@ -217,17 +218,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = recorder.WriteSummary(path.Join(*outputDir, "summary.yaml"))
+	err = recorder.WriteSummary(filepath.Join(*outputDir, "summary.yaml"))
 	if err != nil {
 		log.Error(err, "Writing summary")
 		os.Exit(1)
 	}
-	err = recorder.WriteCQCsv(path.Join(*outputDir, "cqStates.csv"))
+	err = recorder.WriteCQCsv(filepath.Join(*outputDir, "cqStates.csv"))
 	if err != nil {
 		log.Error(err, "Writing cq csv")
 		os.Exit(1)
 	}
-	err = recorder.WriteWLCsv(path.Join(*outputDir, "wlStates.csv"))
+	err = recorder.WriteWLCsv(filepath.Join(*outputDir, "wlStates.csv"))
 	if err != nil {
 		log.Error(err, "Writing wl csv")
 		os.Exit(1)
@@ -246,7 +247,7 @@ func main() {
 func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCPUProf, withLogs, logToFile bool, logLevel int, errCh chan<- error, wg *sync.WaitGroup, metricsPort int) error {
 	log := ctrl.LoggerFrom(ctx).WithName("Run command")
 
-	cmd := exec.CommandContext(ctx, cmdPath, "--kubeconfig", path.Join(workDir, kubeconfig))
+	cmd := exec.CommandContext(ctx, cmdPath, "--kubeconfig", filepath.Join(workDir, kubeconfig))
 	cmd.Cancel = func() error {
 		log.Info("Stop the command")
 		return cmd.Process.Signal(syscall.SIGINT)
@@ -255,7 +256,7 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 	exe := path.Base(cmdPath)
 
 	if withCPUProf {
-		cmd.Args = append(cmd.Args, "--cpuprofile", path.Join(workDir, fmt.Sprintf("%s.cpu.prof", exe)))
+		cmd.Args = append(cmd.Args, "--cpuprofile", filepath.Join(workDir, fmt.Sprintf("%s.cpu.prof", exe)))
 	}
 
 	if withLogs {
@@ -264,13 +265,13 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 		errWriter := os.Stderr
 		if logToFile {
 			var err error
-			outWriter, err = os.Create(path.Join(workDir, fmt.Sprintf("%s.out.log", exe)))
+			outWriter, err = os.Create(filepath.Join(workDir, fmt.Sprintf("%s.out.log", exe)))
 			if err != nil {
 				return err
 			}
 			defer outWriter.Close()
 
-			errWriter, err = os.Create(path.Join(workDir, fmt.Sprintf("%s.err.log", exe)))
+			errWriter, err = os.Create(filepath.Join(workDir, fmt.Sprintf("%s.err.log", exe)))
 			if err != nil {
 				return err
 			}
@@ -320,7 +321,7 @@ func runCommand(ctx context.Context, workDir, cmdPath, kubeconfig string, withCP
 			return
 		}
 
-		err = os.WriteFile(path.Join(workDir, fmt.Sprintf("%s.stats.yaml", exe)), csBytes, 0666)
+		err = os.WriteFile(filepath.Join(workDir, fmt.Sprintf("%s.stats.yaml", exe)), csBytes, 0666)
 		if err != nil {
 			log.Error(err, "Writing cmd stats")
 		}
