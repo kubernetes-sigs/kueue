@@ -724,19 +724,11 @@ func (p *Pod) notRunnableNorSucceededPods() []corev1.Pod {
 	return utilslices.Pick(p.list.Items, func(p *corev1.Pod) bool { return !isPodRunnableOrSucceeded(p) })
 }
 
-func isUnschedulable(p *corev1.Pod) bool {
-	for _, c := range p.Status.Conditions {
-		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && c.Reason == corev1.PodReasonUnschedulable {
-			return true
-		}
-	}
-	return false
-}
-
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
 // A Pod cannot run if it's gated and has a deletionTimestamp.
 func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
-	if p.DeletionTimestamp != nil && (len(p.Spec.SchedulingGates) > 0 || isUnschedulable(p)) {
+	isPendingWithoutNode := p.Status.Phase == corev1.PodPending && p.Spec.NodeName == ""
+	if p.DeletionTimestamp != nil && (isPendingWithoutNode || len(p.Spec.SchedulingGates) > 0) {
 		return false
 	}
 	return p.Status.Phase != corev1.PodFailed
