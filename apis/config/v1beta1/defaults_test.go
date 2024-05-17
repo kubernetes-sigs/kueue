@@ -412,7 +412,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable:  true,
 					Timeout: &podsReadyTimeoutOverwrite,
 					RequeuingStrategy: &RequeuingStrategy{
-						Timestamp: ptr.To(CreationTimestamp),
+						Timestamp:         ptr.To(CreationTimestamp),
+						BackoffLimitCount: ptr.To[int32](10),
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -425,7 +426,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					BlockAdmission: ptr.To(true),
 					Timeout:        &podsReadyTimeoutOverwrite,
 					RequeuingStrategy: &RequeuingStrategy{
-						Timestamp: ptr.To(CreationTimestamp),
+						Timestamp:         ptr.To(CreationTimestamp),
+						BackoffLimitCount: ptr.To[int32](10),
 					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
