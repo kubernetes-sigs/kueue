@@ -332,7 +332,6 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			ginkgo.By("Replacement pod is un-gated, and the failed one is deleted", func() {
-				// Use a pod template that can succeed fast.
 				rep := group[0].DeepCopy()
 				rep.Name = "replacement"
 				gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
