@@ -188,7 +188,8 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				eventWatcher.Stop()
 			})
 
-			group := podtesting.MakePod("group", ns.Name).
+			groupName := "group"
+			group := podtesting.MakePod(groupName, ns.Name).
 				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
@@ -217,6 +218,23 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
 					return p.Status.Phase
 				}, util.Timeout, util.Interval).Should(gomega.Equal(corev1.PodFailed))
+			})
+
+			createdWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Namespace: ns.Name, Name: groupName}
+
+			ginkgo.By("Checking that WaitingForReplacementPods status is set to true", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    pod.WorkloadWaitingForReplacementPods,
+							Status:  metav1.ConditionTrue,
+							Reason:  pod.WorkloadPodsFailed,
+							Message: "Some Failed pods need replacement",
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Replacement pod starts, and the failed one is deleted", func() {
@@ -249,6 +267,20 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						return k8sClient.Get(ctx, client.ObjectKeyFromObject(excess), &corev1.Pod{})
 					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 				})
+			})
+
+			ginkgo.By("Checking that WaitingForReplacementPods status is set to false", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    pod.WorkloadWaitingForReplacementPods,
+							Status:  metav1.ConditionFalse,
+							Reason:  kueue.WorkloadPodsReady,
+							Message: "No pods need replacement",
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})

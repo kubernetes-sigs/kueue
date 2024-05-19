@@ -75,6 +75,15 @@ const (
 	ReasonOwnerReferencesAdded = "OwnerReferencesAdded"
 )
 
+const (
+	// WorkloadWaitingForReplacementPods is True when Kueue doesn't observe all
+	// the Pods declared for the group.
+	WorkloadWaitingForReplacementPods = "WaitingForReplacementPods"
+
+	// WorkloadPodsFailed means that at least one Pod are not runnable or not succeeded.
+	WorkloadPodsFailed = "PodsFailed"
+)
+
 var (
 	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest = errors.New("event handler error: got a single pod reconcile request for a pod group")
@@ -138,14 +147,17 @@ type Pod struct {
 	isGroup               bool
 	unretriableGroup      *bool
 	list                  corev1.PodList
+	absentPods            int
 	excessPodExpectations *expectationsStore
 	satisfiedExcessPods   bool
 }
 
 var (
-	_ jobframework.GenericJob      = (*Pod)(nil)
-	_ jobframework.JobWithFinalize = (*Pod)(nil)
-	_ jobframework.ComposableJob   = (*Pod)(nil)
+	_ jobframework.GenericJob                      = (*Pod)(nil)
+	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
+	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
+	_ jobframework.ComposableJob                   = (*Pod)(nil)
+	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 )
 
 func FromObject(o runtime.Object) *Pod {
@@ -1084,6 +1096,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 	activePods := p.runnableOrSucceededPods()
 	inactivePods := p.notRunnableNorSucceededPods()
 
+	var absentPods int
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
 	var replacedInactivePods []corev1.Pod
@@ -1103,6 +1116,10 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
 		if len(roleHashErrors) > 0 {
 			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
+		}
+
+		if absentCount := int(ps.Count) - len(roleActivePods); absentCount > 0 {
+			absentPods += absentCount
 		}
 
 		if excessCount := len(roleActivePods) - int(ps.Count); excessCount > 0 {
@@ -1136,6 +1153,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 		return nil, nil, errPendingOps
 	}
 
+	p.absentPods = absentPods
 	p.list.Items = keptPods
 	if err := p.ensureWorkloadOwnedByAllMembers(ctx, c, r, workload); err != nil {
 		return nil, nil, err
@@ -1213,6 +1231,77 @@ func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	}
 
 	return result, nil
+}
+
+func (p *Pod) CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool) {
+	var (
+		conditions           []metav1.Condition
+		needToUpdateWorkload bool
+	)
+	if condition, updated := p.waitingForReplacementPodsCondition(wl); condition != nil {
+		conditions = append(conditions, *condition)
+		if updated {
+			needToUpdateWorkload = true
+		}
+	}
+	return conditions, needToUpdateWorkload
+}
+
+func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Condition, bool) {
+	if !p.isGroup {
+		return nil, false
+	}
+
+	replCond := apimeta.FindStatusCondition(wl.Status.Conditions, WorkloadWaitingForReplacementPods)
+	replCondStatus := p.absentPods > 0
+
+	// Nothing to change.
+	if replCond == nil && !replCondStatus {
+		return nil, false
+	}
+
+	var updated bool
+
+	if replCond == nil {
+		replCond = &metav1.Condition{
+			Type: WorkloadWaitingForReplacementPods,
+		}
+		updated = true
+	}
+
+	if replCondStatus {
+		if evictCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evictCond != nil && evictCond.Status == metav1.ConditionTrue {
+			if replCond.Reason != evictCond.Reason {
+				replCond.Reason = evictCond.Reason
+				updated = true
+			}
+			if replCond.Message != evictCond.Message {
+				replCond.Message = evictCond.Message
+				updated = true
+			}
+		} else if replCond.Status != metav1.ConditionTrue {
+			replCond.Reason = WorkloadPodsFailed
+			replCond.Message = "Some Failed pods need replacement"
+			updated = true
+		}
+
+		if replCond.Status != metav1.ConditionTrue {
+			replCond.Status = metav1.ConditionTrue
+			updated = true
+		}
+	} else if replCond.Status != metav1.ConditionFalse {
+		replCond.Status = metav1.ConditionFalse
+		replCond.Reason = kueue.WorkloadPodsReady
+		replCond.Message = "No pods need replacement"
+		updated = true
+	}
+
+	if updated {
+		replCond.ObservedGeneration = wl.Generation
+		replCond.LastTransitionTime = metav1.Now()
+	}
+
+	return replCond, updated
 }
 
 func IsPodOwnerManagedByKueue(p *Pod) bool {
