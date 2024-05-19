@@ -22,5 +22,5 @@ import (
 
 func addKeepAlreadyRunningFlagVar(cmd *cobra.Command, p *bool) {
 	cmd.Flags().BoolVar(p, "keep-already-running", false,
-		"Indicates whether to keep already running local queues.")
+		"Indicates whether to keep already running workloads.")
 }

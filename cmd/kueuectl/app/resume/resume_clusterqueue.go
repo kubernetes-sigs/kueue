@@ -41,14 +41,10 @@ const (
 )
 
 type ClusterQueueOptions struct {
-	PrintFlags *genericclioptions.PrintFlags
-
 	ClusterQueueName string
-
-	Client kueuev1beta1.KueueV1beta1Interface
-
-	PrintObj printers.ResourcePrinterFunc
-
+	Client           kueuev1beta1.KueueV1beta1Interface
+	PrintFlags       *genericclioptions.PrintFlags
+	PrintObj         printers.ResourcePrinterFunc
 	genericiooptions.IOStreams
 }
 
@@ -109,12 +105,8 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 		return err
 	}
 
-	if cq == nil {
-		return nil
-	}
-
 	cqOriginal := cq.DeepCopy()
-	o.resumeClusterQueue(cq)
+	cq.Spec.StopPolicy = ptr.To(v1beta1.None)
 
 	opts := metav1.PatchOptions{}
 	patch := client.MergeFrom(cqOriginal)
@@ -129,8 +121,4 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	}
 
 	return o.PrintObj(cq, o.Out)
-}
-
-func (o *ClusterQueueOptions) resumeClusterQueue(cq *v1beta1.ClusterQueue) {
-	cq.Spec.StopPolicy = ptr.To(v1beta1.None)
 }

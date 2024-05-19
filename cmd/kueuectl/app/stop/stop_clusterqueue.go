@@ -41,15 +41,11 @@ const (
 )
 
 type ClusterQueueOptions struct {
-	PrintFlags *genericclioptions.PrintFlags
-
 	ClusterQueueName   string
 	KeepAlreadyRunning bool
-
-	Client kueuev1beta1.KueueV1beta1Interface
-
-	PrintObj printers.ResourcePrinterFunc
-
+	Client             kueuev1beta1.KueueV1beta1Interface
+	PrintFlags         *genericclioptions.PrintFlags
+	PrintObj           printers.ResourcePrinterFunc
 	genericiooptions.IOStreams
 }
 

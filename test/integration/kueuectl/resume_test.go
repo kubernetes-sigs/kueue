@@ -80,71 +80,46 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 	})
 
-	ginkgo.When("Resuming a ClusterQueue from HoldAndDrain StopPolicy", func() {
-		ginkgo.It("Should resume a ClusterQueue and drain workloads", func() {
-			cq := testing.MakeClusterQueue("cq-1").StopPolicy(v1beta1.HoldAndDrain).Obj()
-			ginkgo.By("Create a ClusterQueue", func() {
-				gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
-			})
+	ginkgo.When("Resuming a ClusterQueue", func() {
+		ginkgo.DescribeTable("Should resume a ClusterQueue",
+			func(cq *v1beta1.ClusterQueue, wantInitialStopPolicy v1beta1.StopPolicy) {
+				ginkgo.By("Create a ClusterQueue", func() {
+					gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+				})
 
-			createdClusterQueue := &v1beta1.ClusterQueue{}
-			ginkgo.By("Get created ClusterQueue", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
-					g.Expect(cq.Spec.StopPolicy).Should(gomega.Equal(ptr.To(v1beta1.HoldAndDrain)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+				createdClusterQueue := &v1beta1.ClusterQueue{}
+				ginkgo.By("Get created ClusterQueue", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(wantInitialStopPolicy))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
 
-			ginkgo.By("Resume created ClusterQueue", func() {
-				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				ginkgo.By("Resume created ClusterQueue", func() {
+					streams, _, output, _ := genericiooptions.NewTestIOStreams()
+					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
 
-				kueuectl.SetArgs([]string{"resume", "clusterqueue", cq.Name})
-				err := kueuectl.Execute()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-			})
+					kueuectl.SetArgs([]string{"resume", "clusterqueue", createdClusterQueue.Name})
+					err := kueuectl.Execute()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				})
 
-			ginkgo.By("Check that the ClusterQueue is successfully resumed", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
-					g.Expect(cq.Spec.StopPolicy).Should(gomega.Equal(ptr.To(v1beta1.None)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-		})
-	})
-
-	ginkgo.When("Resuming a ClusterQueue from Hold StopPolicy", func() {
-		ginkgo.It("Should resume a ClusterQueue and drain workloads", func() {
-			cq := testing.MakeClusterQueue("cq-2").StopPolicy(v1beta1.Hold).Obj()
-			ginkgo.By("Create a ClusterQueue", func() {
-				gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
-			})
-
-			createdClusterQueue := &v1beta1.ClusterQueue{}
-			ginkgo.By("Get created ClusterQueue", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
-					g.Expect(cq.Spec.StopPolicy).Should(gomega.Equal(ptr.To(v1beta1.Hold)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Resume created ClusterQueue", func() {
-				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
-
-				kueuectl.SetArgs([]string{"resume", "clusterqueue", cq.Name})
-				err := kueuectl.Execute()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-			})
-
-			ginkgo.By("Check that the ClusterQueue is successfully resumed", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
-					g.Expect(cq.Spec.StopPolicy).Should(gomega.Equal(ptr.To(v1beta1.None)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-		})
+				ginkgo.By("Check that the ClusterQueue is successfully resumed", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(v1beta1.None))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			},
+			ginkgo.Entry("HoldAndDrain",
+				testing.MakeClusterQueue("cq-1").StopPolicy(v1beta1.HoldAndDrain).Obj(),
+				v1beta1.HoldAndDrain,
+			),
+			ginkgo.Entry("Hold",
+				testing.MakeClusterQueue("cq-2").StopPolicy(v1beta1.Hold).Obj(),
+				v1beta1.Hold,
+			),
+		)
 	})
 })
