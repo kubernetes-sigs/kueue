@@ -71,6 +71,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}
 			cfg = fwk.Init()
 			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+				nil,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
@@ -1397,6 +1398,197 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 					return k8sClient.Get(ctx, lookupKey, createdPod)
 				}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 			})
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Pod controller interacting with Workload controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns *corev1.Namespace
+		fl *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk = &framework.Framework{
+			CRDPath:     crdPath,
+			WebhookPath: webhookPath,
+		}
+		cfg = fwk.Init()
+		waitForPodsReady := &configapi.WaitForPodsReady{
+			Enable:  true,
+			Timeout: &metav1.Duration{Duration: 10 * time.Millisecond},
+			RequeuingStrategy: &configapi.RequeuingStrategy{
+				Timestamp:          ptr.To(configapi.EvictionTimestamp),
+				BackoffLimitCount:  ptr.To[int32](1),
+				BackoffBaseSeconds: ptr.To[int32](1),
+			},
+		}
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+			jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
+				PodSelector: &metav1.LabelSelector{},
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "kubernetes.io/metadata.name",
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{"kube-system", "kueue-system"},
+						},
+					},
+				},
+			}),
+		))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.Teardown()
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "core-"}}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+		fl = testing.MakeResourceFlavor("fl").Obj()
+		gomega.Expect(k8sClient.Create(ctx, fl)).Should(gomega.Succeed())
+
+		cq = testing.MakeClusterQueue("cq").
+			ResourceGroup(*testing.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "9").
+				Resource(corev1.ResourceMemory, "36").
+				Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+
+		lq = testing.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, fl, true)
+	})
+
+	ginkgo.When("pod group not ready", func() {
+		ginkgo.It("should deactivate and evict workload due exceeding backoffLimitCount", func() {
+			podGroupName := "pod-group"
+			pod := testingpod.MakePod("pod", ns.Name).
+				Group(podGroupName).
+				GroupTotalCount("1").
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			ginkgo.By("creating pod", func() {
+				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+			})
+
+			wl := &kueue.Workload{}
+			wlKey := types.NamespacedName{Name: podGroupName, Namespace: pod.Namespace}
+
+			ginkgo.By("checking that workload was created")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadPodsReady,
+						Message: "Not all pods are ready or succeeded",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			admission := testing.MakeAdmission(cq.Name, wl.Spec.PodSets[0].Name).
+				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
+				AssignmentPodCount(wl.Spec.PodSets[0].Count).
+				Obj()
+
+			ginkgo.By("admit the workload", func() {
+				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("checking the workload is evicted due to pods ready timeout")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeTrue())
+				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(ptr.To[int32](1)))
+				g.Expect(wl.Status.RequeueState.RequeueAt).Should(gomega.BeNil())
+				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadPodsReady,
+						Message: "Not all pods are ready or succeeded",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "PodsReadyTimeout",
+						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadBackoffFinished,
+						Message: "The workload backoff was finished",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("re-admit the workload to exceed the backoffLimitCount", func() {
+				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("checking the workload is deactivated and evicted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
+				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(ptr.To[int32](1)))
+				g.Expect(wl.Status.RequeueState.RequeueAt).Should(gomega.BeNil())
+				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadPodsReady,
+						Message: "Not all pods are ready or succeeded",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "The workload is deactivated",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "InactiveWorkload",
+						Message: "The workload is deactivated",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
