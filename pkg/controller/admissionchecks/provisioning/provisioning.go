@@ -37,10 +37,6 @@ func isProvisioned(pr *autoscaling.ProvisioningRequest) bool {
 	return apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
 }
 
-func isProvisionedFalse(pr *autoscaling.ProvisioningRequest) bool {
-	return apimeta.IsStatusConditionFalse(pr.Status.Conditions, autoscaling.Provisioned)
-}
-
 func isAccepted(pr *autoscaling.ProvisioningRequest) bool {
 	return apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Accepted)
 }
@@ -57,7 +53,7 @@ func isCapacityRevoked(pr *autoscaling.ProvisioningRequest) bool {
 	return apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.CapacityRevoked)
 }
 
-func GetProvisioningRequestName(workloadName, checkName string, attempt int32) string {
+func ProvisioningRequestName(workloadName, checkName string, attempt int32) string {
 	fullName := fmt.Sprintf("%s-%s-%d", workloadName, checkName, int(attempt))
 	return limitObjectName(fullName)
 }
@@ -72,7 +68,7 @@ func getProvisioningRequestPodTemplateName(prName, podsetName string) string {
 	return limitObjectName(fullName)
 }
 
-func matches(pr *autoscaling.ProvisioningRequest, workloadName, checkName string) bool {
+func matchesWorkloadAndCheck(pr *autoscaling.ProvisioningRequest, workloadName, checkName string) bool {
 	attemptRegex := getAttemptRegex(workloadName, checkName)
 	matches := attemptRegex.FindStringSubmatch(pr.Name)
 	return len(matches) > 0
@@ -87,13 +83,11 @@ func getAttempt(ctx context.Context, pr *autoscaling.ProvisioningRequest, worklo
 		if err != nil {
 			logger.Error(err, "Parsing the attempt number from provisioning request", "requestName", pr.Name)
 			return 1
-		} else {
-			return int32(number)
 		}
-	} else {
-		logger.Info("No attempt suffix in provisioning request", "requestName", pr.Name)
-		return 1
+		return int32(number)
 	}
+	logger.Info("No attempt suffix in provisioning request", "requestName", pr.Name)
+	return 1
 }
 
 func getAttemptRegex(workloadName, checkName string) *regexp.Regexp {

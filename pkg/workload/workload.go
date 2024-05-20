@@ -618,7 +618,7 @@ func IsFinished(w *kueue.Workload) bool {
 
 // IsActive returns true if the workload is active.
 func IsActive(w *kueue.Workload) bool {
-	return *w.Spec.Active
+	return ptr.Deref(w.Spec.Active, true)
 }
 
 // IsEvictedByDeactivation returns true if the workload is evicted by deactivation.

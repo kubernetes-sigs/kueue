@@ -350,14 +350,6 @@ func (w *WorkloadWrapper) ResourceVersion(v string) *WorkloadWrapper {
 	return w
 }
 
-func WorkloadWithConditions(wl *kueue.Workload, conditions []metav1.Condition) *kueue.Workload {
-	wl = wl.DeepCopy()
-	for _, condition := range conditions {
-		apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-	}
-	return wl
-}
-
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {

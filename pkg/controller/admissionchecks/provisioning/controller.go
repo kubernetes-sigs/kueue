@@ -113,6 +113,10 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) {
+		return reconcile.Result{}, nil
+	}
+
 	// get the lists of relevant checks
 	relevantChecks, err := admissioncheck.FilterForController(ctx, c.client, wl.Status.AdmissionChecks, ControllerName)
 	if err != nil {
@@ -123,26 +127,12 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	if err := c.client.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
 	}
-
 	ownedPrs := list.Items
 	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, relevantChecks, ownedPrs)
 
 	err = c.syncCheckStates(ctx, wl, relevantChecks, activeOrLastPRForChecks)
 	if err != nil {
 		return reconcile.Result{}, err
-	}
-
-	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) {
-		// 1.2 workload has no reservation or is finished
-		log.V(5).Info("workload with no reservation or is finished")
-		return reconcile.Result{}, nil
-	}
-
-	if workload.IsAdmitted(wl) {
-		// check the state of the provision requests, eventually toggle the checks to false
-		// otherwise there is nothing to here
-		log.V(5).Info("workload admitted")
-		return reconcile.Result{}, nil
 	}
 
 	err = c.deleteUnusedProvisioningRequests(ctx, ownedPrs, activeOrLastPRForChecks)
@@ -170,7 +160,7 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 		for i := range ownedPrs {
 			req := &ownedPrs[i]
 			// PRs relevant for the admission check
-			if matches(req, wl.Name, checkName) {
+			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
 				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
 				if err == nil && c.reqIsNeeded(ctx, wl, prc) && provReqSyncedWithConfig(req, prc) {
 					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(ctx, currPr, wl.Name, checkName) < getAttempt(ctx, req, wl.Name, checkName) {
@@ -226,10 +216,11 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			switch {
 			case isCapacityRevoked(oldPr):
 				if workload.IsActive(wl) && !workload.IsFinished(wl) {
+					workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByDeactivation, fmt.Sprintf("Deactivating workload because capacity for %v has been revoked", oldPr.Name))
 					if err := c.deactivateWorkload(ctx, wl); err != nil {
 						return nil, err
 					}
-					c.record.Eventf(oldPr, corev1.EventTypeNormal, "CapacityRevoked", "Capacity for %v, has been revoked", oldPr.Name)
+					c.record.Eventf(wl, corev1.EventTypeNormal, "CapacityRevoked", "Deactivating workload because capacity for %v has been revoked", oldPr.Name)
 				}
 			case isFailed(oldPr):
 				attempt = getAttempt(ctx, oldPr, wl.Name, checkName)
@@ -247,7 +238,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		} else {
 			shouldCreatePr = true
 		}
-		requestName := GetProvisioningRequestName(wl.Name, checkName, attempt)
+		requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
 		if shouldCreatePr {
 			log.V(3).Info("Creating ProvisioningRequest", "requestName", requestName, "attempt", attempt)
 			req := &autoscaling.ProvisioningRequest{
@@ -499,11 +490,12 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 					// to change to the "successfully provisioned" message after provisioning
 					updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
 				}
-			case isAccepted(pr) && isProvisionedFalse(pr):
-				// propagate the ETA update from the provisioning request into the workload
-				provisionedCond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned)
-				updated = updateCheckMessage(&checkState, provisionedCond.Message) || updated
-				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
+			case isAccepted(pr):
+				if provisionedCond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned); provisionedCond != nil {
+					// propagate the ETA update from the provisioning request into the workload
+					updated = updateCheckMessage(&checkState, provisionedCond.Message) || updated
+					updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
+				}
 			default:
 				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 			}
