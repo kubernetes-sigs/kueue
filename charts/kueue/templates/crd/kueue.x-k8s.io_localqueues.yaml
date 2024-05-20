@@ -29,6 +29,7 @@ spec:
     shortNames:
     - queue
     - queues
+    - lq
     singular: localqueue
   scope: Namespaced
   versions:

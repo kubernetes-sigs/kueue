@@ -302,13 +302,14 @@ None.
 
 ### Pass-through
 
-For completeness there will be 4 additional commands that will simply execute regular kubectl
+For completeness there will be 5 additional commands that will simply execute regular kubectl
 so that the users won't have to remember to switch the command to kubectl.
 
-* `delete workload|clusterqueue|cq|localqueue|lq`
 * `get workload|clusterqueue|cq|localqueue|lq`
-* `edit workload|clusterqueue|cq|localqueue|lq`
 * `describe workload|clusterqueue|cq|localqueue|lq`
+* `edit workload|clusterqueue|cq|localqueue|lq`
+* `patch workload|clusterqueue|cq|localqueue|lq`
+* `delete workload|clusterqueue|cq|localqueue|lq`
 
 ### Test Plan
 

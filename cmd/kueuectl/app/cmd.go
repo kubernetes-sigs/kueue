@@ -17,6 +17,7 @@ limitations under the License.
 package app
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -25,6 +26,7 @@ import (
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/create"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/passthrough"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/resume"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/stop"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
@@ -68,6 +70,13 @@ func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	cmd.AddCommand(resume.NewResumeCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(stop.NewStopCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams))
+	pCommands, err := passthrough.NewCommands()
+	if err != nil {
+		// we can still use the other commands, jut push an warning
+		fmt.Println(err)
+	} else {
+		cmd.AddCommand(pCommands...)
+	}
 
 	return cmd
 }
