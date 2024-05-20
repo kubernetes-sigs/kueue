@@ -35,6 +35,7 @@ on:
           - mbobrovskyi
           - vladikkuzn
           - IrvingMg
+          - mszadkow
       status:
         description: 'Status'
         required: true
