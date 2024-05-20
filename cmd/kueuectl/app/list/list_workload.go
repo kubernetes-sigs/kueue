@@ -18,15 +18,19 @@ package list
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -65,8 +70,13 @@ type WorkloadOptions struct {
 	ClusterQueueFilter string
 	LocalQueueFilter   string
 	StatusesFilter     sets.Set[int]
+	forGVK             schema.GroupVersionKind
+	forName            string
+
+	UserSpecifiedForObject string
 
 	ClientSet clientset.Interface
+	Result    *resource.Result
 
 	genericiooptions.IOStreams
 }
@@ -83,7 +93,8 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	o := NewWorkloadOptions(streams, clock)
 
 	cmd := &cobra.Command{
-		Use:                   "workload [-–clusterqueue CLUSTER_QUEUE_NAME] [-–localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]",
+		Use: "workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces] [--for TYPE[.API-GROUP]/NAME]",
+		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"wl"},
 		Short:                 "List Workload",
@@ -102,6 +113,7 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)
 	addLocalQueueFilterFlagVar(cmd, &o.LocalQueueFilter)
+	addForObjectFlagVar(cmd, &o.UserSpecifiedForObject)
 
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("clusterqueue", completion.ClusterQueueNameFunc(clientGetter, nil)))
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter)))
@@ -160,6 +172,37 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 		return err
 	}
 
+	if o.UserSpecifiedForObject != "" {
+		mapper, err := clientGetter.ToRESTMapper()
+		if err != nil {
+			return err
+		}
+		var found bool
+		o.forGVK, o.forName, found, err = decodeResourceTypeName(mapper, o.UserSpecifiedForObject)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return errors.New("--for must be in resource/name form")
+		}
+
+		r := clientGetter.NewBuilder().
+			Unstructured().
+			NamespaceParam(o.Namespace).
+			DefaultNamespace().
+			AllNamespaces(o.AllNamespaces).
+			FieldSelectorParam(fmt.Sprintf("metadata.name=%s", o.forName)).
+			ResourceTypeOrNameArgs(true, o.forGVK.Kind).
+			ContinueOnError().
+			Latest().
+			Flatten().
+			Do()
+		if err := r.Err(); err != nil {
+			return err
+		}
+		o.Result = r
+	}
+
 	return nil
 }
 
@@ -186,6 +229,34 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	namespace := o.Namespace
 	if o.AllNamespaces {
 		namespace = ""
+	}
+
+	if o.Result != nil {
+		infos, err := o.Result.Infos()
+		if err != nil {
+			return err
+		}
+
+		if len(infos) == 0 {
+			if !o.AllNamespaces {
+				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+			} else {
+				fmt.Fprintln(o.ErrOut, "No resources found")
+			}
+			return nil
+		}
+
+		job, ok := infos[0].Object.(*unstructured.Unstructured)
+		if !ok {
+			fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
+			return nil
+		}
+		jobUID := job.GetUID()
+
+		if len(o.LabelSelector) != 0 {
+			o.LabelSelector += ","
+		}
+		o.LabelSelector += fmt.Sprintf("%s=%s", constants.JobUIDLabel, jobUID)
 	}
 
 	opts := metav1.ListOptions{
