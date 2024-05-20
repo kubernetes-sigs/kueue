@@ -21,7 +21,7 @@ controller:
 clientConnection:
   qps: 50
   burst: 100
-#pprofBindAddress: :8082
+#pprofBindAddress: :8083
 #waitForPodsReady:
 #  enable: true
 #manageJobsWithoutQueueName: true

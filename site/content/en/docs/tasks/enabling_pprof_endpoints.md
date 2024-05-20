@@ -37,9 +37,9 @@ kueue-controller-manager-769f96b5dc-87sf2   2/2     Running   0          45s
 2. Run the following command to initiate the port forwarding to your localhost:
 
 ```shell
-kubectl port-forward kueue-controller-manager-769f96b5dc-87sf2 -n kueue-system 8082:8082
-Forwarding from 127.0.0.1:8082 -> 8082
-Forwarding from [::1]:8082 -> 8082
+kubectl port-forward kueue-controller-manager-769f96b5dc-87sf2 -n kueue-system 8083:8083
+Forwarding from 127.0.0.1:8083 -> 8083
+Forwarding from [::1]:8083 -> 8083
 ```
 
 The HTTP endpoint will now be available as a local port.
