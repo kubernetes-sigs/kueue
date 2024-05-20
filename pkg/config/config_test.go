@@ -194,7 +194,7 @@ health:
   livenessEndpointName: live
 metrics:
   bindAddress: :8080
-pprofBindAddress: :8082
+pprofBindAddress: :8083
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io
@@ -628,7 +628,7 @@ multiKueue:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				PprofBindAddress:           ":8082",
+				PprofBindAddress:           ":8083",
 				LeaderElection:             true,
 				LeaderElectionID:           configapi.DefaultLeaderElectionID,
 				LeaderElectionNamespace:    "namespace",
