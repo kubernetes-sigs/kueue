@@ -111,6 +111,13 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(v1beta1.None))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
+
+				ginkgo.By("Delete the ClusterQueue", func() {
+					gomega.Expect(k8sClient.Delete(ctx, cq)).To(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(testing.BeNotFoundError())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
 			},
 			ginkgo.Entry("HoldAndDrain",
 				testing.MakeClusterQueue("cq-1").StopPolicy(v1beta1.HoldAndDrain).Obj(),
