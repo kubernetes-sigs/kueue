@@ -87,6 +87,10 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 					gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 				})
 
+				ginkgo.DeferCleanup(func() {
+					util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+				})
+
 				createdClusterQueue := &v1beta1.ClusterQueue{}
 				ginkgo.By("Get created ClusterQueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -109,13 +113,6 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(v1beta1.None))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("Delete the ClusterQueue", func() {
-					gomega.Expect(k8sClient.Delete(ctx, cq)).To(gomega.Succeed())
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(testing.BeNotFoundError())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			},
