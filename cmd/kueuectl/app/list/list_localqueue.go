@@ -36,7 +36,7 @@ const (
 	lqLong = `Lists LocalQueues that match the given criteria: point to a specific CQ, 
 being active/inactive, belonging to the specified namespace, matching 
 the label selector or the field selector.`
-	lqExample = `  # List LocalQueue 
+	lqExample = `  # List LocalQueue
   kueuectl list localqueue`
 )
 

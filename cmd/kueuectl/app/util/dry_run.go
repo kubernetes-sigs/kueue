@@ -29,11 +29,11 @@ const (
 	// DryRunNone indicates the client will make all mutating calls
 	DryRunNone DryRunStrategy = iota
 
-	// DryRunClient, or client-side dry-run, indicates the client will prevent
+	// DryRunClient or client-side dry-run, indicates the client will prevent
 	// making mutating calls such as CREATE, PATCH, and DELETE
 	DryRunClient
 
-	// DryRunServer, or server-side dry-run, indicates the client will send
+	// DryRunServer or server-side dry-run, indicates the client will send
 	// mutating calls to the APIServer with the dry-run parameter to prevent
 	// persisting changes.
 	//
