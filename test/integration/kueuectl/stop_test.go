@@ -87,6 +87,10 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 					gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 				})
 
+				ginkgo.DeferCleanup(func() {
+					util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+				})
+
 				createdClusterQueue := &v1beta1.ClusterQueue{}
 				ginkgo.By("Get created ClusterQueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
