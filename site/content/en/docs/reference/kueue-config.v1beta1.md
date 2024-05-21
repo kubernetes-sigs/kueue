@@ -719,7 +719,7 @@ When it is null, the workloads will repeatedly and endless re-queueing.</p>
 <li>&quot;Rand&quot; represents the random jitter.
 During this time, the workload is taken as an inadmissible and
 other workloads will have a chance to be admitted.
-By default, the consecutive requeue delays are around: (10s, 20s, 40s, ...).</li>
+By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</li>
 </ul>
 <p>Defaults to null.</p>
 </td>
@@ -730,7 +730,7 @@ By default, the consecutive requeue delays are around: (10s, 20s, 40s, ...).</li
 <td>
    <p>BackoffBaseSeconds defines the base for the exponential backoff for
 re-queuing an evicted workload.</p>
-<p>Defaults to 10.</p>
+<p>Defaults to 60.</p>
 </td>
 </tr>
 </tbody>

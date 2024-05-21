@@ -47,7 +47,7 @@ const (
 	DefaultMultiKueueGCInterval                         = time.Minute
 	DefaultMultiKueueOrigin                             = "multikueue"
 	DefaultMultiKueueWorkerLostTimeout                  = 15 * time.Minute
-	DefaultRequeuingBackoffBaseSeconds                  = 10
+	DefaultRequeuingBackoffBaseSeconds                  = 60
 )
 
 func getOperatorNamespace() string {
