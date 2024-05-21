@@ -181,13 +181,13 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			},
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("lqA-1", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now).Admitted(true).Obj(),
-				utiltesting.MakeWorkload("lqA-2", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now).Admitted(true).Obj(),
-				utiltesting.MakeWorkload("lqB-1", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second)).Admitted(true).Obj(),
-				utiltesting.MakeWorkload("lqB-2", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second)).Admitted(true).Obj(),
-				utiltesting.MakeWorkload("lqA-pending", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now.Add(time.Second * 2)).Obj(),
-				utiltesting.MakeWorkload("lqB-pending", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second * 2)).Obj(),
-				utiltesting.MakeWorkload("lqA-finished", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now.Add(time.Second * 2)).Finished().Obj(),
-				utiltesting.MakeWorkload("lqB-finished", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second * 2)).Finished().Obj(),
+				utiltesting.MakeWorkload("lqA-2", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now.Add(time.Second * 1)).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqB-1", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second * 2)).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqB-2", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second * 3)).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("lqA-pending", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now.Add(time.Second * 4)).Obj(),
+				utiltesting.MakeWorkload("lqB-pending", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second * 5)).Obj(),
+				utiltesting.MakeWorkload("lqA-finished", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameA).Creation(now.Add(time.Second * 6)).Finished().Obj(),
+				utiltesting.MakeWorkload("lqB-finished", nsName).PodSets(podSets...).ReserveQuota(adA).Queue(lqNameB).Creation(now.Add(time.Second * 7)).Finished().Obj(),
 			},
 			req: &runningReq{
 				queueName:   cqNameA,
@@ -207,7 +207,7 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 						ObjectMeta: v1.ObjectMeta{
 							Name:              "lqB-1",
 							Namespace:         nsName,
-							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+							CreationTimestamp: v1.NewTime(now.Add(time.Second * 2)),
 						},
 						Priority: 0,
 					},
@@ -215,7 +215,7 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 						ObjectMeta: v1.ObjectMeta{
 							Name:              "lqA-2",
 							Namespace:         nsName,
-							CreationTimestamp: v1.NewTime(now),
+							CreationTimestamp: v1.NewTime(now.Add(time.Second * 1)),
 						},
 						Priority: 0,
 					},
@@ -223,7 +223,7 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 						ObjectMeta: v1.ObjectMeta{
 							Name:              "lqB-2",
 							Namespace:         nsName,
-							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+							CreationTimestamp: v1.NewTime(now.Add(time.Second * 3)),
 						},
 						Priority: 0,
 					}},
@@ -366,13 +366,14 @@ func TestRunningWorkloadsInCQ(t *testing.T) {
 			}
 
 			info, err := runningWorkloadsInCqREST.Get(ctx, tc.req.queueName, tc.req.queryParams)
-			if tc.wantErrMatch != nil {
+			switch {
+			case tc.wantErrMatch != nil:
 				if !tc.wantErrMatch(err) {
 					t.Errorf("Error differs: (-want,+got):\n%s", cmp.Diff(tc.wantResp.wantErr.Error(), err.Error()))
 				}
-			} else if err != nil {
+			case err != nil:
 				t.Error(err)
-			} else {
+			default:
 				runningWorkloadsInfo := info.(*visibility.RunningWorkloadsSummary)
 				less := func(a, b visibility.RunningWorkload) bool {
 					p1 := a.Priority
