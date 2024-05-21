@@ -143,12 +143,12 @@ type RequeuingStrategy struct {
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	// When it is null, the workloads will repeatedly and endless re-queueing.
 	//
-	// Every backoff duration is about "10s*2^(n-1)+Rand" where:
+	// Every backoff duration is about "60s*2^(n-1)+Rand" where:
 	// - "n" represents the "workloadStatus.requeueState.count",
 	// - "Rand" represents the random jitter.
 	// During this time, the workload is taken as an inadmissible and
 	// other workloads will have a chance to be admitted.
-	// By default, the consecutive requeue delays are around: (10s, 20s, 40s, ...).
+	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 	//
 	// Defaults to null.
 	// +optional
@@ -157,7 +157,7 @@ type RequeuingStrategy struct {
 	// BackoffBaseSeconds defines the base for the exponential backoff for
 	// re-queuing an evicted workload.
 	//
-	// Defaults to 10.
+	// Defaults to 60.
 	// +optional
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 }
@@ -230,16 +230,16 @@ Duration this time, other workloads will have a chance to be admitted.
 
 The queueManager calculates an exponential backoff duration by [the Step function](https://pkg.go.dev/k8s.io/apimachinery/pkg/util/wait@v0.29.1#Backoff.Step)
 according to the $b*2^{(n-1)}+Rand$ where:
-- $b$ represents the base delay, configured by `baseDelaySeconds`
+- $b$ represents the base delay, configured by `backoffBaseSeconds`
 - $n$ represents the `workloadStatus.requeueState.count`,
 - $Rand$ represents the random jitter.
 
 It will spend awaiting to be requeued after eviction:
 $$\sum_{k=1}^{n}(b*2^{(k-1)} + Rand)$$
 
-Assuming `backoffLimitCount` equals 10, and `baseDelaySeconds` equals 10 (default) the workload is requeued 10 times
+Assuming `backoffLimitCount` equals 10, and `backoffBaseSeconds` equals 60 (default) the workload is requeued 10 times
 after failing to have all pods ready, then the total time awaiting for requeue
-will take (neglecting the jitter): `10s+20s+40s +...+7680s=2h 8min`.
+will take (neglecting the jitter): `60s+120s+240s +...+30720s=8h 32min`.
 Also, considering `.waitForPodsReady.timeout=300s` (default),
 the workload will spend `50min` total waiting for pods ready.
 

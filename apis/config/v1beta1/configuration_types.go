@@ -247,7 +247,7 @@ type RequeuingStrategy struct {
 	// - "Rand" represents the random jitter.
 	// During this time, the workload is taken as an inadmissible and
 	// other workloads will have a chance to be admitted.
-	// By default, the consecutive requeue delays are around: (10s, 20s, 40s, ...).
+	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 	//
 	// Defaults to null.
 	// +optional
@@ -256,7 +256,7 @@ type RequeuingStrategy struct {
 	// BackoffBaseSeconds defines the base for the exponential backoff for
 	// re-queuing an evicted workload.
 	//
-	// Defaults to 10.
+	// Defaults to 60.
 	// +optional
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 }

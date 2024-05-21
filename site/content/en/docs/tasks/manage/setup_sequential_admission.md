@@ -47,7 +47,7 @@ fields:
       requeuingStrategy:
         timestamp: Eviction | Creation
         backoffLimitCount: 5
-        backoffBaseSeconds: 10
+        backoffBaseSeconds: 60
 ```
 
 {{% alert title="Note" color="primary" %}}
@@ -99,8 +99,8 @@ _The `backoffBaseSeconds` is available in Kueue v0.7.0 and later_
 {{% /alert %}}
 The time to re-queue a workload after each consecutive timeout is increased
 exponentially, with the exponent of 2. The first delay is determined by the
-`backoffBaseSeconds` parameter (defaulting to 10). So, after the consecutive timeouts
-the evicted workload is re-queued after approximately `10, 20, 40, ...` seconds.
+`backoffBaseSeconds` parameter (defaulting to 60). So, after the consecutive timeouts
+the evicted workload is re-queued after approximately `60, 120, 240, ...` seconds.
 
 ## Example
 

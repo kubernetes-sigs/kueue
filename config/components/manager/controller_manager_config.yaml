@@ -29,7 +29,7 @@ clientConnection:
 #  requeuingStrategy:
 #    timestamp: Eviction
 #    backoffLimitCount: null # null indicates infinite requeuing
-#    backoffBaseSeconds: 10
+#    backoffBaseSeconds: 60
 #manageJobsWithoutQueueName: true
 #internalCertManagement:
 #  enable: false

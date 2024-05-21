@@ -455,7 +455,7 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 			"Deactivated Workload %q by reached re-queue backoffLimitCount", klog.KObj(wl))
 		return true, nil
 	}
-	// Every backoff duration is about "10s*2^(n-1)+Rand" where:
+	// Every backoff duration is about "60s*2^(n-1)+Rand" where:
 	// - "n" represents the "requeuingCount",
 	// - "Rand" represents the random jitter.
 	// During this time, the workload is taken as an inadmissible and other
