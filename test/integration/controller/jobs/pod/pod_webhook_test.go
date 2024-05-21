@@ -50,6 +50,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+				nil,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
@@ -190,6 +191,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+				nil,
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
