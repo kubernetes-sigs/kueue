@@ -17,6 +17,9 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -127,9 +130,8 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						var pCopy corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(testing.BeNotFoundError())
 					}
-					var wl kueue.Workload
-					g.Expect(k8sClient.Get(ctx, gKey, &wl)).Should(testing.BeNotFoundError())
-				}, util.Timeout, util.Interval)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				expectWorkloadFinalized(ctx, k8sClient, gKey)
 			})
 		})
 
@@ -380,9 +382,8 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						var pCopy corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(testing.BeNotFoundError())
 					}
-					var wl kueue.Workload
-					g.Expect(k8sClient.Get(ctx, gKey, &wl)).Should(testing.BeNotFoundError())
-				}, util.Timeout, util.Interval)
+					expectWorkloadFinalized(ctx, k8sClient, gKey)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -543,6 +544,20 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 	})
 })
+
+func expectWorkloadFinalized(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	gomega.EventuallyWithOffset(1, func() error {
+		var wl kueue.Workload
+		err := k8sClient.Get(ctx, wlKey, &wl)
+		if client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		if err != nil || len(wl.Finalizers) == 0 {
+			return nil
+		}
+		return fmt.Errorf("workload %s is not finalized yet", wlKey)
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
 
 func kubeVersion() *version.Version {
 	cfg, err := config.GetConfigWithContext("")
