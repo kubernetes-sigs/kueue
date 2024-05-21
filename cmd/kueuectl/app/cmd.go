@@ -24,6 +24,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/create"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/passthrough"
@@ -52,7 +53,7 @@ func NewDefaultKueuectlCmd() *cobra.Command {
 
 func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "kueue",
+		Use:   "kueuectl",
 		Short: "Controls Kueue queueing manager",
 	}
 
@@ -65,6 +66,11 @@ func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	configFlags.AddFlags(flags)
 
 	clientGetter := util.NewClientGetter(configFlags)
+
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("namespace", completion.NamespaceNameFunc(clientGetter)))
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("context", completion.ContextsFunc(clientGetter)))
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("cluster", completion.ClustersFunc(clientGetter)))
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("user", completion.UsersFunc(clientGetter)))
 
 	cmd.AddCommand(create.NewCreateCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(resume.NewResumeCmd(clientGetter, o.IOStreams))

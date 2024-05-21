@@ -206,7 +206,7 @@ lq1    cq1            1                   1                    60m
 				tf.WithNamespace(tc.ns)
 			}
 
-			tf.ClientSet = fake.NewSimpleClientset(tc.objs...)
+			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
 
 			cmd := NewLocalQueueCmd(tf, streams)
 			cmd.SetArgs(tc.args)
