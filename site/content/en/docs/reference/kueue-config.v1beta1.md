@@ -733,6 +733,14 @@ re-queuing an evicted workload.</p>
 <p>Defaults to 60.</p>
 </td>
 </tr>
+<tr><td><code>backoffMaxSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffMaxSeconds defines the maximum length of retry period for re-queuing.</p>
+<p>Defaults to 3600.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

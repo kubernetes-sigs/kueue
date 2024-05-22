@@ -366,6 +366,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(EvictionTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
+						BackoffMaxSeconds:  ptr.To[int32](DefaultRequeuingBackoffMaxSeconds),
 					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
@@ -396,6 +397,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(EvictionTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
+						BackoffMaxSeconds:  ptr.To[int32](DefaultRequeuingBackoffMaxSeconds),
 					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
@@ -417,6 +419,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(CreationTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](63),
+						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -431,6 +434,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          ptr.To(CreationTimestamp),
 						BackoffBaseSeconds: ptr.To[int32](63),
+						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),

@@ -158,6 +158,7 @@ waitForPodsReady:
     timestamp: Creation
     backoffLimitCount: 10
     backoffBaseSeconds: 30
+    backoffMaxSeconds: 1800
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -556,6 +557,7 @@ multiKueue:
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
 						BackoffLimitCount:  ptr.To[int32](10),
 						BackoffBaseSeconds: ptr.To[int32](30),
+						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
 				},
 				ClientConnection: defaultClientConnection,

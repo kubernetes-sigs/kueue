@@ -511,6 +511,7 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffLimitCount:  ptr.To[int32](100),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxSeconds:  3600,
 				}),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -588,6 +589,49 @@ func TestReconcile(t *testing.T) {
 				EventType: v1.EventTypeNormal,
 				Reason:    kueue.WorkloadEvictedByDeactivation,
 				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffLimitCount",
+			}},
+		},
+		"deactivate workload when reaching backoffMaxSeconds": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxSeconds:  7200,
+				}),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{ // Override LastTransitionTime
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				Admitted(true).
+				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+				EventType: v1.EventTypeNormal,
+				Reason:    kueue.WorkloadEvictedByDeactivation,
+				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffMaxSeconds",
 			}},
 		},
 		"should set the WorkloadRequeued condition to true on re-activated": {

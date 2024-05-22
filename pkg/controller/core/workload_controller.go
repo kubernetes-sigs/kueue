@@ -74,6 +74,7 @@ type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
 	requeuingBackoffLimitCount  *int32
 	requeuingBackoffBaseSeconds int32
+	requeuingBackoffMaxSeconds  int32
 	requeuingBackoffJitter      float64
 }
 
@@ -470,6 +471,18 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	for backoff.Steps > 0 {
 		waitDuration = backoff.Step()
 	}
+
+	maxWaitDuration := time.Duration(r.waitForPodsReady.requeuingBackoffMaxSeconds) * time.Second
+	if waitDuration > maxWaitDuration {
+		wl.Spec.Active = ptr.To(false)
+		if err := r.client.Update(ctx, wl); err != nil {
+			return false, err
+		}
+		r.recorder.Eventf(wl, corev1.EventTypeNormal, kueue.WorkloadEvictedByDeactivation,
+			"Deactivated Workload %q by reached re-queue backoffMaxSeconds", klog.KObj(wl))
+		return true, nil
+	}
+
 	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(r.clock.Now().Add(waitDuration)))
 	wl.Status.RequeueState.Count = &requeuingCount
 	return false, nil
