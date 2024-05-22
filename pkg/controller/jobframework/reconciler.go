@@ -745,17 +745,17 @@ func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	jobPodSets := clearMinCountsIfFeatureDisabled(job.PodSets())
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
-		if equality.ComparePodSetSlices(jobPodSets, runningPodSets) {
+		if equality.ComparePodSetSlices(jobPodSets, runningPodSets, workload.IsAdmitted(wl)) {
 			return true
 		}
 		// If the workload is admitted but the job is suspended, do the check
 		// against the non-running info.
 		// This might allow some violating jobs to pass equivalency checks, but their
 		// workloads would be invalidated in the next sync after unsuspending.
-		return job.IsSuspended() && equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets)
+		return job.IsSuspended() && equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl))
 	}
 
-	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets)
+	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, workload.IsAdmitted(wl))
 }
 
 func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) (*kueue.Workload, error) {
