@@ -59,7 +59,7 @@ status:
 
 In the example above, the `Active` condition has status `False` because the configured flavor
 does not exist.
-Read [Aminister ClusterQueues](/docs/tasks/manage/administer_cluster_quotas) to learn how
+Read [Administer ClusterQueues](/docs/tasks/manage/administer_cluster_quotas) to learn how
 to configure a ClusterQueue.
 
 If the ClusterQueue is properly configured, the status will be similar to the following:
