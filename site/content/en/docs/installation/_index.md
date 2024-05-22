@@ -67,11 +67,6 @@ to scrape metrics from kueue components, run the following command:
 > **Note**: This feature depends on [servicemonitor CRD](https://github.com/prometheus-operator/kube-prometheus/blob/main/manifests/setup/0servicemonitorCustomResourceDefinition.yaml), please ensure that CRD is installed first.
 > We can follow `https://prometheus-operator.dev/docs/prologue/quick-start/` to install it.
 > 
-  ```sh
-  git clone https://github.com/prometheus-operator/kube-prometheus.git
-  kubectl apply -f github.com/prometheus-operator/kube-prometheus/manifests/setup/0servicemonitorCustomResourceDefinition.yaml
-  ```
-
 
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/prometheus.yaml
