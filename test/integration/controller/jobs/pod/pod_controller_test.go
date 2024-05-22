@@ -639,6 +639,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 
 				ginkgo.By("set the pods as running", func() {
+					util.BindPodWithNode(ctx, k8sClient, "node1", pod1, pod2)
 					util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
 				})
 
@@ -682,6 +683,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				ginkgo.By("creating the replacement pod and readmitting the workload will unsuspended the replacement", func() {
 					gomega.Expect(k8sClient.Create(ctx, replacementPod)).Should(gomega.Succeed())
+
+					// Eventually pod2 fully removed
+					gomega.Eventually(func() bool {
+						err := k8sClient.Get(ctx, pod2LookupKey, createdPod)
+						return apierrors.IsNotFound(err) || (err == nil && len(createdPod.Finalizers) == 0)
+					}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.UID).To(gomega.Equal(originalWorkloadUID))
