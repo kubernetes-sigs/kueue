@@ -639,8 +639,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 
 				ginkgo.By("set the pods as running", func() {
+					util.BindPodWithNode(ctx, k8sClient, "node1", pod1, pod2)
 					util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
-					util.SetNodeName(ctx, k8sClient, "node1", pod1, pod2)
 				})
 
 				createdPod := &corev1.Pod{}
