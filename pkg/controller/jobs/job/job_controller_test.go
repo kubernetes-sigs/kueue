@@ -2336,13 +2336,14 @@ func TestReconciler(t *testing.T) {
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).
+			}).NodeSelector("node-label1", "value").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).Obj(),
+			}).NodeSelector("node-label1", "value").
+				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -2354,6 +2355,7 @@ func TestReconciler(t *testing.T) {
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
+							NodeSelector(map[string]string{"node-label": "value"}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2374,6 +2376,7 @@ func TestReconciler(t *testing.T) {
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
+							NodeSelector(map[string]string{"node-label1": "value"}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2397,12 +2400,16 @@ func TestReconciler(t *testing.T) {
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).Suspend(false).Obj(),
+			}).NodeSelector("node-label1", "value").
+				Suspend(false).
+				Obj(),
 			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).Suspend(false).Obj(),
+			}).NodeSelector("node-label1", "value").
+				Suspend(false).
+				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -2414,6 +2421,7 @@ func TestReconciler(t *testing.T) {
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
+							NodeSelector(map[string]string{"different node-label": "different value"}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2441,7 +2449,10 @@ func TestReconciler(t *testing.T) {
 								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
-							}).Request(corev1.ResourceCPU, "1").Obj(),
+							}).
+							NodeSelector(map[string]string{"different node-label": "different value"}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
 					).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "",
