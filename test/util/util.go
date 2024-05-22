@@ -678,7 +678,7 @@ func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.Pod
 	}
 }
 
-func SetNodeName(ctx context.Context, k8sClient client.Client, nodeName string, pods ...*corev1.Pod) {
+func BindPodWithNode(ctx context.Context, k8sClient client.Client, nodeName string, pods ...*corev1.Pod) {
 	for _, p := range pods {
 		updatedPod := corev1.Pod{}
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
