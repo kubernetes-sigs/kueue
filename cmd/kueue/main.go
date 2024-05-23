@@ -152,9 +152,14 @@ func main() {
 	} else {
 		close(certsReady)
 	}
-
-	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(blockForPodsReady(&cfg)))
-	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)))
+	cacheOptions := []cache.Option{cache.WithPodsReadyTracking(blockForPodsReady(&cfg))}
+	queueOptions := []queue.Option{queue.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg))}
+	if cfg.Resources != nil && len(cfg.Resources.ExcludedResourcePrefixes) > 0 {
+		cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(cfg.Resources.ExcludedResourcePrefixes))
+		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(cfg.Resources.ExcludedResourcePrefixes))
+	}
+	cCache := cache.New(mgr.GetClient(), cacheOptions...)
+	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
 	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {

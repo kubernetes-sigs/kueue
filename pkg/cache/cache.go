@@ -51,7 +51,8 @@ const (
 )
 
 type options struct {
-	podsReadyTracking bool
+	podsReadyTracking   bool
+	workloadInfoOptions []workload.InfoOption
 }
 
 // Option configures the reconciler.
@@ -66,6 +67,12 @@ func WithPodsReadyTracking(f bool) Option {
 	}
 }
 
+func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
+	return func(o *options) {
+		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
+	}
+}
+
 var defaultOptions = options{}
 
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
@@ -73,13 +80,14 @@ type Cache struct {
 	sync.RWMutex
 	podsReadyCond sync.Cond
 
-	client            client.Client
-	clusterQueues     map[string]*ClusterQueue
-	cohorts           map[string]*Cohort
-	assumedWorkloads  map[string]string
-	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
-	podsReadyTracking bool
-	admissionChecks   map[string]AdmissionCheck
+	client              client.Client
+	clusterQueues       map[string]*ClusterQueue
+	cohorts             map[string]*Cohort
+	assumedWorkloads    map[string]string
+	resourceFlavors     map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	podsReadyTracking   bool
+	admissionChecks     map[string]AdmissionCheck
+	workloadInfoOptions []workload.InfoOption
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -88,13 +96,14 @@ func New(client client.Client, opts ...Option) *Cache {
 		opt(&options)
 	}
 	c := &Cache{
-		client:            client,
-		clusterQueues:     make(map[string]*ClusterQueue),
-		cohorts:           make(map[string]*Cohort),
-		assumedWorkloads:  make(map[string]string),
-		resourceFlavors:   make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:   make(map[string]AdmissionCheck),
-		podsReadyTracking: options.podsReadyTracking,
+		client:              client,
+		clusterQueues:       make(map[string]*ClusterQueue),
+		cohorts:             make(map[string]*Cohort),
+		assumedWorkloads:    make(map[string]string),
+		resourceFlavors:     make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks:     make(map[string]AdmissionCheck),
+		podsReadyTracking:   options.podsReadyTracking,
+		workloadInfoOptions: options.workloadInfoOptions,
 	}
 	c.podsReadyCond.L = &c.RWMutex
 	return c
@@ -102,11 +111,12 @@ func New(client client.Client, opts ...Option) *Cache {
 
 func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	cqImpl := &ClusterQueue{
-		Name:              cq.Name,
-		Workloads:         make(map[string]*workload.Info),
-		WorkloadsNotReady: sets.New[string](),
-		localQueues:       make(map[string]*queue),
-		podsReadyTracking: c.podsReadyTracking,
+		Name:                cq.Name,
+		Workloads:           make(map[string]*workload.Info),
+		WorkloadsNotReady:   sets.New[string](),
+		localQueues:         make(map[string]*queue),
+		podsReadyTracking:   c.podsReadyTracking,
+		workloadInfoOptions: c.workloadInfoOptions,
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors, c.admissionChecks); err != nil {
 		return nil, err

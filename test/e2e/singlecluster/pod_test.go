@@ -96,6 +96,10 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
+				// Adding a resource that is *not* in Cluster Queue but is marked
+				// as excluded in the configuration. Testing that it passes without error.
+				Request("networking.networks/vpc1", "1").
+				Limit("networking.networks/vpc1", "1").
 				MakeGroup(2)
 			gKey := client.ObjectKey{Namespace: ns.Name, Name: "group"}
 			for _, p := range group {

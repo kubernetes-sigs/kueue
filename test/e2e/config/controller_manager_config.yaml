@@ -25,3 +25,5 @@ integrations:
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
   - "pod"
+resources:
+  excludedResourcePrefixes: ["networking"]
