@@ -511,7 +511,7 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffLimitCount:  ptr.To[int32](100),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
-					requeuingBackoffMaxSeconds:  3600,
+					requeuingBackoffMaxDuration: time.Duration(3600) * time.Second,
 				}),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -598,7 +598,7 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffLimitCount:  ptr.To[int32](100),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
-					requeuingBackoffMaxSeconds:  7200,
+					requeuingBackoffMaxDuration: time.Duration(7200) * time.Second,
 				}),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -633,8 +633,8 @@ func TestReconcile(t *testing.T) {
 					Message:            "Exceeded the PodsReady timeout ns/wl",
 					ObservedGeneration: 1,
 				}).
-				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to 10s * 2^(9-1) = 5120s
-				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(testStartTime.Add(5120*time.Second).Truncate(time.Second)))).
+				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
+				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
 				Obj(),
 		},
 		"should set the WorkloadRequeued condition to true on re-activated": {
