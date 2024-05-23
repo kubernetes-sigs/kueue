@@ -468,19 +468,13 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 		Steps:    int(requeuingCount),
 	}
 	var waitDuration time.Duration
-	for backoff.Steps > 0 {
-		waitDuration = backoff.Step()
-	}
-
 	maxWaitDuration := time.Duration(r.waitForPodsReady.requeuingBackoffMaxSeconds) * time.Second
-	if waitDuration > maxWaitDuration {
-		wl.Spec.Active = ptr.To(false)
-		if err := r.client.Update(ctx, wl); err != nil {
-			return false, err
+	for backoff.Steps > 0 {
+		newWaitDuration := backoff.Step()
+		if newWaitDuration > maxWaitDuration {
+			break
 		}
-		r.recorder.Eventf(wl, corev1.EventTypeNormal, kueue.WorkloadEvictedByDeactivation,
-			"Deactivated Workload %q by reached re-queue backoffMaxSeconds", klog.KObj(wl))
-		return true, nil
+		waitDuration = newWaitDuration
 	}
 
 	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(r.clock.Now().Add(waitDuration)))

@@ -591,7 +591,7 @@ func TestReconcile(t *testing.T) {
 				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffLimitCount",
 			}},
 		},
-		"deactivate workload when reaching backoffMaxSeconds": {
+		"wait time should be limited to backoffMaxSeconds": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
@@ -607,6 +607,7 @@ func TestReconcile(t *testing.T) {
 					Name:  "check",
 					State: kueue.CheckStateReady,
 				}).
+				Generation(1).
 				Condition(metav1.Condition{ // Override LastTransitionTime
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionTrue,
@@ -618,21 +619,23 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				Active(false).
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
 				}).
-				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to 10s * 2^(9-1) = 5120s
+				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(testStartTime.Add(5120*time.Second).Truncate(time.Second)))).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{{
-				Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-				EventType: v1.EventTypeNormal,
-				Reason:    kueue.WorkloadEvictedByDeactivation,
-				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffMaxSeconds",
-			}},
 		},
 		"should set the WorkloadRequeued condition to true on re-activated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
