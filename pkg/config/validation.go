@@ -130,7 +130,7 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffBaseSeconds"),
 				*strategy.BackoffBaseSeconds, constants.IsNegativeErrorMsg))
 		}
-		if strategy.BackoffMaxSeconds != nil && *strategy.BackoffMaxSeconds < 0 {
+		if ptr.Deref(strategy.BackoffMaxSeconds, 0) < 0 {
 			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffMaxSeconds"),
 				*strategy.BackoffMaxSeconds, constants.IsNegativeErrorMsg))
 		}
