@@ -121,6 +121,21 @@ func TestComparePodSetSlices(t *testing.T) {
 			ignoreTolerations: true,
 			wantEqual:         true,
 		},
+		"different requests in node selector": {
+			a: []kueue.PodSet{
+				*utiltestting.MakePodSet("ps", 10).
+					SetMinimumCount(5).
+					NodeSelector(map[string]string{"key": "val"}).
+					Obj(),
+			},
+			b: []kueue.PodSet{
+				*utiltestting.MakePodSet("ps", 10).
+					SetMinimumCount(5).
+					NodeSelector(map[string]string{"key": "val2"}).
+					Obj(),
+			},
+			wantEqual: true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

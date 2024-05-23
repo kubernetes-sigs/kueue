@@ -2331,18 +2331,18 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"the workload is not admitted and tolerations change": {
+		"the workload is not admitted, tolerations and node selector change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).NodeSelector("node-label1", "value").
+			}).NodeSelector("node-label", "value").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).NodeSelector("node-label1", "value").
+			}).NodeSelector("node-label", "value").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
@@ -2355,7 +2355,7 @@ func TestReconciler(t *testing.T) {
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
-							NodeSelector(map[string]string{"node-label": "value"}).
+							NodeSelector(map[string]string{"different node-label": "different value"}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2376,7 +2376,7 @@ func TestReconciler(t *testing.T) {
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
-							NodeSelector(map[string]string{"node-label1": "value"}).
+							NodeSelector(map[string]string{"node-label": "value"}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2395,19 +2395,19 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"the workload is admitted and tolerations change": {
+		"the workload is admitted, tolerations and node selector change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).NodeSelector("node-label1", "value").
+			}).NodeSelector("node-label", "value").
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).NodeSelector("node-label1", "value").
+			}).NodeSelector("node-label", "value").
 				Suspend(false).
 				Obj(),
 			workloads: []kueue.Workload{
