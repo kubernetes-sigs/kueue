@@ -260,7 +260,7 @@ type RequeuingStrategy struct {
 	// +optional
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 
-	// BackoffMaxSeconds defines the maximum length of retry period for re-queuing.
+	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
 	// Defaults to 3600.
 	// +optional
