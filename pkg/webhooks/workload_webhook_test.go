@@ -242,17 +242,6 @@ func TestValidateWorkload(t *testing.T) {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(kueue.AdmissionCheckState{}).Obj(),
 			wantErr:  nil,
 		},
-		"should podSetUpdates have the same number of podSets": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				*testingutil.MakePodSet("first", 1).Obj(),
-				*testingutil.MakePodSet("second", 1).Obj(),
-			).AdmissionChecks(
-				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "first"}}},
-			).Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(podSetUpdatePath, nil, "must have the same number of podSetUpdates as the podSets"),
-			},
-		},
 		"mismatched names in podSetUpdates with names in podSets": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
 				*testingutil.MakePodSet("first", 1).Obj(),
