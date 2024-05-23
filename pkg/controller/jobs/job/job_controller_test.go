@@ -2041,14 +2041,12 @@ func TestReconciler(t *testing.T) {
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).
-				Suspend(false).
-				Obj(),
+			}).Suspend(false).Obj(),
 			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
-				Key:      "tolerationkey1",
+				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).Obj(),
+			}).Suspend(false).Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -2074,23 +2072,35 @@ func TestReconciler(t *testing.T) {
 						},
 						Count: ptr.To[int32](10),
 					}).Obj()).
+					Admitted(true).
 					Obj(),
 			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "Stopped",
-					Message:   "No matching Workload; restoring pod templates according to existent Workload",
-				},
-				{
-					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "DeletedWorkload",
-					Message:   "Deleted not matching Workload: ns/job-job-ed7d5",
-				},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey1",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+						},
+						Count: ptr.To[int32](10),
+					}).Obj()).
+					Admitted(true).
+					Obj(),
 			},
-			wantErr: jobframework.ErrNoMatchingWorkloads,
 		},
 		"the workload is admitted, job still suspended and tolerations change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
