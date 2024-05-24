@@ -468,7 +468,7 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 		Steps:    int(requeuingCount),
 	}
 	var waitDuration time.Duration
-	for backoff.Steps > 0 && waitDuration < r.waitForPodsReady.requeuingBackoffMaxDuration {
+	for backoff.Steps > 0 {
 		waitDuration = min(backoff.Step(), r.waitForPodsReady.requeuingBackoffMaxDuration)
 	}
 
