@@ -201,7 +201,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 	w = w.DeepCopy()
 	workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, message)
 	workload.SetPreemptedCondition(w, reason, message)
-	return workload.ApplyAdmissionStatus(ctx, p.client, w, false)
+	return workload.ApplyAdmissionStatus(ctx, p.client, w, true)
 }
 
 // minimalPreemptions implements a heuristic to find a minimal set of Workloads

@@ -262,6 +262,12 @@ type RequeuingStrategy struct {
 	// Defaults to 60.
 	// +optional
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	//
+	// Defaults to 3600.
+	// +optional
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 
 type RequeuingTimestamp string

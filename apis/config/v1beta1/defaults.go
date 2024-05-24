@@ -48,6 +48,7 @@ const (
 	DefaultMultiKueueOrigin                             = "multikueue"
 	DefaultMultiKueueWorkerLostTimeout                  = 15 * time.Minute
 	DefaultRequeuingBackoffBaseSeconds                  = 60
+	DefaultRequeuingBackoffMaxSeconds                   = 3600
 )
 
 func getOperatorNamespace() string {
@@ -132,6 +133,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		}
 		if cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds == nil {
 			cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds = ptr.To[int32](DefaultRequeuingBackoffBaseSeconds)
+		}
+		if cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds == nil {
+			cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds = ptr.To[int32](DefaultRequeuingBackoffMaxSeconds)
 		}
 	}
 	if cfg.Integrations == nil {

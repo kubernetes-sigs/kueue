@@ -2331,18 +2331,19 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"the workload is not admitted and tolerations change": {
+		"the workload is not admitted, tolerations and node selector change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).
+			}).NodeSelector("node-label", "value").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).Obj(),
+			}).NodeSelector("node-label", "value").
+				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -2354,6 +2355,7 @@ func TestReconciler(t *testing.T) {
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
+							NodeSelector(map[string]string{"different node-label": "different value"}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2374,6 +2376,7 @@ func TestReconciler(t *testing.T) {
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
+							NodeSelector(map[string]string{"node-label": "value"}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2392,19 +2395,21 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"the workload is admitted and tolerations change": {
+		"the workload is admitted, tolerations and node selector change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
 				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).
+			}).NodeSelector("node-label", "value").
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
-				Key:      "tolerationkey1",
+				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
-			}).Obj(),
+			}).NodeSelector("node-label", "value").
+				Suspend(false).
+				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -2416,6 +2421,7 @@ func TestReconciler(t *testing.T) {
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
+							NodeSelector(map[string]string{"different node-label": "different value"}).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2430,23 +2436,38 @@ func TestReconciler(t *testing.T) {
 						},
 						Count: ptr.To[int32](10),
 					}).Obj()).
+					Admitted(true).
 					Obj(),
 			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "Stopped",
-					Message:   "No matching Workload; restoring pod templates according to existent Workload",
-				},
-				{
-					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "DeletedWorkload",
-					Message:   "Deleted not matching Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
-				},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey1",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							NodeSelector(map[string]string{"different node-label": "different value"}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+						},
+						Count: ptr.To[int32](10),
+					}).Obj()).
+					Admitted(true).
+					Obj(),
 			},
-			wantErr: jobframework.ErrNoMatchingWorkloads,
 		},
 		"the workload is admitted, job still suspended and tolerations change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{

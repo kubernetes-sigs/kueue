@@ -511,6 +511,7 @@ func TestReconcile(t *testing.T) {
 					requeuingBackoffLimitCount:  ptr.To[int32](100),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Duration(3600) * time.Second,
 				}),
 			},
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -589,6 +590,52 @@ func TestReconcile(t *testing.T) {
 				Reason:    kueue.WorkloadEvictedByDeactivation,
 				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffLimitCount",
 			}},
+		},
+		"wait time should be limited to backoffMaxSeconds": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Duration(7200) * time.Second,
+				}),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{ // Override LastTransitionTime
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				Admitted(true).
+				RequeueState(ptr.To[int32](10), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
+				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
+				Obj(),
 		},
 		"should set the WorkloadRequeued condition to true on re-activated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
