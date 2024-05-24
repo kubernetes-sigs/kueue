@@ -18,7 +18,6 @@ package cache
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"strings"
 
@@ -452,7 +451,7 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
-		return fmt.Errorf("workload already exists in ClusterQueue")
+		return errors.New("workload already exists in ClusterQueue")
 	}
 	wi := workload.NewInfo(w)
 	c.Workloads[k] = wi

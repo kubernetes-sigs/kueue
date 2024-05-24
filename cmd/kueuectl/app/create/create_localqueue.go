@@ -18,7 +18,7 @@ package create
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -141,13 +141,13 @@ func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.
 // Validate validates required fields are set to support structured generation
 func (o *LocalQueueOptions) Validate(ctx context.Context) error {
 	if len(o.Name) == 0 {
-		return fmt.Errorf("name must be specified")
+		return errors.New("name must be specified")
 	}
 	if len(o.ClusterQueue) == 0 {
-		return fmt.Errorf("clusterqueue must be specified")
+		return errors.New("clusterqueue must be specified")
 	}
 	if len(o.Namespace) == 0 {
-		return fmt.Errorf("namespace must be specified")
+		return errors.New("namespace must be specified")
 	}
 	if !o.IgnoreUnknownCq {
 		_, err := o.Client.ClusterQueues().Get(ctx, o.UserSpecifiedClusterQueue, metav1.GetOptions{})

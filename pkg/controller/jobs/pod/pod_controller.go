@@ -77,7 +77,7 @@ const (
 
 var (
 	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
-	errIncorrectReconcileRequest = fmt.Errorf("event handler error: got a single pod reconcile request for a pod group")
+	errIncorrectReconcileRequest = errors.New("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
 	errPodNoSupportKubeVersion   = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
 	errPodGroupLabelsMismatch    = errors.New("constructing workload: pods have different label values")
@@ -299,7 +299,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 func (p *Pod) RunWithPodSetsInfo(_ []podset.PodSetInfo) error {
 	// Not implemented because this is not called when JobWithCustomRun is implemented.
-	return fmt.Errorf("RunWithPodSetsInfo is not implemented for the Pod object")
+	return errors.New("RunWithPodSetsInfo is not implemented for the Pod object")
 }
 
 // RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.

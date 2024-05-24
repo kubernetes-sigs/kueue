@@ -18,7 +18,7 @@ package list
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"time"
 
@@ -139,7 +139,7 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 
 func (o *ClusterQueueOptions) Validate() error {
 	if !o.validActiveFlagOptionProvided() {
-		return fmt.Errorf("only one active flag can be provided")
+		return errors.New("only one active flag can be provided")
 	}
 	return nil
 }

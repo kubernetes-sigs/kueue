@@ -17,7 +17,7 @@ limitations under the License.
 package list
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"time"
 
@@ -40,7 +40,7 @@ func (p *listLocalQueuePrinter) PrintObj(obj runtime.Object, out io.Writer) erro
 
 	list, ok := obj.(*v1beta1.LocalQueueList)
 	if !ok {
-		return fmt.Errorf("invalid object type")
+		return errors.New("invalid object type")
 	}
 
 	table := &metav1.Table{

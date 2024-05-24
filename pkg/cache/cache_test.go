@@ -18,6 +18,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -1425,7 +1426,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ClusterQueue: "three",
 				}).Obj()
 				if !cache.AddOrUpdateWorkload(w) {
-					return fmt.Errorf("failed to add workload")
+					return errors.New("failed to add workload")
 				}
 				return nil
 			},
@@ -1454,7 +1455,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ClusterQueue: "one",
 				}).Obj()
 				if !cache.AddOrUpdateWorkload(w) {
-					return fmt.Errorf("failed to add workload")
+					return errors.New("failed to add workload")
 				}
 				return nil
 			},
@@ -1876,7 +1877,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 
 				w := workloads[0]
 				if !cache.AddOrUpdateWorkload(w) {
-					return fmt.Errorf("failed to add workload")
+					return errors.New("failed to add workload")
 				}
 				return nil
 			},
