@@ -151,8 +151,12 @@ data:
 __The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
 
 > **Note**
-> See [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) to learn
+> See [Sequential Admission with Ready Pods](/docs/tasks/manage/setup_sequential_admission) to learn
 more about using `waitForPodsReady` for Kueue.
+
+> **Note**
+> Setting `manageJobsWithoutQueueName` to `true` without disabling the `batch/job` integration
+may disrupt normal cluster operation by preventing system-created jobs from executing.
 
 4. Apply the customized manifests to the cluster:
 
