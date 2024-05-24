@@ -925,6 +925,13 @@ current state.</p>
 status of the pending workloads in the cluster queue.</p>
 </td>
 </tr>
+<tr><td><code>fairSharing</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-FairSharingStatus"><code>FairSharingStatus</code></a>
+</td>
+<td>
+   <p>FairSharing contains the information about the current status of fair sharing.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -956,6 +963,35 @@ Admission prioritizes scheduling workloads from ClusterQueues with the lowest sh
 and preempting workloads from the ClusterQueues with the highest share.
 A zero weight implies infinite share value, meaning that this ClusterQueue will always
 be at disadvantage against other ClusterQueues.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `FairSharingStatus`     {#kueue-x-k8s-io-v1beta1-FairSharingStatus}
+    
+
+**Appears in:**
+
+- [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>weightedShare</code> <B>[Required]</B><br/>
+<code>int64</code>
+</td>
+<td>
+   <p>WeightedShare represent the maximum of the ratios of usage above nominal
+quota to the lendable resources in the cohort, among all the resources
+provided by the ClusterQueue, and divided by the weight.
+If zero, it means that the usage of the ClusterQueue is below the nominal quota.
+If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
+the maximum possible share value.</p>
 </td>
 </tr>
 </tbody>

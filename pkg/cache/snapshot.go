@@ -119,6 +119,7 @@ func (c *Cache) Snapshot() Snapshot {
 				cqCopy.Cohort = cohortCopy
 				cohortCopy.Members.Insert(cqCopy)
 				cohortCopy.AllocatableResourceGeneration += cqCopy.AllocatableResourceGeneration
+				cohortCopy.Lendable = cohortCopy.CalculateLendable()
 			}
 		}
 	}
@@ -196,13 +197,6 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 				val = 0
 			}
 			used[res] += val
-		}
-	}
-	if cohort.Lendable == nil {
-		cohort.Lendable = maps.Clone(c.Lendable)
-	} else {
-		for res, v := range c.Lendable {
-			cohort.Lendable[res] += v
 		}
 	}
 }
