@@ -300,7 +300,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	defer c.Unlock()
 
 	if _, ok := c.clusterQueues[cq.Name]; ok {
-		return fmt.Errorf("ClusterQueue already exists")
+		return errors.New("ClusterQueue already exists")
 	}
 	cqImpl, err := c.newClusterQueue(cq)
 	if err != nil {
@@ -459,7 +459,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	if workload.HasQuotaReservation(oldWl) {
 		cq, ok := c.clusterQueues[string(oldWl.Status.Admission.ClusterQueue)]
 		if !ok {
-			return fmt.Errorf("old ClusterQueue doesn't exist")
+			return errors.New("old ClusterQueue doesn't exist")
 		}
 		cq.deleteWorkload(oldWl)
 	}
@@ -470,7 +470,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	}
 	cq, ok := c.clusterQueues[string(newWl.Status.Admission.ClusterQueue)]
 	if !ok {
-		return fmt.Errorf("new ClusterQueue doesn't exist")
+		return errors.New("new ClusterQueue doesn't exist")
 	}
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
@@ -543,7 +543,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	defer c.Unlock()
 
 	if _, assumed := c.assumedWorkloads[workload.Key(w)]; !assumed {
-		return fmt.Errorf("the workload is not assumed")
+		return errors.New("the workload is not assumed")
 	}
 	c.cleanupAssumedState(w)
 

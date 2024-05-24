@@ -2,6 +2,7 @@ package pod
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -20,7 +21,7 @@ import (
 )
 
 var (
-	errFailedRefAPIVersionParse = fmt.Errorf("could not parse single pod OwnerReference APIVersion")
+	errFailedRefAPIVersionParse = errors.New("could not parse single pod OwnerReference APIVersion")
 )
 
 func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
