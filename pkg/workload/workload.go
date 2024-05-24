@@ -65,9 +65,7 @@ type InfoOptions struct {
 
 type InfoOption func(*InfoOptions)
 
-var defaultOptions = InfoOptions{
-	excludedResourcePrefixes: []string{},
-}
+var defaultOptions = InfoOptions{}
 
 // WithExcludedResourcePrefixes adds the prefixes
 func WithExcludedResourcePrefixes(n []string) InfoOption {
