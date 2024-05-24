@@ -665,6 +665,5 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 			}
 		}
 	}
-
 	return acNames
 }
