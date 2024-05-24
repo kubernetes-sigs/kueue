@@ -74,7 +74,7 @@ type Configuration struct {
 	// FairSharing controls the fair sharing semantics across the cluster.
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 
-	//Resources provides additional configuration options for handling the resources.
+	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
 }
 
