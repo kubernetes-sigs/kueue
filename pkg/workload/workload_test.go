@@ -195,7 +195,7 @@ func TestNewInfo(t *testing.T) {
 			workload: *utiltesting.MakeWorkload("", "").
 				Request(corev1.ResourceCPU, "10m").
 				Request(corev1.ResourceMemory, "512Ki").
-				Request("networking.gke.io.networks/vpc1", "1").
+				Request("networking.example.com/vpc1", "1").
 				Obj(),
 			infoOptions: []InfoOption{WithExcludedResourcePrefixes([]string{"dummyPrefix", "networking.gke.io.networks/"})},
 			wantInfo: Info{
