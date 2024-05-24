@@ -361,7 +361,7 @@ type ClusterQueueVisibility struct {
 
 type Resources struct {
 	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
-	ExcludedResourcePrefixes []string `json:"excludedResourcePrefixes,omitempty"`
+	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 }
 
 type PreemptionStrategy string
