@@ -255,7 +255,7 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			workload := utiltesting.MakeWorkload("foo", "bar").Obj()
 			workload.Status = tc.oldStatus
-			cl := utiltesting.NewFakeClient(workload)
+			cl := utiltesting.NewFakeClientSSAAsSM(workload)
 			ctx := context.Background()
 			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix")
 			if err != nil {
