@@ -197,7 +197,7 @@ func TestNewInfo(t *testing.T) {
 				Request(corev1.ResourceMemory, "512Ki").
 				Request("networking.example.com/vpc1", "1").
 				Obj(),
-			infoOptions: []InfoOption{WithExcludedResourcePrefixes([]string{"dummyPrefix", "networking.gke.io.networks/"})},
+			infoOptions: []InfoOption{WithExcludedResourcePrefixes([]string{"dummyPrefix", "networking.example.com/"})},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{

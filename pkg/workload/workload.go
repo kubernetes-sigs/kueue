@@ -167,7 +167,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 		info.TotalRequests = totalRequestsFromPodSets(w)
 	}
 	if len(options.excludedResourcePrefixes) > 0 {
-		FilterResources(info.TotalRequests, options.excludedResourcePrefixes)
+		filterResources(info.TotalRequests, options.excludedResourcePrefixes)
 	}
 	return info
 }
