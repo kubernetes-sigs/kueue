@@ -1261,7 +1261,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 			Group("dev-pods").
 			GroupTotalCount("4").
 			Queue(localQueue.Name).
-			// adding a resource that is not in covered by cluster queue,
+			// requesting a resource that is not covered by cluster queue,
 			// the pod group should be nevertheless scheduled because
 			// the resource has a prefix that is configured to be ignored
 			Request("networking.example.com/vpc1", "1").

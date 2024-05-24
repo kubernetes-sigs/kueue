@@ -62,7 +62,7 @@ func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 	}
 }
 
-// WithExcludedResourcePrefixes ....
+// WithExcludedResourcePrefixes sets the list of excluded resource prefixes
 func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	return func(o *options) {
 		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))

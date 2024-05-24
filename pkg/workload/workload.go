@@ -167,7 +167,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 		info.TotalRequests = totalRequestsFromPodSets(w)
 	}
 	if len(options.excludedResourcePrefixes) > 0 {
-		filterResources(info.TotalRequests, options.excludedResourcePrefixes)
+		dropExcludedResources(info.TotalRequests, options.excludedResourcePrefixes)
 	}
 	return info
 }
@@ -202,7 +202,7 @@ func (i *Info) FlavorResourceUsage() map[kueue.ResourceFlavorReference]Requests 
 	return total
 }
 
-func filterResources(resources []PodSetResources, excludedPrefixes []string) {
+func dropExcludedResources(resources []PodSetResources, excludedPrefixes []string) {
 	for _, resource := range resources {
 		for requestKey := range resource.Requests {
 			exclude := false
