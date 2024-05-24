@@ -108,7 +108,14 @@ func managerSetup(configuration *config.Configuration, opts ...jobframework.Opti
 	}
 }
 
-func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+func managerAndSchedulerSetup(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
+	if configuration == nil {
+		configuration = &config.Configuration{}
+	}
+	queueOptions := []queue.Option{}
+	if configuration.Resources != nil && len(configuration.Resources.ExcludeResourcePrefixes) > 0 {
+		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(configuration.Resources.ExcludeResourcePrefixes))
+	}
 	return func(mgr manager.Manager, ctx context.Context) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -124,9 +131,8 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := cache.New(mgr.GetClient())
-		queues := queue.NewManager(mgr.GetClient(), cCache)
+		queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
-		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
