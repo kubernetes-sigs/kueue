@@ -16,6 +16,7 @@ package jobframework
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -114,6 +115,13 @@ type ComposableJob interface {
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) ([]client.Object, error)
 	// Calls f on each member of the ComposableJob
 	ForEach(f func(obj runtime.Object))
+}
+
+// JobWithCustomWorkloadConditions interface should be implemented by generic jobs,
+// when custom workload conditions should be updated after ensure that the workload exists.
+type JobWithCustomWorkloadConditions interface {
+	// CustomWorkloadConditions return custom workload conditions and status changed or not.
+	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
 }
 
 func QueueName(job GenericJob) string {

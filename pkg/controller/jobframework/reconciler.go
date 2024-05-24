@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -310,6 +312,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	wl, err := r.ensureOneWorkload(ctx, job, object)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// Update workload conditions if implemented JobWithCustomWorkloadConditions interface.
+	if jobCond, ok := job.(JobWithCustomWorkloadConditions); wl != nil && ok {
+		if conditions, updated := jobCond.CustomWorkloadConditions(wl); updated {
+			wlPatch := workload.BaseSSAWorkload(wl)
+			wlPatch.Status.Conditions = conditions
+			return reconcile.Result{}, r.client.Status().Patch(ctx, wlPatch, client.Apply,
+				client.FieldOwner(fmt.Sprintf("%s-%s-controller", constants.KueueName, strings.ToLower(job.GVK().Kind))))
+		}
 	}
 
 	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {

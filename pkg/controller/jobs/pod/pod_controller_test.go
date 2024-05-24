@@ -329,7 +329,7 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -343,7 +343,7 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -951,6 +951,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -964,6 +970,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1021,7 +1033,7 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -1036,7 +1048,7 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -1081,6 +1093,12 @@ func TestReconciler(t *testing.T) {
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Pods succeeded: 1/2. Pods failed: 1/2",
 					}).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1099,6 +1117,12 @@ func TestReconciler(t *testing.T) {
 						Status:  "True",
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
 						Message: "Pods succeeded: 1/2. Pods failed: 1/2",
+					}).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
 					}).
 					Obj(),
 			},
@@ -1264,6 +1288,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1278,6 +1308,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1554,7 +1590,14 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -1574,7 +1617,14 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -1619,7 +1669,14 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -1645,7 +1702,7 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					SetOrReplaceCondition(metav1.Condition{
@@ -1659,7 +1716,14 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadRequeued,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -1798,6 +1862,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1812,6 +1882,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1851,6 +1927,12 @@ func TestReconciler(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1867,6 +1949,12 @@ func TestReconciler(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2102,6 +2190,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -2121,6 +2215,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Condition(
 						metav1.Condition{
 							Type:    kueue.WorkloadFinished,
@@ -2217,6 +2317,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -2237,6 +2343,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					ReclaimablePods(kueue.ReclaimablePod{Name: "4ebdd4a6", Count: 1}).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2441,6 +2553,12 @@ func TestReconciler(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -2457,6 +2575,12 @@ func TestReconciler(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2846,6 +2970,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -2861,6 +2991,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement-for-pod1", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2955,7 +3091,14 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -2975,7 +3118,14 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.Now(),
-						Reason:             "Preempted",
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Obj(),
@@ -3039,6 +3189,12 @@ func TestReconciler(t *testing.T) {
 						Reason:             "PodsReadyTimeout",
 						Message:            "Workload evicted due to a PodsReady timeout",
 					}).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  "PodsReadyTimeout",
+						Message: "Workload evicted due to a PodsReady timeout",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3056,6 +3212,12 @@ func TestReconciler(t *testing.T) {
 						LastTransitionTime: metav1.Now(),
 						Reason:             "PodsReadyTimeout",
 						Message:            "Workload evicted due to a PodsReady timeout",
+					}).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  "PodsReadyTimeout",
+						Message: "Workload evicted due to a PodsReady timeout",
 					}).
 					Obj(),
 			},
@@ -3211,6 +3373,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error2", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3229,6 +3397,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement2", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -3433,6 +3607,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error-no-finalizer", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3448,6 +3628,12 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -3860,6 +4046,632 @@ func TestReconciler(t *testing.T) {
 					Reason:    "OwnerReferencesAdded",
 					Message:   "Added 1 owner reference(s)",
 				},
+			},
+		},
+		"shouldn't set waiting for pods ready condition to true when all pods pending": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+		},
+		"should set waiting for pods ready condition to true when at least one pod failed": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
+					Obj(),
+			},
+		},
+		"should set waiting for pods ready condition to true when at least one pod deleted": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					Delete().
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Delete().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
+					Obj(),
+			},
+		},
+		"should set waiting for pods ready condition to true when workload was evicted": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Delete().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+		},
+		"should update reason and message on waiting for pods ready condition when workload was evicted again": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Delete().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+						Message: "Exceeded the PodsReady timeout",
+					}).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+						Message: "Exceeded the PodsReady timeout",
+					}).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+						Message: "Exceeded the PodsReady timeout",
+					}).
+					Obj(),
+			},
+		},
+		"shouldn't change waiting for pods ready condition when it's true and workload was readmitted": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodFailed).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               WorkloadWaitingForReplacementPods,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+		},
+		"should set waiting for pods ready condition to false when pods was replaced": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionTrue,
+						Reason:  WorkloadPodsFailed,
+						Message: "Some Failed pods need replacement",
+					}).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Now().Add(-time.Hour)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuota(utiltesting.MakeAdmission("cq", "dc85db45").AssignmentPodCount(2).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    WorkloadWaitingForReplacementPods,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadPodsReady,
+						Message: "No pods need replacement",
+					}).
+					Obj(),
 			},
 		},
 	}
