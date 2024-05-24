@@ -354,6 +354,7 @@ func TestValidate(t *testing.T) {
 						Timestamp:          ptr.To(configapi.CreationTimestamp),
 						BackoffLimitCount:  ptr.To[int32](10),
 						BackoffBaseSeconds: ptr.To[int32](30),
+						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
 				},
 			},
@@ -389,6 +390,23 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "waitForPodsReady.requeuingStrategy.backoffBaseSeconds",
+				},
+			},
+		},
+		"negative waitForPodsReady.requeuingStrategy.backoffMaxSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						BackoffMaxSeconds: ptr.To[int32](-1),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.requeuingStrategy.backoffMaxSeconds",
 				},
 			},
 		},
