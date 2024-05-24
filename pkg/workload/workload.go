@@ -202,7 +202,7 @@ func (i *Info) FlavorResourceUsage() map[kueue.ResourceFlavorReference]Requests 
 	return total
 }
 
-func FilterResources(resources []PodSetResources, excludedPrefixes []string) {
+func filterResources(resources []PodSetResources, excludedPrefixes []string) {
 	for _, resource := range resources {
 		for requestKey := range resource.Requests {
 			exclude := false
