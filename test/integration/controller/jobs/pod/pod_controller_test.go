@@ -1178,7 +1178,9 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 			WebhookPath: webhookPath,
 		}
 		cfg = fwk.Init()
+		configuration := configapi.Configuration{Resources: &configapi.Resources{ExcludeResourcePrefixes: []string{"networking.example.com/"}}}
 		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup(
+			&configuration,
 			jobframework.WithManageJobsWithoutQueueName(false),
 			jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
 				PodSelector: &metav1.LabelSelector{},
@@ -1259,6 +1261,11 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 			Group("dev-pods").
 			GroupTotalCount("4").
 			Queue(localQueue.Name).
+			// requesting a resource that is not covered by cluster queue,
+			// the pod group should be nevertheless scheduled because
+			// the resource has a prefix that is configured to be ignored
+			Request("networking.example.com/vpc1", "1").
+			Limit("networking.example.com/vpc1", "1").
 			Request(corev1.ResourceCPU, "1")
 
 		role1Pod1 := basePod.

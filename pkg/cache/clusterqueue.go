@@ -83,6 +83,7 @@ type ClusterQueue struct {
 	hasFlavorIndependentAdmissionCheckAppliedPerFlavor bool
 	admittedWorkloadsCount                             int
 	isStopped                                          bool
+	workloadInfoOptions                                []workload.InfoOption
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -453,7 +454,7 @@ func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
 	if _, exist := c.Workloads[k]; exist {
 		return errors.New("workload already exists in ClusterQueue")
 	}
-	wi := workload.NewInfo(w)
+	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(wi, 1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {

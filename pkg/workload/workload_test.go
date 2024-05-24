@@ -38,8 +38,9 @@ import (
 
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
-		workload kueue.Workload
-		wantInfo Info
+		workload    kueue.Workload
+		infoOptions []InfoOption
+		wantInfo    Info
 	}{
 		"pending": {
 			workload: *utiltesting.MakeWorkload("", "").
@@ -190,10 +191,30 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"filterResources": {
+			workload: *utiltesting.MakeWorkload("", "").
+				Request(corev1.ResourceCPU, "10m").
+				Request(corev1.ResourceMemory, "512Ki").
+				Request("networking.example.com/vpc1", "1").
+				Obj(),
+			infoOptions: []InfoOption{WithExcludedResourcePrefixes([]string{"dummyPrefix", "networking.example.com/"})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Requests: Requests{
+							corev1.ResourceCPU:    10,
+							corev1.ResourceMemory: 512 * 1024,
+						},
+						Count: 1,
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info := NewInfo(&tc.workload)
+			info := NewInfo(&tc.workload, tc.infoOptions...)
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}

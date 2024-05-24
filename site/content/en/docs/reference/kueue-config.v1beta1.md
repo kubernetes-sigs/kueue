@@ -170,6 +170,13 @@ pending workloads.</p>
    <p>FairSharing controls the fair sharing semantics across the cluster.</p>
 </td>
 </tr>
+<tr><td><code>resources</code> <B>[Required]</B><br/>
+<a href="#Resources"><code>Resources</code></a>
+</td>
+<td>
+   <p>Resources provides additional configuration options for handling the resources.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -755,6 +762,29 @@ re-queuing an evicted workload.</p>
 
 
 
+
+## `Resources`     {#Resources}
+    
+
+**Appears in:**
+
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>excludeResourcePrefixes</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>ExcludedResourcePrefixes defines which resources should be ignored by Kueue</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `WaitForPodsReady`     {#WaitForPodsReady}
     

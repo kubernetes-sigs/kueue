@@ -43,6 +43,7 @@ var (
 
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
+	workloadInfoOptions         []workload.InfoOption
 }
 
 // Option configures the manager.
@@ -50,6 +51,7 @@ type Option func(*options)
 
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
+	workloadInfoOptions:         []workload.InfoOption{},
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -57,6 +59,13 @@ var defaultOptions = options{
 func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 	return func(o *options) {
 		o.podsReadyRequeuingTimestamp = ts
+	}
+}
+
+// WithExcludedResourcePrefixes sets the list of excluded resource prefixes
+func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
+	return func(o *options) {
+		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
 	}
 }
 
@@ -76,6 +85,8 @@ type Manager struct {
 	cohorts map[string]sets.Set[string]
 
 	workloadOrdering workload.Ordering
+
+	workloadInfoOptions []workload.InfoOption
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -94,6 +105,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		workloadOrdering: workload.Ordering{
 			PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 		},
+		workloadInfoOptions: options.workloadInfoOptions,
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -204,7 +216,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 			continue
 		}
 		workload.AdjustResources(ctx, m.client, &w)
-		qImpl.AddOrUpdate(workload.NewInfo(&w))
+		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -302,7 +314,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) bool {
 	if q == nil {
 		return false
 	}
-	wInfo := workload.NewInfo(w)
+	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
 	q.AddOrUpdate(wInfo)
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {

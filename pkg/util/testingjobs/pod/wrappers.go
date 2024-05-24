@@ -50,7 +50,7 @@ func MakePod(name, ns string) *PodWrapper {
 				{
 					Name:      "c",
 					Image:     "pause",
-					Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+					Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
 				},
 			},
 			SchedulingGates: make([]corev1.PodSchedulingGate, 0),
@@ -173,6 +173,12 @@ func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 func (p *PodWrapper) Image(image string, args []string) *PodWrapper {
 	p.Spec.Containers[0].Image = image
 	p.Spec.Containers[0].Args = args
+	return p
+}
+
+// Request adds a resource limit to the default container.
+func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
+	p.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return p
 }
 

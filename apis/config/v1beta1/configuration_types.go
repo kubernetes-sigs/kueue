@@ -73,6 +73,9 @@ type Configuration struct {
 
 	// FairSharing controls the fair sharing semantics across the cluster.
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
+
+	// Resources provides additional configuration options for handling the resources.
+	Resources *Resources `json:"resources,omitempty"`
 }
 
 type ControllerManager struct {
@@ -360,6 +363,11 @@ type ClusterQueueVisibility struct {
 	// The maximal value is 4000.
 	// Defaults to 10.
 	MaxCount int32 `json:"maxCount,omitempty"`
+}
+
+type Resources struct {
+	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
+	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 }
 
 type PreemptionStrategy string

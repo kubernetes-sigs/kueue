@@ -59,6 +59,21 @@ type AssignmentClusterQueueState struct {
 	ClusterQueueGeneration int64
 }
 
+type InfoOptions struct {
+	excludedResourcePrefixes []string
+}
+
+type InfoOption func(*InfoOptions)
+
+var defaultOptions = InfoOptions{}
+
+// WithExcludedResourcePrefixes adds the prefixes
+func WithExcludedResourcePrefixes(n []string) InfoOption {
+	return func(o *InfoOptions) {
+		o.excludedResourcePrefixes = n
+	}
+}
+
 func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
 	c := AssignmentClusterQueueState{
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
@@ -137,7 +152,11 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	return ret
 }
 
-func NewInfo(w *kueue.Workload) *Info {
+func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	info := &Info{
 		Obj: w,
 	}
@@ -146,6 +165,9 @@ func NewInfo(w *kueue.Workload) *Info {
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
 		info.TotalRequests = totalRequestsFromPodSets(w)
+	}
+	if len(options.excludedResourcePrefixes) > 0 {
+		dropExcludedResources(info.TotalRequests, options.excludedResourcePrefixes)
 	}
 	return info
 }
@@ -178,6 +200,23 @@ func (i *Info) FlavorResourceUsage() map[kueue.ResourceFlavorReference]Requests 
 		}
 	}
 	return total
+}
+
+func dropExcludedResources(resources []PodSetResources, excludedPrefixes []string) {
+	for _, resource := range resources {
+		for requestKey := range resource.Requests {
+			exclude := false
+			for _, excludedPrefix := range excludedPrefixes {
+				if strings.HasPrefix(string(requestKey), excludedPrefix) {
+					exclude = true
+					break
+				}
+			}
+			if exclude {
+				delete(resource.Requests, requestKey)
+			}
+		}
+	}
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
