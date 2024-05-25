@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	listExample = `  # List LocalQueue 
+	listExample = `  # List LocalQueue
   kueuectl list localqueue`
 )
 
@@ -37,9 +37,10 @@ func NewListCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStrea
 		SuggestFor: []string{"ps"},
 	}
 
-	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams, clock))
-	cmd.AddCommand(NewClusterQueueCmd(clientGetter, streams, clock))
-	cmd.AddCommand(NewWorkloadCmd(clientGetter, streams, clock))
+	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams))
+	cmd.AddCommand(NewClusterQueueCmd(clientGetter, streams))
+	cmd.AddCommand(NewWorkloadCmd(clientGetter, streams))
+	cmd.AddCommand(NewPodCmd(clientGetter, streams))
 
 	return cmd
 }
