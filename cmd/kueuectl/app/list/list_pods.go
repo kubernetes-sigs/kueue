@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	podLong = `Lists all pods that matches the given criteria: Should be part of the specified Job,
+	podLong = `Lists all pods that matches the given criteria: Should be part of the specified Job kind,
 	belonging to the specified namespace, matching
 	the label selector or the field selector.`
 	podExample = `  # List Pods
@@ -49,6 +49,7 @@ const (
 type PodOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
+	AllNamespaces bool
 	Namespace     string
 	LabelSelector string
 	FieldSelector string
@@ -72,10 +73,10 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 	o := NewPodOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "pods [--job job/<job-name>]",
+		Use:                   "pods --for <type>[.<api-group>]/]<name>",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"po"},
-		Short:                 "List Pods belong to a Job",
+		Short:                 "List Pods belong to a Job Kind",
 		Long:                  podLong,
 		Example:               podExample,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -87,9 +88,10 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 
 	o.PrintFlags.AddFlags(cmd)
 
+	addAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
-	addJobFlagVar(cmd, &o.JobArg)
+	addForFilterFlagVar(cmd, &o.JobArg)
 
 	return cmd
 }
@@ -119,7 +121,7 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command
 	}
 
 	if len(args) > 0 {
-		jobArg, err := cmd.Flags().GetString("job")
+		jobArg, err := cmd.Flags().GetString("for")
 		if err != nil {
 			return err
 		}
