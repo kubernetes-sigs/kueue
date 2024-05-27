@@ -192,7 +192,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should create provisioning requests after quota is reserved and remove it when reservation is lost", func() {
+		ginkgo.It("Should create provisioning requests after quota is reserved and preserve it when reservation is lost", func() {
 			updatedWl := &kueue.Workload{}
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func() error {
@@ -265,6 +265,29 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[1].Template.Spec.Containers, ignoreContainersDefaults))
 				gomega.Expect(createdTemplate.Template.Spec.NodeSelector).To(gomega.BeComparableTo(map[string]string{"ns1": "ns1v"}))
+			})
+
+			ginkgo.By("Removing the quota reservation from the workload", func() {
+				updatedWl := &kueue.Workload{}
+				gomega.Eventually(func() error {
+					err := k8sClient.Get(ctx, wlKey, updatedWl)
+					if err != nil {
+						return err
+					}
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, updatedWl, nil)).To(gomega.Succeed())
+					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
+					return nil
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the provision request is preserved", func() {
+				provReqKey := types.NamespacedName{
+					Namespace: wlKey.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac.Name, 1),
+				}
+				gomega.Consistently(func() error {
+					return k8sClient.Get(ctx, provReqKey, createdRequest)
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -439,7 +462,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should deactivate the workload when it's not Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
-			// This happens only if the job allows retries and a user sets .spec.backOffLimit > 0
 			ginkgo.By("Setting the admission check to the workload", func() {
 				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -480,6 +502,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
 
 					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "CapacityRevoked",

@@ -156,6 +156,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Workload, relevantChecks []string, ownedPrs []autoscaling.ProvisioningRequest) map[string]*autoscaling.ProvisioningRequest {
 	activeOrLastPRForChecks := make(map[string]*autoscaling.ProvisioningRequest)
+	log := ctrl.LoggerFrom(ctx)
 	for _, checkName := range relevantChecks {
 		for i := range ownedPrs {
 			req := &ownedPrs[i]
@@ -163,7 +164,7 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
 				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
 				if err == nil && c.reqIsNeeded(ctx, wl, prc) && provReqSyncedWithConfig(req, prc) {
-					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(ctx, currPr, wl.Name, checkName) < getAttempt(ctx, req, wl.Name, checkName) {
+					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(&log, currPr, wl.Name, checkName) < getAttempt(&log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
 					}
 				}
@@ -216,14 +217,13 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			switch {
 			case isCapacityRevoked(oldPr):
 				if workload.IsActive(wl) && !workload.IsFinished(wl) {
-					workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByDeactivation, fmt.Sprintf("Deactivating workload because capacity for %v has been revoked", oldPr.Name))
-					if err := c.deactivateWorkload(ctx, wl); err != nil {
+					if err := c.deactivateWorkload(ctx, wl, fmt.Sprintf("Deactivating workload because capacity for %v has been revoked", oldPr.Name)); err != nil {
 						return nil, err
 					}
 					c.record.Eventf(wl, corev1.EventTypeNormal, "CapacityRevoked", "Deactivating workload because capacity for %v has been revoked", oldPr.Name)
 				}
 			case isFailed(oldPr):
-				attempt = getAttempt(ctx, oldPr, wl.Name, checkName)
+				attempt = getAttempt(&log, oldPr, wl.Name, checkName)
 				if attempt <= MaxRetries {
 					prFailed := apimeta.FindStatusCondition(oldPr.Status.Conditions, autoscaling.Failed)
 					remainingTime := remainingTime(prc, attempt, prFailed.LastTransitionTime.Time)
@@ -464,7 +464,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			switch {
 			case isFailed(pr):
 				if checkState.State != kueue.CheckStateRejected {
-					if attempt := getAttempt(ctx, pr, wl.Name, check); attempt <= MaxRetries {
+					if attempt := getAttempt(&log, pr, wl.Name, check); attempt <= MaxRetries {
 						// it is going to be retried
 						message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
@@ -477,7 +477,9 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 				}
 			case isCapacityRevoked(pr):
 				if workload.IsActive(wl) && !workload.IsFinished(wl) {
-					// happens only if the job allows retries and a user sets .spec.backOffLimit > 0
+					// We mark the admission check as rejected to trigger workload eviction and deactivation.
+					// This is needed to prevent replacement pods being stuck in the pending phase indefinitely
+					// as the nodes are already deleted by Cluster Autoscaler.
 					updated = updateCheckState(&checkState, kueue.CheckStateRejected) || updated
 					updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
 				}
@@ -539,13 +541,13 @@ func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []ku
 	})
 }
 
-func (c *Controller) deactivateWorkload(ctx context.Context, wl *kueue.Workload) error {
+func (c *Controller) deactivateWorkload(ctx context.Context, wl *kueue.Workload, msg string) error {
 	updatedWl := &kueue.Workload{}
-	wlKey := types.NamespacedName{
-		Namespace: wl.Namespace,
-		Name:      wl.Name,
+	if err := c.client.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl); err != nil {
+		return err
 	}
-	if err := c.client.Get(ctx, wlKey, updatedWl); err != nil {
+	workload.SetEvictedCondition(updatedWl, kueue.WorkloadEvictedByDeactivation, msg)
+	if err := workload.ApplyAdmissionStatus(ctx, c.client, updatedWl, true); err != nil {
 		return err
 	}
 	updatedWl.Spec.Active = ptr.To(false)

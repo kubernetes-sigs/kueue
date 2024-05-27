@@ -17,16 +17,16 @@ limitations under the License.
 package provisioning
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -74,19 +74,18 @@ func matchesWorkloadAndCheck(pr *autoscaling.ProvisioningRequest, workloadName, 
 	return len(matches) > 0
 }
 
-func getAttempt(ctx context.Context, pr *autoscaling.ProvisioningRequest, workloadName, checkName string) int32 {
-	logger := log.FromContext(ctx)
+func getAttempt(log *logr.Logger, pr *autoscaling.ProvisioningRequest, workloadName, checkName string) int32 {
 	attemptRegex := getAttemptRegex(workloadName, checkName)
 	matches := attemptRegex.FindStringSubmatch(pr.Name)
 	if len(matches) > 0 {
 		number, err := strconv.Atoi(matches[1])
 		if err != nil {
-			logger.Error(err, "Parsing the attempt number from provisioning request", "requestName", pr.Name)
+			log.Error(err, "Parsing the attempt number from provisioning request", "requestName", pr.Name)
 			return 1
 		}
 		return int32(number)
 	}
-	logger.Info("No attempt suffix in provisioning request", "requestName", pr.Name)
+	log.Error(errors.New("no attempt suffix in provisioning request"), "No attempt suffix in provisioning request", "requestName", pr.Name)
 	return 1
 }
 
