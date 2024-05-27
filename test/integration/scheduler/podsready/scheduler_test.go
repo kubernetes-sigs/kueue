@@ -254,7 +254,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
-			util.AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 
 			ginkgo.By("finish the eviction, and the workload is pending by backoff")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
@@ -267,7 +268,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
-			util.AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
 				Count: ptr.To[int32](2),
@@ -298,7 +300,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 4)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 4)
-			util.AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
 				Count: ptr.To[int32](1),
@@ -645,7 +648,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
-			util.AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
 				Count: ptr.To[int32](2),
 			}, false)

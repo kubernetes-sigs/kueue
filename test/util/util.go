@@ -326,7 +326,7 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
-func AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
+func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
 	if sleep > 0 {
 		time.Sleep(sleep)
 		ginkgo.By(fmt.Sprintf("exceeded the timeout %q for the %q workload", sleep.String(), wlKey.String()))
@@ -334,15 +334,21 @@ func AwaitWorkloadEvictionByPodsReadyTimeoutAndSetRequeuedCondition(ctx context.
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var wl kueue.Workload
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-		message := fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String())
-		reason := kueue.WorkloadEvictedByPodsReadyTimeout
 		g.Expect(wl.Status.Conditions).Should(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
 			Type:    kueue.WorkloadEvicted,
 			Status:  metav1.ConditionTrue,
-			Reason:  reason,
-			Message: message,
+			Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+			Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String()),
 		}, IgnoreConditionTimestampsAndObservedGeneration)))
-		workload.SetRequeuedCondition(&wl, reason, message, false)
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func SetRequeuedConditionWithPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var wl kueue.Workload
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+		workload.SetRequeuedCondition(&wl, kueue.WorkloadEvictedByPodsReadyTimeout,
+			fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String()), false)
 		g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true)).Should(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
