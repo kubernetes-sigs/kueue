@@ -120,6 +120,15 @@ func TestValidateWorkload(t *testing.T) {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(kueue.AdmissionCheckState{}).Obj(),
 			wantErr:  nil,
 		},
+		"should accept podSetUpdates for only a subset of podSets": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("first", 1).Obj(),
+				*testingutil.MakePodSet("second", 1).Obj(),
+			).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "first"}}},
+			).Obj(),
+			wantErr: nil,
+		},
 		"mismatched names in podSetUpdates with names in podSets": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
 				*testingutil.MakePodSet("first", 1).Obj(),

@@ -154,7 +154,8 @@ func validateContainer(c *corev1.Container, path *field.Path) field.ErrorList {
 func validateAdmissionChecks(obj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	for i := range obj.Status.AdmissionChecks {
-		// the number of podSetUpdates cannot exceed the one of the podSets without having an unknown podSet name
+		// no need to check the number of podSetUpdates,
+		// because it cannot exceed the one of the podSets without having an unknown podSet name
 		allErrs = append(allErrs, validatePodSetUpdates(&obj.Status.AdmissionChecks[i], obj, basePath.Index(i).Child("podSetUpdates"))...)
 	}
 	return allErrs
