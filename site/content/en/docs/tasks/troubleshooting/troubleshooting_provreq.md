@@ -76,8 +76,8 @@ The args for kueue container should be similar to this:
 ```
 
 ### Ensure the ClusterQueue and the LocalQueue are active
-
-For details see our other [troubleshooting guide](/docs/tasks/troubleshooting/troubleshooting_queues/)
+You can check the state of ClusterQueues and LocalQueues if the queues are ready for the Workloads.
+Please see the [Troubleshooting Queues](/docs/tasks/troubleshooting/troubleshooting_queues/) for more details.
 
 
 ### Ensure the Admission Check is active
