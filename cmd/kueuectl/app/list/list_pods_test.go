@@ -49,7 +49,6 @@ func TestPodOptions_getJobControllerUID(t *testing.T) {
 		IOStreams     genericiooptions.IOStreams
 	}
 	type args struct {
-		ctx     context.Context
 		jobName string
 	}
 	tests := []struct {
@@ -74,7 +73,6 @@ func TestPodOptions_getJobControllerUID(t *testing.T) {
 				},
 			},
 			args: args{
-				ctx:     context.TODO(),
 				jobName: "test-job",
 			},
 			fields: fields{
@@ -97,7 +95,6 @@ func TestPodOptions_getJobControllerUID(t *testing.T) {
 				Namespace: "default",
 			},
 			args: args{
-				ctx:     context.TODO(),
 				jobName: "missing-uid-job",
 			},
 			want:    "",
@@ -117,7 +114,6 @@ func TestPodOptions_getJobControllerUID(t *testing.T) {
 				Namespace: "default",
 			},
 			args: args{
-				ctx:     context.TODO(),
 				jobName: "test-job",
 			},
 			want:    "",
@@ -139,7 +135,7 @@ func TestPodOptions_getJobControllerUID(t *testing.T) {
 				PrintObj:      tt.fields.PrintObj,
 				IOStreams:     tt.fields.IOStreams,
 			}
-			got, err := o.getJobControllerUID(tt.args.ctx, tt.args.jobName)
+			got, err := o.getJobControllerUID(context.TODO(), tt.args.jobName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("getJobControllerUID() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -163,7 +159,6 @@ func TestPodOptions_listPodsByControllerUID(t *testing.T) {
 		JobArg        string
 	}
 	type args struct {
-		ctx           context.Context
 		controllerUID string
 	}
 	tests := []struct {
@@ -225,7 +220,6 @@ func TestPodOptions_listPodsByControllerUID(t *testing.T) {
 				Namespace: "default",
 			},
 			args: args{
-				ctx:           context.TODO(),
 				controllerUID: "valid-controller-uid",
 			},
 			wantOut: []string{
@@ -257,7 +251,6 @@ func TestPodOptions_listPodsByControllerUID(t *testing.T) {
 				Namespace: "default",
 			},
 			args: args{
-				ctx:           context.TODO(),
 				controllerUID: "invalid-controller-uid",
 			},
 			wantOut: []string{""},
@@ -280,7 +273,7 @@ func TestPodOptions_listPodsByControllerUID(t *testing.T) {
 				IOStreams:     s,
 			}
 
-			gotErr := o.listPodsByControllerUID(tt.args.ctx, tt.args.controllerUID)
+			gotErr := o.listPodsByControllerUID(context.TODO(), tt.args.controllerUID)
 			if diff := cmp.Diff(tt.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
