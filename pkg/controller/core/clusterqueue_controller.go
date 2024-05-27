@@ -70,6 +70,7 @@ type ClusterQueueReconciler struct {
 	snapUpdateCh                         chan event.GenericEvent
 	watchers                             []ClusterQueueUpdateWatcher
 	reportResourceMetrics                bool
+	fairSharingEnabled                   bool
 	queueVisibilityUpdateInterval        time.Duration
 	queueVisibilityClusterQueuesMaxCount int32
 }
@@ -77,6 +78,7 @@ type ClusterQueueReconciler struct {
 type ClusterQueueReconcilerOptions struct {
 	Watchers                             []ClusterQueueUpdateWatcher
 	ReportResourceMetrics                bool
+	FairSharingEnabled                   bool
 	QueueVisibilityUpdateInterval        time.Duration
 	QueueVisibilityClusterQueuesMaxCount int32
 }
@@ -93,6 +95,12 @@ func WithWatchers(watchers ...ClusterQueueUpdateWatcher) ClusterQueueReconcilerO
 func WithReportResourceMetrics(report bool) ClusterQueueReconcilerOption {
 	return func(o *ClusterQueueReconcilerOptions) {
 		o.ReportResourceMetrics = report
+	}
+}
+
+func WithFairSharing(enabled bool) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.FairSharingEnabled = enabled
 	}
 }
 
@@ -136,6 +144,7 @@ func NewClusterQueueReconciler(
 		snapUpdateCh:                         make(chan event.GenericEvent, updateChBuffer),
 		watchers:                             options.Watchers,
 		reportResourceMetrics:                options.ReportResourceMetrics,
+		fairSharingEnabled:                   options.FairSharingEnabled,
 		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
 		queueVisibilityClusterQueuesMaxCount: options.QueueVisibilityClusterQueuesMaxCount,
 	}
@@ -656,6 +665,17 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 		Message:            msg,
 		ObservedGeneration: cq.Generation,
 	})
+	if r.fairSharingEnabled {
+		if r.reportResourceMetrics {
+			metrics.ReportClusterQueueWeightedShare(cq.Name, stats.WeightedShare)
+		}
+		if cq.Status.FairSharing == nil {
+			cq.Status.FairSharing = &kueue.FairSharingStatus{}
+		}
+		cq.Status.FairSharing.WeightedShare = stats.WeightedShare
+	} else {
+		cq.Status.FairSharing = nil
+	}
 	if !equality.Semantic.DeepEqual(cq.Status, oldStatus) {
 		return r.client.Status().Update(ctx, cq)
 	}

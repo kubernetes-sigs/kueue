@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -1153,5 +1154,35 @@ func TestDominantResourceShare(t *testing.T) {
 				t.Errorf("DominantResourceShare(_) returned resource %s, want %s", drName, tc.wantDRName)
 			}
 		})
+	}
+}
+
+func TestCohortLendable(t *testing.T) {
+	cq := ClusterQueue{
+		Cohort: &Cohort{
+			Members: sets.New(
+				&ClusterQueue{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 8_000,
+						"example.com/gpu":  3,
+					},
+				},
+				&ClusterQueue{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 2_000,
+					},
+				},
+			),
+		},
+	}
+
+	wantLendable := map[corev1.ResourceName]int64{
+		corev1.ResourceCPU: 10_000,
+		"example.com/gpu":  3,
+	}
+
+	lendable := cq.Cohort.CalculateLendable()
+	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
+		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
 	}
 }

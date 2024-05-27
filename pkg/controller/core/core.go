@@ -47,6 +47,11 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		return "LocalQueue", err
 	}
 
+	var fairSharingEnabled bool
+	if cfg.FairSharing != nil {
+		fairSharingEnabled = cfg.FairSharing.Enable
+	}
+
 	cqRec := NewClusterQueueReconciler(
 		mgr.GetClient(),
 		qManager,
@@ -54,6 +59,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		WithQueueVisibilityUpdateInterval(queueVisibilityUpdateInterval(cfg)),
 		WithQueueVisibilityClusterQueuesMaxCount(queueVisibilityClusterQueuesMaxCount(cfg)),
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
+		WithFairSharing(fairSharingEnabled),
 		WithWatchers(rfRec, acRec),
 	)
 	if err := mgr.Add(cqRec); err != nil {

@@ -597,6 +597,21 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              fairSharing:
+                description: FairSharing contains the information about the current
+                  status of fair sharing.
+                properties:
+                  weightedShare:
+                    description: |-
+                      WeightedShare represent the maximum of the ratios of usage above nominal
+                      quota to the lendable resources in the cohort, among all the resources
+                      provided by the ClusterQueue, and divided by the weight.
+                      If zero, it means that the usage of the ClusterQueue is below the nominal quota.
+                      If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
+                      the maximum possible share value.
+                    format: int64
+                    type: integer
+                type: object
               flavorsReservation:
                 description: |-
                   flavorsReservation are the reserved quotas, by flavor, currently in use by the

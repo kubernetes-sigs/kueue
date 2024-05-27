@@ -31,6 +31,7 @@ type ClusterQueueStatusApplyConfiguration struct {
 	AdmittedWorkloads      *int32                                                `json:"admittedWorkloads,omitempty"`
 	Conditions             []v1.Condition                                        `json:"conditions,omitempty"`
 	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatusApplyConfiguration `json:"pendingWorkloadsStatus,omitempty"`
+	FairSharing            *FairSharingStatusApplyConfiguration                  `json:"fairSharing,omitempty"`
 }
 
 // ClusterQueueStatusApplyConfiguration constructs an declarative configuration of the ClusterQueueStatus type for use with
@@ -104,5 +105,13 @@ func (b *ClusterQueueStatusApplyConfiguration) WithConditions(values ...v1.Condi
 // If called multiple times, the PendingWorkloadsStatus field is set to the value of the last call.
 func (b *ClusterQueueStatusApplyConfiguration) WithPendingWorkloadsStatus(value *ClusterQueuePendingWorkloadsStatusApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
 	b.PendingWorkloadsStatus = value
+	return b
+}
+
+// WithFairSharing sets the FairSharing field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FairSharing field is set to the value of the last call.
+func (b *ClusterQueueStatusApplyConfiguration) WithFairSharing(value *FairSharingStatusApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
+	b.FairSharing = value
 	return b
 }

@@ -51,8 +51,9 @@ const (
 )
 
 type options struct {
-	podsReadyTracking   bool
 	workloadInfoOptions []workload.InfoOption
+	podsReadyTracking   bool
+	fairSharingEnabled  bool
 }
 
 // Option configures the reconciler.
@@ -73,6 +74,12 @@ func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	}
 }
 
+func WithFairSharing(enabled bool) Option {
+	return func(o *options) {
+		o.fairSharingEnabled = enabled
+	}
+}
+
 var defaultOptions = options{}
 
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
@@ -88,6 +95,7 @@ type Cache struct {
 	podsReadyTracking   bool
 	admissionChecks     map[string]AdmissionCheck
 	workloadInfoOptions []workload.InfoOption
+	fairSharingEnabled  bool
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -104,6 +112,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		admissionChecks:     make(map[string]AdmissionCheck),
 		podsReadyTracking:   options.podsReadyTracking,
 		workloadInfoOptions: options.workloadInfoOptions,
+		fairSharingEnabled:  options.fairSharingEnabled,
 	}
 	c.podsReadyCond.L = &c.RWMutex
 	return c
@@ -577,6 +586,7 @@ type ClusterQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.FlavorUsage
 	AdmittedWorkloads  int
+	WeightedShare      int64
 }
 
 // Usage reports the reserved and admitted resources and number of workloads holding them in the ClusterQueue.
@@ -589,12 +599,19 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 		return nil, errCqNotFound
 	}
 
-	return &ClusterQueueUsageStats{
+	stats := &ClusterQueueUsageStats{
 		ReservedResources:  getUsage(cq.Usage, cq.ResourceGroups, cq.Cohort),
 		ReservingWorkloads: len(cq.Workloads),
 		AdmittedResources:  getUsage(cq.AdmittedUsage, cq.ResourceGroups, cq.Cohort),
 		AdmittedWorkloads:  cq.admittedWorkloadsCount,
-	}, nil
+	}
+
+	if c.fairSharingEnabled {
+		weightedShare, _ := cq.DominantResourceShare()
+		stats.WeightedShare = int64(weightedShare)
+	}
+
+	return stats, nil
 }
 
 func getUsage(frq FlavorResourceQuantities, rgs []ResourceGroup, cohort *Cohort) []kueue.FlavorUsage {

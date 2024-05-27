@@ -511,6 +511,15 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 	}
 }
 
+func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, v int64) {
+	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		count, err := testutil.GetGaugeMetricValue(metric)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int64(count)).Should(gomega.Equal(v))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectAdmissionCheckToBeDeleted(ctx context.Context, k8sClient client.Client, ac *kueue.AdmissionCheck, deleteAC bool) {
 	if ac == nil {
 		return

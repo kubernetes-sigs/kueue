@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -109,6 +110,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}
 			util.ExpectReservingActiveWorkloadsMetric(cqA, 8)
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 2)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 625)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
 
 			ginkgo.By("Creating newer workloads in cq-b")
 			// Ensure workloads in cqB have a newer timestamp.
@@ -121,6 +125,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				gomega.Expect(k8sClient.Create(ctx, bWorkloads[i])).To(gomega.Succeed())
 			}
 			util.ExpectPendingWorkloadsMetric(cqB, 0, 5)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 625)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
 
 			ginkgo.By("Terminating 4 running workloads in cqA: shared quota is fair-shared")
 			finishRunningWorkloadsInCQ(cqA, 4)
@@ -130,6 +137,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 3)
 			util.ExpectPendingWorkloadsMetric(cqB, 0, 2)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 250)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 250)
+			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
 
 			ginkgo.By("Terminating 2 more running workloads in cqA: cqB starts to take over shared quota")
 			finishRunningWorkloadsInCQ(cqA, 2)
@@ -139,6 +149,17 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 4)
 			util.ExpectPendingWorkloadsMetric(cqB, 0, 1)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 125)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 375)
+			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
+
+			ginkgo.By("Checking that weight share status changed")
+			cqAKey := client.ObjectKeyFromObject(cqA)
+			createdCqA := &kueue.ClusterQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, cqAKey, createdCqA)).Should(gomega.Succeed())
+				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: 125}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -207,6 +228,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}
 			util.ExpectReservingActiveWorkloadsMetric(cqA, 9)
 			util.ExpectPendingWorkloadsMetric(cqA, 0, 1)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 666)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
 
 			ginkgo.By("Creating newer workloads in cq-b")
 			bWorkloads := make([]*kueue.Workload, 5)
@@ -221,15 +245,33 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Finishing eviction of 4 running workloads in cqA: shared quota is fair-shared")
 			finishEvictionOfWorkloadsInCQ(cqA, 4)
 			util.ExpectReservingActiveWorkloadsMetric(cqB, 4)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 222)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 111)
+			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
 
 			ginkgo.By("cq-c reclaims one unit, preemption happens in cq-a")
 			cWorkload := testing.MakeWorkload("c0", ns.Name).Queue("c").Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, cWorkload)).To(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(cqC, 1, 0)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 222)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 111)
+			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
 
 			ginkgo.By("Finishing eviction of 1 running workloads in the CQ with highest usage: cqA")
 			finishEvictionOfWorkloadsInCQ(cqA, 1)
 			util.ExpectReservingActiveWorkloadsMetric(cqC, 1)
+			util.ExpectClusterQueueWeightedShareMetric(cqA, 222)
+			util.ExpectClusterQueueWeightedShareMetric(cqB, 111)
+			util.ExpectClusterQueueWeightedShareMetric(cqC, 0)
+
+			ginkgo.By("Checking that weight share status changed")
+			cqAKey := client.ObjectKeyFromObject(cqA)
+			createdCqA := &kueue.ClusterQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, cqAKey, createdCqA)).Should(gomega.Succeed())
+				g.Expect(createdCqA.Status.FairSharing).ShouldNot(gomega.BeNil())
+				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: 222}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

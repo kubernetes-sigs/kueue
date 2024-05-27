@@ -215,6 +215,19 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 			Help:      `Reports the cluster_queue's resource lending limit within all the flavors`,
 		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
 	)
+
+	ClusterQueueWeightedShare = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cluster_queue_weighted_share",
+			Help: `Reports a value that representing the maximum of the ratios of usage above nominal 
+quota to the lendable resources in the cohort, among all the resources provided by 
+the ClusterQueue, and divided by the weight.
+If zero, it means that the usage of the ClusterQueue is below the nominal quota.
+If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
+the maximum possible share value.`,
+		}, []string{"cluster_queue"},
+	)
 )
 
 func generateExponentialBuckets(count int) []float64 {
@@ -294,6 +307,10 @@ func ReportClusterQueueResourceUsage(cohort, queue, flavor, resource string, usa
 	ClusterQueueResourceUsage.WithLabelValues(cohort, queue, flavor, resource).Set(usage)
 }
 
+func ReportClusterQueueWeightedShare(cq string, weightedShare int64) {
+	ClusterQueueWeightedShare.WithLabelValues(cq).Set(float64(weightedShare))
+}
+
 func ClearClusterQueueResourceMetrics(cqName string) {
 	lbls := prometheus.Labels{
 		"cluster_queue": cqName,
@@ -368,5 +385,6 @@ func Register() {
 		ClusterQueueResourceNominalQuota,
 		ClusterQueueResourceBorrowingLimit,
 		ClusterQueueResourceLendingLimit,
+		ClusterQueueWeightedShare,
 	)
 }

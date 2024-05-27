@@ -300,6 +300,10 @@ type ClusterQueueStatus struct {
 	// status of the pending workloads in the cluster queue.
 	// +optional
 	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatus `json:"pendingWorkloadsStatus"`
+
+	// FairSharing contains the information about the current status of fair sharing.
+	// +optional
+	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
 }
 
 type ClusterQueuePendingWorkloadsStatus struct {
@@ -344,6 +348,16 @@ type ResourceUsage struct {
 	// Borrowed is quantity of quota that is borrowed from the cohort. In other
 	// words, it's the used quota that is over the nominalQuota.
 	Borrowed resource.Quantity `json:"borrowed,omitempty"`
+}
+
+type FairSharingStatus struct {
+	// WeightedShare represent the maximum of the ratios of usage above nominal
+	// quota to the lendable resources in the cohort, among all the resources
+	// provided by the ClusterQueue, and divided by the weight.
+	// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
+	// If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
+	// the maximum possible share value.
+	WeightedShare int64 `json:"weightedShare,omitempty"`
 }
 
 const (

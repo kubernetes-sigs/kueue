@@ -141,6 +141,16 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
+func (c *Cohort) CalculateLendable() map[corev1.ResourceName]int64 {
+	lendable := make(map[corev1.ResourceName]int64)
+	for member := range c.Members {
+		for res, v := range member.Lendable {
+			lendable[res] += v
+		}
+	}
+	return lendable
+}
+
 func (c *ClusterQueue) FitInCohort(q FlavorResourceQuantities) bool {
 	for flavor, qResources := range q {
 		if _, flavorFound := c.Cohort.RequestableResources[flavor]; flavorFound {
@@ -665,11 +675,12 @@ func (c *ClusterQueue) UsedCohortQuota(fName kueue.ResourceFlavorReference, rNam
 	return cohortUsage
 }
 
-// DominantResourceShare returns a value from 0 to 1000 representing the maximum of the ratios
+// DominantResourceShare returns a value from 0 to 1,000,000 representing the maximum of the ratios
 // of usage above nominal quota to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue.
+// provided by the ClusterQueue, and divided by the weight.
 // If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 // The function also returns the resource name that yielded this value.
+// Also for a weight of zero, this will return 9223372036854775807.
 func (c *ClusterQueue) DominantResourceShare() (int, corev1.ResourceName) {
 	return c.dominantResourceShare(nil, 0)
 }
@@ -707,9 +718,15 @@ func (c *ClusterQueue) dominantResourceShare(wlReq FlavorResourceQuantities, m i
 
 	var drs int64 = -1
 	var dRes corev1.ResourceName
+
+	// If we are running from snapshot the c.Cohort.Lendable should be pre-calculated.
+	lendable := c.Cohort.Lendable
+	if lendable == nil {
+		lendable = c.Cohort.CalculateLendable()
+	}
 	for rName, b := range borrowing {
-		if lendable := c.Cohort.Lendable[rName]; lendable > 0 {
-			ratio := b * 1000 / lendable
+		if lr := lendable[rName]; lr > 0 {
+			ratio := b * 1000 / lr
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs || (ratio == drs && rName < dRes) {
 				drs = ratio
@@ -717,6 +734,6 @@ func (c *ClusterQueue) dominantResourceShare(wlReq FlavorResourceQuantities, m i
 			}
 		}
 	}
-	drs = drs * 1000 / c.FairWeight.MilliValue()
-	return int(drs), dRes
+	dws := drs * 1000 / c.FairWeight.MilliValue()
+	return int(dws), dRes
 }

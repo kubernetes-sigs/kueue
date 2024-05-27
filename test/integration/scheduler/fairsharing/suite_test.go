@@ -69,13 +69,16 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
+	fairSharing := &config.FairSharing{Enable: true}
+
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	cCache := cache.New(mgr.GetClient())
+	cCache := cache.New(mgr.GetClient(), cache.WithFairSharing(fairSharing.Enable))
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
-	configuration := &config.Configuration{}
+	configuration := &config.Configuration{FairSharing: fairSharing}
+	configuration.ControllerManager.Metrics.EnableClusterQueueResources = true
 	mgr.GetScheme().Default(configuration)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
@@ -88,9 +91,7 @@ func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
-		scheduler.WithFairSharing(&config.FairSharing{
-			Enable: true,
-		}))
+		scheduler.WithFairSharing(fairSharing))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
