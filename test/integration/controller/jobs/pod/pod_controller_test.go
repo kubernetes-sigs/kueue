@@ -1807,13 +1807,13 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
-						Message: "The workload is deactivated by exceeded the maximum number of re-queuing retries",
+						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadEvictedByDeactivation,
-						Message: "The workload is deactivated by exceeded the maximum number of re-queuing retries",
+						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
@@ -1825,7 +1825,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 						Type:    podcontroller.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadEvictedByDeactivation,
-						Message: "The workload is deactivated by exceeded the maximum number of re-queuing retries",
+						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

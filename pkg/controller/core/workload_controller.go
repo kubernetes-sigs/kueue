@@ -201,7 +201,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				((!workload.HasRequeueState(&wl) && ptr.Equal(r.waitForPodsReady.requeuingBackoffLimitCount, ptr.To[int32](0))) ||
 					(workload.HasRequeueState(&wl) && wl.Status.RequeueState.RequeueAt == nil &&
 						ptr.Equal(wl.Status.RequeueState.Count, r.waitForPodsReady.requeuingBackoffLimitCount))) {
-				message = fmt.Sprintf("%s by exceeded the maximum number of re-queuing retries", message)
+				message = fmt.Sprintf("%s due to exceeding the maximum number of re-queuing retries", message)
 			}
 			workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByDeactivation, message)
 			updated = true

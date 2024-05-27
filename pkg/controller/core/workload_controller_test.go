@@ -848,7 +848,7 @@ func TestReconcile(t *testing.T) {
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadEvictedByDeactivation,
-					Message: "The workload is deactivated by exceeded the maximum number of re-queuing retries",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				Obj(),
 		},
@@ -888,7 +888,7 @@ func TestReconcile(t *testing.T) {
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadEvictedByDeactivation,
-					Message: "The workload is deactivated by exceeded the maximum number of re-queuing retries",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
 				RequeueState(ptr.To[int32](100), nil).
