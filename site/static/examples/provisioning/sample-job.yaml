@@ -8,8 +8,8 @@ metadata:
   annotations:
     provreq.kueue.x-k8s.io/maxRunDurationSeconds: "600"
 spec:
-  parallelism: 3
-  completions: 3
+  parallelism: 1
+  completions: 1
   suspend: true
   template:
     spec:
@@ -20,7 +20,7 @@ spec:
       containers:
       - name: dummy-job
         image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
-        args: ["120s"]
+        args: ["1200s"]
         resources:
           requests:
             cpu: "100m"
