@@ -10,8 +10,13 @@ namePrefix: kueue-
 
 # Labels to add to all resources and selectors.
 commonLabels:
-  app.kubernetes.io/name: kueue
-  app.kubernetes.io/component: controller
+  control-plane: controller-manager
+
+labels:
+  - pairs:    
+      app.kubernetes.io/name: kueue
+      app.kubernetes.io/component: controller
+    includeTemplates: true
 
 resources:
 - ../components/crd
