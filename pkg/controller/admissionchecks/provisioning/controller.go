@@ -419,6 +419,11 @@ func containerUses(cont *corev1.Container, resourceSet sets.Set[corev1.ResourceN
 			return true
 		}
 	}
+	for r := range cont.Resources.Limits {
+		if resourceSet.Has(r) {
+			return true
+		}
+	}
 	return false
 }
 
