@@ -1545,8 +1545,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
-				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
-				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(ptr.To[int32](1)))
+				g.Expect(wl.Status.RequeueState).Should(gomega.BeNil())
 				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
@@ -1558,13 +1557,13 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
-						Message: "The workload is deactivated",
+						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
 						Reason:  "InactiveWorkload",
-						Message: "The workload is deactivated",
+						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
