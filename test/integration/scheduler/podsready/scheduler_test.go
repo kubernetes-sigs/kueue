@@ -287,6 +287,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				workload.SetRequeuedCondition(prodWl, kueue.WorkloadEvictedByDeactivation, "by test", false)
 				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, prodWl, true)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			// should observe a metrics of WorkloadEvictedByDeactivation
 			util.ExpectEvictedWorkloadsTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByDeactivation, 1)
 
@@ -296,7 +297,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				prodWl.Spec.Active = ptr.To(true)
 				g.Expect(k8sClient.Update(ctx, prodWl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+			// We await for re-admission. Then, the workload keeps the QuotaReserved condition
+			// even after timeout until FinishEvictionForWorkloads is called below.
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 4)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 4)
