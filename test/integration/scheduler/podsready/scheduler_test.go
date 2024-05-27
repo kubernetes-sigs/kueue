@@ -193,7 +193,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 	var _ = ginkgo.Context("Short PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
-			podsReadyTimeout = 250 * time.Millisecond
+			podsReadyTimeout = 1 * time.Second
 			requeuingBackoffLimitCount = ptr.To[int32](2)
 		})
 
@@ -628,7 +628,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 	var _ = ginkgo.Context("Short PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
-			podsReadyTimeout = 250 * time.Millisecond
+			podsReadyTimeout = 1 * time.Second
 		})
 
 		ginkgo.It("Should re-admit a timed out workload", func() {
