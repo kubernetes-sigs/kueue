@@ -6,15 +6,15 @@ description: >
   Troubleshooting the status of a Provisioning Request
 ---
 
-This doc is about troubleshooting ProvisioningRequests, an API defined by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41).
+This document helps you troubleshoot ProvisioningRequests which is an API defined by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41).
 
-See the details about  Provisioning Request[here](https://cloud.google.com/kubernetes-engine/docs/how-to/provisioningrequest).
+You can see the Provisioning Request [documentation](https://cloud.google.com/kubernetes-engine/docs/how-to/provisioningrequest).
 
 Provisioning Requests are created in Kueue with [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/), and are treated by Kueue like an [Admission Check](/docs/concepts/admission_check/). It means Provisioning Requests needs to succeed for a Workload to be admitted.
 
 ## Before you begin
 
-Before you begin further investigation make sure these fundamental requirements are met:
+Before you begin troubleshooting make sure your cluster meets the following requirements:
 - Your cluster's version is at least 1.28.3-gke.1098000 with the Cluster Autoscaler at least 28.122.0
 - Kueue's version is at least 0.5.0
 - You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration)
@@ -42,9 +42,9 @@ and more detailed version with a command:
 kubectl describe provisioningrequest PROVISIONING_REQUEST_NAME
 ```
 
-Provisioning Request state is described in its Status in the `Conditions` field.  it means it still being processed by the Cluster Autoscaler. Otherwise it falls into one the states listed below:
-- Accepted - indicates that the ProvisioningRequest was accepted by ClusterAutoscaler, so ClusterAutoscaler will attempt to provision the nodes for it.
-- Provisioned - indicates that all of the requested resources were created and are available in the cluster. CA will set this condition when the VM creation finishes successfully.
+Provisioning Request state is described in the `.conditions[*].status` field.  it means it still being processed by the Cluster Autoscaler. Otherwise it falls into one the states listed below:
+- `Accepted` - indicates that the ProvisioningRequest was accepted by ClusterAutoscaler, so ClusterAutoscaler will attempt to provision the nodes for it.
+- Provisioned - indicates that all of the requested resources were created and are available in the cluster. Cluster Autoscaler will set this condition when the VM creation finishes successfully.
 - Failed - indicates that it is impossible to obtain resources to fulfill this ProvisioningRequest.	Condition Reason and Message will contain more details about what failed.
 - BookingExpired - indicates that the ProvisioningRequest had Provisioned condition before and capacity reservation time is expired.
 - CapacityRevoked - indicates that requested resources are not longer valid.
