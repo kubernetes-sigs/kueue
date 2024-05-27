@@ -1892,7 +1892,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady with requeuing strategy is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		backoffBaseSeconds int32
-		backLimitCount     *int32
+		backoffLimitCount  *int32
 		ns                 *corev1.Namespace
 		fl                 *kueue.ResourceFlavor
 		cq                 *kueue.ClusterQueue
@@ -1911,7 +1911,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
 				BackoffBaseSeconds: ptr.To[int32](backoffBaseSeconds),
-				BackoffLimitCount:  backLimitCount,
+				BackoffLimitCount:  backoffLimitCount,
 			},
 		}
 		ctx, k8sClient = fwk.RunManager(cfg, managerAndControllersSetup(
@@ -2002,7 +2002,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	ginkgo.When("short backoffBaseSeconds", func() {
 		ginkgo.BeforeEach(func() {
 			backoffBaseSeconds = 1
-			backLimitCount = ptr.To[int32](1)
+			backoffLimitCount = ptr.To[int32](1)
 		})
 
 		ginkgo.It("should re-queue a workload evicted due to PodsReady timeout after the backoff elapses", func() {
@@ -2075,6 +2075,8 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			ginkgo.By("checking the workload is evicted by deactivated due to PodsReadyTimeout")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Spec.Active).ShouldNot(gomega.BeNil())
+				g.Expect(*wl.Spec.Active).Should(gomega.BeFalse())
 				g.Expect(wl.Status.RequeueState).Should(gomega.BeNil())
 				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
 					gomega.BeComparableTo(metav1.Condition{
