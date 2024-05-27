@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/fsnotify/fsnotify v1.7.0
-	github.com/go-logr/logr v1.4.1
+	github.com/go-logr/logr v1.4.2
 	github.com/google/go-cmp v0.6.0
 	github.com/kubeflow/mpi-operator v0.5.0
 	github.com/kubeflow/training-operator v1.7.0
