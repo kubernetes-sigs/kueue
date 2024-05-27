@@ -1892,6 +1892,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady with requeuing strategy is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		backoffBaseSeconds int32
+		backoffLimitCount  *int32
 		ns                 *corev1.Namespace
 		fl                 *kueue.ResourceFlavor
 		cq                 *kueue.ClusterQueue
@@ -1910,6 +1911,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
 				BackoffBaseSeconds: ptr.To[int32](backoffBaseSeconds),
+				BackoffLimitCount:  backoffLimitCount,
 			},
 		}
 		ctx, k8sClient = fwk.RunManager(cfg, managerAndControllersSetup(
@@ -2000,6 +2002,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	ginkgo.When("short backoffBaseSeconds", func() {
 		ginkgo.BeforeEach(func() {
 			backoffBaseSeconds = 1
+			backoffLimitCount = ptr.To[int32](1)
 		})
 
 		ginkgo.It("should re-queue a workload evicted due to PodsReady timeout after the backoff elapses", func() {
@@ -2011,9 +2014,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 
 			ginkgo.By("admit the workload, it gets evicted due to PodsReadyTimeout and re-queued")
+			var admission *kueue.Admission
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				admission := testing.MakeAdmission(cq.Name).
+				admission = testing.MakeAdmission(cq.Name).
 					Assignment(corev1.ResourceCPU, "on-demand", "1m").
 					AssignmentPodCount(wl.Spec.PodSets[0].Count).
 					Obj()
@@ -2057,6 +2061,53 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadBackoffFinished,
 						Message: "The workload backoff was finished",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("re-admit the workload to exceed the backoffLimitCount")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).Should(gomega.Succeed())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking the workload is evicted by deactivated due to PodsReadyTimeout")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Spec.Active).ShouldNot(gomega.BeNil())
+				g.Expect(*wl.Spec.Active).Should(gomega.BeFalse())
+				g.Expect(wl.Status.RequeueState).Should(gomega.BeNil())
+				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadPodsReady,
+						Message: "Not all pods are ready or succeeded",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByDeactivation,
+						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadEvictedByDeactivation,
+						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

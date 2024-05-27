@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/component-base/metrics/testutil"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -325,15 +326,44 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectWorkloadToHaveRequeueCount(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, requeueCount *int32) {
+func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
+	if sleep > 0 {
+		time.Sleep(sleep)
+		ginkgo.By(fmt.Sprintf("exceeded the timeout %q for the %q workload", sleep.String(), wlKey.String()))
+	}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var wl kueue.Workload
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-		g.Expect(ptr.Deref(wl.Status.RequeueState, kueue.RequeueState{})).Should(gomega.BeComparableTo(kueue.RequeueState{
-			Count: requeueCount,
-		}, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt")))
-		if requeueCount != nil {
-			g.Expect(wl.Status.RequeueState.RequeueAt).ShouldNot(gomega.BeNil())
+		g.Expect(wl.Status.Conditions).Should(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
+			Type:    kueue.WorkloadEvicted,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+			Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String()),
+		}, IgnoreConditionTimestampsAndObservedGeneration)))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func SetRequeuedConditionWithPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var wl kueue.Workload
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+		workload.SetRequeuedCondition(&wl, kueue.WorkloadEvictedByPodsReadyTimeout,
+			fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String()), false)
+		g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &wl, true)).Should(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectWorkloadToHaveRequeueState(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, expected *kueue.RequeueState, hasRequeueAt bool) {
+	var wl kueue.Workload
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+		g.Expect(wl.Status.RequeueState).Should(gomega.BeComparableTo(expected, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt")))
+		if expected != nil {
+			if hasRequeueAt {
+				g.Expect(wl.Status.RequeueState.RequeueAt).ShouldNot(gomega.BeNil())
+			} else {
+				g.Expect(wl.Status.RequeueState.RequeueAt).Should(gomega.BeNil())
+			}
 		}
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
