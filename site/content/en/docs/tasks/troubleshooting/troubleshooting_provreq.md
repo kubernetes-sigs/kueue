@@ -1,34 +1,60 @@
 ---
-title: "Troubleshooting Provisioning Request"
+title: "Troubleshooting Provisioning Request in Kueue"
 date: 2024-05-20
 weight: 3
 description: >
-  Troubleshooting the status of a Provisioning Request
+  Troubleshooting the status of a Provisioning Request in Kueue
 ---
 
-This document helps you troubleshoot ProvisioningRequests, which is an API defined by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41).
+This document helps you troubleshoot ProvisioningRequests, an API defined by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41).
 
-You can see the Provisioning Request [documentation](https://cloud.google.com/kubernetes-engine/docs/how-to/provisioningrequest).
-
-Provisioning Requests are created in Kueue with [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/), and are treated by Kueue like an [Admission Check](/docs/concepts/admission_check/). It means Provisioning Requests needs to succeed for a Workload to be admitted.
+Kueue creates ProvisioningRequests via the [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/), and treats them like an [Admission Check](/docs/concepts/admission_check/). In order for Kueue to admit a Workload, the ProvisioningRequest created for it needs to succeed.
 
 ## Before you begin
 
-Before you begin troubleshooting, make sure your cluster meets the following requirements:
-- Your cluster's version is at least 1.28.3-gke.1098000 with the Cluster Autoscaler at least 28.122.0
-- Kueue's version is at least 0.5.0
+Before you begin troubleshooting make sure your cluster meets the following requirements:
+- Check your cloud provider's documentation to determine the minimum versions that support ProvisioningRequest. If you use GKE, your cluster's version should be at least `1.28.3-gke.1098000` with the Cluster Autoscaler at least `28.122.0`
+- Kueue's version is at least `0.5.0`
 - You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration)
-- Your node group enables it. It may vary depending on your cloud provider.
+- You use a type of nodes that support ProvisioningRequest. It may vary depending on your cloud provider.
 
-## Provisioning Request's state
+## Identifying the Provisioning Request for your job
 
-You can run a following command to see a brief state of a Provisioning Request (and other Admission Checks) in the `Admission Checks` field of the Workload's Status.
+See the [Troubleshooting Jobs guide](/docs/tasks/troubleshooting/troubleshooting_jobs/#identifying-the-workload-for-your-job), to learn how to identify the Workload for your job.
+
+You can run the following command to see a brief state of a Provisioning Request (and other Admission Checks) in the `admissionChecks` field of the Workload's Status.
 
 ```bash
 kubectl describe workload WORKLOAD_NAME
 ```
 
-Kueue adds the annotation `cluster-autoscaler.kubernetes.io/consume-provisioning-request` with Provisionig Request's name as a value, which allows identifying a corresponding Provisioning Request to your Workload. You can find this annotation in Workload's Status in the `Admission Checks` field.
+Kueue creates ProvisioningRequests using a naming pattern that helps you identify the corresponding request for your workload.
+
+```
+[NAME OF YOUR WORKLOAD]-[NAME OF THE ADMISSION CHECK]-[NUMBER OF RETRY]
+```
+e.g.
+```bash
+sample-job-2zcsb-57864-sample-admissioncheck-1
+```
+
+When nodes for your job are provisioned, Kueue will also add the annotation `cluster-autoscaler.kubernetes.io/consume-provisioning-request` to the `.admissionChecks[*].podSetUpdate[*]` field in Workload's status. The value of this annotation is the Provisioning Request's name. The output of the `kubectl describe workload` command should look similar to this:
+
+```bash
+[...]
+  Admission Checks:
+    Last Transition Time:  2024-05-22T10:47:46Z
+    Message:               Provisioning Request was successfully provisioned.
+    Name:                  sample-admissioncheck
+    Pod Set Updates:
+      Annotations:
+        cluster-autoscaler.kubernetes.io/consume-provisioning-request:  sample-job-2zcsb-57864-sample-admissioncheck-1
+        cluster-autoscaler.kubernetes.io/provisioning-class-name:       queued-provisioning.gke.io
+      Name:                                                             main
+    State:                                                              Ready
+```
+
+## What is the current state of my Provisioning Request?
 
 One of the reason your job is not running is that ProvisioningRequest is waiting to be provisioned. To find out if this is the case you can view Provisioning Request's state by running the following command:
 
@@ -36,30 +62,64 @@ One of the reason your job is not running is that ProvisioningRequest is waiting
 kubectl get provisioningrequest PROVISIONING_REQUEST_NAME
 ```
 
-and more detailed version with a command:
+If this is the case, the output should look similar to this:
+
+```bash
+NAME                                                 ACCEPTED   PROVISIONED   FAILED   AGE
+sample-job-2zcsb-57864-sample-admissioncheck-1       True       False         False    20s
+```
+
+You can also view more detailed status of your ProvisioningRequest by running the following command:
 
 ```bash
 kubectl describe provisioningrequest PROVISIONING_REQUEST_NAME
 ```
 
-Provisioning Request state is described in the `.conditions[*].status` field.  it means it still being processed by the Cluster Autoscaler. Otherwise it falls into one the states listed below:
+If you ProvisioningRequest fails to provision nodes, the error output may look similar to this:
+```bash
+[...]
+Status:
+  Conditions:
+    Last Transition Time:  2024-05-22T13:04:54Z
+    Message:               Provisioning Request wasn't accepted.
+    Observed Generation:   1
+    Reason:                NotAccepted
+    Status:                False
+    Type:                  Accepted
+    Last Transition Time:  2024-05-22T13:04:54Z
+    Message:               Provisioning Request wasn't provisioned.
+    Observed Generation:   1
+    Reason:                NotProvisioned
+    Status:                False
+    Type:                  Provisioned
+    Last Transition Time:  2024-05-22T13:06:49Z
+    Message:               max cluster limit reached, nodepools out of resources: default-nodepool (cpu, memory)
+    Observed Generation:   1
+    Reason:                OutOfResources
+    Status:                True
+    Type:                  Failed
+```
+
+Note that the `Reason` and `Message` values for `Failed` condition may differ from your output, depending on an error.
+
+Provisioning Request state is described in the `.conditions[*].status` field.  it means it is still being processed by the Cluster Autoscaler. Otherwise it falls into one the states listed below:
 - `Accepted` - indicates that the ProvisioningRequest was accepted by ClusterAutoscaler, so ClusterAutoscaler will attempt to provision the nodes for it.
-- Provisioned - indicates that all of the requested resources were created and are available in the cluster. Cluster Autoscaler will set this condition when the VM creation finishes successfully.
-- Failed - indicates that it is impossible to obtain resources to fulfill this ProvisioningRequest.	Condition Reason and Message will contain more details about what failed.
-- BookingExpired - indicates that the ProvisioningRequest had Provisioned condition before and capacity reservation time is expired.
-- CapacityRevoked - indicates that requested resources are not longer valid.
+- `Provisioned` - indicates that all of the requested resources were created and are available in the cluster. Cluster Autoscaler will set this condition when the VM creation finishes successfully.
+- `Failed` - indicates that it is impossible to obtain resources to fulfill this ProvisioningRequest.	Condition Reason and Message will contain more details about what failed.
+- `BookingExpired` - indicates that the ProvisioningRequest had Provisioned condition before and capacity reservation time is expired.
+- `CapacityRevoked` - indicates that requested resources are not longer valid.
 
 The states transitions are as follow:
 
 ![Provisioning Request's states](/images/prov-req-states.svg)
 
-## Provisioning Request is not created by Kueue
+## Why a Provisioning Request is not created?
 
 If your job does not create a corresponding Provisioning Request try checking following requirements:
 
 ### Ensure the Kueue's controller manager enables the `ProvisioningACC` feature gate
 
-Run a following command to check whether your Kueue's controller manager enables the `ProvisioningACC` feature gate:
+Run the following command to check whether your Kueue's controller manager has enabled the `ProvisioningACC` feature gate:
 
 ```bash
 kubectl describe pod -n kueue-system kueue-controller-manager-
@@ -100,3 +160,5 @@ Status:
     Status:                True
     Type:                  Active
 ```
+
+If none of the above steps resolves your problem, please contact us at the [Slack `wg-batch` channel](https://kubernetes.slack.com/archives/C032ZE66A2X)
