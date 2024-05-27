@@ -366,20 +366,6 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				return k8sClient.Status().Update(ctx, wl)
 			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
 		},
-			ginkgo.Entry("podSetUpdates have the same number of podSets",
-				func() *kueue.Workload {
-					return testing.MakeWorkload(workloadName, ns.Name).
-						PodSets(
-							*testing.MakePodSet("first", 1).Obj(),
-							*testing.MakePodSet("second", 1).Obj(),
-						).
-						Obj()
-				},
-				kueue.AdmissionCheckState{
-					Name:          "check",
-					State:         kueue.CheckStateReady,
-					PodSetUpdates: []kueue.PodSetUpdate{{Name: "first"}}},
-			),
 			ginkgo.Entry("mismatched names in podSetUpdates with names in podSets",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
