@@ -1,9 +1,12 @@
 /*
 Copyright 2024 The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -36,6 +39,7 @@ import (
 func TestPodOptions_getJobControllerUID(t *testing.T) {
 	type fields struct {
 		PrintFlags    *genericclioptions.PrintFlags
+		AllNamespaces bool
 		Namespace     string
 		LabelSelector string
 		FieldSelector string
@@ -126,6 +130,7 @@ func TestPodOptions_getJobControllerUID(t *testing.T) {
 			fakeClientset := fake.NewSimpleClientset(tt.jobs...)
 			o := &PodOptions{
 				PrintFlags:    tt.fields.PrintFlags,
+				AllNamespaces: tt.fields.AllNamespaces,
 				Namespace:     tt.fields.Namespace,
 				LabelSelector: tt.fields.LabelSelector,
 				FieldSelector: tt.fields.FieldSelector,
@@ -151,6 +156,7 @@ func TestPodOptions_listPodsByControllerUID(t *testing.T) {
 
 	type fields struct {
 		PrintFlags    *genericclioptions.PrintFlags
+		AllNamespaces bool
 		Namespace     string
 		LabelSelector string
 		FieldSelector string
@@ -264,6 +270,7 @@ func TestPodOptions_listPodsByControllerUID(t *testing.T) {
 
 			o := &PodOptions{
 				PrintFlags:    tt.fields.PrintFlags,
+				AllNamespaces: tt.fields.AllNamespaces,
 				Namespace:     tt.fields.Namespace,
 				LabelSelector: tt.fields.LabelSelector,
 				FieldSelector: tt.fields.FieldSelector,
