@@ -28,3 +28,11 @@ func FlagString(cmd *cobra.Command, flag string) string {
 	}
 	return s
 }
+
+func FlagStringArray(cmd *cobra.Command, flag string) []string {
+	s, err := cmd.Flags().GetStringArray(flag)
+	if err != nil {
+		klog.Fatalf("error accessing flag %s for command %s: %v", flag, cmd.Name(), err)
+	}
+	return s
+}

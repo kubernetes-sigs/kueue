@@ -38,6 +38,8 @@ var _ = ginkgo.Describe("Kueuectl List", ginkgo.Ordered, ginkgo.ContinueOnFailur
 		cq1 *v1beta1.ClusterQueue
 		lq1 *v1beta1.LocalQueue
 		lq2 *v1beta1.LocalQueue
+		wl1 *v1beta1.Workload
+		wl2 *v1beta1.Workload
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -52,6 +54,12 @@ var _ = ginkgo.Describe("Kueuectl List", ginkgo.Ordered, ginkgo.ContinueOnFailur
 
 		lq2 = testing.MakeLocalQueue("lq2", ns1.Name).ClusterQueue(cq1.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, lq2)).To(gomega.Succeed())
+
+		wl1 = testing.MakeWorkload("wl1", ns1.Name).Queue(lq1.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+
+		wl2 = testing.MakeWorkload("wl2", ns1.Name).Queue(cq1.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -77,6 +85,25 @@ var _ = ginkgo.Describe("Kueuectl List", ginkgo.Ordered, ginkgo.ContinueOnFailur
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring(cq1.Name))
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring(lq1.Name))
 			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring(lq2.Name))
+		})
+	})
+
+	ginkgo.When("List Workloads", func() {
+		// Simple client set that are using on unit tests not allow to filter by field selector.
+		ginkgo.It("Should print workloads filtered by field selector", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				fmt.Sprintf("metadata.name=%s", wl1.Name), "--namespace", ns1.Name})
+			err := kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring(ns1.Name))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring(wl1.Name))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring(wl2.Name))
 		})
 	})
 })

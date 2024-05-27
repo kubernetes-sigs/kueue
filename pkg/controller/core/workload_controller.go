@@ -58,14 +58,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const (
-	// statuses for logging purposes
-	pending       = "pending"
-	quotaReserved = "quotaReserved"
-	admitted      = "admitted"
-	finished      = "finished"
-)
-
 var (
 	realClock = clock.RealClock{}
 )
@@ -500,11 +492,11 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 		return true
 	}
 	defer r.notifyWatchers(nil, wl)
-	status := workloadStatus(wl)
+	status := workload.Status(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload create event")
 
-	if status == finished {
+	if status == workload.StatusFinished {
 		return true
 	}
 
@@ -534,7 +526,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	defer r.notifyWatchers(wl, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
-		status = workloadStatus(wl)
+		status = workload.Status(wl)
 	}
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload delete event")
@@ -573,7 +565,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	wl := e.ObjectNew.(*kueue.Workload)
 	defer r.notifyWatchers(oldWl, wl)
 
-	status := workloadStatus(wl)
+	status := workload.Status(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	active := ptr.Deref(wl.Spec.Active, true)
@@ -582,7 +574,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	if prevQueue != wl.Spec.QueueName {
 		log = log.WithValues("prevQueue", prevQueue)
 	}
-	prevStatus := workloadStatus(oldWl)
+	prevStatus := workload.Status(oldWl)
 	if prevStatus != status {
 		log = log.WithValues("prevStatus", prevStatus)
 	}
@@ -599,7 +591,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
 	switch {
-	case status == finished || !active:
+	case status == workload.StatusFinished || !active:
 		if !active {
 			log.V(2).Info("Workload will not be queued because the workload is not active", "workload", klog.KObj(wl))
 		}
@@ -611,22 +603,22 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(oldWl); err != nil && prevStatus == admitted {
+			if err := r.cache.DeleteWorkload(oldWl); err != nil && prevStatus == workload.StatusAdmitted {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
 
-	case prevStatus == pending && status == pending:
+	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		if !r.queues.UpdateWorkload(oldWl, wlCopy) {
 			log.V(2).Info("Queue for updated workload didn't exist; ignoring for now")
 		}
 
-	case prevStatus == pending && (status == quotaReserved || status == admitted):
+	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(oldWl)
 		if !r.cache.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
-	case (prevStatus == quotaReserved || prevStatus == admitted) && status == pending:
+	case (prevStatus == workload.StatusQuotaReserved || prevStatus == workload.StatusAdmitted) && status == workload.StatusPending:
 		var backoff time.Duration
 		if wlCopy.Status.RequeueState != nil && wlCopy.Status.RequeueState.RequeueAt != nil {
 			backoff = time.Until(wl.Status.RequeueState.RequeueAt.Time)
@@ -654,7 +646,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			time.AfterFunc(backoff, func() {
 				updatedWl := kueue.Workload{}
 				err := r.client.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)
-				if err == nil && workloadStatus(&updatedWl) == pending {
+				if err == nil && workload.Status(&updatedWl) == workload.StatusPending {
 					if !r.queues.AddOrUpdateWorkload(wlCopy) {
 						log.V(2).Info("Queue for workload didn't exist; ignored for now")
 					} else {
@@ -663,7 +655,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 				}
 			})
 		}
-	case prevStatus == admitted && status == admitted && !equality.Semantic.DeepEqual(oldWl.Status.ReclaimablePods, wl.Status.ReclaimablePods):
+	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(oldWl.Status.ReclaimablePods, wl.Status.ReclaimablePods):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Update the workload from cache while holding the queues lock
@@ -741,19 +733,6 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (bool,
 		waitFor = 0
 	}
 	return true, waitFor
-}
-
-func workloadStatus(w *kueue.Workload) string {
-	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
-		return finished
-	}
-	if workload.IsAdmitted(w) {
-		return admitted
-	}
-	if workload.HasQuotaReservation(w) {
-		return quotaReserved
-	}
-	return pending
 }
 
 type resourceUpdatesHandler struct {

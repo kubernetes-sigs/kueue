@@ -209,8 +209,7 @@ kueuectl list workloads
 --all-namespaces | -A
 --clusterqueue=cq 
 -–localqueue=lq 
--—only-pending
-—-only-admitted
+-—status=all|pending|quotareserved|admitted|finished
 --selector=selector
 ```
 
@@ -218,8 +217,8 @@ Output:
 
 * Namespace (if -A is used)
 * Workload name
-* CRD type (truncated to 10 chars)
-* CRD name
+* Job Type (truncated to 10 chars)
+* Job Name
 * LocalQueue
 * ClusterQueue
 * Status

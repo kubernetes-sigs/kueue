@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
@@ -31,8 +32,6 @@ import (
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
-
-const defaultNamespace = "default"
 
 func TestLocalQueueFilter(t *testing.T) {
 	testCases := map[string]struct {
@@ -130,13 +129,13 @@ lq1    cq1            1                   1                    60m
 		"should print local queue list with clusterqueue filter": {
 			args: []string{"--clusterqueue", "cq1"},
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", defaultNamespace).
+				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).
 					ClusterQueue("cq1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(1).
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeLocalQueue("lq2", defaultNamespace).
+				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).
 					ClusterQueue("cq2").
 					PendingWorkloads(2).
 					AdmittedWorkloads(2).
@@ -150,14 +149,14 @@ lq1    cq1            1                   1                    60m
 		"should print local queue list with label selector filter": {
 			args: []string{"--selector", "key=value1"},
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", defaultNamespace).
+				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).
 					ClusterQueue("cq1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(1).
 					Label("key", "value1").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeLocalQueue("lq2", defaultNamespace).
+				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).
 					ClusterQueue("cq2").
 					PendingWorkloads(2).
 					AdmittedWorkloads(2).
@@ -172,14 +171,14 @@ lq1    cq1            1                   1                    60m
 		"should print local queue list with label selector filter (short flag)": {
 			args: []string{"-l", "foo=bar"},
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", defaultNamespace).
+				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).
 					ClusterQueue("cq1").
 					PendingWorkloads(1).
 					AdmittedWorkloads(1).
 					Label("foo", "bar").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
-				utiltesting.MakeLocalQueue("lq2", defaultNamespace).
+				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).
 					ClusterQueue("cq2").
 					PendingWorkloads(2).
 					AdmittedWorkloads(2).
@@ -191,7 +190,7 @@ lq1    cq1            1                   1                    60m
 `,
 		},
 		"should print not found error": {
-			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", defaultNamespace),
+			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
 		},
 		"should print not found error with all-namespaces filter": {
 			args:       []string{"-A"},
@@ -205,8 +204,6 @@ lq1    cq1            1                   1                    60m
 			tf := cmdtesting.NewTestClientGetter()
 			if len(tc.ns) > 0 {
 				tf.WithNamespace(tc.ns)
-			} else {
-				tf.WithNamespace(defaultNamespace)
 			}
 
 			tf.ClientSet = fake.NewSimpleClientset(tc.objs...)
