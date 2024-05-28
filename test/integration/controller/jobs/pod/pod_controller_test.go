@@ -1412,7 +1412,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 		cfg = fwk.Init()
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			Enable:  true,
-			Timeout: &metav1.Duration{Duration: 10 * time.Millisecond},
+			Timeout: &metav1.Duration{Duration: 1 * time.Second},
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:         ptr.To(configapi.EvictionTimestamp),
 				BackoffLimitCount: ptr.To[int32](1),

@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -608,7 +609,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"[backoffLimitCount: 100] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
-			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition, and the requeueState.count equals to backoffLimitCount": {
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition, the requeueState.requeueAt has already passed and the requeueState.count equals to backoffLimitCount": {
 			reconcilerOpts: []Option{
 				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
 				WithRequeuingBackoffLimitCount(ptr.To[int32](100)),
@@ -624,7 +625,7 @@ func TestReconcile(t *testing.T) {
 					Reason:  "PodsReady",
 					Message: "Not all pods are ready or succeeded",
 				}).
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(ptr.To[int32](100), ptr.To(metav1.NewTime(testStartTime.Add(-5*time.Minute)))).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(false).
@@ -642,8 +643,45 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByDeactivation,
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
-				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(ptr.To[int32](100), ptr.To(metav1.NewTime(testStartTime.Add(-5*time.Minute).Truncate(time.Second)))).
+				Obj(),
+		},
+		"[backoffLimitCount: 100] should set the Evicted condition with InactiveWorkload reason" +
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition, the requeueState.requeueAt has not already passed and the requeueState.count equals to backoffLimitCount": {
+			reconcilerOpts: []Option{
+				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
+				WithRequeuingBackoffLimitCount(ptr.To[int32](100)),
+				WithRequeuingBaseDelaySeconds(10),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadPodsReady,
+					Message: "Not all pods are ready or succeeded",
+				}).
+				RequeueState(ptr.To[int32](100), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  "PodsReady",
+					Message: "Not all pods are ready or succeeded",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Message: "The workload is deactivated",
+				}).
+				RequeueState(ptr.To[int32](100), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
 		},
 		"should keep the previous eviction reason when the Workload is already evicted by other reason even though the Workload is deactivated.": {
@@ -700,11 +738,18 @@ func TestReconcile(t *testing.T) {
 				gotWorkload = nil
 			}
 
-			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
+			// If wanted is deactivated Workload, the ".status.requeueState.requeueAt" should be equal to actual and wanted.
+			cmpOpts := slices.Clone(workloadCmpOpts)
+			if tc.wantWorkload != nil && !ptr.Deref(tc.wantWorkload.Spec.Active, true) {
+				cmpOpts[1] = cmpopts.IgnoreFields(
+					kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",
+				)
+			}
+			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, cmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 
-			if tc.wantWorkload != nil {
+			if tc.wantWorkload != nil && ptr.Deref(tc.wantWorkload.Spec.Active, true) {
 				if requeueState := tc.wantWorkload.Status.RequeueState; requeueState != nil && requeueState.RequeueAt != nil {
 					gotRequeueState := gotWorkload.Status.RequeueState
 					if gotRequeueState != nil && gotRequeueState.RequeueAt != nil {

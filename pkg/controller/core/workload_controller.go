@@ -169,10 +169,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			// The deactivation reason could be deduced as the maximum number of re-queuing retries if the workload met all criteria below:
 			//  1. The waitForPodsReady feature is enabled, which means that it has "PodsReady" condition.
 			//  2. The workload has already exceeded the PodsReadyTimeout.
-			//  3. The number of re-queued has already reached the waitForPodsReady.requeuingBackoffLimitCount.
+			//  3. The workload already has been re-queued previously, which means the requeueAt has already passed.
+			//  4. The number of re-queued has already reached the waitForPodsReady.requeuingBackoffLimitCount.
 			if apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadPodsReady) &&
 				((!workload.HasRequeueState(&wl) && ptr.Equal(r.requeuingBackoffLimitCount, ptr.To[int32](0))) ||
-					(workload.HasRequeueState(&wl) && ptr.Equal(wl.Status.RequeueState.Count, r.requeuingBackoffLimitCount))) {
+					(workload.HasRequeueState(&wl) && wl.Status.RequeueState.RequeueAt != nil && wl.Status.RequeueState.RequeueAt.Sub(realClock.Now().Truncate(time.Second)) <= 0 &&
+						ptr.Equal(wl.Status.RequeueState.Count, r.requeuingBackoffLimitCount))) {
 				message = fmt.Sprintf("%s due to exceeding the maximum number of re-queuing retries", message)
 			}
 			workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByDeactivation, message)
@@ -432,7 +434,7 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	for backoff.Steps > 0 {
 		waitDuration = backoff.Step()
 	}
-	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(time.Now().Add(waitDuration)))
+	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(realClock.Now().Add(waitDuration)))
 	wl.Status.RequeueState.Count = &requeuingCount
 	return false, nil
 }
