@@ -18,7 +18,6 @@ package list
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -122,7 +121,6 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 	}
 
 	o.ForObject, err = parseForObjectFilterFlag(o.UserSpecifiedForObject)
-	fmt.Println(o.ForObject)
 	if err != nil {
 		return err
 	}
