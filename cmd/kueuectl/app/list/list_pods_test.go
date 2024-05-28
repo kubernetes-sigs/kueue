@@ -53,7 +53,7 @@ func TestPodOptions_listPods(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "list pods for batch/job type",
+			name: "list pods for valid batch/job type",
 			pods: []runtime.Object{
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -101,6 +101,504 @@ func TestPodOptions_listPods(t *testing.T) {
 				"NAME          STATUS      AGE",
 				"valid-pod-1   RUNNING     60m",
 				"valid-pod-2   COMPLETED   60m",
+				"",
+			},
+		}, {
+			name: "no valid pods for batch/job type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "sample-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "sample-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "job/test-job",
+			},
+			wantOut: []string{
+				"",
+			},
+		}, {
+			name: "list pods for kubeflow.org/PyTorchJob type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubeflow.org/v1",
+								Kind:       "PyTorchJob",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "pytorchjob/test-job",
+			},
+			wantOut: []string{
+				"NAME          STATUS    AGE",
+				"valid-pod-1   RUNNING   60m",
+				"",
+			},
+		}, {
+			name: "list pods for kubeflow.org/MXjob type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubeflow.org/v1",
+								Kind:       "MXJob",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "mxjob/test-job",
+			},
+			wantOut: []string{
+				"NAME          STATUS    AGE",
+				"valid-pod-1   RUNNING   60m",
+				"",
+			},
+		}, {
+			name: "list pods for kubeflow.org/paddlejob type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubeflow.org/v1",
+								Kind:       "PaddleJob",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "paddlejob/test-job",
+			},
+			wantOut: []string{
+				"NAME          STATUS    AGE",
+				"valid-pod-1   RUNNING   60m",
+				"",
+			},
+		}, {
+			name: "list pods for kubeflow.org/tfjob type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubeflow.org/v1",
+								Kind:       "TFJob",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "tfjob/test-job",
+			},
+			wantOut: []string{
+				"NAME          STATUS    AGE",
+				"valid-pod-1   RUNNING   60m",
+				"",
+			},
+		}, {
+			name: "list pods for kubeflow.org/mpijob type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubeflow.org/v1",
+								Kind:       "MPIJob",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "mpijob/test-job",
+			},
+			wantOut: []string{
+				"NAME          STATUS    AGE",
+				"valid-pod-1   RUNNING   60m",
+				"",
+			},
+		}, {
+			name: "list pods for kubeflow.org/xgboostjob type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubeflow.org/v1",
+								Kind:       "XGBoostJob",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "xgboostjob/test-job",
+			},
+			wantOut: []string{
+				"NAME          STATUS    AGE",
+				"valid-pod-1   RUNNING   60m",
+				"",
+			},
+		}, {
+			name: "list pods for ray.io/rayjob type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "ray.io/v1",
+								Kind:       "RayJob",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "rayjob/test-job",
+			},
+			wantOut: []string{
+				"NAME          STATUS    AGE",
+				"valid-pod-1   RUNNING   60m",
+				"",
+			},
+		}, {
+			name: "list pods for ray.io/raycluster type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "ray.io/v1",
+								Kind:       "RayCluster",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "raycluster/test-job",
+			},
+			wantOut: []string{
+				"NAME          STATUS    AGE",
+				"valid-pod-1   RUNNING   60m",
+				"",
+			},
+		}, {
+			name: "list pods for jobset.x-k8s.io/jobset type",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "jobset.x-k8s.io/v1alpha2",
+								Kind:       "JobSet",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "default",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			fields: fields{
+				Namespace:              "default",
+				UserSpecifiedForObject: "jobset/test-job",
+			},
+			wantOut: []string{
+				"NAME          STATUS    AGE",
+				"valid-pod-1   RUNNING   60m",
 				"",
 			},
 		},
