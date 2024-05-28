@@ -9,6 +9,7 @@ Changes since `v0.6.2`:
 ### Bug or Regression
 
 - Change the default pprof port to 8083 to fix a bug that causes conflicting listening ports between pprof and the visibility server. (#2232, @amy)
+- Check the containers limits for used resources in provisioning admission check controller and include them in the ProvisioningRequest as requests (#2293, @trasc)
 - Consider deleted pods without `spec.nodeName` inactive and subject for pod replacement. (#2217, @trasc)
 - Fix a bug that causes the reactivated Workload to be immediately deactivated even though it doesn't exceed the backoffLimit. (#2220, @tenzen-y)
 - Fix a bug that the ".waitForPodsReady.requeuingStrategy.backoffLimitCount" is ignored when the ".waitForPodsReady.requeuingStrategy.timestamp" is not set. (#2224, @tenzen-y)
