@@ -606,11 +606,6 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	return true
 }
 
-// HasRequeueState returns true if the workload has re-queue state.
-func HasRequeueState(w *kueue.Workload) bool {
-	return w.Status.RequeueState != nil
-}
-
 // IsAdmitted returns true if the workload is admitted.
 func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
