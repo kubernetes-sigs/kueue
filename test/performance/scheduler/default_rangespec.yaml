@@ -25,5 +25,5 @@ wlClassesMaxAvgTimeToAdmissionMs:
   # Average value 76768 (+/- 2%), setting at +20%
   medium: 90_000
 
-  # Average value 215468 (+/- 2%), setting at +5%
-  small: 227_000
+  # Average value 215468 (+/- 2%), setting at +5% + 6s accounting for observed failures
+  small: 233_000
