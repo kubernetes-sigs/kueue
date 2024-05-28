@@ -32,7 +32,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
-func TestPodOptions_listPods(t *testing.T) {
+func TestPodCmd(t *testing.T) {
 	testStartTime := time.Now()
 
 	tests := []struct {
@@ -50,7 +50,7 @@ func TestPodOptions_listPods(t *testing.T) {
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -68,7 +68,7 @@ func TestPodOptions_listPods(t *testing.T) {
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -96,7 +96,7 @@ valid-pod-2   COMPLETED   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -114,7 +114,7 @@ valid-pod-2   COMPLETED   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -139,7 +139,7 @@ valid-pod-2   COMPLETED   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -157,7 +157,7 @@ valid-pod-2   COMPLETED   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -184,7 +184,7 @@ valid-pod-1   RUNNING   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -202,7 +202,7 @@ valid-pod-1   RUNNING   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -229,7 +229,7 @@ valid-pod-1   RUNNING   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -247,7 +247,7 @@ valid-pod-1   RUNNING   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -274,7 +274,7 @@ valid-pod-1   RUNNING   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -292,7 +292,7 @@ valid-pod-1   RUNNING   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -319,7 +319,7 @@ valid-pod-1   RUNNING   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -337,7 +337,7 @@ valid-pod-1   RUNNING   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -364,7 +364,7 @@ valid-pod-1   RUNNING   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -382,7 +382,7 @@ valid-pod-1   RUNNING   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -409,7 +409,7 @@ valid-pod-1   RUNNING   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -427,7 +427,7 @@ valid-pod-1   RUNNING   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -454,7 +454,7 @@ valid-pod-1   RUNNING   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -472,7 +472,7 @@ valid-pod-1   RUNNING   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -499,7 +499,7 @@ valid-pod-1   RUNNING   60m
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -517,7 +517,7 @@ valid-pod-1   RUNNING   60m
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 						CreationTimestamp: metav1.Time{
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
@@ -546,10 +546,10 @@ valid-pod-1   RUNNING   60m
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
 			tf := cmdtesting.NewTestClientGetter()
-			tf.WithNamespace("default")
+			tf.WithNamespace(metav1.NamespaceDefault)
 
 			clientset := k8sfake.NewSimpleClientset(tt.pods...)
-			tf.K8sClient = clientset
+			tf.K8sClientset = clientset
 
 			cmd := NewPodCmd(tf, streams)
 			cmd.SetArgs(tt.args)
