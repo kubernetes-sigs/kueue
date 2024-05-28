@@ -484,29 +484,6 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 	}
 }
 
-func TestHasRequeueState(t *testing.T) {
-	cases := map[string]struct {
-		workload *kueue.Workload
-		want     bool
-	}{
-		"workload has requeue state": {
-			workload: utiltesting.MakeWorkload("test", "test").RequeueState(ptr.To[int32](5), ptr.To(metav1.Now())).Obj(),
-			want:     true,
-		},
-		"workload doesn't have requeue state": {
-			workload: utiltesting.MakeWorkload("test", "test").RequeueState(nil, nil).Obj(),
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := HasRequeueState(tc.workload)
-			if tc.want != got {
-				t.Errorf("Unexpected result from HasRequeueState\nwant:%v\ngot:%v\n", tc.want, got)
-			}
-		})
-	}
-}
-
 func TestIsEvictedByDeactivation(t *testing.T) {
 	cases := map[string]struct {
 		workload *kueue.Workload

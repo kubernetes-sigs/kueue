@@ -190,8 +190,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			//  3. The workload already has been re-queued previously, which means it doesn't have the requeueAt field.
 			//  4. The number of re-queued has already reached the waitForPodsReady.requeuingBackoffLimitCount.
 			if apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadPodsReady) &&
-				((!workload.HasRequeueState(&wl) && ptr.Equal(r.waitForPodsReady.requeuingBackoffLimitCount, ptr.To[int32](0))) ||
-					(workload.HasRequeueState(&wl) && wl.Status.RequeueState.RequeueAt == nil &&
+				((wl.Status.RequeueState == nil && ptr.Equal(r.waitForPodsReady.requeuingBackoffLimitCount, ptr.To[int32](0))) ||
+					(wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt == nil &&
 						ptr.Equal(wl.Status.RequeueState.Count, r.waitForPodsReady.requeuingBackoffLimitCount))) {
 				message = fmt.Sprintf("%s due to exceeding the maximum number of re-queuing retries", message)
 			}
@@ -450,7 +450,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 // Otherwise, it increments a re-queueing count and update a time to be re-queued.
 // It returns true as a first value if a workload is deactivated.
 func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	if !workload.HasRequeueState(wl) {
+	if wl.Status.RequeueState == nil {
 		wl.Status.RequeueState = &kueue.RequeueState{}
 	}
 	// If requeuingBackoffLimitCount equals to null, the workloads is repeatedly and endless re-queued.
