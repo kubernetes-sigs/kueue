@@ -17,7 +17,6 @@ limitations under the License.
 package list
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -136,7 +135,7 @@ func parseForObjectFilterFlag(input string) (objectRef, error) {
 
 	parts := strings.Split(input, "/")
 	if len(parts) > 2 {
-		return objRef, errors.New(fmt.Sprintf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", input))
+		return objRef, fmt.Errorf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", input)
 	}
 
 	if len(parts) == 1 {

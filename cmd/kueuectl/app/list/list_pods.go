@@ -140,10 +140,14 @@ func (o *PodOptions) Run(ctx context.Context) error {
 
 // listPods lists the pods based on the given --for object
 func (o *PodOptions) listPods(ctx context.Context) error {
-	continueToken := ""
+	namespace := o.Namespace
+	if o.AllNamespaces {
+		namespace = ""
+	}
 
+	continueToken := ""
 	for {
-		podList, err := o.Clientset.CoreV1().Pods(o.Namespace).List(ctx, metav1.ListOptions{
+		podList, err := o.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 			LabelSelector: o.LabelSelector,
 			FieldSelector: o.FieldSelector,
 			Continue:      continueToken,

@@ -14,6 +14,10 @@ import (
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 	kueuefake "sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8s "k8s.io/client-go/kubernetes"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
 type TestClientGetter struct {
