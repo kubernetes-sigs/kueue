@@ -18,12 +18,12 @@ package list
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -46,12 +46,6 @@ const (
 	podExample = `  # List Pods
   kueuectl list pods --for job/job-name`
 )
-
-type objectRef struct {
-	APIGroup string
-	Kind     string
-	Name     string
-}
 
 type PodOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
@@ -127,7 +121,8 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 		o.PrintObj = printer.PrintObj
 	}
 
-	err = o.parseForObject()
+	o.ForObject, err = parseForObjectFilterFlag(o.UserSpecifiedForObject)
+	fmt.Println(o.ForObject)
 	if err != nil {
 		return err
 	}
@@ -141,27 +136,6 @@ func (o *PodOptions) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	return nil
-}
-
-func (o *PodOptions) parseForObject() error {
-	if o.UserSpecifiedForObject == "" {
-		return nil
-	}
-
-	parts := strings.Split(o.UserSpecifiedForObject, "/")
-	if len(parts) > 2 {
-		return errors.New(fmt.Sprintf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", o.UserSpecifiedForObject))
-	}
-
-	if len(parts) == 1 {
-		o.ForObject.Name = parts[0]
-		return nil
-	}
-
-	o.ForObject.Name = parts[1]
-	o.ForObject.Kind, o.ForObject.APIGroup, _ = strings.Cut(parts[0], ".")
 
 	return nil
 }
@@ -184,24 +158,10 @@ func (o *PodOptions) listPods(ctx context.Context) error {
 			return nil
 		}
 
-		filteredPods := make([]corev1.Pod, 0, len(podList.Items))
-		for i := range podList.Items {
-			for _, ownerRef := range podList.Items[i].OwnerReferences {
-				gv, _ := schema.ParseGroupVersion(ownerRef.APIVersion)
-
-				if strings.EqualFold(o.ForObject.Kind, ownerRef.Kind) && strings.EqualFold(o.ForObject.Name, ownerRef.Name) {
-					if o.ForObject.APIGroup == "" || strings.EqualFold(o.ForObject.APIGroup, gv.Group) {
-						filteredPods = append(filteredPods, podList.Items[i])
-						break
-					}
-				}
-			}
-		}
-
 		// replace the podList items with the new filtered pods
-		podList.Items = filteredPods
+		podList.Items = o.filterPodsByOwnerRef(podList)
 
-		if err := o.PrintObj(podList, o.Out); err != nil {
+		if err = o.PrintObj(podList, o.Out); err != nil {
 			return err
 		}
 
@@ -210,6 +170,25 @@ func (o *PodOptions) listPods(ctx context.Context) error {
 		}
 		continueToken = podList.Continue
 	}
+}
+
+func (o *PodOptions) filterPodsByOwnerRef(podList *corev1.PodList) []corev1.Pod {
+	filteredPods := make([]corev1.Pod, 0, len(podList.Items))
+
+	for i := range podList.Items {
+		for _, ownerRef := range podList.Items[i].OwnerReferences {
+			gv, _ := schema.ParseGroupVersion(ownerRef.APIVersion)
+
+			if strings.EqualFold(o.ForObject.Kind, ownerRef.Kind) && strings.EqualFold(o.ForObject.Name, ownerRef.Name) {
+				if o.ForObject.APIGroup == "" || strings.EqualFold(o.ForObject.APIGroup, gv.Group) {
+					filteredPods = append(filteredPods, podList.Items[i])
+					break
+				}
+			}
+		}
+	}
+
+	return filteredPods
 }
 
 // printPodTable is a printer function for PodList objects.
