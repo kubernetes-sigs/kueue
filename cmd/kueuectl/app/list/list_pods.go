@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"strings"
 	"time"
 
@@ -44,17 +45,23 @@ const (
 	the label selector or the field selector.`
 	podExample = `  # List Pods
   kueuectl list pods --for job/job-name`
-	jobControllerUIDLabel = "batch.kubernetes.io/controller-uid"
 )
+
+type objectRef struct {
+	APIGroup string
+	Kind     string
+	Name     string
+}
 
 type PodOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
-	AllNamespaces bool
-	Namespace     string
-	LabelSelector string
-	FieldSelector string
-	JobArg        string
+	AllNamespaces          bool
+	Namespace              string
+	LabelSelector          string
+	FieldSelector          string
+	UserSpecifiedForObject string
+	ForObject              objectRef
 
 	Clientset k8s.Interface
 
@@ -74,15 +81,14 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 	o := NewPodOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "pods --for <type>[.<api-group>]/]<name>",
+		Use:                   "pods --for [<type>[.<api-group>]/]<name>",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"po"},
 		Short:                 "List Pods belong to a Job Kind",
 		Long:                  podLong,
 		Example:               podExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
-			cobra.CheckErr(o.Validate())
+			cobra.CheckErr(o.Complete(clientGetter))
 			cobra.CheckErr(o.Run(cmd.Context()))
 		},
 	}
@@ -92,13 +98,13 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 	addAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
-	addForFilterFlagVar(cmd, &o.JobArg)
+	addForObjectFilterFlagVar(cmd, &o.UserSpecifiedForObject)
 
 	return cmd
 }
 
 // Complete takes the command arguments and infers any remaining options.
-func (o *PodOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 	var err error
 
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
@@ -121,73 +127,48 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command
 		o.PrintObj = printer.PrintObj
 	}
 
-	if len(args) > 0 {
-		jobArg, err := cmd.Flags().GetString("for")
-		if err != nil {
-			return err
-		}
-		o.JobArg = jobArg
+	err = o.parseForObject()
+	if err != nil {
+		return err
 	}
 
 	return nil
-}
-
-func (o *PodOptions) Validate() error {
-	if !o.validJobFlagOptionProvided() {
-		return errors.New("not a valid --job flag. Please provide a valid job name in format job/job-name")
-	}
-	return nil
-}
-
-func (o *PodOptions) validJobFlagOptionProvided() bool {
-	jobArgSlice := strings.Split(o.JobArg, "/")
-
-	// jobArgSlice should be ["job", "job-name"]
-	if len(jobArgSlice) != 2 {
-		return false
-	}
-
-	// valid only if the kind is a job
-	kind := strings.ToLower(jobArgSlice[0])
-	return strings.Contains(kind, "job")
 }
 
 // Run prints the pods for a specific Job
 func (o *PodOptions) Run(ctx context.Context) error {
-	jobName := strings.Split(o.JobArg, "/")[1]
-	controllerUID, err := o.getJobControllerUID(ctx, jobName)
+	err := o.listPods(ctx)
 	if err != nil {
 		return err
 	}
 
-	err = o.listPodsByControllerUID(ctx, controllerUID)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
-// getJobControllerUID fetches the controllerUID of the given Job
-func (o *PodOptions) getJobControllerUID(ctx context.Context, jobName string) (string, error) {
-	job, err := o.Clientset.BatchV1().Jobs(o.Namespace).Get(ctx, jobName, metav1.GetOptions{})
-	if err != nil {
-		return "", err
+func (o *PodOptions) parseForObject() error {
+	if o.UserSpecifiedForObject == "" {
+		return nil
 	}
 
-	return job.ObjectMeta.Labels[jobControllerUIDLabel], nil
+	parts := strings.Split(o.UserSpecifiedForObject, "/")
+	if len(parts) > 2 {
+		return errors.New(fmt.Sprintf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", o.UserSpecifiedForObject))
+	}
+
+	if len(parts) == 1 {
+		o.ForObject.Name = parts[0]
+		return nil
+	}
+
+	o.ForObject.Name = parts[1]
+	o.ForObject.Kind, o.ForObject.APIGroup, _ = strings.Cut(parts[0], ".")
+
+	return nil
 }
 
-// listPodsByControllerUID lists the pods based on the given controllerUID linked to the pod
-func (o *PodOptions) listPodsByControllerUID(ctx context.Context, controllerUID string) error {
+// listPods lists the pods based on the given --for object
+func (o *PodOptions) listPods(ctx context.Context) error {
 	continueToken := ""
-
-	// assign or appends controllerUID label with the existing selector if any
-	// used for filtering the pods which belongs to the job controller
-	if o.LabelSelector != "" {
-		o.LabelSelector = fmt.Sprintf("%s,%s=%s", o.LabelSelector, jobControllerUIDLabel, controllerUID)
-	} else {
-		o.LabelSelector = fmt.Sprintf("%s=%s", jobControllerUIDLabel, controllerUID)
-	}
 
 	for {
 		podList, err := o.Clientset.CoreV1().Pods(o.Namespace).List(ctx, metav1.ListOptions{
@@ -202,6 +183,23 @@ func (o *PodOptions) listPodsByControllerUID(ctx context.Context, controllerUID 
 		if len(podList.Items) == 0 {
 			return nil
 		}
+
+		filteredPods := make([]corev1.Pod, 0, len(podList.Items))
+		for i := range podList.Items {
+			for _, ownerRef := range podList.Items[i].OwnerReferences {
+				gv, _ := schema.ParseGroupVersion(ownerRef.APIVersion)
+
+				if strings.EqualFold(o.ForObject.Kind, ownerRef.Kind) && strings.EqualFold(o.ForObject.Name, ownerRef.Name) {
+					if o.ForObject.APIGroup == "" || strings.EqualFold(o.ForObject.APIGroup, gv.Group) {
+						filteredPods = append(filteredPods, podList.Items[i])
+						break
+					}
+				}
+			}
+		}
+
+		// replace the podList items with the new filtered pods
+		podList.Items = filteredPods
 
 		if err := o.PrintObj(podList, o.Out); err != nil {
 			return err
