@@ -370,6 +370,9 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 				return err
 			}
 
+			// copy limits to requests if needed
+			workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
+
 			if err := ctrl.SetControllerReference(request, newPt, c.client.Scheme()); err != nil {
 				return err
 			}

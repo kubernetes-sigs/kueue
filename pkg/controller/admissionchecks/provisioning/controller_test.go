@@ -648,6 +648,7 @@ func TestReconcile(t *testing.T) {
 									Resources: corev1.ResourceRequirements{
 										Requests: corev1.ResourceList{
 											corev1.ResourceCPU: resource.MustParse("1"),
+											"example.com/gpu":  resource.MustParse("1"),
 										},
 										Limits: corev1.ResourceList{
 											"example.com/gpu": resource.MustParse("1"),
