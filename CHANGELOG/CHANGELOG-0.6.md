@@ -1,3 +1,46 @@
+## v0.6.3
+
+Changes since `v0.6.2`:
+
+### Feature
+
+- Improve the kubectl output for workloads using admission checks. (#2014, @vladikkuzn)
+
+### Bug or Regression
+
+- Change the default pprof port to 8083 to fix a bug that causes conflicting listening ports between pprof and the visibility server. (#2232, @amy)
+- Consider deleted pods without `spec.nodeName` inactive and subject for pod replacement. (#2217, @trasc)
+- Fix a bug that causes the reactivated Workload to be immediately deactivated even though it doesn't exceed the backoffLimit. (#2220, @tenzen-y)
+- Fix a bug that the ".waitForPodsReady.requeuingStrategy.backoffLimitCount" is ignored when the ".waitForPodsReady.requeuingStrategy.timestamp" is not set. (#2224, @tenzen-y)
+- Fix chart values configuration for the number of reconcilers for the Pod integration. (#2050, @alculquicondor)
+- Fix handling of eviction in StrictFIFO to ensure the evicted workload is in the head.
+  Previously, in case of priority-based preemption, it was possible that the lower-priority
+  workload might get admitted while the higher priority workload is being evicted. (#2081, @mimowo)
+- Fix preemption algorithm to reduce the number of preemptions within a ClusterQueue when reclamation is not possible, and when using .preemption.borrowWithinCohort (#2111, @alculquicondor)
+- Fix support for MPIJobs when using a ProvisioningRequest engine that applies updates only to worker templates. (#2281, @trasc)
+- Fix support for jobset v0.5.x (#2271, @alculquicondor)
+- Fix the resource requests computation taking into account sidecar containers. (#2159, @IrvingMg)
+- Helm Chart: Fix a bug that the kueue does not work with the cert-manager. (#2098, @EladDolev)
+- HelmChart: Fix a bug that the `integrations.podOptions.namespaceSelector` is not propagated. (#2095, @EladDolev)
+- JobFramework: The eviction by inactivation mechanism was moved to the workload controller.
+  
+  This fixes a problem where pod groups would remain with condition QuotaReserved set to True when replacement pods are missing. (#2229, @mbobrovskyi)
+- Make the defaults for PodsReadyTimeout backoff more practical, as for the original values
+  the couple of first requeues made the impression as immediate on users (below 10s, which 
+  is negligible to the wait time spent waiting for PodsReady). 
+  
+  The defaults values for the formula to determine the exponential back are changed as follows:
+  - base `1s -> 10s`
+  - exponent: `1.41284738 -> 2`
+  So, now the consecutive times to requeue a workload are: 10s, 20s, 40s, ... (#2033, @mimowo)
+- MultiKueue: Fix a bug that could delay the joining clusters when it's MultiKueueCluster is created. (#2167, @trasc)
+- Prevent Pod from being deleted when admitted via ProvisioningRequest that has pod updates on tolerations (#2262, @vladikkuzn)
+- Use PATCH updates for pods. This fixes support for Pods when using the latest features in Kubernetes v1.29 (#2089, @mbobrovskyi)
+
+### Other (Cleanup or Flake)
+
+- Correctly log workload status for workloads with quota reserved, but awaiting for admission checks. (#2080, @mimowo)
+
 ## v0.6.2
 
 Changes since `v0.6.1`:
