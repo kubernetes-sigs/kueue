@@ -43,6 +43,7 @@ the label selector or the field selector.`
 type LocalQueueOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
+	Limit              int64
 	AllNamespaces      bool
 	Namespace          string
 	FieldSelector      string
@@ -50,8 +51,6 @@ type LocalQueueOptions struct {
 	ClusterQueueFilter string
 
 	Client kueuev1beta1.KueueV1beta1Interface
-
-	PrintObj printers.ResourcePrinterFunc
 
 	genericiooptions.IOStreams
 }
@@ -94,6 +93,11 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
 	var err error
 
+	o.Limit, err = listRequestLimit()
+	if err != nil {
+		return err
+	}
+
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return err
@@ -106,48 +110,83 @@ func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.
 
 	o.Client = clientset.KueueV1beta1()
 
+	return nil
+}
+
+func (o *LocalQueueOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, error) {
 	if !o.PrintFlags.OutputFlagSpecified() {
-		printer := newLocalQueueTablePrinter()
-		if o.AllNamespaces {
-			printer.WithNamespace()
-		}
-		o.PrintObj = printer.PrintObj
-	} else {
-		printer, err := o.PrintFlags.ToPrinter()
-		if err != nil {
-			return err
-		}
-		o.PrintObj = printer.PrintObj
+		printer := newLocalQueueTablePrinter().
+			WithNamespace(o.AllNamespaces).
+			WithHeaders(headers)
+		return printer.PrintObj, nil
 	}
 
-	return nil
+	printer, err := o.PrintFlags.ToPrinter()
+	if err != nil {
+		return nil, err
+	}
+
+	return printer.PrintObj, nil
 }
 
 // Run performs the list operation.
 func (o *LocalQueueOptions) Run(ctx context.Context) error {
+	var totalCount int
+
 	namespace := o.Namespace
 	if o.AllNamespaces {
 		namespace = ""
 	}
 
-	opts := metav1.ListOptions{LabelSelector: o.LabelSelector, FieldSelector: o.FieldSelector}
-	list, err := o.Client.LocalQueues(namespace).List(ctx, opts)
-	if err != nil {
-		return err
+	opts := metav1.ListOptions{
+		LabelSelector: o.LabelSelector,
+		FieldSelector: o.FieldSelector,
+		Limit:         o.Limit,
 	}
 
-	o.filterList(list)
+	tabWriter := printers.GetNewTabWriter(o.Out)
 
-	if len(list.Items) == 0 {
-		if !o.AllNamespaces {
-			fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
-		} else {
-			fmt.Fprintln(o.ErrOut, "No resources found")
+	for {
+		headers := totalCount == 0
+
+		list, err := o.Client.LocalQueues(namespace).List(ctx, opts)
+		if err != nil {
+			return err
 		}
+
+		o.filterList(list)
+
+		totalCount += len(list.Items)
+
+		printer, err := o.ToPrinter(headers)
+		if err != nil {
+			return err
+		}
+
+		if err := printer.PrintObj(list, tabWriter); err != nil {
+			return err
+		}
+
+		if list.Continue != "" {
+			opts.Continue = list.Continue
+			continue
+		}
+
+		if totalCount == 0 {
+			if !o.AllNamespaces {
+				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+			} else {
+				fmt.Fprintln(o.ErrOut, "No resources found")
+			}
+			return nil
+		}
+
+		if err := tabWriter.Flush(); err != nil {
+			return err
+		}
+
 		return nil
 	}
-
-	return o.PrintObj(list, o.Out)
 }
 
 func (o *LocalQueueOptions) filterList(list *v1beta1.LocalQueueList) {

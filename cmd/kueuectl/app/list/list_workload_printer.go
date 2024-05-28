@@ -82,8 +82,13 @@ func (p *listWorkloadPrinter) PrintObj(obj runtime.Object, out io.Writer) error 
 	return printer.PrintObj(table, out)
 }
 
-func (p *listWorkloadPrinter) WithNamespace() *listWorkloadPrinter {
-	p.printOptions.WithNamespace = true
+func (p *listWorkloadPrinter) WithNamespace(f bool) *listWorkloadPrinter {
+	p.printOptions.WithNamespace = f
+	return p
+}
+
+func (p *listWorkloadPrinter) WithHeaders(f bool) *listWorkloadPrinter {
+	p.printOptions.NoHeaders = !f
 	return p
 }
 

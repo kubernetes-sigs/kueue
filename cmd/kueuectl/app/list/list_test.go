@@ -76,18 +76,18 @@ ns2         lq2    cq2            2                   2                    120m
 			objs: []runtime.Object{
 				utiltesting.MakeClusterQueue("cq1").
 					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
-					Cohort("cohort").
+					Cohort("cohort1").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
 				utiltesting.MakeClusterQueue("cq2").
 					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
-					Cohort("cohort").
+					Cohort("cohort2").
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
-cq1    cohort   0                   0                    true     60m
-cq2    cohort   0                   0                    false    120m
+			wantOut: `NAME   COHORT    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq1    cohort1   0                   0                    true     60m
+cq2    cohort2   0                   0                    false    120m
 `,
 		},
 		"should print workload list with all namespaces": {

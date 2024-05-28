@@ -29,16 +29,16 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-type listLocalQueuePrinter struct {
+type listClusterQueuePrinter struct {
 	printOptions printers.PrintOptions
 }
 
-var _ printers.ResourcePrinter = (*listLocalQueuePrinter)(nil)
+var _ printers.ResourcePrinter = (*listClusterQueuePrinter)(nil)
 
-func (p *listLocalQueuePrinter) PrintObj(obj runtime.Object, out io.Writer) error {
+func (p *listClusterQueuePrinter) PrintObj(obj runtime.Object, out io.Writer) error {
 	printer := printers.NewTablePrinter(p.printOptions)
 
-	list, ok := obj.(*v1beta1.LocalQueueList)
+	list, ok := obj.(*v1beta1.ClusterQueueList)
 	if !ok {
 		return errors.New("invalid object type")
 	}
@@ -46,49 +46,47 @@ func (p *listLocalQueuePrinter) PrintObj(obj runtime.Object, out io.Writer) erro
 	table := &metav1.Table{
 		ColumnDefinitions: []metav1.TableColumnDefinition{
 			{Name: "Name", Type: "string", Format: "name"},
-			{Name: "ClusterQueue", Type: "string"},
+			{Name: "Cohort", Type: "string"},
 			{Name: "Pending Workloads", Type: "integer"},
 			{Name: "Admitted Workloads", Type: "integer"},
+			{Name: "Active", Type: "boolean"},
 			{Name: "Age", Type: "string"},
 		},
-		Rows: printLocalQueueList(list),
+		Rows: printClusterQueueList(list),
 	}
 
 	return printer.PrintObj(table, out)
 }
 
-func (p *listLocalQueuePrinter) WithNamespace(f bool) *listLocalQueuePrinter {
-	p.printOptions.WithNamespace = f
-	return p
-}
-
-func (p *listLocalQueuePrinter) WithHeaders(f bool) *listLocalQueuePrinter {
+func (p *listClusterQueuePrinter) WithHeaders(f bool) *listClusterQueuePrinter {
 	p.printOptions.NoHeaders = !f
 	return p
 }
 
-func newLocalQueueTablePrinter() *listLocalQueuePrinter {
-	return &listLocalQueuePrinter{}
+func newClusterQueueTablePrinter() *listClusterQueuePrinter {
+	return &listClusterQueuePrinter{}
 }
 
-func printLocalQueueList(list *v1beta1.LocalQueueList) []metav1.TableRow {
+func printClusterQueueList(list *v1beta1.ClusterQueueList) []metav1.TableRow {
 	rows := make([]metav1.TableRow, len(list.Items))
 	for index := range list.Items {
-		rows[index] = printLocalQueue(&list.Items[index])
+		rows[index] = printClusterQueue(&list.Items[index])
 	}
 	return rows
 }
 
-func printLocalQueue(localQueue *v1beta1.LocalQueue) metav1.TableRow {
+func printClusterQueue(clusterQueue *v1beta1.ClusterQueue) metav1.TableRow {
 	row := metav1.TableRow{
-		Object: runtime.RawExtension{Object: localQueue},
+		Object: runtime.RawExtension{Object: clusterQueue},
 	}
 	row.Cells = []any{
-		localQueue.Name,
-		localQueue.Spec.ClusterQueue,
-		localQueue.Status.PendingWorkloads,
-		localQueue.Status.AdmittedWorkloads,
-		duration.HumanDuration(time.Since(localQueue.CreationTimestamp.Time)),
+		clusterQueue.Name,
+		clusterQueue.Spec.Cohort,
+		clusterQueue.Status.PendingWorkloads,
+		clusterQueue.Status.AdmittedWorkloads,
+		isActiveStatus(clusterQueue),
+		duration.HumanDuration(time.Since(clusterQueue.CreationTimestamp.Time)),
 	}
+
 	return row
 }

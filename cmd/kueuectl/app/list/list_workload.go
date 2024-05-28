@@ -54,6 +54,7 @@ const (
 type WorkloadOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
+	Limit              int64
 	AllNamespaces      bool
 	Namespace          string
 	FieldSelector      string
@@ -63,8 +64,6 @@ type WorkloadOptions struct {
 	StatusesFilter     sets.Set[int]
 
 	ClientSet clientset.Interface
-
-	ToPrinter func(r *listWorkloadResources) (printers.ResourcePrinterFunc, error)
 
 	genericiooptions.IOStreams
 }
@@ -134,6 +133,11 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
 	var err error
 
+	o.Limit, err = listRequestLimit()
+	if err != nil {
+		return err
+	}
+
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return err
@@ -149,71 +153,99 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 		return err
 	}
 
-	o.ToPrinter = func(r *listWorkloadResources) (printers.ResourcePrinterFunc, error) {
-		if !o.PrintFlags.OutputFlagSpecified() {
-			printer := newWorkloadTablePrinter().WithResources(r)
-			if o.AllNamespaces {
-				printer.WithNamespace()
-			}
-			return printer.PrintObj, nil
-		}
-		printer, err := o.PrintFlags.ToPrinter()
-		if err != nil {
-			return nil, err
-		}
+	return nil
+}
+
+func (o *WorkloadOptions) ToPrinter(r *listWorkloadResources, headers bool) (printers.ResourcePrinterFunc, error) {
+	if !o.PrintFlags.OutputFlagSpecified() {
+		printer := newWorkloadTablePrinter().
+			WithResources(r).
+			WithNamespace(o.AllNamespaces).
+			WithHeaders(headers)
 		return printer.PrintObj, nil
 	}
-
-	return nil
+	printer, err := o.PrintFlags.ToPrinter()
+	if err != nil {
+		return nil, err
+	}
+	return printer.PrintObj, nil
 }
 
 // Run performs the list operation.
 func (o *WorkloadOptions) Run(ctx context.Context) error {
+	var totalCount int
+
 	namespace := o.Namespace
 	if o.AllNamespaces {
 		namespace = ""
 	}
 
-	opts := metav1.ListOptions{LabelSelector: o.LabelSelector, FieldSelector: o.FieldSelector}
-	list, err := o.ClientSet.KueueV1beta1().Workloads(namespace).List(ctx, opts)
-	if err != nil {
-		return err
+	opts := metav1.ListOptions{
+		LabelSelector: o.LabelSelector,
+		FieldSelector: o.FieldSelector,
+		Limit:         o.Limit,
 	}
 
-	o.filterList(list)
+	tabWriter := printers.GetNewTabWriter(o.Out)
 
-	if len(list.Items) == 0 {
-		if !o.AllNamespaces {
-			fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
-		} else {
-			fmt.Fprintln(o.ErrOut, "No resources found")
+	for {
+		headers := totalCount == 0
+
+		list, err := o.ClientSet.KueueV1beta1().Workloads(namespace).List(ctx, opts)
+		if err != nil {
+			return err
 		}
+
+		o.filterList(list)
+
+		totalCount += len(list.Items)
+
+		r := newListWorkloadResources()
+
+		r.localQueues, err = o.localQueues(ctx, list)
+		if err != nil {
+			return err
+		}
+
+		r.pendingWorkloads, err = o.pendingWorkloads(ctx, list, r.localQueues)
+		if err != nil {
+			return err
+		}
+
+		r.apiResourceLists, err = o.apiResources(list)
+		if err != nil {
+			return err
+		}
+
+		printer, err := o.ToPrinter(r, headers)
+		if err != nil {
+			return err
+		}
+
+		if err := printer.PrintObj(list, tabWriter); err != nil {
+			return err
+		}
+
+		if list.Continue != "" {
+			opts.Continue = list.Continue
+			continue
+		}
+
+		if totalCount == 0 {
+			if !o.AllNamespaces {
+				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+			} else {
+				fmt.Fprintln(o.ErrOut, "No resources found")
+			}
+			return nil
+		}
+
+		if err := tabWriter.Flush(); err != nil {
+			return err
+		}
+
 		return nil
 	}
-
-	r := newListWorkloadResources()
-
-	r.localQueues, err = o.localQueues(ctx, list)
-	if err != nil {
-		return err
-	}
-
-	r.pendingWorkloads, err = o.pendingWorkloads(ctx, list, r.localQueues)
-	if err != nil {
-		return err
-	}
-
-	r.apiResourceLists, err = o.apiResources(list)
-	if err != nil {
-		return err
-	}
-
-	printer, err := o.ToPrinter(r)
-	if err != nil {
-		return err
-	}
-
-	return printer.PrintObj(list, o.Out)
 }
 
 func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList) {
@@ -300,6 +332,9 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.Wo
 			clusterQueueName = string(wl.Status.Admission.ClusterQueue)
 		} else if lq := localQueues[localQueueKeyForWorkload(&wl)]; lq != nil {
 			clusterQueueName = string(lq.Spec.ClusterQueue)
+		}
+		if len(clusterQueueName) == 0 {
+			continue
 		}
 		pendingWorkloadsSummary, ok := pendingWorkloadsSummaries[clusterQueueName]
 		if !ok {

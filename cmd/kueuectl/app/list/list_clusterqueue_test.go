@@ -17,18 +17,18 @@ limitations under the License.
 package list
 
 import (
-	"context"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
+	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -36,120 +36,131 @@ func TestClusterQueueRun(t *testing.T) {
 	testStartTime := time.Now()
 
 	testCases := map[string]struct {
-		o       *ClusterQueueOptions
-		wantOut []string
-		wantErr error
+		ns         string
+		objs       []runtime.Object
+		args       []string
+		wantOut    string
+		wantOutErr string
+		wantErr    error
 	}{
-		"should print all cluster queue list": {
-			o: &ClusterQueueOptions{
-				PrintObj: printClusterQueueTable,
-				Active:   make([]bool, 0),
-				Client: fake.NewSimpleClientset(
-					utiltesting.MakeClusterQueue("cq1").
-						Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-					utiltesting.MakeClusterQueue("cq2").
-						Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-					utiltesting.MakeClusterQueue("cq3").
-						Condition(v1beta1.ClusterQueueActive, metav1.ConditionUnknown, "", "").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-					utiltesting.MakeClusterQueue("cq4").
-						Condition("other", metav1.ConditionTrue, "", "").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-				).KueueV1beta1(),
-			},
-			wantOut: []string{
-				"NAME   COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE",
-				"cq1             0                   0                    true     60m",
-				"cq2             0                   0                    false    60m",
-				"cq3             0                   0                    false    60m",
-				"cq4             0                   0                    false    60m",
-				"",
-			},
-		},
-		"should print all cluster queue list if active is not provided": {
-			o: &ClusterQueueOptions{
-				PrintObj: printClusterQueueTable,
-				Client: fake.NewSimpleClientset(
-					utiltesting.MakeClusterQueue("cq1").
-						Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
-						Cohort("cohort1").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-					utiltesting.MakeClusterQueue("cq2").
-						Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
-						PendingWorkloads(1).
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-					utiltesting.MakeClusterQueue("cq3").
-						Condition(v1beta1.ClusterQueueActive, metav1.ConditionUnknown, "", "").
-						AdmittedWorkloads(1).
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-					utiltesting.MakeClusterQueue("cq4").
-						Condition("other", metav1.ConditionTrue, "", "").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-				).KueueV1beta1(),
-			},
-			wantOut: []string{
-				"NAME   COHORT    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE",
-				"cq1    cohort1   0                   0                    true     60m",
-				"cq2              1                   0                    false    60m",
-				"cq3              0                   1                    false    60m",
-				"cq4              0                   0                    false    60m",
-				"",
-			},
-		},
 		"should print active cluster queue list": {
-			o: &ClusterQueueOptions{
-				PrintObj: printClusterQueueTable,
-				Active:   []bool{true},
-				Client: fake.NewSimpleClientset(
-					utiltesting.MakeClusterQueue("cq1").
-						Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-					utiltesting.MakeClusterQueue("cq2").
-						Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-					utiltesting.MakeClusterQueue("cq3").
-						Condition(v1beta1.ClusterQueueActive, metav1.ConditionUnknown, "", "").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-					utiltesting.MakeClusterQueue("cq4").
-						Condition("other", metav1.ConditionTrue, "", "").
-						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
-						Obj(),
-				).KueueV1beta1(),
+			args: []string{"--active", "true"},
+			objs: []runtime.Object{
+				utiltesting.MakeClusterQueue("cq1").
+					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
+					Cohort("cohort1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(2).
+					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+					Obj(),
+				utiltesting.MakeClusterQueue("cq2").
+					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
+					Cohort("cohort2").
+					PendingWorkloads(3).
+					AdmittedWorkloads(4).
+					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+					Obj(),
 			},
-			wantOut: []string{
-				"NAME   COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE",
-				"cq1             0                   0                    true     60m",
-				"",
+			wantOut: `NAME   COHORT    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq1    cohort1   1                   2                    true     60m
+`,
+		},
+		"should print inactive cluster queue list": {
+			args: []string{"--active", "false"},
+			objs: []runtime.Object{
+				utiltesting.MakeClusterQueue("cq1").
+					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
+					Cohort("cohort1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(2).
+					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+					Obj(),
+				utiltesting.MakeClusterQueue("cq2").
+					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
+					Cohort("cohort2").
+					PendingWorkloads(3).
+					AdmittedWorkloads(4).
+					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+					Obj(),
 			},
+			wantOut: `NAME   COHORT    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq2    cohort2   3                   4                    false    120m
+`,
+		},
+		"should print cluster queue list with label selector": {
+			args: []string{"--selector", "key=value1"},
+			objs: []runtime.Object{
+				utiltesting.MakeClusterQueue("cq1").
+					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
+					Cohort("cohort1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(2).
+					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+					Label("key", "value1").
+					Obj(),
+				utiltesting.MakeClusterQueue("cq2").
+					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
+					Cohort("cohort2").
+					PendingWorkloads(3).
+					AdmittedWorkloads(4).
+					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+					Label("key", "value2").
+					Obj(),
+			},
+			wantOut: `NAME   COHORT    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq1    cohort1   1                   2                    true     60m
+`,
+		},
+		"should print cluster queue list with label selector (short flag)": {
+			args: []string{"-l", "key=value1"},
+			objs: []runtime.Object{
+				utiltesting.MakeClusterQueue("cq1").
+					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
+					Cohort("cohort1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(2).
+					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
+					Label("key", "value1").
+					Obj(),
+				utiltesting.MakeClusterQueue("cq2").
+					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
+					Cohort("cohort2").
+					PendingWorkloads(3).
+					AdmittedWorkloads(4).
+					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
+					Label("key", "value2").
+					Obj(),
+			},
+			wantOut: `NAME   COHORT    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq1    cohort1   1                   2                    true     60m
+`,
+		},
+		"should print not found error": {
+			wantOutErr: "No resources found\n",
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			s, _, out, _ := genericiooptions.NewTestIOStreams()
-			tc.o.IOStreams = s
+			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			gotErr := tc.o.Run(context.Background())
+			tf := cmdtesting.NewTestClientGetter()
+			tf.ClientSet = fake.NewSimpleClientset(tc.objs...)
+
+			cmd := NewClusterQueueCmd(tf, streams)
+			cmd.SetArgs(tc.args)
+
+			gotErr := cmd.Execute()
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 
-			gotOut := strings.Split(out.String(), "\n")
-
+			gotOut := out.String()
 			if diff := cmp.Diff(tc.wantOut, gotOut); diff != "" {
+				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
+			}
+
+			gotOutErr := outErr.String()
+			if diff := cmp.Diff(tc.wantOutErr, gotOutErr); diff != "" {
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
 		})

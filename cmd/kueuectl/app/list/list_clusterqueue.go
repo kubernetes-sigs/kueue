@@ -19,14 +19,11 @@ package list
 import (
 	"context"
 	"errors"
-	"io"
-	"time"
+	"fmt"
 
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
@@ -48,6 +45,7 @@ type ClusterQueueOptions struct {
 	// PrintFlags holds options necessary for obtaining a printer
 	PrintFlags *genericclioptions.PrintFlags
 
+	Limit         int64
 	LabelSelector string
 	FieldSelector string
 
@@ -56,20 +54,15 @@ type ClusterQueueOptions struct {
 	// Active means the cluster queue has kueue.ClusterQueueActive condition with status=metav1.ConditionTrue
 	Active []bool
 
-	Client                       kueuev1beta1.KueueV1beta1Interface
-	clusterQueueListRequestLimit int64
-
-	PrintObj printers.ResourcePrinterFunc
+	Client kueuev1beta1.KueueV1beta1Interface
 
 	genericiooptions.IOStreams
 }
 
 func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOptions {
 	return &ClusterQueueOptions{
-		PrintFlags:                   genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
-		Active:                       make([]bool, 0),
-		clusterQueueListRequestLimit: 300,
-		IOStreams:                    streams,
+		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
+		IOStreams:  streams,
 	}
 }
 
@@ -110,16 +103,6 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 
 	o.Client = clientset.KueueV1beta1()
 
-	if !o.PrintFlags.OutputFlagSpecified() {
-		o.PrintObj = printClusterQueueTable
-	} else {
-		printer, err := o.PrintFlags.ToPrinter()
-		if err != nil {
-			return err
-		}
-		o.PrintObj = printer.PrintObj
-	}
-
 	if len(args) > 0 {
 		activeFlag, err := cmd.Flags().GetBoolSlice("active")
 		if err != nil {
@@ -129,6 +112,21 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 	}
 
 	return nil
+}
+
+func (o *ClusterQueueOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, error) {
+	if !o.PrintFlags.OutputFlagSpecified() {
+		printer := newClusterQueueTablePrinter().
+			WithHeaders(headers)
+		return printer.PrintObj, nil
+	}
+
+	printer, err := o.PrintFlags.ToPrinter()
+	if err != nil {
+		return nil, err
+	}
+
+	return printer.PrintObj, nil
 }
 
 func (o *ClusterQueueOptions) Validate() error {
@@ -144,35 +142,56 @@ func (o *ClusterQueueOptions) validActiveFlagOptionProvided() bool {
 
 // Run prints the cluster queues.
 func (o *ClusterQueueOptions) Run(ctx context.Context) error {
-	continueToken := ""
+	var totalCount int
+
+	opts := metav1.ListOptions{
+		LabelSelector: o.LabelSelector,
+		FieldSelector: o.FieldSelector,
+		Limit:         o.Limit,
+	}
+
+	tabWriter := printers.GetNewTabWriter(o.Out)
+
 	for {
-		cql, err := o.Client.ClusterQueues().List(ctx, metav1.ListOptions{
-			LabelSelector: o.LabelSelector,
-			FieldSelector: o.FieldSelector,
-			Limit:         o.clusterQueueListRequestLimit,
-			Continue:      continueToken,
-		})
+		headers := totalCount == 0
+
+		list, err := o.Client.ClusterQueues().List(ctx, opts)
 		if err != nil {
 			return err
 		}
-		if len(cql.Items) == 0 {
-			return nil
-		}
 
-		o.applyActiveFilter(cql)
+		o.filterList(list)
 
-		if err := o.PrintObj(cql, o.Out); err != nil {
+		totalCount += len(list.Items)
+
+		printer, err := o.ToPrinter(headers)
+		if err != nil {
 			return err
 		}
 
-		if cql.Continue == "" {
+		if err := printer.PrintObj(list, tabWriter); err != nil {
+			return err
+		}
+
+		if list.Continue != "" {
+			opts.Continue = list.Continue
+			continue
+		}
+
+		if totalCount == 0 {
+			fmt.Fprintln(o.ErrOut, "No resources found")
 			return nil
 		}
-		continueToken = cql.Continue
+
+		if err := tabWriter.Flush(); err != nil {
+			return err
+		}
+
+		return nil
 	}
 }
 
-func (o *ClusterQueueOptions) applyActiveFilter(cql *v1beta1.ClusterQueueList) {
+func (o *ClusterQueueOptions) filterList(cql *v1beta1.ClusterQueueList) {
 	if o.Active == nil || len(o.Active) == 0 {
 		return
 	}
@@ -187,47 +206,6 @@ func (o *ClusterQueueOptions) applyActiveFilter(cql *v1beta1.ClusterQueueList) {
 		}
 	}
 	cql.Items = filtered
-}
-
-// printClusterQueueTable is a printer function for ClusterQueueList objects.
-var _ printers.ResourcePrinterFunc = printClusterQueueTable
-
-func printClusterQueueTable(obj runtime.Object, out io.Writer) error {
-	tp := printers.NewTablePrinter(printers.PrintOptions{})
-	a := &metav1.Table{
-		ColumnDefinitions: []metav1.TableColumnDefinition{
-			{Name: "Name", Type: "string", Format: "name"},
-			{Name: "Cohort", Type: "string"},
-			{Name: "Pending Workloads", Type: "integer"},
-			{Name: "Admitted Workloads", Type: "integer"},
-			{Name: "Active", Type: "boolean"},
-			{Name: "Age", Type: "string"},
-		},
-		Rows: toTableRows(obj.(*v1beta1.ClusterQueueList)),
-	}
-	return tp.PrintObj(a, out)
-}
-
-func toTableRows(list *v1beta1.ClusterQueueList) []metav1.TableRow {
-	rows := make([]metav1.TableRow, len(list.Items))
-	for index := range list.Items {
-		rows[index] = toTableRow(&list.Items[index])
-	}
-	return rows
-}
-
-func toTableRow(cq *v1beta1.ClusterQueue) metav1.TableRow {
-	return metav1.TableRow{
-		Object: runtime.RawExtension{Object: cq},
-		Cells: []interface{}{
-			cq.Name,
-			cq.Spec.Cohort,
-			cq.Status.PendingWorkloads,
-			cq.Status.AdmittedWorkloads,
-			isActiveStatus(cq),
-			duration.HumanDuration(time.Since(cq.CreationTimestamp.Time)),
-		},
-	}
 }
 
 func isActiveStatus(cq *v1beta1.ClusterQueue) bool {
