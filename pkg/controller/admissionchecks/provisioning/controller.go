@@ -370,6 +370,9 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 				return err
 			}
 
+			// copy limits to requests if needed
+			workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
+
 			if err := ctrl.SetControllerReference(request, newPt, c.client.Scheme()); err != nil {
 				return err
 			}
@@ -415,6 +418,11 @@ func podUses(pod *corev1.PodSpec, resourceSet sets.Set[corev1.ResourceName]) boo
 
 func containerUses(cont *corev1.Container, resourceSet sets.Set[corev1.ResourceName]) bool {
 	for r := range cont.Resources.Requests {
+		if resourceSet.Has(r) {
+			return true
+		}
+	}
+	for r := range cont.Resources.Limits {
 		if resourceSet.Has(r) {
 			return true
 		}
