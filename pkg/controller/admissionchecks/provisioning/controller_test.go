@@ -595,7 +595,7 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"when request is needed for one PodSet": {
+		"when request is needed for one PodSet (resource request)": {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -635,6 +635,93 @@ func TestReconcile(t *testing.T) {
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate2.Name: baseTemplate2.DeepCopy(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"when request is needed for one PodSet (resource limit)": {
+			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{ObjectMeta: metav1.ObjectMeta{
+					Name: "config1",
+				},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+						Parameters: map[string]kueue.Parameter{
+							"p1": "v1",
+						},
+						ManagedResources: []corev1.ResourceName{"example.com/gpu"},
+					},
+				},
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				"wl-check1-1": {
+					Spec: autoscaling.ProvisioningRequestSpec{
+						PodSets: []autoscaling.PodSet{
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-1-ps1",
+								},
+								Count: 4,
+							},
+						},
+						ProvisioningClassName: "class1",
+						Parameters: map[string]autoscaling.Parameter{
+							"p1": "v1",
+						},
+					},
+				},
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: &corev1.PodTemplate{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "ppt-wl-check1-1-ps1",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "wl-check1-1",
+							},
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "c",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU: resource.MustParse("1"),
+											"example.com/gpu":  resource.MustParse("1"),
+										},
+										Limits: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("1"),
+										},
+									},
+								},
+							},
+							NodeSelector: map[string]string{"f1l1": "v1"},
+							Tolerations: []corev1.Toleration{
+								{
+									Key:      "f1t1k",
+									Value:    "f1t1v",
+									Operator: corev1.TolerationOpEqual,
+									Effect:   corev1.TaintEffectNoSchedule,
+								},
+							},
+						},
+					},
+				},
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
