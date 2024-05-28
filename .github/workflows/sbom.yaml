@@ -31,12 +31,11 @@ jobs:
       - name: Generate SBOM
         shell: bash
         run: |
-          bom generate -o /tmp/kueue.spdx .
-          cd /tmp
-          tar zcf sbom.tar.gz *.spdx
+          bom generate --format=json -o /tmp/kueue-$TAG.spdx.json .
+         
       - name: Upload SBOM
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload $TAG /tmp/sbom.tar.gz
+          gh release upload $TAG /tmp/kueue-$TAG.spdx.json
