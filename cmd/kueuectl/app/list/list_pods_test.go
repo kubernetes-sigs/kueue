@@ -505,7 +505,7 @@ valid-pod-1   RUNNING   60m
 						},
 						OwnerReferences: []metav1.OwnerReference{
 							{
-								APIVersion: "jobset.x-k8s.io/v1alpha2",
+								APIVersion: "x-k8s.io/v1alpha2",
 								Kind:       "JobSet",
 								Name:       "test-job",
 							},
@@ -535,6 +535,51 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "jobset/test-job"},
+			wantOut: `NAME          STATUS    AGE
+valid-pod-1   RUNNING   60m
+`,
+		}, {
+			name: "list pods with api-group filter",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: metav1.NamespaceDefault,
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "x-k8s.io/v1alpha2",
+								Kind:       "JobSet",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: metav1.NamespaceDefault,
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "test-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			args: []string{"--for", "jobset.x-k8s.io/test-job"},
 			wantOut: `NAME          STATUS    AGE
 valid-pod-1   RUNNING   60m
 `,
