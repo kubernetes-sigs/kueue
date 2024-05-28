@@ -38,4 +38,4 @@ The following table includes a list of all the supported resource types and thei
 | localqueue   | lq    | kueue.x-k8s.io/v1beta1 | true       | LocalQueue   |
 | clusterqueue | cq    | kueue.x-k8s.io/v1beta1 | false      | ClusterQueue |
 | workload     | wl    | kueue.x-k8s.io/v1beta1 | true       | WorkLoad     |
-| pod          | po    | kueue.x-k8s.io/v1beta1 | true       | Pod          |
+| pod          | po    | v1                     | true       | Pod          |
