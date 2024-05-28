@@ -103,6 +103,14 @@ func TestSearch(t *testing.T) {
 			wantFound:  true,
 			wantCount:  150_000,
 		},
+		"podset with replica count 0": {
+			podSets: []kueue.PodSet{
+				*utiltesting.MakePodSet("ps1", 0).SetMinimumCount(0).Obj(),
+			},
+			countLimit: 0,
+			wantFound:  false,
+			wantCount:  0,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

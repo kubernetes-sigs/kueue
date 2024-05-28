@@ -81,9 +81,10 @@ spec:
                 items:
                   properties:
                     count:
+                      default: 1
                       description: count is the number of pods for the spec.
                       format: int32
-                      minimum: 1
+                      minimum: 0
                       type: integer
                     minCount:
                       description: |-

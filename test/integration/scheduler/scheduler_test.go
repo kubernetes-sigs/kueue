@@ -223,6 +223,40 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl2)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
 
+			ginkgo.By("checking a workload with replica count 0 gets admitted")
+			emptyWl := testing.MakeWorkload("empty-wl", ns.Name).
+				Queue(prodQueue.Name).
+				PodSets(*testing.MakePodSet("main", 0).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, emptyWl)).Should(gomega.Succeed())
+
+			ginkgo.By("checking jobSet with no replica do nopt modify metrics", func() {
+				emptyWlAdmission := testing.MakeAdmission(prodClusterQ.Name).PodSets(
+					kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "on-demand",
+						},
+						ResourceUsage: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("0"),
+						},
+						Count: ptr.To[int32](0),
+					}).Obj()
+
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, emptyWl, emptyWlAdmission)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, emptyWl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
+				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
+				util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 2)
+				util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
+			})
+
+			ginkgo.By("finishing the empty workload", func() {
+				util.FinishWorkloads(ctx, k8sClient, emptyWl)
+			})
+
 			ginkgo.By("checking a dev workload gets admitted")
 			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
 			gomega.Expect(k8sClient.Create(ctx, devWl)).Should(gomega.Succeed())
@@ -239,8 +273,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, prodWl2, prodWl2Admission)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
-			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 2)
-			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
+			util.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, 3)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 3)
 		})
 
 		ginkgo.It("Should admit workloads as number of pods allows it", func() {
