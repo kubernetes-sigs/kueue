@@ -20,7 +20,7 @@ jobs:
           echo "TAG=$TAG" >> "$GITHUB_ENV"
       - name: Checkout code
         uses: actions/checkout@v2
-      - uses: openvex/generate-vex@31b415924ea0d72ed5f2640f1dee59dea6c2770b
+      - uses: openvex/generate-vex@c59881b41451d7ccba5c3b74cd195382b8971fcd
         name: Run vexctl
         with:
           product: pkg:golang/sigs.k8s.io/kueue@${{ env.TAG }}
