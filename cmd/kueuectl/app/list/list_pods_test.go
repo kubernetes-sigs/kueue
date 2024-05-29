@@ -91,7 +91,7 @@ valid-pod-1   RUNNING     60m
 valid-pod-2   COMPLETED   60m
 `,
 		}, {
-			name: "no valid pods for batch/job type",
+			name: "no valid pods for batch/job type in current namespace",
 			pods: []runtime.Object{
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -133,6 +133,99 @@ valid-pod-2   COMPLETED   60m
 			},
 			args:    []string{"--for", "job/test-job"},
 			wantOut: "",
+			wantOutErr: `No resources found in default namespace.
+`,
+		}, {
+			name: "no valid pods for batch/job type in all namespaces",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: metav1.NamespaceDefault,
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "sample-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: metav1.NamespaceDefault,
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "sample-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			args:    []string{"--for", "job/test-job", "-A"},
+			wantOut: "",
+			wantOutErr: `No resources found.
+`,
+		}, {
+			name: "valid pods for batch/job type in all namespaces",
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: "dev-team-a",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "sample-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "RUNNING",
+					},
+				}, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: "dev-team-b",
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+								Name:       "sample-job",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: "COMPLETED",
+					},
+				},
+			},
+			args: []string{"--for", "job/sample-job", "-A"},
+			wantOut: `NAME          STATUS      AGE
+valid-pod-1   RUNNING     60m
+valid-pod-2   COMPLETED   60m
+`,
 		}, {
 			name: "list pods for kubeflow.org/PyTorchJob type",
 			pods: []runtime.Object{
