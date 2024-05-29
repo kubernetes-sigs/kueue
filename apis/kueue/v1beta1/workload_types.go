@@ -139,7 +139,8 @@ type PodSet struct {
 	Template corev1.PodTemplateSpec `json:"template"`
 
 	// count is the number of pods for the spec.
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
+	// +kubebuilder:validation:Minimum=0
 	Count int32 `json:"count"`
 
 	// minCount is the minimum number of pods for the spec acceptable
