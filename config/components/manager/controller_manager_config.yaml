@@ -30,6 +30,7 @@ clientConnection:
 #    timestamp: Eviction
 #    backoffLimitCount: null # null indicates infinite requeuing
 #    backoffBaseSeconds: 60
+#    backoffMaxSeconds: 3600
 #manageJobsWithoutQueueName: true
 #internalCertManagement:
 #  enable: false
