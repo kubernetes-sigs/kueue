@@ -69,3 +69,9 @@ A group of ClusterQueues that can borrow unused quota from each other.
 The time between a Workload is created until it is admitted by a ClusterQueue.
 Typically, the Workload will compete with other Workloads for available
 quota based on the fair sharing rules of the ClusterQueue.
+
+### [Preemption](/docs/concepts/preemption)
+
+The process of evicting one or more admitted Workloads to accommodate another Workload.
+The Workload being evicted might be of a lower priority or might be borrowing
+resources that are now required by the owning ClusterQueue.
