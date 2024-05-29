@@ -18,6 +18,7 @@ package list
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -146,6 +147,7 @@ func (o *PodOptions) listPods(ctx context.Context) error {
 	}
 
 	continueToken := ""
+	filteredPodListSlice := make([]*corev1.PodList, 0)
 	for {
 		podList, err := o.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 			LabelSelector: o.LabelSelector,
@@ -156,22 +158,35 @@ func (o *PodOptions) listPods(ctx context.Context) error {
 			return err
 		}
 
-		if len(podList.Items) == 0 {
-			return nil
-		}
-
-		// replace the podList items with the new filtered pods
-		podList.Items = o.filterPodsByOwnerRef(podList)
-
-		if err = o.PrintObj(podList, o.Out); err != nil {
-			return err
+		if fp := o.filterPodsByOwnerRef(podList); len(fp) != 0 {
+			podList.Items = fp
+			filteredPodListSlice = append(filteredPodListSlice, podList)
 		}
 
 		if podList.Continue == "" {
-			return nil
+			break
 		}
 		continueToken = podList.Continue
 	}
+
+	// handle if no filtered podList found
+	if len(filteredPodListSlice) == 0 {
+		if !o.AllNamespaces {
+			fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+		} else {
+			fmt.Fprintln(o.ErrOut, "No resources found.")
+		}
+		return nil
+	}
+
+	// now range over the filteredPodListSlice and print them
+	for _, filteredPodList := range filteredPodListSlice {
+		if err := o.PrintObj(filteredPodList, o.Out); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (o *PodOptions) filterPodsByOwnerRef(podList *corev1.PodList) []corev1.Pod {
