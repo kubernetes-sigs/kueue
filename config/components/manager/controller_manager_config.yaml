@@ -48,15 +48,15 @@ integrations:
   - "kubeflow.org/pytorchjob"
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
-# - "pod"
-# externalFrameworks:
-# - "Foo.v1.example.com"
-# podOptions:
-#   namespaceSelector:
-#     matchExpressions:
-#       - key: kubernetes.io/metadata.name
-#         operator: NotIn
-#         values: [ kube-system, kueue-system ]
-# fairSharing:
-#   enable: true
-#   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
+#  - "pod"
+#  externalFrameworks:
+#  - "Foo.v1.example.com"
+#  podOptions:
+#    namespaceSelector:
+#      matchExpressions:
+#        - key: kubernetes.io/metadata.name
+#          operator: NotIn
+#          values: [ kube-system, kueue-system ]
+#fairSharing:
+#  enable: true
+#  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
