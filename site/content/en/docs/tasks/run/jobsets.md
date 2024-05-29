@@ -32,13 +32,9 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
-### b. MultiKueue
+### b. Configure the resource needs
 
-If the JobSet is submitted to a queue using [MultiKueue](/docs/concepts/multikueue) its `spec.managedBy` field needs to be set to `kueue.x-k8s.io/multikueue`. Otherwise the its workload will be marked as `Finished` with an error indicating this cause.
-
-### c. Configure the resource needs
-
-The resource needs of the workload can be configured in the `spec.replicatedJobs`. Should also be taken into account that number of replicas, [parallelism](https://kubernetes.io/docs/concepts/workloads/controllers/job/#parallel-jobs) and completions affect the resource calculations. 
+The resource needs of the workload can be configured in the `spec.replicatedJobs`. Should also be taken into account that number of replicas, [parallelism](https://kubernetes.io/docs/concepts/workloads/controllers/job/#parallel-jobs) and completions affect the resource calculations.
 
 ```yaml
     - replicas: 1
@@ -54,8 +50,8 @@ The resource needs of the workload can be configured in the `spec.replicatedJobs
                       cpu: 1
 ```
 
-### d. Jobs prioritisation
-  
+### c. Jobs prioritisation
+
 The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#priorityclass) of `spec.replicatedJobs` that is not empty will be used as the priority.
 
 ```yaml
@@ -126,7 +122,8 @@ spec:
 
 {{% alert title="Note" color="note" %}}
 The same `jobset-sample.yaml` file from [single cluster environment](#single-cluster-environment) can be used in a [MultiKueue environment](#multikueue-environment).
-The `spec.managedBy` field will be set to `kueue.x-k8s.io/multikueue` automatically, if not specified, as long as  the `kueue.x-k8s.io/queue-name` annotation
+In that setup, the `spec.managedBy` field will be set to `kueue.x-k8s.io/multikueue`
+automatically, if not specified, as long as  the `kueue.x-k8s.io/queue-name` annotation
 is specified and the corresponding Cluster Queue uses the Multi Kueue admission check.
 {{% /alert %}}
 

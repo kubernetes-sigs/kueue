@@ -60,13 +60,6 @@ kubectl config use-context manager-cluster
 ```
 {{% /alert %}}
 
-### Jobset CRD only install
-
-As mentioned in the [MultiKueue Overview](/docs/concepts/multikueue/#jobset) section, in the manager cluster only the JobSet CRDs should be installed, you can do this by running:
-```bash
-kubectl apply --server-side -f  https://raw.githubusercontent.com/kubernetes-sigs/jobset/v0.4.0/config/components/crd/bases/jobset.x-k8s.io_jobsets.yaml
-```
-
 ### Enable the MultiKueue feature
 
 Enable the `MultiKueue` feature.
