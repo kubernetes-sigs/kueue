@@ -27,7 +27,7 @@ LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
 LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.29
+ENVTEST_K8S_VERSION ?= 1.30
 
 # Number of processes to use during integration tests to run specs within a
 # suite in parallel. Suites still run sequentially. User may set this value to 1
@@ -38,9 +38,9 @@ INTEGRATION_TARGET ?= ./test/integration/...
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_KIND_VERSION ?= kindest/node:v1.29.2
+E2E_KIND_VERSION ?= kindest/node:v1.30.0
 # E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
-E2E_K8S_VERSIONS ?= 1.27.11 1.28.7 1.29.2
+E2E_K8S_VERSIONS ?= 1.27.13 1.28.9 1.29.4 1.30.0
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
