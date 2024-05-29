@@ -23,6 +23,7 @@ spec:
   admissionChecksStrategy:
     admissionChecks:
       - name: "sample-prov"
+        onFlavors: [default-flavor] # optional if the admission check targets all flavors.
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
