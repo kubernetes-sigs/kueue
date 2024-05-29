@@ -19,11 +19,15 @@ package util
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	zaplog "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -38,6 +42,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -769,4 +774,16 @@ readCh:
 		}
 	}
 	gomega.ExpectWithOffset(1, gotObjs).To(gomega.Equal(objs))
+}
+
+func NewTestingLogger(writer io.Writer, level int) logr.Logger {
+	opts := func(o *zap.Options) {
+		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
+		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
+	}
+	return zap.New(
+		zap.WriteTo(writer),
+		zap.UseDevMode(true),
+		zap.Level(zapcore.Level(level)),
+		opts)
 }

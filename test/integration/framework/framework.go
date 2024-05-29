@@ -29,14 +29,11 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	zaplog "go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -45,6 +42,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 type ManagerSetup func(manager.Manager, context.Context)
@@ -59,16 +57,7 @@ type Framework struct {
 }
 
 func (f *Framework) Init() *rest.Config {
-	opts := func(o *zap.Options) {
-		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
-		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
-	}
-	ctrl.SetLogger(zap.New(
-		zap.WriteTo(ginkgo.GinkgoWriter),
-		zap.UseDevMode(true),
-		zap.Level(zapcore.Level(-3)),
-		opts),
-	)
+	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
 
 	ginkgo.By("bootstrapping test environment")
 	f.testEnv = &envtest.Environment{
