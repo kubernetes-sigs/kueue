@@ -169,7 +169,9 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 
 func (f *Framework) Teardown() {
 	ginkgo.By("tearing down the test environment")
-	f.cancel()
+	if f.cancel != nil {
+		f.cancel()
+	}
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 }
