@@ -222,9 +222,9 @@ valid-pod-2   COMPLETED   60m
 				},
 			},
 			args: []string{"--for", "job/sample-job", "-A"},
-			wantOut: `NAME          STATUS      AGE
-valid-pod-1   RUNNING     60m
-valid-pod-2   COMPLETED   60m
+			wantOut: `NAMESPACE    NAME          STATUS      AGE
+dev-team-a   valid-pod-1   RUNNING     60m
+dev-team-b   valid-pod-2   COMPLETED   60m
 `,
 		}, {
 			name: "list pods for kubeflow.org/PyTorchJob type",
