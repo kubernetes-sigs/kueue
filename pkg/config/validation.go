@@ -56,6 +56,7 @@ var (
 	multiKueuePath                    = field.NewPath("multiKueue")
 	fsPreemptionStrategiesPath        = field.NewPath("fairSharing", "preemptionStrategies")
 	internalCertManagementPath        = field.NewPath("internalCertManagement")
+	queueVisibilityPath               = field.NewPath("queueVisibility")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -141,11 +142,13 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 func validateQueueVisibility(cfg *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
 	if cfg.QueueVisibility != nil {
-		queueVisibilityPath := field.NewPath("queueVisibility")
 		if cfg.QueueVisibility.ClusterQueues != nil {
-			clusterQueues := queueVisibilityPath.Child("clusterQueues")
+			maxCountPath := queueVisibilityPath.Child("clusterQueues").Child("maxCount")
+			if cfg.QueueVisibility.ClusterQueues.MaxCount < 0 {
+				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, constants.IsNegativeErrorMsg))
+			}
 			if cfg.QueueVisibility.ClusterQueues.MaxCount > queueVisibilityClusterQueuesMaxValue {
-				allErrs = append(allErrs, field.Invalid(clusterQueues.Child("maxCount"), cfg.QueueVisibility.ClusterQueues.MaxCount, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)))
+				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)))
 			}
 		}
 		if cfg.QueueVisibility.UpdateIntervalSeconds < queueVisibilityClusterQueuesUpdateIntervalSeconds {

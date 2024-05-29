@@ -88,7 +88,7 @@ func TestValidate(t *testing.T) {
 				field.Invalid(field.NewPath("queueVisibility").Child("updateIntervalSeconds"), 0, fmt.Sprintf("greater than or equal to %d", queueVisibilityClusterQueuesUpdateIntervalSeconds)),
 			},
 		},
-		"invalid queue visibility cluster queue max count": {
+		"invalid queue visibility cluster queue max count due to exceeding maximal value": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: &configapi.QueueVisibility{
 					ClusterQueues: &configapi.ClusterQueueVisibility{
@@ -100,6 +100,23 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("queueVisibility").Child("clusterQueues").Child("maxCount"), 4001, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)),
+			},
+		},
+		"negative queue visibility cluster queue max cont": {
+			cfg: &configapi.Configuration{
+				QueueVisibility: &configapi.QueueVisibility{
+					ClusterQueues: &configapi.ClusterQueueVisibility{
+						MaxCount: -1,
+					},
+					UpdateIntervalSeconds: 1,
+				},
+				Integrations: defaultIntegrations,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "queueVisibility.clusterQueues.maxCount",
+				},
 			},
 		},
 		"empty integrations.frameworks": {
