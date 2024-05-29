@@ -19,17 +19,12 @@ package list
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
-	"time"
-
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/duration"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
@@ -112,7 +107,11 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 	}
 
 	if !o.PrintFlags.OutputFlagSpecified() {
-		o.PrintObj = printPodTable
+		printer := newPodTablePrinter()
+		if o.AllNamespaces {
+			printer.WithNamespace()
+		}
+		o.PrintObj = printer.PrintObj
 	} else {
 		printer, err := o.PrintFlags.ToPrinter()
 		if err != nil {
@@ -206,40 +205,4 @@ func (o *PodOptions) filterPodsByOwnerRef(podList *corev1.PodList) []corev1.Pod 
 	}
 
 	return filteredPods
-}
-
-// printPodTable is a printer function for PodList objects.
-var _ printers.ResourcePrinterFunc = printPodTable
-
-func printPodTable(obj runtime.Object, out io.Writer) error {
-	tp := printers.NewTablePrinter(printers.PrintOptions{})
-	a := &metav1.Table{
-		ColumnDefinitions: []metav1.TableColumnDefinition{
-			{Name: "Name", Type: "string", Format: "name"},
-			{Name: "Status", Type: "string", Format: "status"},
-			{Name: "Age", Type: "string"},
-		},
-		Rows: printPodList(obj.(*corev1.PodList)),
-	}
-
-	return tp.PrintObj(a, out)
-}
-
-func printPodList(list *corev1.PodList) []metav1.TableRow {
-	rows := make([]metav1.TableRow, len(list.Items))
-	for index := range list.Items {
-		rows[index] = printPod(&list.Items[index])
-	}
-	return rows
-}
-
-func printPod(pod *corev1.Pod) metav1.TableRow {
-	return metav1.TableRow{
-		Object: runtime.RawExtension{Object: pod},
-		Cells: []interface{}{
-			pod.Name,
-			pod.Status.Phase,
-			duration.HumanDuration(time.Since(pod.CreationTimestamp.Time)),
-		},
-	}
 }
