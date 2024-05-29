@@ -66,8 +66,8 @@ func (b *jobsetAdapter) SyncJob(ctx context.Context, localClient client.Client, 
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 
-	// set the manager
-	remoteJob.Spec.ManagedBy = ptr.To(jobset.JobSetControllerName)
+	// clear the managedBy enables the JobSet controller to take over
+	remoteJob.Spec.ManagedBy = nil
 
 	return remoteClient.Create(ctx, &remoteJob)
 }
