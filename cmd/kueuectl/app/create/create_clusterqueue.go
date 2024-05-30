@@ -121,15 +121,15 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 
 	cmd := &cobra.Command{
 		Use: "clusterqueue NAME " +
-			"[--cohort cohortname] " +
-			"[--queuing-strategy StrictFIFO|BestEffortFIFO] " +
-			"[--namespace-selector selector] " +
-			"[--reclaim-within-cohort Never|Any|LowerPriority|LowerOrNewerEqualPriority] " +
-			"[--preemption-within-cluster-queue Never|Any|LowerPriority|LowerOrNewerEqualPriority] " +
-			"[--nominal-quota rfname1:resource1=value;resource2=value;resource3=value,rfname2:resource1=value;resource2=value] " +
-			"[--borrowing-limit rfname1:resource1=value;resource2=value;resource3=value,rfname2:resource1=value;resource2=value] " +
-			"[--lending-limit rfname1:resource1=value;resource2=value;resource3=value,rfname2:resource1=value;resource2=value] " +
-			"[--dry-run server|client|none]",
+			"[--cohort=cohortname] " +
+			"[--queuing-strategy=StrictFIFO|BestEffortFIFO] " +
+			"[--namespace-selector=selector] " +
+			"[--reclaim-within-cohort=Never|Any|LowerPriority|LowerOrNewerEqualPriority] " +
+			"[--preemption-within-cluster-queue=Never|Any|LowerPriority|LowerOrNewerEqualPriority] " +
+			"[--nominal-quota=rfname1:resource1=value;resource2=value;resource3=value,rfname2:resource1=value;resource2=value] " +
+			"[--borrowing-limit=rfname1:resource1=value;resource2=value;resource3=value,rfname2:resource1=value;resource2=value] " +
+			"[--lending-limit=rfname1:resource1=value;resource2=value;resource3=value,rfname2:resource1=value;resource2=value] " +
+			"[--dry-run=server|client|none]",
 		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"cq"},
