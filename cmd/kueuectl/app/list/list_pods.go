@@ -90,7 +90,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addForObjectFilterFlagVar(cmd, &o.UserSpecifiedForObject)
 
-	cmd.MarkFlagRequired("for")
+	_ = cmd.MarkFlagRequired("for")
 
 	return cmd
 }
