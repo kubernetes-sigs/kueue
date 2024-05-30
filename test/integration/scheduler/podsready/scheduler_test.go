@@ -205,6 +205,54 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			requeueingBackoffLimitCount = ptr.To[int32](2)
 		})
 
+		ginkgo.It("Should requeue a workload which exceeded the timeout to reach PodsReady=True", func() {
+			const lowPrio, highPrio = 0, 100
+
+			ginkgo.By("create the 'prod1' workload")
+			prodWl1 := testing.MakeWorkload("prod1", ns.Name).Queue(prodQueue.Name).Priority(highPrio).Request(corev1.ResourceCPU, "2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodWl1)).Should(gomega.Succeed())
+
+			ginkgo.By("create the 'prod2' workload")
+			prodWl2 := testing.MakeWorkload("prod2", ns.Name).Queue(prodQueue.Name).Priority(lowPrio).Request(corev1.ResourceCPU, "2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodWl2)).Should(gomega.Succeed())
+
+			ginkgo.By("checking the 'prod1' workload is admitted and the 'prod2' workload is waiting")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl1)
+			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, prodWl2)
+
+			ginkgo.By("awaiting for the Admitted=True condition to be added to 'prod1")
+			// We assume that the test will get to this check before the timeout expires and the
+			// kueue cancels the admission. Mentioning this in case this test flakes in the future.
+			gomega.Eventually(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
+				return workload.HasQuotaReservation(prodWl1)
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+
+			ginkgo.By("determining the time of admission as LastTransitionTime for the Admitted condition")
+			admittedAt := apimeta.FindStatusCondition(prodWl1.Status.Conditions, kueue.WorkloadQuotaReserved).LastTransitionTime.Time
+
+			ginkgo.By("wait for the 'prod1' workload to be evicted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
+				isEvicting := apimeta.IsStatusConditionTrue(prodWl1.Status.Conditions, kueue.WorkloadEvicted)
+				if time.Since(admittedAt) < podsReadyTimeout {
+					g.Expect(isEvicting).Should(gomega.BeFalse(), "the workload should not be evicted until the timeout expires")
+				}
+				g.Expect(isEvicting).Should(gomega.BeTrue())
+				g.Expect(ptr.Deref(prodWl1.Status.RequeueState, kueue.RequeueState{})).Should(gomega.BeComparableTo(kueue.RequeueState{
+					Count: ptr.To[int32](1),
+				}, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt")))
+				g.Expect(prodWl1.Status.RequeueState.RequeueAt).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed(), "the workload should be evicted after the timeout expires")
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl1)
+			util.ExpectEvictedWorkloadsTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByPodsReadyTimeout, 1)
+
+			ginkgo.By("verify the 'prod2' workload gets admitted and the 'prod1' is pending by backoff")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl2)
+			// To avoid flakiness, we don't verify if the workload has a QuotaReserved=false with pending reason here.
+		})
+
 		ginkgo.It("Should re-admit a timed out workload and deactivate a workload exceeded the re-queue count limit. After that re-activating a workload", func() {
 			ginkgo.By("create the 'prod' workload")
 			prodWl := testing.MakeWorkload("prod", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
@@ -275,54 +323,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = util.TinyTimeout
 			requeueingBackoffLimitCount = ptr.To[int32](2)
-		})
-
-		ginkgo.It("Should requeue a workload which exceeded the timeout to reach PodsReady=True", func() {
-			const lowPrio, highPrio = 0, 100
-
-			ginkgo.By("create the 'prod1' workload")
-			prodWl1 := testing.MakeWorkload("prod1", ns.Name).Queue(prodQueue.Name).Priority(highPrio).Request(corev1.ResourceCPU, "2").Obj()
-			gomega.Expect(k8sClient.Create(ctx, prodWl1)).Should(gomega.Succeed())
-
-			ginkgo.By("create the 'prod2' workload")
-			prodWl2 := testing.MakeWorkload("prod2", ns.Name).Queue(prodQueue.Name).Priority(lowPrio).Request(corev1.ResourceCPU, "2").Obj()
-			gomega.Expect(k8sClient.Create(ctx, prodWl2)).Should(gomega.Succeed())
-
-			ginkgo.By("checking the 'prod1' workload is admitted and the 'prod2' workload is waiting")
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl1)
-			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, prodWl2)
-
-			ginkgo.By("awaiting for the Admitted=True condition to be added to 'prod1")
-			// We assume that the test will get to this check before the timeout expires and the
-			// kueue cancels the admission. Mentioning this in case this test flakes in the future.
-			gomega.Eventually(func() bool {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
-				return workload.HasQuotaReservation(prodWl1)
-			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-
-			ginkgo.By("determining the time of admission as LastTransitionTime for the Admitted condition")
-			admittedAt := apimeta.FindStatusCondition(prodWl1.Status.Conditions, kueue.WorkloadQuotaReserved).LastTransitionTime.Time
-
-			ginkgo.By("wait for the 'prod1' workload to be evicted")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
-				isEvicting := apimeta.IsStatusConditionTrue(prodWl1.Status.Conditions, kueue.WorkloadEvicted)
-				if time.Since(admittedAt) < podsReadyTimeout {
-					g.Expect(isEvicting).Should(gomega.BeFalse(), "the workload should not be evicted until the timeout expires")
-				}
-				g.Expect(isEvicting).Should(gomega.BeTrue())
-				g.Expect(ptr.Deref(prodWl1.Status.RequeueState, kueue.RequeueState{})).Should(gomega.BeComparableTo(kueue.RequeueState{
-					Count: ptr.To[int32](1),
-				}, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt")))
-				g.Expect(prodWl1.Status.RequeueState.RequeueAt).ShouldNot(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed(), "the workload should be evicted after the timeout expires")
-
-			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl1)
-			util.ExpectEvictedWorkloadsTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByPodsReadyTimeout, 1)
-
-			ginkgo.By("verify the 'prod2' workload gets admitted and the 'prod1' is pending by backoff")
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl2)
-			// To avoid flakiness, we don't verify if the workload has a QuotaReserved=false with pending reason here.
 		})
 
 		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
@@ -414,72 +414,68 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		})
 	})
 
-	var _ = ginkgo.Context("Tiny PodsReady + wait for workload create", func() {
-		ginkgo.BeforeEach(func() {
-			// We wait 1 second between each workload creation calls. Therefore, we need to add this time to timeout.
-			podsReadyTimeout = util.TinyTimeout + 2*time.Second
-			requeueingBackoffLimitCount = ptr.To[int32](2)
+	ginkgo.It("Should move the evicted workload at the end of the queue", func() {
+		// We wait 1 second between each workload creation calls. Therefore, we need to add this time to timeout.
+		podsReadyTimeout = util.TinyTimeout + 2*time.Second
+		requeueingBackoffLimitCount = ptr.To[int32](2)
+
+		localQueueName := "eviction-lq"
+
+		// the workloads are created with a 5 cpu resource requirement to ensure only one can fit at a given time,
+		// letting them all to time out, we should see a circular buffer admission pattern
+		wl1 := testing.MakeWorkload("prod1", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+		wl2 := testing.MakeWorkload("prod2", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+		wl3 := testing.MakeWorkload("prod3", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+
+		ginkgo.By("create the workloads", func() {
+			// since metav1.Time has only second resolution, wait one second between
+			// create calls to avoid any potential creation timestamp collision
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			time.Sleep(time.Second)
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			time.Sleep(time.Second)
+			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should move the evicted workload at the end of the queue", func() {
-			localQueueName := "eviction-lq"
+		ginkgo.By("create the local queue to start admission", func() {
+			lq := testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
+		})
 
-			// the workloads are created with a 5 cpu resource requirement to ensure only one can fit at a given time,
-			// letting them all to time out, we should see a circular buffer admission pattern
-			wl1 := testing.MakeWorkload("prod1", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
-			wl2 := testing.MakeWorkload("prod2", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
-			wl3 := testing.MakeWorkload("prod3", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+		ginkgo.By("waiting for the first workload to be admitted", func() {
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl1)
+		})
 
-			ginkgo.By("create the workloads", func() {
-				// since metav1.Time has only second resolution, wait one second between
-				// create calls to avoid any potential creation timestamp collision
-				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
-				time.Sleep(time.Second)
-				gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-				time.Sleep(time.Second)
-				gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
-			})
+		ginkgo.By("waiting the timeout, the first workload should be evicted and the second one should be admitted", func() {
+			time.Sleep(podsReadyTimeout)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl2)
+		})
 
-			ginkgo.By("create the local queue to start admission", func() {
-				lq := testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-				gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
-			})
+		ginkgo.By("finishing the second workload, the third one should be admitted", func() {
+			time.Sleep(podsReadyTimeout)
+			util.FinishWorkloads(ctx, k8sClient, wl2)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl3)
+		})
 
-			ginkgo.By("waiting for the first workload to be admitted", func() {
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl1)
-			})
+		ginkgo.By("finishing the third workload, the first one should be admitted", func() {
+			time.Sleep(podsReadyTimeout)
+			util.FinishWorkloads(ctx, k8sClient, wl3)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl1)
+		})
 
-			ginkgo.By("waiting the timeout, the first workload should be evicted and the second one should be admitted", func() {
-				time.Sleep(podsReadyTimeout)
-				util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl2)
-			})
-
-			ginkgo.By("finishing the second workload, the third one should be admitted", func() {
-				time.Sleep(podsReadyTimeout)
-				util.FinishWorkloads(ctx, k8sClient, wl2)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl3)
-			})
-
-			ginkgo.By("finishing the third workload, the first one should be admitted", func() {
-				time.Sleep(podsReadyTimeout)
-				util.FinishWorkloads(ctx, k8sClient, wl3)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl1)
-			})
-
-			ginkgo.By("verifying if all workloads have a proper re-queue count", func() {
-				// Here, we focus on verifying if the requeuingTimestamp works well.
-				// So, we don't check if the .status.requeueState.requeueAt is reset.
-				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl1), &kueue.RequeueState{
-					Count: ptr.To[int32](2),
-				}, true)
-				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl2), &kueue.RequeueState{
-					Count: ptr.To[int32](1),
-				}, true)
-				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl3), &kueue.RequeueState{
-					Count: ptr.To[int32](1),
-				}, true)
-			})
+		ginkgo.By("verifying if all workloads have a proper re-queue count", func() {
+			// Here, we focus on verifying if the requeuingTimestamp works well.
+			// So, we don't check if the .status.requeueState.requeueAt is reset.
+			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl1), &kueue.RequeueState{
+				Count: ptr.To[int32](2),
+			}, true)
+			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl2), &kueue.RequeueState{
+				Count: ptr.To[int32](1),
+			}, true)
+			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl3), &kueue.RequeueState{
+				Count: ptr.To[int32](1),
+			}, true)
 		})
 	})
 
