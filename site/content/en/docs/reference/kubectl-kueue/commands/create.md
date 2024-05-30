@@ -34,13 +34,13 @@ kueuectl create clusterqueue my-cluster-queue \
   --preemption-within-cluster-queue=LowerPriority
 
 # Create a ClusterQueue with nominal quota and one resource flavor named alpha
-kueuectl create clusterqueue my-cluster-queue --nominal-quota=alpha:cpu=0;memory=0
+kueuectl create clusterqueue my-cluster-queue --nominal-quota=alpha:cpu=9;memory=36Gi
 
-# Create a ClusterQueue multiple resource flavors named alpha, beta and gamma
+# Create a ClusterQueue with multiple resource flavors named alpha and beta
 kueuectl create clusterqueue my-cluster-queue \
-  --nominal-quota=alpha:cpu=0;memory=0,beta:gpu=0,gamma:cpu=0;memory=0 \
-  --borrowing-limit=alpha:cpu=0;memory=0,beta:gpu=0,gamma:cpu=0;memory=0 \
-  --lending-limit=alpha:cpu=0;memory=0,beta:gpu=0,gamma:cpu=0;memory=0
+  --nominal-quota=alpha:cpu=9;memory=36Gi;nvidia.com/gpu=10,beta:cpu=18;memory=72Gi;nvidia.com/gpu=20, \
+	--borrowing-limit=alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2 \
+	--lending-limit=alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2
 ```
 
 ## Resource types
