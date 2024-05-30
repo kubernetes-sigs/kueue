@@ -45,6 +45,7 @@ const (
 type PodOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
+	Limit                  int64
 	AllNamespaces          bool
 	Namespace              string
 	LabelSelector          string
@@ -54,7 +55,7 @@ type PodOptions struct {
 
 	Clientset k8s.Interface
 
-	PrintObj printers.ResourcePrinterFunc
+	ToPrinter func(noHeaders bool) (printers.ResourcePrinterFunc, error)
 
 	genericiooptions.IOStreams
 }
@@ -89,6 +90,8 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addForObjectFilterFlagVar(cmd, &o.UserSpecifiedForObject)
 
+	cmd.MarkFlagRequired("for")
+
 	return cmd
 }
 
@@ -96,6 +99,10 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 	var err error
 
+	o.Limit, err = listRequestLimit()
+	if err != nil {
+		return err
+	}
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return err
@@ -106,18 +113,20 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 		return err
 	}
 
-	if !o.PrintFlags.OutputFlagSpecified() {
-		printer := newPodTablePrinter()
-		if o.AllNamespaces {
-			printer.WithNamespace()
+	o.ToPrinter = func(noHeaders bool) (printers.ResourcePrinterFunc, error) {
+		if !o.PrintFlags.OutputFlagSpecified() {
+			printer := newPodTablePrinter().
+				WithNamespace(o.AllNamespaces).
+				WithNoHeaders(noHeaders)
+			return printer.PrintObj, nil
 		}
-		o.PrintObj = printer.PrintObj
-	} else {
+
 		printer, err := o.PrintFlags.ToPrinter()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		o.PrintObj = printer.PrintObj
+
+		return printer.PrintObj, nil
 	}
 
 	o.ForObject, err = parseForObjectFilterFlag(o.UserSpecifiedForObject)
@@ -140,52 +149,62 @@ func (o *PodOptions) Run(ctx context.Context) error {
 
 // listPods lists the pods based on the given --for object
 func (o *PodOptions) listPods(ctx context.Context) error {
+	var totalCount int
+
 	namespace := o.Namespace
 	if o.AllNamespaces {
 		namespace = ""
 	}
 
-	continueToken := ""
-	filteredPodListSlice := make([]*corev1.PodList, 0)
+	opts := metav1.ListOptions{
+		LabelSelector: o.LabelSelector,
+		FieldSelector: o.FieldSelector,
+		Limit:         o.Limit,
+	}
+
+	tabWriter := printers.GetNewTabWriter(o.Out)
 	for {
-		podList, err := o.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: o.LabelSelector,
-			FieldSelector: o.FieldSelector,
-			Continue:      continueToken,
-		})
+		noHeaders := totalCount > 0
+
+		podList, err := o.Clientset.CoreV1().Pods(namespace).List(ctx, opts)
 		if err != nil {
 			return err
 		}
 
-		if fp := o.filterPodsByOwnerRef(podList); len(fp) != 0 {
-			podList.Items = fp
-			filteredPodListSlice = append(filteredPodListSlice, podList)
-		}
+		podList.Items = o.filterPodsByOwnerRef(podList)
 
-		if podList.Continue == "" {
-			break
-		}
-		continueToken = podList.Continue
-	}
+		totalCount += len(podList.Items)
 
-	// handle if no filtered podList found
-	if len(filteredPodListSlice) == 0 {
-		if !o.AllNamespaces {
-			fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
-		} else {
-			fmt.Fprintln(o.ErrOut, "No resources found.")
-		}
-		return nil
-	}
-
-	// now range over the filteredPodListSlice and print them
-	for _, filteredPodList := range filteredPodListSlice {
-		if err := o.PrintObj(filteredPodList, o.Out); err != nil {
+		printer, err := o.ToPrinter(noHeaders)
+		if err != nil {
 			return err
 		}
-	}
 
-	return nil
+		if err = printer.PrintObj(podList, tabWriter); err != nil {
+			return err
+		}
+
+		if podList.Continue != "" {
+			opts.Continue = podList.Continue
+			continue
+		}
+
+		// handle if no filtered podList found
+		if totalCount == 0 {
+			if !o.AllNamespaces {
+				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+			} else {
+				fmt.Fprintln(o.ErrOut, "No resources found.")
+			}
+			return nil
+		}
+
+		if err = tabWriter.Flush(); err != nil {
+			return err
+		}
+
+		return nil
+	}
 }
 
 func (o *PodOptions) filterPodsByOwnerRef(podList *corev1.PodList) []corev1.Pod {
