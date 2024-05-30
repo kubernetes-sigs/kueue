@@ -17,10 +17,14 @@ package multikueue
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -47,22 +51,8 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 
 	// the remote job exists
 	if err == nil {
-		// This will no longer be necessary when batchJob will support live status update, by then
-		// we should only sync the Status of the job if it's "Finished".
-		remoteFinished := false
-		for _, c := range remoteJob.Status.Conditions {
-			if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
-				remoteFinished = true
-				break
-			}
-		}
-
-		if remoteFinished {
-			localJob.Status = remoteJob.Status
-			return localClient.Status().Update(ctx, &localJob)
-		} else {
-			return nil
-		}
+		localJob.Status = remoteJob.Status
+		return localClient.Status().Update(ctx, &localJob)
 	}
 
 	remoteJob = batchv1.Job{
@@ -85,6 +75,9 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 
+	// clear the managedBy enables the batch/Job controller to take over
+	remoteJob.Spec.ManagedBy = nil
+
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
@@ -97,10 +90,35 @@ func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient c
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
-func (b *batchJobAdapter) KeepAdmissionCheckPending() bool {
-	return true
+func (b *batchJobAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	job := batchv1.Job{}
+	err := c.Get(ctx, key, &job)
+	if err != nil {
+		return false, "", err
+	}
+	jobControllerName := ptr.Deref(job.Spec.ManagedBy, "")
+	if jobControllerName != ControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", ControllerName, jobControllerName), nil
+	}
+	return true, "", nil
 }
 
-func (b *batchJobAdapter) IsJobManagedByKueue(_ context.Context, _ client.Client, _ types.NamespacedName) (bool, string, error) {
-	return true, "", nil
+var _ multiKueueWatcher = (*batchJobAdapter)(nil)
+
+func (*batchJobAdapter) GetEmptyList() client.ObjectList {
+	return &batchv1.JobList{}
+}
+
+func (*batchJobAdapter) GetWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+	job, isJob := o.(*batchv1.Job)
+	if !isJob {
+		return types.NamespacedName{}, errors.New("not a job")
+	}
+
+	prebuiltWl, hasPrebuiltWorkload := job.Labels[constants.PrebuiltWorkloadLabel]
+	if !hasPrebuiltWorkload {
+		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for job: %s", klog.KObj(job))
+	}
+
+	return types.NamespacedName{Name: prebuiltWl, Namespace: job.Namespace}, nil
 }

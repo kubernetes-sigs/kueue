@@ -25,12 +25,17 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
+	managerK8SVersion  *versionutil.Version
 	managerClusterName string
 	worker1ClusterName string
 	worker2ClusterName string
@@ -73,4 +78,11 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
 	ginkgo.GinkgoLogr.Info("Kueue is Available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
+
+	cfg, err := config.GetConfigWithContext("kind-" + managerClusterName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })

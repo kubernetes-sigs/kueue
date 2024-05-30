@@ -55,7 +55,8 @@ func TestWlReconcile(t *testing.T) {
 	}
 
 	baseWorkloadBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
+	baseUnmanagedJobBuilder := testingjob.MakeJob("job1", TestNamespace)
+	baseJobBuilder := baseUnmanagedJobBuilder.Clone().ManagedBy(ControllerName)
 
 	cases := map[string]struct {
 		reconcileFor             string
@@ -155,8 +156,30 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"unmanaged wl (job not managed by multikueue) is rejected": {
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{
+				*baseUnmanagedJobBuilder.Clone().Obj(),
+			},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseUnmanagedJobBuilder.Clone().Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected, Message: `The owner is not managed by Kueue: Expecting spec.managedBy to be "kueue.x-k8s.io/multikueue" not ""`}).
+					Obj(),
+			},
+		},
 		"failing to read from a worker": {
 			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -166,6 +189,7 @@ func TestWlReconcile(t *testing.T) {
 			useSecondWorker:   true,
 			worker2OnGetError: errFake,
 
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -176,6 +200,7 @@ func TestWlReconcile(t *testing.T) {
 		},
 		"reconnecting clients are skipped": {
 			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -186,6 +211,7 @@ func TestWlReconcile(t *testing.T) {
 			worker2Reconnecting: true,
 			worker2OnGetError:   errFake,
 
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -196,6 +222,7 @@ func TestWlReconcile(t *testing.T) {
 		},
 		"wl without reservation, clears the workload objects": {
 			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -207,6 +234,7 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -216,6 +244,7 @@ func TestWlReconcile(t *testing.T) {
 		},
 		"wl with reservation, creates remote workloads, worker2 fails": {
 			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -226,6 +255,7 @@ func TestWlReconcile(t *testing.T) {
 			useSecondWorker:      true,
 			worker2OnCreateError: errFake,
 
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -242,6 +272,7 @@ func TestWlReconcile(t *testing.T) {
 		},
 		"wl with reservation, creates missing workloads": {
 			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -256,6 +287,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			useSecondWorker: true,
 
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -353,7 +385,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -371,7 +403,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+				*baseUnmanagedJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
@@ -383,7 +415,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -396,7 +428,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 
 			worker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+				*baseUnmanagedJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
@@ -413,7 +445,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -435,7 +467,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+				*baseUnmanagedJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
@@ -463,7 +495,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 
 			worker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+				*baseUnmanagedJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
@@ -496,6 +528,7 @@ func TestWlReconcile(t *testing.T) {
 		},
 		"the local workload admission check Ready if the remote WorkerLostTimeout is not exceeded": {
 			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -508,6 +541,7 @@ func TestWlReconcile(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -522,6 +556,7 @@ func TestWlReconcile(t *testing.T) {
 		},
 		"the local workload's admission check is set to Retry if the WorkerLostTimeout is exceeded": {
 			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -534,6 +569,7 @@ func TestWlReconcile(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -548,6 +584,7 @@ func TestWlReconcile(t *testing.T) {
 		},
 		"the local workload's admission check is set to Pending when it is in Retry without quota": {
 			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -558,6 +595,7 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					Obj(),
 			},
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -571,6 +609,7 @@ func TestWlReconcile(t *testing.T) {
 		},
 		"worker reconnects after the local workload is requeued, remote objects are deleted": {
 			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -582,6 +621,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 
+			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -600,7 +640,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			worker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+				*baseUnmanagedJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Obj(),
 			},
@@ -612,7 +652,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker2"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -630,7 +670,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			worker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+				*baseUnmanagedJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Obj(),
 			},
@@ -643,7 +683,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			worker2Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+				*baseUnmanagedJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Obj(),
 			},
@@ -651,7 +691,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -668,7 +708,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+				*baseUnmanagedJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Obj(),
 			},

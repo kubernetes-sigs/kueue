@@ -248,3 +248,9 @@ func SetContainerDefaults(c *corev1.Container) {
 		c.ImagePullPolicy = corev1.PullIfNotPresent
 	}
 }
+
+// ManagedBy adds a managedby.
+func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
+	j.Spec.ManagedBy = &c
+	return j
+}

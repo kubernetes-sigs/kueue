@@ -30,6 +30,8 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -450,7 +452,11 @@ var _ = ginkgo.Describe("Multikueue", func() {
 	})
 
 	ginkgo.It("Should run a job on worker if admitted", func() {
+		if managerK8sVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
+			ginkgo.Skip("the managers kubernetes version is less then 1.30")
+		}
 		job := testingjob.MakeJob("job", managerNs.Name).
+			ManagedBy(multikueue.ControllerName).
 			Queue(managerLq.Name).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())
@@ -489,13 +495,31 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multikueueAC.Name)
 				g.Expect(acs).NotTo(gomega.BeNil())
-				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("updating the worker job status", func() {
+			startTime := metav1.NewTime(time.Now().Truncate(time.Second))
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := batchv1.Job{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+				createdJob.Status.StartTime = &startTime
+				createdJob.Status.Ready = ptr.To[int32](1)
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(createdJob.Status.StartTime, metav1.Time{})).To(gomega.Equal(startTime))
+				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("finishing the worker job", func() {
@@ -509,6 +533,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					LastTransitionTime: metav1.Now(),
 					Message:            "Job finished successfully",
 				})
+				createdJob.Status.CompletionTime = ptr.To(metav1.Now())
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -651,7 +676,11 @@ var _ = ginkgo.Describe("Multikueue", func() {
 	})
 
 	ginkgo.It("Should remove the worker's workload and job when managers job is deleted", func() {
+		if managerK8sVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
+			ginkgo.Skip("the managers kubernetes version is less then 1.30")
+		}
 		job := testingjob.MakeJob("job", managerNs.Name).
+			ManagedBy(multikueue.ControllerName).
 			Queue(managerLq.Name).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())

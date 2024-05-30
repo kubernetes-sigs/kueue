@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -49,11 +50,12 @@ import (
 type ManagerSetup func(manager.Manager, context.Context)
 
 type Framework struct {
-	CRDPath     string
-	DepCRDPaths []string
-	WebhookPath string
-	testEnv     *envtest.Environment
-	cancel      context.CancelFunc
+	CRDPath               string
+	DepCRDPaths           []string
+	WebhookPath           string
+	APIServerFeatureGates []string
+	testEnv               *envtest.Environment
+	cancel                context.CancelFunc
 }
 
 func (f *Framework) Init() *rest.Config {
@@ -75,6 +77,10 @@ func (f *Framework) Init() *rest.Config {
 	}
 	if len(f.WebhookPath) > 0 {
 		f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
+	}
+
+	if len(f.APIServerFeatureGates) > 0 {
+		f.testEnv.ControlPlane.GetAPIServer().Configure().Append("feature-gates", strings.Join(f.APIServerFeatureGates, ","))
 	}
 
 	cfg, err := f.testEnv.Start()

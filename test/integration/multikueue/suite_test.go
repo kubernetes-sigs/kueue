@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,6 +27,8 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -39,6 +42,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -61,6 +65,7 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 }
 
 var (
+	managerK8sVersion       *versionutil.Version
 	managerTestCluster      cluster
 	worker1TestCluster      cluster
 	worker2TestCluster      cluster
@@ -75,12 +80,13 @@ func TestMultiKueue(t *testing.T) {
 	)
 }
 
-func createCluster(setupFnc framework.ManagerSetup) cluster {
+func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
 	c := cluster{}
 	c.fwk = &framework.Framework{
-		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
-		DepCRDPaths: []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator")},
+		CRDPath:               filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
+		WebhookPath:           filepath.Join("..", "..", "..", "config", "components", "webhook"),
+		DepCRDPaths:           []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator")},
+		APIServerFeatureGates: apiFeatureGates,
 	}
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.RunManager(c.cfg, setupFnc)
@@ -88,9 +94,20 @@ func createCluster(setupFnc framework.ManagerSetup) cluster {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	managerTestCluster = createCluster(managerAndMultiKueueSetup)
+	var managerFeatureGates []string
+	version, err := versionutil.ParseGeneric(os.Getenv("ENVTEST_K8S_VERSION"))
+	if err != nil || !version.LessThan(versionutil.MustParseSemantic("1.30.0")) {
+		managerFeatureGates = []string{"JobManagedBy=true"}
+	}
+
+	managerTestCluster = createCluster(managerAndMultiKueueSetup, managerFeatureGates...)
 	worker1TestCluster = createCluster(managerSetup)
 	worker2TestCluster = createCluster(managerSetup)
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerTestCluster.cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	managerK8sVersion, err = kubeversion.FetchServerVersion(discoveryClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 var _ = ginkgo.AfterSuite(func() {
