@@ -55,8 +55,13 @@ func (p *listPodPrinter) PrintObj(obj runtime.Object, out io.Writer) error {
 	return printer.PrintObj(table, out)
 }
 
-func (p *listPodPrinter) WithNamespace() *listPodPrinter {
-	p.printOptions.WithNamespace = true
+func (p *listPodPrinter) WithNamespace(f bool) *listPodPrinter {
+	p.printOptions.WithNamespace = f
+	return p
+}
+
+func (p *listPodPrinter) WithNoHeaders(f bool) *listPodPrinter {
+	p.printOptions.NoHeaders = f
 	return p
 }
 
