@@ -386,19 +386,17 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml -f shared-cq.yaml
 ```
 
 ## Exclude arbitrary resources in the quota management 
-By default, administrators must specify all resources used by any Pods in the ClusterQueues `.spec.resourceGroups[*]`.
-If you want to exclude some resources for the specific devices in the ClusterQueues management, 
-you can specify the resource prefixes in the Kueue configuration as a cluster-level setting.
+By default, administrators must specify all resources required by Pods in the ClusterQueues `.spec.resourceGroups[*]`.
+If you want to exclude some resources in the ClusterQueues quota management and admission process, 
+you can specify the resource prefixes in the Kueue Configuration as a cluster-level setting.
 
-Follow the instructions described
-[here](/docs/installation#install-a-custom-configured-released-version) to
-install a release version by extending the configuration with the following
-fields:
+Follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version) 
+and extend the configuration with fields similar to the following:
 
 ```yaml
-...
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
 resources:
   excludeResourcePrefixes:
   - "example.com"
-...
 ```

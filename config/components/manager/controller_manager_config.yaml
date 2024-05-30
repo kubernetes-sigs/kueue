@@ -60,3 +60,5 @@ integrations:
 #fairSharing:
 #  enable: true
 #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
+#resources:
+#  excludeResourcePrefixes: []
