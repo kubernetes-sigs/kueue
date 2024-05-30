@@ -144,16 +144,16 @@ func TestParseResourceQuotas(t *testing.T) {
 			},
 		},
 		"should create one resource group with two flavors and nominalQuota set": {
-			quotaArgs: []string{"alpha:gpu=1", "beta:gpu=2"},
+			quotaArgs: []string{"alpha:example.com/gpu=1", "beta:example.com/gpu=2"},
 			wantResourceGroups: []v1beta1.ResourceGroup{
 				{
-					CoveredResources: []corev1.ResourceName{"gpu"},
+					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
 					Flavors: []v1beta1.FlavorQuotas{
 						*utiltesting.MakeFlavorQuotas("alpha").
-							Resource("gpu", "1").
+							Resource("example.com/gpu", "1").
 							Obj(),
 						*utiltesting.MakeFlavorQuotas("beta").
-							Resource("gpu", "2").
+							Resource("example.com/gpu", "2").
 							Obj(),
 					},
 				},
@@ -178,7 +178,7 @@ func TestParseResourceQuotas(t *testing.T) {
 			},
 		},
 		"should create two resource groups with one flavor each and nominalQuota set": {
-			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:gpu=2"},
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2"},
 			wantResourceGroups: []v1beta1.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
@@ -190,17 +190,17 @@ func TestParseResourceQuotas(t *testing.T) {
 					},
 				},
 				{
-					CoveredResources: []corev1.ResourceName{"gpu"},
+					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
 					Flavors: []v1beta1.FlavorQuotas{
 						*utiltesting.MakeFlavorQuotas("beta").
-							Resource("gpu", "2").
+							Resource("example.com/gpu", "2").
 							Obj(),
 					},
 				},
 			},
 		},
 		"should create two resource groups with multiple flavors and nominalQuota set": {
-			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:gpu=2", "gamma:cpu=2;memory=2"},
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2", "gamma:cpu=2;memory=2"},
 			wantResourceGroups: []v1beta1.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
@@ -216,10 +216,10 @@ func TestParseResourceQuotas(t *testing.T) {
 					},
 				},
 				{
-					CoveredResources: []corev1.ResourceName{"gpu"},
+					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
 					Flavors: []v1beta1.FlavorQuotas{
 						*utiltesting.MakeFlavorQuotas("beta").
-							Resource("gpu", "2").
+							Resource("example.com/gpu", "2").
 							Obj(),
 					},
 				},
@@ -242,27 +242,27 @@ func TestParseResourceQuotas(t *testing.T) {
 			},
 		},
 		"should create one resource group with two flavors and all quotas set": {
-			quotaArgs:     []string{"alpha:gpu=1", "beta:gpu=2"},
-			borrowingArgs: []string{"alpha:gpu=1", "beta:gpu=2"},
-			lendingArgs:   []string{"alpha:gpu=1", "beta:gpu=2"},
+			quotaArgs:     []string{"alpha:example.com/gpu=1", "beta:example.com/gpu=2"},
+			borrowingArgs: []string{"alpha:example.com/gpu=1", "beta:example.com/gpu=2"},
+			lendingArgs:   []string{"alpha:example.com/gpu=1", "beta:example.com/gpu=2"},
 			wantResourceGroups: []v1beta1.ResourceGroup{
 				{
-					CoveredResources: []corev1.ResourceName{"gpu"},
+					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
 					Flavors: []v1beta1.FlavorQuotas{
 						*utiltesting.MakeFlavorQuotas("alpha").
-							Resource("gpu", "1", "1", "1").
+							Resource("example.com/gpu", "1", "1", "1").
 							Obj(),
 						*utiltesting.MakeFlavorQuotas("beta").
-							Resource("gpu", "2", "2", "2").
+							Resource("example.com/gpu", "2", "2", "2").
 							Obj(),
 					},
 				},
 			},
 		},
 		"should create two resource groups with one flavor each and all quotas set": {
-			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:gpu=2"},
-			borrowingArgs: []string{"alpha:cpu=1;memory=1", "beta:gpu=2"},
-			lendingArgs:   []string{"alpha:cpu=1;memory=1", "beta:gpu=2"},
+			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2"},
+			borrowingArgs: []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2"},
+			lendingArgs:   []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2"},
 			wantResourceGroups: []v1beta1.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
@@ -274,19 +274,19 @@ func TestParseResourceQuotas(t *testing.T) {
 					},
 				},
 				{
-					CoveredResources: []corev1.ResourceName{"gpu"},
+					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
 					Flavors: []v1beta1.FlavorQuotas{
 						*utiltesting.MakeFlavorQuotas("beta").
-							Resource("gpu", "2", "2", "2").
+							Resource("example.com/gpu", "2", "2", "2").
 							Obj(),
 					},
 				},
 			},
 		},
 		"should create two resource groups with multiple flavors and all quotas set": {
-			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:gpu=2", "gamma:cpu=2;memory=2"},
-			borrowingArgs: []string{"alpha:cpu=1;memory=1", "beta:gpu=2", "gamma:cpu=2;memory=2"},
-			lendingArgs:   []string{"alpha:cpu=1;memory=1", "beta:gpu=2", "gamma:cpu=2;memory=2"},
+			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2", "gamma:cpu=2;memory=2"},
+			borrowingArgs: []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2", "gamma:cpu=2;memory=2"},
+			lendingArgs:   []string{"alpha:cpu=1;memory=1", "beta:example.com/gpu=2", "gamma:cpu=2;memory=2"},
 			wantResourceGroups: []v1beta1.ResourceGroup{
 				{
 					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
@@ -302,17 +302,17 @@ func TestParseResourceQuotas(t *testing.T) {
 					},
 				},
 				{
-					CoveredResources: []corev1.ResourceName{"gpu"},
+					CoveredResources: []corev1.ResourceName{"example.com/gpu"},
 					Flavors: []v1beta1.FlavorQuotas{
 						*utiltesting.MakeFlavorQuotas("beta").
-							Resource("gpu", "2", "2", "2").
+							Resource("example.com/gpu", "2", "2", "2").
 							Obj(),
 					},
 				},
 			},
 		},
 		"should fail to create a resource group with an invalid flavor and one quota set": {
-			quotaArgs: []string{"alpha:cpu=1;memory=1", "alpha:gpu=2"},
+			quotaArgs: []string{"alpha:cpu=1;memory=1", "alpha:example.com/gpu=2"},
 			wantErr:   errInvalidFlavor,
 		},
 		"should fail to create when one resource is shared by multiple resource groups": {
@@ -321,7 +321,7 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should fail to create a resource group with an invalid flavor and multiple quotas set": {
 			quotaArgs:     []string{"alpha:cpu=1;memory=1"},
-			borrowingArgs: []string{"alpha:gpu=2"},
+			borrowingArgs: []string{"alpha:example.com/gpu=2"},
 			wantErr:       errInvalidFlavor,
 		},
 		"should fail when invalid resource quotas": {
