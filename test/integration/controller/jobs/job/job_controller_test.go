@@ -19,7 +19,6 @@ package job
 import (
 	"fmt"
 	"maps"
-	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -1907,7 +1906,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			Enable:         true,
 			BlockAdmission: ptr.To(true),
-			Timeout:        &metav1.Duration{Duration: 10 * time.Millisecond},
+			Timeout:        &metav1.Duration{Duration: util.TinyTimeout},
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
 				BackoffBaseSeconds: ptr.To[int32](backoffBaseSeconds),
