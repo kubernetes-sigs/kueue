@@ -558,7 +558,9 @@ If set to `None` or `spec.stopPolicy` is removed the ClusterQueue will to normal
 
 ## AdmissionChecks
 
-AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload. See [Admission Checks](/docs/concepts/admission_check#usage) for ClusterQueue's example configuration.
+AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload.
+
+For an example ClusterQueue configuration using admission checks, see [Admission Checks](/docs/concepts/admission_check#usage).
 
 ## What's next?
 

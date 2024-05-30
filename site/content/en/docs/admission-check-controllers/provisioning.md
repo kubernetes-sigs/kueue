@@ -14,12 +14,16 @@ The Provisioning Admission Check Controller is supported on [Kubernetes cluster-
 
 ## Usage
 
-To use the Provisioning AdmissionCheck, create an [AdmissionCheck](docs/concepts/admission_check)
-with `kueue.x-k8s.io/provisioning-request` as a `.spec.controllerName` and create a ProvisioningRequest configuration using a `ProvisioningRequestConfig` object. See an example below.
+To use the Provisioning AdmissionCheck, create an [AdmissionCheck](/docs/concepts/admission_check)
+with `kueue.x-k8s.io/provisioning-request` as a `.spec.controllerName` and create a ProvisioningRequest configuration using a `ProvisioningRequestConfig` object.
+
+Next, you need to reference the AdmissionCheck from the ClusterQueue, as detailed in [Admission Check usage](/docs/concepts/admission_check#usage).
+
+See [below](#setup) for a full setup.
 
 ## ProvisioningRequest configuration
 
-There are two ways to configure ProvisioningRequest sent for your Jobs.
+There are two ways to configure the ProvisioningRequests that Kueue creates for your Jobs.
 
 - **ProvisioningRequestConfig:** This configuration in the AdmissionCheck applies to all the jobs that go through this check.
 It enables you to set `provisioningClassName`, `managedResources`, and `parameters`
@@ -45,7 +49,7 @@ Where:
 
 Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta1/provisioningrequestconfig_types.go) for more details.
 
-### Job annotation
+### Job annotations
 
 Another way to pass ProvisioningRequest's [parameters](https://github.com/kubernetes/autoscaler/blob/0130d33747bb329b790ccb6e8962eedb6ffdd0a8/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1/types.go#L115) is by using Job annotations. Every annotation with the ***provreq.kueue.x-k8s.io/*** prefix will be directly passed to created ProvisioningRequest. E.g. `provreq.kueue.x-k8s.io/ValidUntilSeconds: "60"` will pass `ValidUntilSeconds` parameter with the value of `60`. See more examples below.
 

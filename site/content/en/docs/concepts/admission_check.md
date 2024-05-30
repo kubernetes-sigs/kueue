@@ -11,13 +11,9 @@ AdmissionChecks are a mechanism that allows Kueue to consider additional criteri
 When a ClusterQueue has AdmissionChecks configured, each of the checks has to provide a
 positive signal to the Workload before it can be [Admitted](https://kueue.sigs.k8s.io/docs/concepts#admission).
 
-## Components
+### AdmissionCheck
 
-You can configure the mechanism using the following components:
-
-### Admission Check
-
-Admission check is a non-namespaced API object used to define details about an `AdmissionCheck` like:
+AdmissionCheck is a non-namespaced API object used to define details about an admission check like:
 
 - **controllerName** - It's an identifier for the controller that processes this AdmissionCheck, not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
 - **retryDelayMinutes** - Specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to "Unknown". The default is 15 min.
