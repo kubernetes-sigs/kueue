@@ -17,6 +17,7 @@ limitations under the License.
 package list
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -55,6 +56,21 @@ type objectRef struct {
 	APIGroup string
 	Kind     string
 	Name     string
+}
+
+func listRequestLimit() (int64, error) {
+	listRequestLimitEnv := os.Getenv(KueuectlListRequestLimitEnvName)
+
+	if len(listRequestLimitEnv) == 0 {
+		return defaultListRequestLimit, nil
+	}
+
+	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
+	if err != nil {
+		return 0, invalidListRequestLimitError
+	}
+
+	return limit, nil
 }
 
 func addFieldSelectorFlagVar(cmd *cobra.Command, p *string) {
