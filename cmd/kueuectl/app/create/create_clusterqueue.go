@@ -19,7 +19,6 @@ package create
 import (
 	"context"
 	"errors"
-	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -227,7 +226,7 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 // Validate validates required fields are set to support structured generation
 func (o *ClusterQueueOptions) Validate(ctx context.Context) error {
 	if len(o.Name) == 0 {
-		return fmt.Errorf("name must be specified")
+		return errors.New("name must be specified")
 	}
 
 	return nil
