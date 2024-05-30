@@ -22,7 +22,7 @@ GO_BUILD_ENV=${GO_BUILD_ENV:-}
 GO_CMD=${GO_CMD:-go}
 LD_FLAGS=${LD_FLAGS:-}
 
-BUILD_DIR=${BUILD_DIR:-bin}
+BUILD_DIR=${BUILD_DIR}
 BUILD_NAME=${BUILD_NAME:-kueuectl}
 PLATFORMS=${PLATFORMS:-linux/amd64}
 
@@ -32,7 +32,6 @@ IFS=","
 for PLATFORM in ${PLATFORMS} ; do
   export GOOS="${PLATFORM%/*}"
   export GOARCH="${PLATFORM#*/}"
-  mkdir -p "${BUILD_DIR}/${GOOS}/${GOARCH}"
   EXTENSION=""
 
   if [ ${GOOS} == "windows" ]; then
@@ -40,5 +39,5 @@ for PLATFORM in ${PLATFORMS} ; do
   fi
 
   echo "Building for $PLATFORM platform"
-  ${GO_BUILD_ENV} ${GO_CMD} build -ldflags="${LD_FLAGS}" -o ${BUILD_DIR}/${GOOS}/${GOARCH}/${BUILD_NAME}${EXTENSION} $1
+  ${GO_BUILD_ENV} ${GO_CMD} build -ldflags="${LD_FLAGS}" -o ${BUILD_DIR}/${BUILD_NAME}-${GOOS}-${GOARCH}${EXTENSION} $1
 done

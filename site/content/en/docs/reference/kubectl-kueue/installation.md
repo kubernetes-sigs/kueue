@@ -14,17 +14,17 @@ description: >
 On Linux:
 ```shell
 # For AMD64 / x86_64
-curl -LO "https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/bin/linux/amd64/kubectl-kueue"
+[ $(uname -m) = x86_64 ] && curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-amd64
 # For ARM64
-curl -LO "https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/bin/linux/arm64/kubectl-kueue"
+[ $(uname -m) = aarch64 ] && curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-arm64
 ```
 
 On Mac:
 ```shell
 # For Intel Macs
-curl -LO "https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/bin/darwin/amd64/kubectl-kueue"
+[ $(uname -m) = x86_64 ] && curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-amd64
 # For M1 / ARM Macs
-curl -LO "https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/bin/darwin/arm64/kubectl-kueue"
+[ $(uname -m) = arm64 ] && curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-arm64
 ```
 
 ### 2. Make the kubectl-kueue binary executable.
