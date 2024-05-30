@@ -138,14 +138,9 @@ data:
     waitForPodsReady:
       enable: true
       timeout: 10m
-    # pprofBindAddress: :8083
     integrations:
       frameworks:
       - "batch/job"
-    # - "kubeflow.org/mpijob"
-    # - "ray.io/rayjob"
-    # externalFrameworks:
-    # - "Foo.v1.example.com"
 ```
 
 __The `integrations.externalFrameworks` field is available in Kueue v0.7.0 and later.__
