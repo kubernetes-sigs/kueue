@@ -964,11 +964,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		ginkgo.AfterEach(func() {
 			provisioning.MaxRetries = defaultMaxRetries
 			provisioning.MinBackoffSeconds = defaultMinBackoffSeconds
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf, true)
 			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
 			util.ExpectProvisioningRequestConfigToBeDeleted(ctx, k8sClient, prc, true)
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("Should retry when ProvisioningRequestConfig has MaxRetries=2, the succeeded if the second Provisioning request succeeds", func() {
