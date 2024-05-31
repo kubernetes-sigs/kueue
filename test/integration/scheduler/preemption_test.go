@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionTrue,
 						Reason:  "InCohort",
-						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the cohort", alphaMidWl.UID),
+						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the Cohort", alphaMidWl.UID),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -322,7 +322,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the cohort", alphaMidWl.UID),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the Cohort", alphaMidWl.UID),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

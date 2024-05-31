@@ -175,7 +175,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 			origin := "ClusterQueue"
 			reason := "InClusterQueue"
 			if cq.Name != target.ClusterQueue {
-				origin = "cohort"
+				origin = "Cohort"
 				reason = "InCohort"
 			}
 
