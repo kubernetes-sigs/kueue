@@ -74,7 +74,7 @@ func matchesWorkloadAndCheck(pr *autoscaling.ProvisioningRequest, workloadName, 
 	return len(matches) > 0
 }
 
-func getAttempt(log *logr.Logger, pr *autoscaling.ProvisioningRequest, workloadName, checkName string) int32 {
+func getAttempt(log logr.Logger, pr *autoscaling.ProvisioningRequest, workloadName, checkName string) int32 {
 	attemptRegex := getAttemptRegex(workloadName, checkName)
 	matches := attemptRegex.FindStringSubmatch(pr.Name)
 	if len(matches) > 0 {

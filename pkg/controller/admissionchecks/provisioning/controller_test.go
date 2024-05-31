@@ -847,7 +847,7 @@ func TestReconcile(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeNormal,
+					EventType: corev1.EventTypeWarning,
 					Reason:    "CapacityRevoked",
 					Message:   "Deactivating workload because capacity for wl-check1-1 has been revoked",
 				},
@@ -906,7 +906,7 @@ func TestReconcile(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeNormal,
+					EventType: corev1.EventTypeWarning,
 					Reason:    "CapacityRevoked",
 					Message:   "Deactivating workload because capacity for wl-check1-1 has been revoked",
 				},
