@@ -57,11 +57,11 @@ Flavors represent different variations of a resource (for example, different GPU
 models). You can define a flavor using a [ResourceFlavor object](/docs/concepts/resource_flavor).
 
 When definining quotas for a ClusterQueue, you can set the following values:
-- `nominalQuota` is the quantity of this resource that is available to a ClusterQueue at a point in time.
+- `nominalQuota` is the quantity of this resource that is available for a ClusterQueue at a specific time.
 - `borrowingLimit` is the maximum amount of quota that this ClusterQueue is allowed to borrow from the unused
-	nominal quota of other ClusterQueues in the same [cohort](#cohort).
+  nominal quota of other ClusterQueues in the same [cohort](#cohort).
 - `lendingLimit` is the maximum amount of quota that this ClusterQueue allows other
-  ClusterQueues in the cohort to borrow when this ClusterQueue is not using it.
+  ClusterQueues in the cohort to borrow when this ClusterQueue is not using its nominal quota.
 
 In a process called [admission](/docs/concepts#admission), Kueue assigns to the
 [Workload pod sets](/docs/concepts/workload#pod-sets) a flavor for each resource the pod set
@@ -460,7 +460,7 @@ The fields above do the following:
 Note that an incoming Workload can preempt Workloads both within the
 ClusterQueue and the cohort.
 
-Read [Preemption](/docs/concepts/preemption) to lear more about
+Read [Preemption](/docs/concepts/preemption) to learn more about
 the heuristics that Kueue implements to preempt as few Workloads as possible.
 
 ## FlavorFungibility

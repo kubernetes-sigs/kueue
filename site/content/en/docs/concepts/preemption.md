@@ -6,15 +6,16 @@ description: >
   Preemption is the process of evicting one or more admitted Workloads to accommodate another Workload.
 ---
 
-In a preemption, preempted Workloads are also called preemptees, and the ClusterQueue that
-the Workload belongs to is called a target ClusterQueue.
-Converselly, the Workload being accommodated is called the preemptor, and the ClusterQueue that the
-Workload belongs to is called a preempting ClusterQueue.
+In a preemption, the following terms are relevant:
+- **Preemptees**: The preempted Workloads.
+- **Target ClusterQueues**: The ClusterQueues to which the preemptees belong.
+- **Preemptor**: The Workload being accommodated.
+- **Preempting ClusterQueue**: The ClusterQueue to which the preemptor belongs.
 
 ## Reasons for preemption
 
 A Workload can preempt one or more Workloads if it is admitted in a [ClusterQueue with preemption enabled](/docs/concepts/cluster_queue/#preemption)
-and:
+and any of the following events happen:
 - The preemptee belongs to the same [ClusterQueue](/docs/concepts/cluster_queue) as the preemptor and the preemptee has a lower priority.
 - The preemptee belongs to the same [cohort](/docs/concepts/cluster_queue#cohort) as the preemptor and the preemptee's ClusterQueue has a usage above
   the [nominal quota](/docs/concepts/cluster_queue#resources) for at least one resource that the preemptee and preemptor require.
@@ -23,18 +24,29 @@ The configured settings for preemption in the [Kueue Configuration](/docs/refere
 and in the [ClusterQueue](/docs/concepts/cluster_queue#preemption) can limit whether a Workload can preempt others, in addition
 to the criteria above.
 
-When preempting a Workload, Kueue adds an entry in the `.status.conditions` field of the preempted Workload
+When preempting a Workload, Kueue adds entries in the `.status.conditions` field of the preempted Workload
 that is similar to the following:
 
 ```yaml
 status:
   conditions:
-  - lastTransitionTime: "2024-05-29T14:37:19Z"
-    message: Preempted to accommodate a higher priority Workload
+  - lastTransitionTime: "2024-05-31T18:42:33Z"
+    message: 'Preempted to accommodate a workload (UID: 5515f7da-d2ea-4851-9e9c-6b8b3333734d)
+      in the ClusterQueue'
+    observedGeneration: 1
     reason: Preempted
     status: "True"
     type: Evicted
+  - lastTransitionTime: "2024-05-31T18:42:33Z"
+    message: 'Preempted to accommodate a workload (UID: 5515f7da-d2ea-4851-9e9c-6b8b3333734d)
+      in the ClusterQueue'
+    reason: InClusterQueue
+    status: "True"
+    type: Preempted
 ```
+
+The `Evicted` condition indicates that the Workload was evicted with a reason `Preempted`,
+whereas the `Preempted` condition gives more details about the preemption reason.
 
 ## Preemption algorithms
 
@@ -42,7 +54,7 @@ Kueue offers two preemption algorithms. The main difference between them is the 
 preemptions from a ClusterQueue to others in the Cohort, when the usage of the preempting ClusterQueue is
 already above the nominal quota. The algorithms are:
 
-- **[Classic](#classic-preemption)**: Preemption in the cohort only happens when the usage of the preempting ClusterQueue
+- **[Classic Preemption](#classic-preemption)**: Preemption in the cohort only happens when the usage of the preempting ClusterQueue
   will be under the nominal quota after the ongoing admission process, or when all the candidates for preemption belong to
   the same ClusterQueue as the preempting Workload. In other words, ClusterQueues
   can only borrow quota from others in the cohort if they do not preempt admitted Workloads from
@@ -67,13 +79,13 @@ cohort which satisfy the `reclaimWithinCohort` policy.
 
 The list of candidates is sorted based on the following preference checks for
 tie-breaking:
-- Workloads from borrowing queues in the cohort,
-- Workloads with the lowest priority,
+- Workloads from borrowing queues in the cohort
+- Workloads with the lowest priority
 - Workloads which got admitted the most recently.
 
 ### Targets
 
-The algorithm qualifies the candidates as preemption targets using the heuristics
+The Classic Preemption algorithm qualifies the candidates as preemption targets using the heuristics
 below:
 
 1. If all candidates belong to the target queue, then Kueue greedily
@@ -114,6 +126,8 @@ fairSharing:
   preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 ```
 
+The attributes in this Kueue Configuration are described in the following sections.
+
 ### ClusterQueue share value
 
 When you enable fair sharing, Kueue assigns a numeric share value to each ClusterQueue to summarize
@@ -123,7 +137,7 @@ The share value is weighted by the `.spec.fairSharing.weight` defined in a Clust
 During admission, Kueue prefers to admit Workloads from ClusterQueues that have the lowest share value first.
 During preemption, Kueue prefers to preempt Workloads from ClusterQueues that have the highest share value first.
 
-You can obtain the share value of a ClusterQueue in the `.spec.fairSharing.weightedShare` field or querying
+You can obtain the share value of a ClusterQueue in the `.status.fairSharing.weightedShare` field or querying
 the [`kueue_cluster_queue_weighted_share` metric](/docs/reference/metrics#optional-metrics).
 
 ### Preemption strategies
