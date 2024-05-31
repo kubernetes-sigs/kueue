@@ -116,6 +116,8 @@ managerConfig:
     #fairSharing:
     #  enable: true
     #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
+    #resources:
+    #  excludeResourcePrefixes: []
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:
