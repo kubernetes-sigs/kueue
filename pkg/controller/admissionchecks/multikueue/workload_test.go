@@ -57,11 +57,12 @@ func TestWlReconcile(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
 
 	cases := map[string]struct {
-		reconcileFor      string
-		managersWorkloads []kueue.Workload
-		managersJobs      []batchv1.Job
-		worker1Workloads  []kueue.Workload
-		worker1Jobs       []batchv1.Job
+		reconcileFor             string
+		managersWorkloads        []kueue.Workload
+		managersJobs             []batchv1.Job
+		managersDeletedWorkloads map[string]*kueue.Workload
+		worker1Workloads         []kueue.Workload
+		worker1Jobs              []batchv1.Job
 		// second worker
 		useSecondWorker      bool
 		worker2Reconnecting  bool
@@ -83,6 +84,28 @@ func TestWlReconcile(t *testing.T) {
 	}{
 		"missing workload": {
 			reconcileFor: "missing workload",
+		},
+		"missing workload (in deleted workload cache)": {
+			reconcileFor: "wl1",
+			managersDeletedWorkloads: map[string]*kueue.Workload{
+				"wl1": baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
 		},
 		"unmanaged wl (no ac) is ignored": {
 			reconcileFor: "wl1",
@@ -708,6 +731,10 @@ func TestWlReconcile(t *testing.T) {
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
 			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultWorkerLostTimeout)
+
+			for name, val := range tc.managersDeletedWorkloads {
+				reconciler.deletedWlCache.Add(types.NamespacedName{Name: name, Namespace: TestNamespace}.String(), val)
+			}
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
