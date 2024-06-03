@@ -6,8 +6,8 @@ description: >
   Kueue multi cluster job dispatching.
 ---
 
-{{% alert title="Warning" color="warning" %}}
-_Available in Kueue v0.7.0 and later_
+{{% alert title="Note" color="primary" %}}
+Available in Kueue v0.6.0 and newer
 {{% /alert %}}
 
 {{% alert title="Warning" color="warning" %}}
