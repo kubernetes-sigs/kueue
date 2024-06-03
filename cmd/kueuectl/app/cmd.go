@@ -81,7 +81,7 @@ func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	cmd.AddCommand(stop.NewStopCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
 	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
-	cmd.AddCommand(version.NewVersionCmd(o.IOStreams))
+	cmd.AddCommand(version.NewVersionCmd(clientGetter, o.IOStreams))
 
 	pCommands, err := passthrough.NewCommands()
 	if err != nil {
