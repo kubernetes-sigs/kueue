@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
@@ -120,4 +121,14 @@ func Enabled(f featuregate.Feature) bool {
 // https://github.com/kubernetes/kubernetes/pull/118346
 func SetEnable(f featuregate.Feature, v bool) error {
 	return utilfeature.DefaultMutableFeatureGate.Set(fmt.Sprintf("%s=%v", f, v))
+}
+
+func LogFeatureGates(log logr.Logger) {
+	features := make(map[featuregate.Feature]bool, len(defaultFeatureGates))
+	for f := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+		if _, ok := defaultFeatureGates[f]; ok {
+			features[f] = Enabled(f)
+		}
+	}
+	log.V(2).Info("Feature gates:", "Feature gates:", features)
 }
