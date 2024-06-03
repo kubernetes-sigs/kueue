@@ -103,7 +103,7 @@ Status:
 
 Note that the `Reason` and `Message` values for `Failed` condition may differ from your output, depending on an error.
 
-Provisioning Request state is described in the `.conditions[*].status` field.  it means it is still being processed by the Cluster Autoscaler. Otherwise it falls into one the states listed below:
+Provisioning Request state is described in the `.conditions[*].status` field.  Empty field means ProvisinongRequest is still being processed by the Cluster Autoscaler. Otherwise it falls into one the states listed below:
 - `Accepted` - indicates that the ProvisioningRequest was accepted by ClusterAutoscaler, so ClusterAutoscaler will attempt to provision the nodes for it.
 - `Provisioned` - indicates that all of the requested resources were created and are available in the cluster. Cluster Autoscaler will set this condition when the VM creation finishes successfully.
 - `Failed` - indicates that it is impossible to obtain resources to fulfill this ProvisioningRequest.	Condition Reason and Message will contain more details about what failed.
