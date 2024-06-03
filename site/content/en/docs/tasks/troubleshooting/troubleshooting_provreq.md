@@ -16,8 +16,8 @@ Before you begin troubleshooting, make sure your cluster meets the following req
 - Your cluster has ClusterAutoscaler enabled and ClusterAutoscaler supports ProvisioningRequest API.
 Check your cloud provider's documentation to determine the minimum versions that support ProvisioningRequest. If you use GKE, your cluster's version should be at least `1.28.3-gke.1098000`.
 - You use a type of nodes that support ProvisioningRequest. It may vary depending on your cloud provider.
-- Kueue's version is at least `0.5.3`
-- You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration)
+- Kueue's version is `v0.5.3` or newer.
+- You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration).
 
 ## Identifying the Provisioning Request for your job
 
@@ -39,7 +39,9 @@ e.g.
 sample-job-2zcsb-57864-sample-admissioncheck-1
 ```
 
-When nodes for your job are provisioned, Kueue will also add the annotation `cluster-autoscaler.kubernetes.io/consume-provisioning-request` to the `.admissionChecks[*].podSetUpdate[*]` field in Workload's status. The value of this annotation is the Provisioning Request's name. The output of the `kubectl describe workload` command should look similar to this:
+When nodes for your job are provisioned, Kueue will also add the annotation `cluster-autoscaler.kubernetes.io/consume-provisioning-request` to the `.admissionChecks[*].podSetUpdate[*]` field in Workload's status. The value of this annotation is the Provisioning Request's name.
+
+The output of the `kubectl describe workload` command should look similar to the following:
 
 ```bash
 [...]
@@ -57,13 +59,14 @@ When nodes for your job are provisioned, Kueue will also add the annotation `clu
 
 ## What is the current state of my Provisioning Request?
 
-One of the reason your job is not running is that ProvisioningRequest is waiting to be provisioned. To find out if this is the case you can view Provisioning Request's state by running the following command:
+One of the reasons why your job is not running might be that ProvisioningRequest is waiting to be provisioned.
+To find out if this is the case you can view Provisioning Request's state by running the following command:
 
 ```bash
 kubectl get provisioningrequest PROVISIONING_REQUEST_NAME
 ```
 
-If this is the case, the output should look similar to this:
+If this is the case, the output should look similar to the following:
 
 ```bash
 NAME                                                 ACCEPTED   PROVISIONED   FAILED   AGE
@@ -76,7 +79,7 @@ You can also view more detailed status of your ProvisioningRequest by running th
 kubectl describe provisioningrequest PROVISIONING_REQUEST_NAME
 ```
 
-If your ProvisioningRequest fails to provision nodes, the error output may look similar to this:
+If your ProvisioningRequest fails to provision nodes, the error output may look similar to the following:
 ```bash
 [...]
 Status:
@@ -101,9 +104,12 @@ Status:
     Type:                  Failed
 ```
 
-Note that the `Reason` and `Message` values for `Failed` condition may differ from your output, depending on an error.
+Note that the `Reason` and `Message` values for `Failed` condition may differ from your output, depending on the
+reason that prevented the provisioning.
 
-Provisioning Request state is described in the `.conditions[*].status` field. An empty field means ProvisinongRequest is still being processed by the ClusterAutoscaler. Otherwise, it falls into one the states listed below:
+The Provisioning Request state is described in the `.conditions[*].status` field.
+An empty field means ProvisinongRequest is still being processed by the ClusterAutoscaler.
+Otherwise, it falls into one the states listed below:
 - `Accepted` - indicates that the ProvisioningRequest was accepted by ClusterAutoscaler, so ClusterAutoscaler will attempt to provision the nodes for it.
 - `Provisioned` - indicates that all of the requested resources were created and are available in the cluster. ClusterAutoscaler will set this condition when the VM creation finishes successfully.
 - `Failed` - indicates that it is impossible to obtain resources to fulfill this ProvisioningRequest. Condition Reason and Message will contain more details about what failed.
@@ -116,9 +122,9 @@ The states transitions are as follow:
 
 ## Why a Provisioning Request is not created?
 
-If your job does not create a corresponding Provisioning Request try checking following requirements:
+If Kueue didn't create a Provisioning Request for your job, try checking the following requirements:
 
-### Ensure the Kueue's controller manager enables the `ProvisioningACC` feature gate
+### a. Ensure the Kueue's controller manager enables the `ProvisioningACC` feature gate
 
 Run the following command to check whether your Kueue's controller manager has enabled the `ProvisioningACC` feature gate:
 
@@ -143,7 +149,7 @@ Please see the [Troubleshooting Queues](/docs/tasks/troubleshooting/troubleshoot
 
 ### Ensure the Admission Check is active
 
-To check if the Admission Check your job uses is active run the following command:
+To check if the Admission Check that your job uses is active run the following command:
 
 ```bash
 kubectl describe admissionchecks ADMISSIONCHECK_NAME
