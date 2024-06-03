@@ -43,10 +43,11 @@ func (a *acReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	currentCondition := ptr.Deref(apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive), metav1.Condition{})
 	newCondition := metav1.Condition{
-		Type:    kueue.AdmissionCheckActive,
-		Status:  metav1.ConditionTrue,
-		Reason:  "Active",
-		Message: "The admission check is active",
+		Type:               kueue.AdmissionCheckActive,
+		Status:             metav1.ConditionTrue,
+		Reason:             "Active",
+		Message:            "The admission check is active",
+		ObservedGeneration: ac.Generation,
 	}
 
 	if _, err := a.helper.ConfigFromRef(ctx, ac.Spec.Parameters); err != nil {

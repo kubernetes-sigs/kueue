@@ -25,31 +25,31 @@ import (
 )
 
 func TestMerge(t *testing.T) {
-	rl_500mcpu_2GiMem := corev1.ResourceList{
+	resList500mCPU2GiMem := corev1.ResourceList{
 		corev1.ResourceCPU:    resource.MustParse("500m"),
 		corev1.ResourceMemory: resource.MustParse("2Gi"),
 	}
-	rl_1cpu := corev1.ResourceList{
+	resList1CPU := corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("1"),
 	}
-	rl_1cpu_1GiMem := corev1.ResourceList{
+	resList1CPU1GiMem := corev1.ResourceList{
 		corev1.ResourceCPU:    resource.MustParse("1"),
 		corev1.ResourceMemory: resource.MustParse("1Gi"),
 	}
 
-	type oper_result struct {
+	type operResult struct {
 		oper   func(a, b corev1.ResourceList) corev1.ResourceList
 		result corev1.ResourceList
 	}
 	cases := map[string]struct {
 		a    corev1.ResourceList
 		b    corev1.ResourceList
-		want map[string]oper_result
+		want map[string]operResult
 	}{
 		"asymmetric": {
-			a: rl_1cpu,
-			b: rl_500mcpu_2GiMem,
-			want: map[string]oper_result{
+			a: resList1CPU,
+			b: resList500mCPU2GiMem,
+			want: map[string]operResult{
 				"merge": {
 					oper: MergeResourceListKeepFirst,
 					result: corev1.ResourceList{
@@ -81,9 +81,9 @@ func TestMerge(t *testing.T) {
 			},
 		},
 		"symmetric": {
-			a: rl_1cpu_1GiMem,
-			b: rl_500mcpu_2GiMem,
-			want: map[string]oper_result{
+			a: resList1CPU1GiMem,
+			b: resList500mCPU2GiMem,
+			want: map[string]operResult{
 				"merge": {
 					oper: MergeResourceListKeepFirst,
 					result: corev1.ResourceList{
@@ -115,53 +115,53 @@ func TestMerge(t *testing.T) {
 			},
 		},
 		"nil source": {
-			a: rl_1cpu_1GiMem,
+			a: resList1CPU1GiMem,
 			b: nil,
-			want: map[string]oper_result{
+			want: map[string]operResult{
 				"merge": {
 					oper:   MergeResourceListKeepFirst,
-					result: rl_1cpu_1GiMem,
+					result: resList1CPU1GiMem,
 				},
 				"min": {
 					oper:   MergeResourceListKeepMin,
-					result: rl_1cpu_1GiMem,
+					result: resList1CPU1GiMem,
 				},
 				"max": {
 					oper:   MergeResourceListKeepMax,
-					result: rl_1cpu_1GiMem,
+					result: resList1CPU1GiMem,
 				},
 				"sum": {
 					oper:   MergeResourceListKeepSum,
-					result: rl_1cpu_1GiMem,
+					result: resList1CPU1GiMem,
 				},
 			},
 		},
 		"nil destination": {
 			a: nil,
-			b: rl_1cpu_1GiMem,
-			want: map[string]oper_result{
+			b: resList1CPU1GiMem,
+			want: map[string]operResult{
 				"merge": {
 					oper:   MergeResourceListKeepFirst,
-					result: rl_1cpu_1GiMem,
+					result: resList1CPU1GiMem,
 				},
 				"min": {
 					oper:   MergeResourceListKeepMin,
-					result: rl_1cpu_1GiMem,
+					result: resList1CPU1GiMem,
 				},
 				"max": {
 					oper:   MergeResourceListKeepMax,
-					result: rl_1cpu_1GiMem,
+					result: resList1CPU1GiMem,
 				},
 				"sum": {
 					oper:   MergeResourceListKeepSum,
-					result: rl_1cpu_1GiMem,
+					result: resList1CPU1GiMem,
 				},
 			},
 		},
 		"nil": {
 			a: nil,
 			b: nil,
-			want: map[string]oper_result{
+			want: map[string]operResult{
 				"merge": {
 					oper:   MergeResourceListKeepFirst,
 					result: nil,
@@ -194,7 +194,6 @@ func TestMerge(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestGetGraterKeys(t *testing.T) {

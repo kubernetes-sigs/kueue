@@ -47,6 +47,8 @@ fields:
       requeuingStrategy:
         timestamp: Eviction | Creation
         backoffLimitCount: 5
+        backoffBaseSeconds: 60
+        backoffMaxSeconds: 3600
 ```
 
 {{% alert title="Note" color="primary" %}}
@@ -74,11 +76,17 @@ When the `blockAdmission` is set to `true`, admitted Workload with not ready pod
 
 ### Requeuing Strategy
 {{% alert title="Warning" color="warning" %}}
-_Available in Kueue v0.6.0 and later_
+Available in Kueue v0.6.0 and later
+{{% /alert %}}
+{{% alert title="Note" color="primary" %}}
+The `backoffBaseSeconds` and `backodMaxSeconds` are available in Kueue v0.7.0 and later
 {{% /alert %}}
 
 The `requeuingStrategy` (`waitForPodsReady.requeuingStrategy`) contains optional parameters: 
-`timestamp` (`waitForPodsReady.requeuingStrategy.timestamp`) and `backoffLimitCount` (`waitForPodsReady.requeuingStrategy.backoffLimitCount`).
+- `timestamp`
+- `backoffLimitCount`
+- `backoffBaseSeconds`
+- `backoffMaxSeconds`
 
 The `timestamp` field defines which timestamp Kueue uses to order the Workloads in the queue:
 
@@ -92,6 +100,14 @@ Kueue will re-queue a Workload evicted by the `PodsReadyTimeout` reason until th
 If you don't specify any value for `backoffLimitCount`,
 a Workload is repeatedly and endlessly re-queued to the queue based on the `timestamp`.
 Once the number of re-queues reaches the limit, Kueue [deactivates the Workload](/docs/concepts/workload/#active).
+
+The time to re-queue a workload after each consecutive timeout is increased
+exponentially, with the exponent of 2. The first delay is determined by the
+`backoffBaseSeconds` parameter (defaulting to 60). You can configure the maximum
+backoff time by setting the `backoffMaxSeconds` (defaulting to 3600). Using the defaults, the
+evicted workload is re-queued after approximately `60, 120, 240, ..., 3600, ..., 3600` seconds.
+Even if the backoff time reaches the `backoffMaxSeconds`, Kueue will continue to re-queue an evicted Workload with the `backoffMaxSeconds`
+until the number of re-queue reaches the `backoffLimitCount`.
 
 ## Example
 

@@ -17,7 +17,6 @@ limitations under the License.
 package testing
 
 import (
-	common "github.com/kubeflow/common/pkg/apis/common/v1"
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -43,7 +42,7 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 			RunPolicy: kubeflow.RunPolicy{
 				Suspend: ptr.To(true),
 			},
-			MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*common.ReplicaSpec{
+			MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec{
 				kubeflow.MPIReplicaTypeLauncher: {
 					Replicas: ptr.To[int32](1),
 					Template: corev1.PodTemplateSpec{
@@ -154,5 +153,11 @@ func (j *MPIJobWrapper) PodLabel(replicaType kubeflow.MPIReplicaType, k, v strin
 		j.Spec.MPIReplicaSpecs[replicaType].Template.Labels = make(map[string]string)
 	}
 	j.Spec.MPIReplicaSpecs[replicaType].Template.Labels[k] = v
+	return j
+}
+
+// Generation sets the generation of the job.
+func (j *MPIJobWrapper) Generation(num int64) *MPIJobWrapper {
+	j.ObjectMeta.Generation = num
 	return j
 }

@@ -2,6 +2,8 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
   annotations:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
@@ -58,18 +60,27 @@ spec:
                   the checks. This is the name with which controller identifies with,
                   not necessarily a K8S Pod or Deployment name. Cannot be empty.
                 type: string
+                x-kubernetes-validations:
+                - message: field is immutable
+                  rule: self == oldSelf
               parameters:
                 description: Parameters identifies the resource providing additional
                   check parameters.
                 properties:
                   apiGroup:
                     description: ApiGroup is the group for the resource being referenced.
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                   kind:
                     description: Kind is the type of the resource being referenced.
+                    maxLength: 63
+                    pattern: ^(?i)[a-z]([-a-z0-9]*[a-z0-9])?$
                     type: string
                   name:
                     description: Name is the name of the resource being referenced.
+                    maxLength: 63
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                     type: string
                 required:
                 - apiGroup

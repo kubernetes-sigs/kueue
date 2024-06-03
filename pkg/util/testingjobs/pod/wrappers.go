@@ -50,7 +50,7 @@ func MakePod(name, ns string) *PodWrapper {
 				{
 					Name:      "c",
 					Image:     "pause",
-					Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+					Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}},
 				},
 			},
 			SchedulingGates: make([]corev1.PodSchedulingGate, 0),
@@ -84,7 +84,7 @@ func (p *PodWrapper) Queue(q string) *PodWrapper {
 	return p.Label(constants.QueueLabel, q)
 }
 
-// Queue updates the queue name of the Pod
+// PriorityClass updates the priority class name of the Pod
 func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
 	p.Spec.PriorityClassName = pc
 	return p
@@ -125,12 +125,6 @@ func (p *PodWrapper) RoleHash(h string) *PodWrapper {
 	return p.Annotation("kueue.x-k8s.io/role-hash", h)
 }
 
-// ParentWorkload sets the parent-workload annotation
-func (p *PodWrapper) ParentWorkload(parentWorkload string) *PodWrapper {
-	p.Annotations[constants.ParentWorkloadAnnotation] = parentWorkload
-	return p
-}
-
 // KueueSchedulingGate adds kueue scheduling gate to the Pod
 func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
 	if p.Spec.SchedulingGates == nil {
@@ -164,6 +158,12 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 	return p
 }
 
+// NodeName sets a node name to the Pod.
+func (p *PodWrapper) NodeName(name string) *PodWrapper {
+	p.Spec.NodeName = name
+	return p
+}
+
 // Request adds a resource request to the default container.
 func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -173,6 +173,12 @@ func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 func (p *PodWrapper) Image(image string, args []string) *PodWrapper {
 	p.Spec.Containers[0].Image = image
 	p.Spec.Containers[0].Args = args
+	return p
+}
+
+// Request adds a resource limit to the default container.
+func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
+	p.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return p
 }
 
@@ -210,10 +216,23 @@ func (p *PodWrapper) StatusPhase(ph corev1.PodPhase) *PodWrapper {
 	return p
 }
 
+// StatusMessage updates status message of the Pod.
+func (p *PodWrapper) StatusMessage(msg string) *PodWrapper {
+	p.Pod.Status.Message = msg
+	return p
+}
+
 // CreationTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 	timestamp := metav1.NewTime(t).Rfc3339Copy()
 	p.Pod.CreationTimestamp = timestamp
+	return p
+}
+
+// DeletionTimestamp sets a creation timestamp for the pod object
+func (p *PodWrapper) DeletionTimestamp(t time.Time) *PodWrapper {
+	timestamp := metav1.NewTime(t).Rfc3339Copy()
+	p.Pod.DeletionTimestamp = &timestamp
 	return p
 }
 

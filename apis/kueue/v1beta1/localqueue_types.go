@@ -25,10 +25,13 @@ import (
 // LocalQueueSpec defines the desired state of LocalQueue
 type LocalQueueSpec struct {
 	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"`
 }
 
 // ClusterQueueReference is the name of the ClusterQueue.
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ClusterQueueReference string
 
 // LocalQueueStatus defines the observed state of LocalQueue
@@ -105,7 +108,7 @@ type LocalQueueResourceUsage struct {
 // +kubebuilder:printcolumn:name="ClusterQueue",JSONPath=".spec.clusterQueue",type=string,description="Backing ClusterQueue"
 // +kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
 // +kubebuilder:printcolumn:name="Admitted Workloads",JSONPath=".status.admittedWorkloads",type=integer,description="Number of admitted workloads that haven't finished yet."
-// +kubebuilder:resource:shortName={queue,queues}
+// +kubebuilder:resource:shortName={queue,queues,lq}
 
 // LocalQueue is the Schema for the localQueues API
 type LocalQueue struct {

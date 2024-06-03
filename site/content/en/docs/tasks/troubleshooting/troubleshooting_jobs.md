@@ -43,8 +43,8 @@ To find the Workload for a Job, you can use any of the following steps:
   The output looks like the following:
 
   ```
-  NAME               QUEUE        ADMITTED BY     AGE
-  job-my-job-19797   user-queue   cluster-queue   9m45s
+  NAME               QUEUE         RESERVED IN   ADMITTED   AGE
+  job-my-job-19797   user-queue    cluster-queue True       9m45s
   ```
 
 * You can list all of the workloads in the same namespace of your job and identify the one
@@ -58,8 +58,8 @@ To find the Workload for a Job, you can use any of the following steps:
   The output looks like the following:
 
   ```
-  NAME               QUEUE        ADMITTED BY     AGE
-  job-my-job-19797   user-queue   cluster-queue   9m45s
+  NAME               QUEUE         RESERVED IN   ADMITTED   AGE
+  job-my-job-19797   user-queue    cluster-queue True       9m45s
   ```
 
 Once you have identified the name of the Workload, you can obtain all details by

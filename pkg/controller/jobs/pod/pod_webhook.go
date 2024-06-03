@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/validation"
@@ -105,21 +104,9 @@ func getPodOptions(integrationOpts map[string]any) (configapi.PodIntegrationOpti
 
 var _ webhook.CustomDefaulter = &PodWebhook{}
 
-func omitKueueLabels(l map[string]string) map[string]string {
-	result := map[string]string{}
-
-	for key, value := range l {
-		if !strings.HasPrefix(key, "kueue.x-k8s.io/") {
-			result[key] = value
-		}
-	}
-	return result
-}
-
 func containersShape(containers []corev1.Container) (result []map[string]interface{}) {
 	for _, c := range containers {
 		result = append(result, map[string]interface{}{
-			"image": c.Image,
 			"resources": map[string]interface{}{
 				"requests": c.Resources.Requests,
 			},
@@ -146,7 +133,7 @@ func (p *Pod) addRoleHash() error {
 }
 
 func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	pod := fromObject(obj)
+	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Applying defaults")
 
@@ -214,10 +201,10 @@ var _ webhook.CustomValidator = &PodWebhook{}
 func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
-	pod := fromObject(obj)
+	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Validating create")
-	allErrs := jobframework.ValidateCreateForQueueName(pod)
+	allErrs := jobframework.ValidateJobOnCreate(pod)
 
 	allErrs = append(allErrs, validateManagedLabel(pod)...)
 
@@ -233,11 +220,11 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
-	oldPod := fromObject(oldObj)
-	newPod := fromObject(newObj)
+	oldPod := FromObject(oldObj)
+	newPod := FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&newPod.pod))
 	log.V(5).Info("Validating update")
-	allErrs := jobframework.ValidateUpdateForQueueName(oldPod, newPod)
+	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod)
 
 	allErrs = append(allErrs, validateManagedLabel(newPod)...)
 

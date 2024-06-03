@@ -185,7 +185,6 @@ func TestFromAssignment(t *testing.T) {
 }
 
 func TestMergeRestore(t *testing.T) {
-
 	basePodSet := utiltesting.MakePodSet("", 1).
 		NodeSelector(map[string]string{"ns0": "ns0v"}).
 		Labels(map[string]string{"l0": "l0v"}).
@@ -294,14 +293,13 @@ func TestMergeRestore(t *testing.T) {
 				}
 
 				restoreInfo := FromPodSet(orig)
-				gotRestoreChage := RestorePodSpec(&tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, restoreInfo)
-				if gotRestoreChage != tc.wantRestoreChanges {
+				gotRestoreChange := RestorePodSpec(&tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, restoreInfo)
+				if gotRestoreChange != tc.wantRestoreChanges {
 					t.Errorf("Unexpected restore change status want:%v", tc.wantRestoreChanges)
 				}
 				if diff := cmp.Diff(orig.Template, tc.podSet.Template, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected template (-want/+got):\n%s", diff)
 				}
-
 			}
 		})
 	}

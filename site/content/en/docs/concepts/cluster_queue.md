@@ -56,6 +56,13 @@ For each resource, you can define quotas for multiple _flavors_.
 Flavors represent different variations of a resource (for example, different GPU
 models). You can define a flavor using a [ResourceFlavor object](/docs/concepts/resource_flavor).
 
+When definining quotas for a ClusterQueue, you can set the following values:
+- `nominalQuota` is the quantity of this resource that is available for a ClusterQueue at a specific time.
+- `borrowingLimit` is the maximum amount of quota that this ClusterQueue is allowed to borrow from the unused
+  nominal quota of other ClusterQueues in the same [cohort](#cohort).
+- `lendingLimit` is the maximum amount of quota that this ClusterQueue allows other
+  ClusterQueues in the cohort to borrow when this ClusterQueue is not using its nominal quota.
+
 In a process called [admission](/docs/concepts#admission), Kueue assigns to the
 [Workload pod sets](/docs/concepts/workload#pod-sets) a flavor for each resource the pod set
 requests.
@@ -451,12 +458,10 @@ The fields above do the following:
   - `LowerOrNewerEqualPriority`: only preempt Workloads in the ClusterQueue that either have a lower priority than the pending workload or equal priority and are newer than the pending workload.
 
 Note that an incoming Workload can preempt Workloads both within the
-ClusterQueue and the cohort. Kueue implements heuristics to preempt as few
-Workloads as possible, preferring Workloads with these characteristics:
+ClusterQueue and the cohort.
 
-- Workloads belonging to ClusterQueues that are borrowing quota.
-- Workloads with the lowest priority.
-- Workloads that have been admitted more recently.
+Read [Preemption](/docs/concepts/preemption) to learn more about
+the heuristics that Kueue implements to preempt as few Workloads as possible.
 
 ## FlavorFungibility
 
@@ -511,6 +516,12 @@ The example above will stop the admission of new workloads in the ClusterQueue w
 The `HoldAndDrain` will have a similar effect but, in addition, it will trigger the eviction of the admitted workloads.
 
 If set to `None` or `spec.stopPolicy` is removed the ClusterQueue will to normal admission behavior.
+
+## AdmissionChecks
+
+AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload.
+
+For an example ClusterQueue configuration using admission checks, see [Admission Checks](/docs/concepts/admission_check#usage).
 
 ## What's next?
 

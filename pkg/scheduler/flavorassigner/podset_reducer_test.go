@@ -103,6 +103,14 @@ func TestSearch(t *testing.T) {
 			wantFound:  true,
 			wantCount:  150_000,
 		},
+		"podset with replica count 0": {
+			podSets: []kueue.PodSet{
+				*utiltesting.MakePodSet("ps1", 0).SetMinimumCount(0).Obj(),
+			},
+			countLimit: 0,
+			wantFound:  false,
+			wantCount:  0,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -112,19 +120,15 @@ func TestSearch(t *testing.T) {
 					total += v
 				}
 				return total, total <= tc.countLimit
-
 			})
 			count, found := red.Search()
 			if count != tc.wantCount {
-
 				t.Errorf("Unexpected count:%d, want: %d", count, tc.wantCount)
 			}
 
 			if found != tc.wantFound {
 				t.Errorf("Unexpected found:%v, want: %v", found, tc.wantFound)
-
 			}
 		})
 	}
-
 }

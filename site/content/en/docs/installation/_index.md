@@ -110,11 +110,8 @@ To install a custom-configured released version of Kueue in your cluster, execut
 2. With an editor of your preference, open `manifests.yaml`.
 3. In the `kueue-manager-config` ConfigMap manifest, edit the
 `controller_manager_config.yaml` data entry. The entry represents
-the default Kueue Configuration
-struct ([v1beta1@main](https://pkg.go.dev/sigs.k8s.io/kueue@main/apis/config/v1beta1#Configuration)).
+the default [KueueConfiguration](/docs/reference/kueue-config.v1beta1).
 The contents of the ConfigMap are similar to the following:
-
-> __The `namespace` and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
 
 ```yaml
 apiVersion: v1
@@ -142,15 +139,12 @@ data:
     waitForPodsReady:
       enable: true
       timeout: 10m
-    # pprofBindAddress: :8083
     integrations:
       frameworks:
       - "batch/job"
-    # - "kubeflow.org/mpijob"
-    # - "ray.io/rayjob"
 ```
 
-__The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
+__The `integrations.externalFrameworks` field is available in Kueue v0.7.0 and later.__
 
 {{% alert title="Note" color="primary" %}}
 See [Sequential Admission with Ready Pods](/docs/tasks/manage/setup_sequential_admission) to learn
@@ -257,7 +251,8 @@ The currently supported features are:
 | `MultiKueue` | `false` | Alpha | 0.6 | |
 | `PartialAdmission` | `false` | Alpha | 0.4 | 0.4 |
 | `PartialAdmission` | `true` | Beta | 0.5 |  |
-| `ProvisioningACC` | `false` | Alpha | 0.5 |  |
+| `ProvisioningACC` | `false` | Alpha | 0.5 | 0.6 |
+| `ProvisioningACC` | `true` | Beta | 0.7 |  |
 | `QueueVisibility` | `false` | Alpha | 0.5 |  |
 | `VisibilityOnDemand` | `false` | Alpha | 0.6 | |
 | `PrioritySortingWithinCohort` | `true` | Beta | 0.6 |  |

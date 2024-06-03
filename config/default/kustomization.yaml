@@ -9,15 +9,20 @@ namespace: kueue-system
 namePrefix: kueue-
 
 # Labels to add to all resources and selectors.
-#commonLabels:
-#  someName: someValue
+commonLabels:
+  control-plane: controller-manager
+
+labels:
+  - pairs:    
+      app.kubernetes.io/name: kueue
+      app.kubernetes.io/component: controller
+    includeTemplates: true
 
 resources:
 - ../components/crd
 - ../components/rbac
 - ../components/manager
 - ../components/internalcert
-- ../components/visibility
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
 # ../components/crd/kustomization.yaml
 - ../components/webhook
@@ -42,11 +47,6 @@ patches:
 
 # Expose port used by the visibility server
 - path: manager_visibility_patch.yaml
-
-transformers:
-# Sets the namespace for the role binding as kube-system instead of default kueue-system
-- role_binding_visibility_transformer.yaml
-
 
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
 # Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.

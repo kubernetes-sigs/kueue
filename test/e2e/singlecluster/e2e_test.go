@@ -74,14 +74,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return *createdJob.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobKey.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func() bool {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
 				return workload.HasQuotaReservation(createdWorkload)
-
 			}, util.Timeout, util.Interval).Should(gomega.BeFalse())
 			gomega.Expect(k8sClient.Delete(ctx, sampleJob)).Should(gomega.Succeed())
 		})
@@ -130,21 +129,22 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
+
+			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
 			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobKey.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			gomega.Eventually(func() bool {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
 				return workload.HasQuotaReservation(createdWorkload) &&
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 		})
 
@@ -153,8 +153,8 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("Create the pebuilt workload and the job adopting it", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
-					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).
 					BackoffLimit(0).
+					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"-termination-code=1", "10m"}).
 					TerminationGracePeriod(1).
 					Obj()
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
@@ -206,8 +206,8 @@ var _ = ginkgo.Describe("Kueue", func() {
 						gomega.BeComparableTo(metav1.Condition{
 							Type:   kueue.WorkloadFinished,
 							Status: metav1.ConditionTrue,
-							Reason: "JobFinished",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message"))))
+							Reason: kueue.WorkloadFinishedReasonFailed,
+						}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
-			gomega.Expect(k8sClient.Create(ctx, highPriorityClass))
+			gomega.Expect(k8sClient.Create(ctx, highPriorityClass)).Should(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
 			})
@@ -287,7 +287,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			// Use a binary that ends.
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1s"}).
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Request("cpu", "500m").
 				Parallelism(3).
 				Completions(4).
@@ -295,6 +295,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
+			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
 			ginkgo.By("Wait for the job to start and check the updated Parallelism and Completions", func() {
 				jobKey := client.ObjectKeyFromObject(job)
 				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
@@ -307,19 +308,17 @@ var _ = ginkgo.Describe("Kueue", func() {
 					g.Expect(ptr.Deref(updatedJob.Spec.Parallelism, 0)).To(gomega.Equal(int32(2)))
 					g.Expect(ptr.Deref(updatedJob.Spec.Completions, 0)).To(gomega.Equal(int32(4)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 			})
 
 			ginkgo.By("Wait for the job to finish", func() {
 				createdWorkload := &kueue.Workload{}
-				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: ns.Name}
+				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
 				gomega.Eventually(func() bool {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return false
 					}
 					return workload.HasQuotaReservation(createdWorkload) &&
 						apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-
 				}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 			})
 		})
@@ -362,11 +361,11 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should unsuspend a job only after all checks are cleared", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobKey.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("verify the check is added to the workload", func() {
 				gomega.Eventually(func() map[string]string {
@@ -374,7 +373,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return nil
 					}
 					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
-
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
 
@@ -384,7 +382,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return false
 					}
 					return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
-
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -396,7 +393,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return false
 					}
 					return ptr.Deref(createdJob.Spec.Suspend, false)
-
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -414,6 +410,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
 			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
@@ -423,17 +420,14 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return workload.HasQuotaReservation(createdWorkload) &&
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("Should suspend a job when its checks become invalid", func() {
-			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobKey.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("verify the check is added to the workload", func() {
 				gomega.Eventually(func() map[string]string {
@@ -441,7 +435,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return nil
 					}
 					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
-
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
 
@@ -485,7 +478,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return false
 					}
 					return ptr.Deref(createdJob.Spec.Suspend, false)
-
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 		})

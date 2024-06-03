@@ -166,7 +166,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 
 	// Put cq2 in the same cohort as cq1.
 	clusterQueues[1].Spec.Cohort = clusterQueues[0].Spec.Cohort
-	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1]); err != nil {
+	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1], true); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 
@@ -225,7 +225,7 @@ func TestClusterQueueToActive(t *testing.T) {
 		t.Fatalf("Failed adding clusterQueue %v", err)
 	}
 
-	if err := manager.UpdateClusterQueue(ctx, runningCq); err != nil {
+	if err := manager.UpdateClusterQueue(ctx, runningCq, false); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestClusterQueueToActive(t *testing.T) {
 	case <-condRec:
 		gotCondBeforeCleanup = true
 	case <-time.After(100 * time.Millisecond):
-		//nothing
+		// nothing
 	}
 
 	counterCancel()
@@ -460,7 +460,6 @@ func TestStatus(t *testing.T) {
 		}
 	}
 	for _, wl := range workloads {
-		wl := wl
 		manager.AddOrUpdateWorkload(&wl)
 	}
 
@@ -482,7 +481,7 @@ func TestStatus(t *testing.T) {
 		"fake": {
 			queue:      &kueue.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
 			wantStatus: 0,
-			wantErr:    errQueueDoesNotExist,
+			wantErr:    ErrQueueDoesNotExist,
 		},
 	}
 	for name, tc := range cases {
@@ -1096,7 +1095,7 @@ func TestHeadsCancelled(t *testing.T) {
 
 // popNamesFromCQ pops all the workloads from the clusterQueue and returns
 // the keyed names in the order they are popped.
-func popNamesFromCQ(cq ClusterQueue) []string {
+func popNamesFromCQ(cq *ClusterQueue) []string {
 	var names []string
 	for w := cq.Pop(); w != nil; w = cq.Pop() {
 		names = append(names, workload.Key(w.Obj))

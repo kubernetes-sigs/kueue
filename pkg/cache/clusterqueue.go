@@ -18,12 +18,13 @@ package cache
 
 import (
 	"errors"
-	"fmt"
+	"math"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -32,11 +33,13 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
 	errQueueAlreadyExists = errors.New("queue already exists")
+	oneQuantity           = resource.MustParse("1")
 )
 
 // ClusterQueue is the internal implementation of kueue.ClusterQueue that
@@ -47,14 +50,17 @@ type ClusterQueue struct {
 	ResourceGroups    []ResourceGroup
 	RGByResource      map[corev1.ResourceName]*ResourceGroup
 	Usage             FlavorResourceQuantities
-	AdmittedUsage     FlavorResourceQuantities
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
+	FairWeight        resource.Quantity
 	FlavorFungibility kueue.FlavorFungibility
-	AdmissionChecks   sets.Set[string]
-	Status            metrics.ClusterQueueStatus
+	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
+	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
+	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
+	AdmissionChecks map[string]sets.Set[kueue.ResourceFlavorReference]
+	Status          metrics.ClusterQueueStatus
 	// GuaranteedQuota records how much resource quota the ClusterQueue reserved
 	// when feature LendingLimit is enabled and flavor's lendingLimit is not nil.
 	GuaranteedQuota FlavorResourceQuantities
@@ -62,15 +68,22 @@ type ClusterQueue struct {
 	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
 
+	// Lendable holds the total lendable quota for the resources of the ClusterQueue, independent of the flavor.
+	Lendable map[corev1.ResourceName]int64
+
 	// The following fields are not populated in a snapshot.
 
-	// Key is localQueue's key (namespace/name).
-	localQueues                         map[string]*queue
-	podsReadyTracking                   bool
-	hasMissingFlavors                   bool
-	hasMissingOrInactiveAdmissionChecks bool
-	admittedWorkloadsCount              int
-	isStopped                           bool
+	AdmittedUsage FlavorResourceQuantities
+	// localQueues by (namespace/name).
+	localQueues                                        map[string]*queue
+	podsReadyTracking                                  bool
+	hasMissingFlavors                                  bool
+	hasMissingOrInactiveAdmissionChecks                bool
+	hasMultipleSingleInstanceControllersChecks         bool
+	hasFlavorIndependentAdmissionCheckAppliedPerFlavor bool
+	admittedWorkloadsCount                             int
+	isStopped                                          bool
+	workloadInfoOptions                                []workload.InfoOption
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -78,11 +91,13 @@ type Cohort struct {
 	Name    string
 	Members sets.Set[*ClusterQueue]
 
-	// These fields are only populated for a snapshot. This field equals to
-	// the sum of LendingLimit when feature LendingLimit enabled.
+	// The next fields are only populated for a snapshot.
+
+	// RequestableResources equals to the sum of LendingLimit when feature LendingLimit enabled.
 	RequestableResources FlavorResourceQuantities
 	Usage                FlavorResourceQuantities
-	// This field will only be set in snapshot. This field equals to
+	Lendable             map[corev1.ResourceName]int64
+	// AllocatableResourceGeneration equals to
 	// the sum of allocatable generation among its members.
 	AllocatableResourceGeneration int64
 }
@@ -108,7 +123,7 @@ type ResourceQuota struct {
 	LendingLimit   *int64
 }
 
-type FlavorResourceQuantities map[kueue.ResourceFlavorReference]map[corev1.ResourceName]int64
+type FlavorResourceQuantities map[kueue.ResourceFlavorReference]workload.Requests
 
 type queue struct {
 	key                string
@@ -124,6 +139,16 @@ func newCohort(name string, size int) *Cohort {
 		Name:    name,
 		Members: make(sets.Set[*ClusterQueue], size),
 	}
+}
+
+func (c *Cohort) CalculateLendable() map[corev1.ResourceName]int64 {
+	lendable := make(map[corev1.ResourceName]int64)
+	for member := range c.Members {
+		for res, v := range member.Lendable {
+			lendable[res] += v
+		}
+	}
+	return lendable
 }
 
 func (c *ClusterQueue) FitInCohort(q FlavorResourceQuantities) bool {
@@ -182,10 +207,10 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
-	c.AdmissionChecks = sets.New(in.Spec.AdmissionChecks...)
+	c.AdmissionChecks = utilac.NewAdmissionChecks(in)
 
-	c.Usage = filterQuantities(c.Usage, in.Spec.ResourceGroups)
-	c.AdmittedUsage = filterQuantities(c.AdmittedUsage, in.Spec.ResourceGroups)
+	c.Usage = filterFlavorQuantities(c.Usage, in.Spec.ResourceGroups)
+	c.AdmittedUsage = filterFlavorQuantities(c.AdmittedUsage, in.Spec.ResourceGroups)
 	c.UpdateWithFlavors(resourceFlavors)
 	c.updateWithAdmissionChecks(admissionChecks)
 
@@ -205,6 +230,11 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 		}
 	} else {
 		c.FlavorFungibility = defaultFlavorFungibility
+	}
+
+	c.FairWeight = oneQuantity
+	if fs := in.Spec.FairSharing; fs != nil && fs.Weight != nil {
+		c.FairWeight = *fs.Weight
 	}
 
 	if features.Enabled(features.LendingLimit) {
@@ -230,7 +260,7 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	return nil
 }
 
-func filterQuantities(orig FlavorResourceQuantities, resourceGroups []kueue.ResourceGroup) FlavorResourceQuantities {
+func filterFlavorQuantities(orig FlavorResourceQuantities, resourceGroups []kueue.ResourceGroup) FlavorResourceQuantities {
 	ret := make(FlavorResourceQuantities)
 	for _, rg := range resourceGroups {
 		for _, f := range rg.Flavors {
@@ -248,6 +278,7 @@ func filterQuantities(orig FlavorResourceQuantities, resourceGroups []kueue.Reso
 func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 	oldRG := c.ResourceGroups
 	c.ResourceGroups = make([]ResourceGroup, len(in))
+	c.Lendable = make(map[corev1.ResourceName]int64)
 	for i, rgIn := range in {
 		rg := &c.ResourceGroups[i]
 		*rg = ResourceGroup{
@@ -261,14 +292,18 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 				Resources: make(map[corev1.ResourceName]*ResourceQuota, len(fIn.Resources)),
 			}
 			for _, rIn := range fIn.Resources {
+				nominal := workload.ResourceValue(rIn.Name, rIn.NominalQuota)
 				rQuota := ResourceQuota{
-					Nominal: workload.ResourceValue(rIn.Name, rIn.NominalQuota),
+					Nominal: nominal,
 				}
 				if rIn.BorrowingLimit != nil {
 					rQuota.BorrowingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
 				}
 				if features.Enabled(features.LendingLimit) && rIn.LendingLimit != nil {
 					rQuota.LendingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.LendingLimit))
+					c.Lendable[rIn.Name] += *rQuota.LendingLimit
+				} else {
+					c.Lendable[rIn.Name] += nominal
 				}
 				fQuotas.Resources[rIn.Name] = &rQuota
 			}
@@ -294,7 +329,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks || c.hasFlavorIndependentAdmissionCheckAppliedPerFlavor {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -320,6 +355,14 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 		}
 		if c.hasMissingOrInactiveAdmissionChecks {
 			reasons = append(reasons, "CheckNotFoundOrInactive")
+		}
+
+		if c.hasMultipleSingleInstanceControllersChecks {
+			reasons = append(reasons, "MultipleSingleInstanceControllerChecks")
+		}
+
+		if c.hasFlavorIndependentAdmissionCheckAppliedPerFlavor {
+			reasons = append(reasons, "FlavorIndependentAdmissionCheckAppliedPerFlavor")
 		}
 
 		if len(reasons) == 0 {
@@ -368,15 +411,50 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
 func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
 	hasMissing := false
-	for acName := range c.AdmissionChecks {
-		if ac, found := checks[acName]; !found || !ac.Active {
+	hasSpecificChecks := false
+	checksPerController := make(map[string]int, len(c.AdmissionChecks))
+	singleInstanceControllers := sets.New[string]()
+	for acName, flavors := range c.AdmissionChecks {
+		if ac, found := checks[acName]; !found {
 			hasMissing = true
-			break
+		} else {
+			if !ac.Active {
+				hasMissing = true
+			}
+			checksPerController[ac.Controller]++
+			if ac.SingleInstanceInClusterQueue {
+				singleInstanceControllers.Insert(ac.Controller)
+			}
+			if ac.FlavorIndependent && flavors.Len() != 0 {
+				hasSpecificChecks = true
+			}
 		}
 	}
 
+	update := false
 	if hasMissing != c.hasMissingOrInactiveAdmissionChecks {
 		c.hasMissingOrInactiveAdmissionChecks = hasMissing
+		update = true
+	}
+
+	hasMultipleSICC := false
+	for controller, checks := range checksPerController {
+		if singleInstanceControllers.Has(controller) && checks > 1 {
+			hasMultipleSICC = true
+		}
+	}
+
+	if c.hasMultipleSingleInstanceControllersChecks != hasMultipleSICC {
+		c.hasMultipleSingleInstanceControllersChecks = hasMultipleSICC
+		update = true
+	}
+
+	if c.hasFlavorIndependentAdmissionCheckAppliedPerFlavor != hasSpecificChecks {
+		c.hasFlavorIndependentAdmissionCheckAppliedPerFlavor = hasSpecificChecks
+		update = true
+	}
+
+	if update {
 		c.updateQueueStatus()
 	}
 }
@@ -384,9 +462,9 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
-		return fmt.Errorf("workload already exists in ClusterQueue")
+		return errors.New("workload already exists in ClusterQueue")
 	}
-	wi := workload.NewInfo(w)
+	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(wi, 1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
@@ -423,23 +501,23 @@ func (c *ClusterQueue) reportActiveWorkloads() {
 // and the number of admitted workloads for local queues.
 func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
-	updateUsage(wi, c.Usage, m)
+	updateFlavorUsage(wi, c.Usage, m)
 	if admitted {
-		updateUsage(wi, c.AdmittedUsage, m)
+		updateFlavorUsage(wi, c.AdmittedUsage, m)
 		c.admittedWorkloadsCount += int(m)
 	}
 	qKey := workload.QueueKey(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
-		updateUsage(wi, lq.usage, m)
+		updateFlavorUsage(wi, lq.usage, m)
 		lq.reservingWorkloads += int(m)
 		if admitted {
-			updateUsage(wi, lq.admittedUsage, m)
+			updateFlavorUsage(wi, lq.admittedUsage, m)
 			lq.admittedWorkloads += int(m)
 		}
 	}
 }
 
-func updateUsage(wi *workload.Info, flvUsage FlavorResourceQuantities, m int64) {
+func updateFlavorUsage(wi *workload.Info, flvUsage FlavorResourceQuantities, m int64) {
 	for _, ps := range wi.TotalRequests {
 		for wlRes, wlResFlv := range ps.Flavors {
 			v, wlResExist := ps.Requests[wlRes]
@@ -447,6 +525,29 @@ func updateUsage(wi *workload.Info, flvUsage FlavorResourceQuantities, m int64) 
 			if flvExist && wlResExist {
 				if _, exists := flv[wlRes]; exists {
 					flv[wlRes] += v * m
+				}
+			}
+		}
+	}
+}
+
+func updateCohortUsage(wi *workload.Info, cq *ClusterQueue, m int64) {
+	for _, ps := range wi.TotalRequests {
+		for wlRes, wlResFlv := range ps.Flavors {
+			v, wlResExist := ps.Requests[wlRes]
+			flv, flvExist := cq.Cohort.Usage[wlResFlv]
+			if flvExist && wlResExist {
+				if _, exists := flv[wlRes]; exists {
+					after := cq.Usage[wlResFlv][wlRes] - cq.guaranteedQuota(wlResFlv, wlRes)
+					// rollback update cq.Usage
+					before := after - v*m
+					if before > 0 {
+						flv[wlRes] -= before
+					}
+					// simulate updating cq.Usage
+					if after > 0 {
+						flv[wlRes] += after
+					}
 				}
 			}
 		}
@@ -470,10 +571,10 @@ func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	}
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
-			updateUsage(wl, qImpl.usage, 1)
+			updateFlavorUsage(wl, qImpl.usage, 1)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
-				updateUsage(wl, qImpl.admittedUsage, 1)
+				updateFlavorUsage(wl, qImpl.admittedUsage, 1)
 				qImpl.admittedWorkloads++
 			}
 		}
@@ -572,4 +673,67 @@ func (c *ClusterQueue) UsedCohortQuota(fName kueue.ResourceFlavorReference, rNam
 	}
 
 	return cohortUsage
+}
+
+// DominantResourceShare returns a value from 0 to 1,000,000 representing the maximum of the ratios
+// of usage above nominal quota to the lendable resources in the cohort, among all the resources
+// provided by the ClusterQueue, and divided by the weight.
+// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
+// The function also returns the resource name that yielded this value.
+// Also for a weight of zero, this will return 9223372036854775807.
+func (c *ClusterQueue) DominantResourceShare() (int, corev1.ResourceName) {
+	return c.dominantResourceShare(nil, 0)
+}
+
+func (c *ClusterQueue) DominantResourceShareWith(wlReq FlavorResourceQuantities) (int, corev1.ResourceName) {
+	return c.dominantResourceShare(wlReq, 1)
+}
+
+func (c *ClusterQueue) DominantResourceShareWithout(w *workload.Info) (int, corev1.ResourceName) {
+	return c.dominantResourceShare(w.FlavorResourceUsage(), -1)
+}
+
+func (c *ClusterQueue) dominantResourceShare(wlReq FlavorResourceQuantities, m int64) (int, corev1.ResourceName) {
+	if c.Cohort == nil {
+		return 0, ""
+	}
+	if c.FairWeight.IsZero() {
+		return math.MaxInt, ""
+	}
+
+	borrowing := make(map[corev1.ResourceName]int64)
+	for _, rg := range c.ResourceGroups {
+		for _, flv := range rg.Flavors {
+			for rName, quotas := range flv.Resources {
+				b := c.Usage[flv.Name][rName] + m*wlReq[flv.Name][rName] - quotas.Nominal
+				if b > 0 {
+					borrowing[rName] += b
+				}
+			}
+		}
+	}
+	if len(borrowing) == 0 {
+		return 0, ""
+	}
+
+	var drs int64 = -1
+	var dRes corev1.ResourceName
+
+	// If we are running from snapshot the c.Cohort.Lendable should be pre-calculated.
+	lendable := c.Cohort.Lendable
+	if lendable == nil {
+		lendable = c.Cohort.CalculateLendable()
+	}
+	for rName, b := range borrowing {
+		if lr := lendable[rName]; lr > 0 {
+			ratio := b * 1000 / lr
+			// Use alphabetical order to get a deterministic resource name.
+			if ratio > drs || (ratio == drs && rName < dRes) {
+				drs = ratio
+				dRes = rName
+			}
+		}
+	}
+	dws := drs * 1000 / c.FairWeight.MilliValue()
+	return int(dws), dRes
 }

@@ -21,17 +21,24 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 type JobSetWebhook struct {
 	manageJobsWithoutQueueName bool
+	queues                     *queue.Manager
+	cache                      *cache.Cache
 }
 
 // SetupJobSetWebhook configures the webhook for kubeflow JobSet.
@@ -39,6 +46,8 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &JobSetWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		queues:                     options.Queues,
+		cache:                      options.Cache,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&jobsetapi.JobSet{}).
@@ -57,19 +66,32 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.V(5).Info("Applying defaults", "jobset", klog.KObj(jobSet))
 
-	// If a prebuilt workload is used, propagate the name to it's replicated job templates.
-	if wlName, hasPrebuilt := jobframework.PrebuiltWorkloadFor(jobSet); hasPrebuilt {
-		for i := range jobSet.Spec.ReplicatedJobs {
-			rjTemplate := &jobSet.Spec.ReplicatedJobs[i].Template
-			if rjTemplate.Annotations == nil {
-				rjTemplate.Annotations = make(map[string]string)
+	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
+
+	if canDefaultManagedBy(jobSet.Spec.ManagedBy) {
+		localQueueName, found := jobSet.Labels[constants.QueueLabel]
+		if !found {
+			return nil
+		}
+		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(jobSet.ObjectMeta.Namespace, localQueueName))
+		if err != nil {
+			return err
+		}
+		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
+			if admissionCheck.Controller == multikueue.ControllerName {
+				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", multikueue.ControllerName)
+				jobSet.Spec.ManagedBy = ptr.To(multikueue.ControllerName)
+				return nil
 			}
-			rjTemplate.Annotations[constants.ParentWorkloadAnnotation] = wlName
 		}
 	}
 
-	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
 	return nil
+}
+
+func canDefaultManagedBy(jobSetSpecManagedBy *string) bool {
+	return features.Enabled(features.MultiKueue) &&
+		(jobSetSpecManagedBy == nil || *jobSetSpecManagedBy == jobsetapi.JobSetControllerName)
 }
 
 // +kubebuilder:webhook:path=/validate-jobset-x-k8s-io-v1alpha2-jobset,mutating=false,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create;update,versions=v1alpha2,name=vjobset.kb.io,admissionReviewVersions=v1
@@ -81,7 +103,7 @@ func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating create", "jobset", klog.KObj(jobSet))
-	return nil, jobframework.ValidateCreateForQueueName(jobSet).ToAggregate()
+	return nil, jobframework.ValidateJobOnCreate(jobSet).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -90,9 +112,8 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating update", "jobset", klog.KObj(newJobSet))
-	allErrs := jobframework.ValidateUpdateForQueueName(oldJobSet, newJobSet)
-	allErrs = append(allErrs, jobframework.ValidateCreateForQueueName(newJobSet)...)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJobSet, newJobSet)...)
+	allErrs := jobframework.ValidateJobOnUpdate(oldJobSet, newJobSet)
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJobSet)...)
 	return nil, allErrs.ToAggregate()
 }
 

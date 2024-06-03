@@ -3,5 +3,7 @@ kind: ConfigMap
 metadata:
   name: {{ include "kueue.fullname" . }}-manager-config
   namespace: '{{ .Release.Namespace }}'
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
 data:
   controller_manager_config.yaml: {{ .Values.managerConfig.controllerManagerConfigYaml | toYaml | indent 1 }}

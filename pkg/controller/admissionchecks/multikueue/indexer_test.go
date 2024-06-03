@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -42,18 +43,10 @@ const (
 
 func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 	scheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		panic(err)
-	}
-	if err := kueue.AddToScheme(scheme); err != nil {
-		panic(err)
-	}
-	if err := kueuealpha.AddToScheme(scheme); err != nil {
-		panic(err)
-	}
-	if err := jobset.AddToScheme(scheme); err != nil {
-		panic(err)
-	}
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuealpha.AddToScheme(scheme))
+	utilruntime.Must(jobset.AddToScheme(scheme))
 
 	ctx := context.Background()
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Namespace{

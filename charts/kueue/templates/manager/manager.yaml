@@ -4,20 +4,22 @@ metadata:
   name: {{ include "kueue.fullname" . }}-controller-manager
   namespace: '{{ .Release.Namespace }}'
   labels:
-    control-plane: controller-manager
+  {{- include "kueue.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.controllerManager.replicas }}
   selector:
     matchLabels:
-      control-plane: controller-manager
     {{- include "kueue.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        control-plane: controller-manager
       {{- include "kueue.selectorLabels" . | nindent 8 }}
       annotations:
+        charts.kueue.x-k8s.io/config-checksum: {{ include (print .Template.BasePath "/manager/manager-config.yaml") . | sha256sum }}
         kubectl.kubernetes.io/default-container: manager
+        {{- if .Values.controllerManager.manager.podAnnotations }}
+        {{- toYaml .Values.controllerManager.manager.podAnnotations | nindent 8 }}
+        {{- end }}
     spec:
       containers:
       - args:

@@ -10,6 +10,7 @@
     - [Story 1](#story-1)
     - [Story 2](#story-2)
   - [Risks and Mitigations](#risks-and-mitigations)
+    - [BookingExpired condition](#bookingexpired-condition)
 - [Design Details](#design-details)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -73,9 +74,20 @@ succeeds.
 
 ### Risks and Mitigations
 
-There doesn't seem to be much risks or mitigations.
-[Two phase admission process](https://github.com/kubernetes-sigs/kueue/tree/main/keps/993-two-phase-admission)
-was added specifically for use cases like this.
+#### BookingExpired condition
+
+Kueue's support for the BookingExpired condition in ProvisioningRequest poses a risk. The Cluster Autoscaler may set `BookingExpired=true`,
+potentially ceasing to guarantee the capacity before all pods are scheduled. This can occur in two scenarios:
+
+- **Other AdmissionChecks**: If other AdmissionChecks are used, they might delay pod creation, causing the Cluster Autoscaler to expire the booking.
+- **Massive jobs**: When a very large job is created, the controller responsible for pod creation might not be able to
+  keep pace, again leading to the booking expiring before all pods are scheduled.
+
+This could result in the scheduling of only a subset of pods. To mitigate the first scenario, users can utilize the
+[`WaitForPodsReady`](https://github.com/kubernetes-sigs/kueue/tree/main/keps/349-all-or-nothing) field. This ensures
+a Workload is evicted if not all of its pods are scheduled after a specified timeout. For the second scenario, cluster
+administrators should ensure their control plane is adequately provisioned with sufficient resources - larger VMs and/or
+higher qps for the pod-creating controller) to handle large jobs efficiently.
 
 ## Design Details
 
@@ -95,11 +107,16 @@ The `ProvisioningRequest` should have the owner reference set to the workload.
 To understand what details should it put into `ProvisioningRequest` the controller
 will also need to watch `ProvisioningRequestConfigs`.
 
-* Watch all changes CA makes to `ProvisioningRequests`. If the `Provisioned`
-or `CapacityAvailable` condition is set to `True` then finish the `AdmissionCheck`
-with success (and propagate the information about `ProvisioningRequest` name to
+* Watch all changes CA makes to `ProvisioningRequests`. If the `ProvisioningRequest's` conditions are set to:
+  - `Provisioned=false` controller should surface information about ProvisioningRequest's ETA. It should emit an event regarding that and for every ETA change.
+  - `Provisioned=true` controller should mark the AdmissionCheck as `Ready` and propagate the information about `ProvisioningRequest` name to
 workload pods - [KEP #1145](https://github.com/kubernetes-sigs/kueue/blob/main/keps/1145-additional-labels/kep.yaml) under `"cluster-autoscaler.kubernetes.io/consume-provisioning-request"`.
-If the `ProvisioningRequest` fails, fail the `AdmissionCheck`.
+  - `Failed=true` controller should retry AdmissionCheck with respect to the `RetryConfig` configuration, or mark the AdmissionCheck as `Rejected`
+  - `BookingExpired=true` if a Workload is not `Admitted`, the controller should act the same as for `Failed=true`.
+  - `CapacityRevoked=true` if a Workload is not `Finished`, the controller should mark it as `Inactive`, which will evict it.
+    Additionally, an event should be emitted to signalize this happening. This can happen only if the job
+    allows for retries, for example, in the case of `batch.v1/Job`, when the user
+    sets `.spec.backOffLimit > 0`.
 
 * Watch the admission of the workload - if it is again suspended or finished,
 the provisioning request should also be deleted (the last one can be achieved via
@@ -168,7 +185,7 @@ spec:
     kind: “ProvisioningRequestConfig”
     name: “SuperProviderConfig”
 ---
-kind: ProvsioningRequestConfig:
+kind: ProvisioningRequestConfig:
 name: "SuperProviderConfig"
 spec:
   provisioningClass: "SuperSpot"

@@ -4,11 +4,14 @@ metadata:
   name: {{ include "kueue.fullname" . }}-controller-manager-metrics-service
   namespace: '{{ .Release.Namespace }}'
   labels:
-    control-plane: controller-manager
+  {{- include "kueue.labels" . | nindent 4 }}
+  {{- if .Values.metricsService.annotations }}
+  annotations:
+  {{- toYaml .Values.metricsService.annotations | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.metricsService.type }}
   selector:
-    control-plane: controller-manager
   {{- include "kueue.selectorLabels" . | nindent 4 }}
   ports:
   {{- .Values.metricsService.ports | toYaml | nindent 2 -}}

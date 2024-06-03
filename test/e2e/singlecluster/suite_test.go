@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 )
 
 var (
+	kueuectlPath                 = filepath.Join("..", "..", "..", "bin", "kubectl-kueue")
 	k8sClient                    client.WithWatch
 	ctx                          context.Context
 	visibilityClient             visibilityv1alpha1.VisibilityV1alpha1Interface

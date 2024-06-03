@@ -26,9 +26,10 @@ DEST_WEBHOOK_DIR=charts/kueue/templates/webhook
 DEST_VISIBILITY_DIR=charts/kueue/templates/visibility
 
 YQ=./bin/yq
+SED=${SED:-/usr/bin/sed}
 
 # Create the destination directory if it doesn't exist
-mkdir -p ${DEST_CRD_DIR} ${DEST_RBAC_DIR} ${DEST_WEBHOOK_DIR} ${DEST_VISIBILITY_DIR}
+mkdir -p ${DEST_CRD_DIR} "${DEST_RBAC_DIR}" ${DEST_WEBHOOK_DIR} ${DEST_VISIBILITY_DIR}
 
 # Add more excluded files separated by spaces
 EXCLUDE_FILES='kustomization.yaml kustomizeconfig.yaml'
@@ -73,9 +74,12 @@ EOF
 search_service_line="spec:"
 replace_service_line=$(
   cat <<'EOF'
+  {{- if .Values.webhookService.ipDualStack.enabled }}
+  ipFamilies: {{ toYaml .Values.webhookService.ipDualStack.ipFamilies | nindent 4 }}
+  ipFamilyPolicy: {{ .Values.webhookService.ipDualStack.ipFamilyPolicy }}
+  {{- end }}
   type: {{ .Values.webhookService.type }}
   selector:
-    control-plane: controller-manager
   {{- include "kueue.selectorLabels" . | nindent 4 }}
   ports:
   {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
@@ -110,7 +114,7 @@ add_webhook_pod_mutate=$(
     name: mpod.kb.io
     namespaceSelector:
       {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
+        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -131,7 +135,7 @@ add_webhook_pod_validate=$(
     name: vpod.kb.io
     namespaceSelector:
       {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
+        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 6 -}}
       {{- else }}
       matchExpressions:
         - key: kubernetes.io/metadata.name
@@ -144,7 +148,7 @@ EOF
 )
 
 # Add certmanager and webhook values in the YAML files
-for output_file in ${DEST_CRD_DIR}/*.yaml; do
+for output_file in "${DEST_CRD_DIR}"/*.yaml; do
   input_file="${output_file%.yaml}.yaml.test"
   mv "$output_file" "$input_file"
   : >$output_file
@@ -157,10 +161,11 @@ for output_file in ${DEST_CRD_DIR}/*.yaml; do
     fi
   done <"$input_file"
   rm $input_file
+  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' $output_file
 done
 
 # Add RBAC files, replace names, namespaces in helm format, remove document separators (---)
-for output_file in ${DEST_RBAC_DIR}/*.yaml; do
+for output_file in "${DEST_RBAC_DIR}"/*.yaml; do
   if [ "$(cat $output_file | $YQ '.metadata | has("name")')" = "true" ]; then
     $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
   fi
@@ -175,6 +180,11 @@ for output_file in ${DEST_RBAC_DIR}/*.yaml; do
   fi
   if [ "$(cat $output_file | $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
     $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' $output_file
+  fi
+  if [ "$(cat $output_file | $YQ '.metadata | has("labels")')" = "true" ]; then
+    $SED -i '/labels:.*/a\  {{- include "kueue.labels" . | nindent 4 }}' $output_file
+  else
+    $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' $output_file
   fi
 done
 
@@ -193,6 +203,7 @@ for output_file in "${webhook_files[@]}"; do
   fi
   $YQ -N -i '.webhooks.[].clientConfig.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
   $YQ -N -i '.webhooks.[].clientConfig.service.namespace = "{{ .Release.Namespace }}"' $output_file
+  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' $output_file
 done
 
 # Add service values in the YAML files
@@ -249,7 +260,7 @@ echo "$add_webhook_line" > ${DEST_WEBHOOK_DIR}/webhook.yaml
 rm ${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml ${DEST_WEBHOOK_DIR}/ValidatingWebhookConfiguration.yml
 
 # Add visibility files, replace names, namespaces in helm format
-for output_file in ${DEST_VISIBILITY_DIR}/*.yaml; do
+for output_file in "${DEST_VISIBILITY_DIR}"/*.yaml; do
   # The name of the v1alpha1.visibility.kueue.x-k8s.io APIService needs to remain unchanged.
   if [ "$(cat $output_file | $YQ '.metadata | has("name")')" = "true" ] &&
     [ "$(cat $output_file | $YQ '.metadata.name | (. == "v1alpha1*")')" = "false" ]; then
@@ -269,4 +280,18 @@ for output_file in ${DEST_VISIBILITY_DIR}/*.yaml; do
   if [ "$(cat $output_file | $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
     $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' $output_file
   fi
+  if [ "$(cat $output_file | $YQ '.kind | select(. == "Service")')" ]; then
+    cat <<EOT >> $output_file
+  selector:
+  {{- include "kueue.selectorLabels" . | nindent 4 }}
+EOT
+    fi
+    $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' $output_file
+
+  {
+  echo '{{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}'
+  cat $output_file
+  echo "{{- end }}"
+  }> ${output_file}.tmp
+  mv ${output_file}.tmp ${output_file}
 done

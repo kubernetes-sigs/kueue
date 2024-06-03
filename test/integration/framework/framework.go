@@ -28,7 +28,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -85,7 +84,7 @@ func (f *Framework) Init() *rest.Config {
 	return cfg
 }
 
-func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
+func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Client) {
 	err := config.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
@@ -98,7 +97,7 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 	err = kubeflow.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = rayjobapi.AddToScheme(scheme.Scheme)
+	err = rayv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = rayv1.AddToScheme(scheme.Scheme)
@@ -116,6 +115,13 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
 
+	ctx, cancel := context.WithCancel(context.Background())
+	f.cancel = cancel
+
+	return ctx, k8sClient
+}
+
+func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup) {
 	webhookInstallOptions := &f.testEnv.WebhookInstallOptions
 	mgrOpts := manager.Options{
 		Scheme: scheme.Scheme,
@@ -132,8 +138,6 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 	mgr, err := ctrl.NewManager(cfg, mgrOpts)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	f.cancel = cancel
 	managerSetup(mgr, ctx)
 
 	go func() {
@@ -155,13 +159,19 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 			return nil
 		}).Should(gomega.Succeed())
 	}
+}
 
+func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
+	ctx, k8sClient := f.SetupClient(cfg)
+	f.StartManager(ctx, cfg, managerSetup)
 	return ctx, k8sClient
 }
 
 func (f *Framework) Teardown() {
 	ginkgo.By("tearing down the test environment")
-	f.cancel()
+	if f.cancel != nil {
+		f.cancel()
+	}
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 }

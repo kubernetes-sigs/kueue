@@ -19,13 +19,14 @@ package metrics
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 )
 
-func expectFilteredMetricsCount(t *testing.T, vec *prometheus.GaugeVec, count int, kvs ...string) {
+func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count int, kvs ...string) {
 	labels := prometheus.Labels{}
 	for i := 0; i < len(kvs)/2; i++ {
 		labels[kvs[i*2]] = kvs[i*2+1]
@@ -34,6 +35,14 @@ func expectFilteredMetricsCount(t *testing.T, vec *prometheus.GaugeVec, count in
 	if len(all) != count {
 		t.Helper()
 		t.Errorf("Expecting %d metrics got %d, matching labels %v", count, len(all), kvs)
+	}
+}
+
+func TestGenerateExponentialBuckets(t *testing.T) {
+	expect := []float64{1, 2.5, 5, 10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120, 10240}
+	result := generateExponentialBuckets(14)
+	if diff := cmp.Diff(result, expect); len(diff) != 0 {
+		t.Errorf("Unexpected buckets (-want,+got):\n%s", diff)
 	}
 }
 
@@ -136,4 +145,16 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 1, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
+}
+
+func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
+	ReportEvictedWorkloads("cluster_queue1", "Preempted")
+	ReportEvictedWorkloads("cluster_queue1", "Evicted")
+
+	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 2, "cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Preempted")
+	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Evicted")
+	// clear
+	ClearQueueSystemMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
 }

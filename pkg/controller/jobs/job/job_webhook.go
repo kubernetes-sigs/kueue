@@ -23,7 +23,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -32,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 )
@@ -71,21 +69,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
-	// While using prebuilt workloads, the owner job may set the parent workload to a different one
-	// then the one generated from its name.
-	if owner := metav1.GetControllerOf(job); owner != nil && jobframework.IsOwnerManagedByKueue(owner) && jobframework.ParentWorkloadName(job) == "" {
-		if job.Annotations == nil {
-			job.Annotations = make(map[string]string)
-		}
-		if pwName, err := jobframework.GetWorkloadNameForOwnerRef(owner); err != nil {
-			return err
-		} else {
-			job.Annotations[constants.ParentWorkloadAnnotation] = pwName
-		}
-	}
-
 	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
-
 	return nil
 }
 
@@ -103,10 +87,8 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 
 func (w *JobWebhook) validateCreate(job *Job) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, constants.ParentWorkloadAnnotation)...)
-	allErrs = append(allErrs, jobframework.ValidateCreateForQueueName(job)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
-	allErrs = append(allErrs, jobframework.ValidateCreateForParentWorkload(job)...)
 	return allErrs
 }
 
@@ -116,10 +98,8 @@ func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 		v, err := strconv.Atoi(strVal)
 		if err != nil {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, job.Annotations[JobMinParallelismAnnotation], err.Error()))
-		} else {
-			if int32(v) >= job.podsCount() || v <= 0 {
-				allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
-			}
+		} else if int32(v) >= job.podsCount() || v <= 0 {
+			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
 		}
 	}
 	if strVal, found := job.Annotations[JobCompletionsEqualParallelismAnnotation]; found {
@@ -156,10 +136,8 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 
 func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
 	allErrs := w.validateCreate(newJob)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForParentWorkload(oldJob, newJob)...)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForQueueName(oldJob, newJob)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	return allErrs
 }
 

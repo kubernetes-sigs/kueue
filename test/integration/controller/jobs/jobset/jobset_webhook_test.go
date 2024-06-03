@@ -63,5 +63,4 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 			gomega.Expect(apierrors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
 		})
 	})
-
 })

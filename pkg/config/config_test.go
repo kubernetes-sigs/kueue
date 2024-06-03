@@ -38,22 +38,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 func TestLoad(t *testing.T) {
-	test_scheme := runtime.NewScheme()
-	err := configapi.AddToScheme(test_scheme)
+	testScheme := runtime.NewScheme()
+	err := configapi.AddToScheme(testScheme)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// temp dir
-	tmpDir, err := os.MkdirTemp("", "temp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	namespaceOverWriteConfig := filepath.Join(tmpDir, "namespace-overwrite.yaml")
 	if err := os.WriteFile(namespaceOverWriteConfig, []byte(`
@@ -156,9 +152,13 @@ apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 waitForPodsReady:
   enable: true
+  timeout: 50s
+  blockAdmission: false
   requeuingStrategy:
     timestamp: Creation
     backoffLimitCount: 10
+    backoffBaseSeconds: 30
+    backoffMaxSeconds: 1800
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -218,16 +218,20 @@ clientConnection:
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+
 	integrationsConfig := filepath.Join(tmpDir, "integrations.yaml")
 	if err := os.WriteFile(integrationsConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 integrations:
-  frameworks: 
+  frameworks:
   - batch/job
+  externalFrameworks:
+  - Foo.v1.example.com
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+
 	queueVisibilityConfig := filepath.Join(tmpDir, "queueVisibility.yaml")
 	if err := os.WriteFile(queueVisibilityConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -239,12 +243,13 @@ queueVisibility:
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+
 	podIntegrationOptionsConfig := filepath.Join(tmpDir, "podIntegrationOptions.yaml")
 	if err := os.WriteFile(podIntegrationOptionsConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 integrations:
-  frameworks: 
+  frameworks:
   - pod
   podOptions:
     namespaceSelector:
@@ -269,9 +274,11 @@ namespace: kueue-system
 multiKueue:
   gcInterval: 1m30s
   origin: multikueue-manager1
+  workerLostTimeout: 10m
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 		Metrics: metricsserver.Options{
@@ -338,8 +345,9 @@ multiKueue:
 	}
 
 	defaultMultiKueue := &configapi.MultiKueue{
-		GCInterval: &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-		Origin:     ptr.To(configapi.DefaultMultiKueueOrigin),
+		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+		Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 	}
 
 	testcases := []struct {
@@ -543,11 +551,13 @@ multiKueue:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Enable:         true,
-					BlockAdmission: ptr.To(true),
-					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
+					BlockAdmission: ptr.To(false),
+					Timeout:        &metav1.Duration{Duration: 50 * time.Second},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp:         ptr.To(configapi.CreationTimestamp),
-						BackoffLimitCount: ptr.To[int32](10),
+						Timestamp:          ptr.To(configapi.CreationTimestamp),
+						BackoffLimitCount:  ptr.To[int32](10),
+						BackoffBaseSeconds: ptr.To[int32](30),
+						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
 				},
 				ClientConnection: defaultClientConnection,
@@ -658,7 +668,8 @@ multiKueue:
 				Integrations: &configapi.Integrations{
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
-					Frameworks: []string{job.FrameworkName},
+					Frameworks:         []string{job.FrameworkName},
+					ExternalFrameworks: []string{"Foo.v1.example.com"},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -805,8 +816,9 @@ multiKueue:
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval: &metav1.Duration{Duration: 90 * time.Second},
-					Origin:     ptr.To("multikueue-manager1"),
+					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
+					Origin:            ptr.To("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 				},
 			},
 			wantOptions: defaultControlOptions,
@@ -815,7 +827,7 @@ multiKueue:
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			options, cfg, err := Load(test_scheme, tc.configFile)
+			options, cfg, err := Load(testScheme, tc.configFile)
 			if tc.wantError == nil {
 				if err != nil {
 					t.Errorf("Unexpected error:%s", err)
@@ -836,14 +848,14 @@ multiKueue:
 }
 
 func TestEncode(t *testing.T) {
-	test_scheme := runtime.NewScheme()
-	err := configapi.AddToScheme(test_scheme)
+	testScheme := runtime.NewScheme()
+	err := configapi.AddToScheme(testScheme)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	defaultConfig := &configapi.Configuration{}
-	test_scheme.Default(defaultConfig)
+	testScheme.Default(defaultConfig)
 
 	testcases := []struct {
 		name       string
@@ -854,7 +866,7 @@ func TestEncode(t *testing.T) {
 
 		{
 			name:   "empty",
-			scheme: test_scheme,
+			scheme: testScheme,
 			cfg:    &configapi.Configuration{},
 			wantResult: map[string]any{
 				"apiVersion":                 "config.kueue.x-k8s.io/v1beta1",
@@ -867,7 +879,7 @@ func TestEncode(t *testing.T) {
 		},
 		{
 			name:   "default",
-			scheme: test_scheme,
+			scheme: testScheme,
 			cfg:    defaultConfig,
 			wantResult: map[string]any{
 				"apiVersion": "config.kueue.x-k8s.io/v1beta1",
@@ -919,8 +931,9 @@ func TestEncode(t *testing.T) {
 					"clusterQueues":         map[string]any{"maxCount": int64(10)},
 				},
 				"multiKueue": map[string]any{
-					"gcInterval": "1m0s",
-					"origin":     "multikueue",
+					"gcInterval":        "1m0s",
+					"origin":            "multikueue",
+					"workerLostTimeout": "15m0s",
 				},
 			},
 		},

@@ -38,15 +38,16 @@ func SyncAdmittedCondition(w *kueue.Workload) bool {
 		return false
 	}
 	newCondition := metav1.Condition{
-		Type:    kueue.WorkloadAdmitted,
-		Status:  metav1.ConditionTrue,
-		Reason:  "Admitted",
-		Message: "The workload is admitted",
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		Reason:             "Admitted",
+		Message:            "The workload is admitted",
+		ObservedGeneration: w.Generation,
 	}
 	switch {
 	case !hasReservation && !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "NoReservationNoChecks"
+		newCondition.Reason = "NoReservationUnsatisfiedChecks"
 		newCondition.Message = "The workload has no reservation and not all checks ready"
 	case !hasReservation:
 		newCondition.Status = metav1.ConditionFalse
@@ -54,12 +55,11 @@ func SyncAdmittedCondition(w *kueue.Workload) bool {
 		newCondition.Message = "The workload has no reservation"
 	case !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "NoChecks"
+		newCondition.Reason = "UnsatisfiedChecks"
 		newCondition.Message = "The workload has not all checks ready"
 	}
 
-	apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
-	return true
+	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
 }
 
 // FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.

@@ -27,6 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestSyncAdmittedCondition(t *testing.T) {
@@ -50,9 +51,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					Status: metav1.ConditionTrue,
 				},
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
-					Reason: "Admitted",
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					ObservedGeneration: 1,
 				},
 			},
 			wantChange: true,
@@ -104,9 +106,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					Status: metav1.ConditionTrue,
 				},
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
-					Reason: "Admitted",
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					ObservedGeneration: 1,
 				},
 			},
 			wantChange: true,
@@ -130,9 +133,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			wantConditions: []metav1.Condition{
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionFalse,
-					Reason: "NoReservation",
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "NoReservation",
+					ObservedGeneration: 1,
 				},
 			},
 			wantChange: true,
@@ -164,9 +168,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					Status: metav1.ConditionTrue,
 				},
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionFalse,
-					Reason: "NoChecks",
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "UnsatisfiedChecks",
+					ObservedGeneration: 1,
 				},
 			},
 			wantChange: true,
@@ -190,9 +195,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			wantConditions: []metav1.Condition{
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionFalse,
-					Reason: "NoReservationNoChecks",
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "NoReservationUnsatisfiedChecks",
+					ObservedGeneration: 1,
 				},
 			},
 			wantChange: true,
@@ -201,12 +207,11 @@ func TestSyncAdmittedCondition(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			wl := &kueue.Workload{
-				Status: kueue.WorkloadStatus{
-					AdmissionChecks: tc.checkStates,
-					Conditions:      tc.conditions,
-				},
-			}
+			wl := utiltesting.MakeWorkload("foo", "bar").
+				AdmissionChecks(tc.checkStates...).
+				Conditions(tc.conditions...).
+				Generation(1).
+				Obj()
 
 			gotChange := SyncAdmittedCondition(wl)
 

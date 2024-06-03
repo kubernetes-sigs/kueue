@@ -19,7 +19,6 @@ package core
 import (
 	"fmt"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -87,7 +86,14 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return len(updatedQueueWorkload.Status.Conditions)
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(1))
-			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(gomega.BeComparableTo(message))
+			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
+				gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Inadmissible",
+					Message: message,
+				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+			)
 		})
 	})
 
@@ -103,7 +109,14 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return len(updatedQueueWorkload.Status.Conditions)
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(1))
-			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(gomega.BeComparableTo(message))
+			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
+				gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Inadmissible",
+					Message: message,
+				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+			)
 		})
 	})
 
@@ -123,7 +136,14 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return updatedQueueWorkload.Status.Conditions
 			}, util.Timeout, util.Interval).ShouldNot(gomega.BeNil())
-			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(gomega.BeComparableTo(message))
+			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
+				gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "Inadmissible",
+					Message: message,
+				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+			)
 		})
 	})
 
@@ -271,9 +291,11 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
-					Reason:  "AdmissionChecksRejected",
+					Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
 					Message: "Admission checks [check1] are rejected",
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 0)
 			})
 		})
 
@@ -318,8 +340,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Status:  metav1.ConditionTrue,
 						Reason:  "Admitted",
 						Message: "The workload is admitted",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 			})
 
 			ginkgo.By("setting a rejected check conditions the workload should be evicted and admitted condition kept", func() {
@@ -333,6 +357,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					return k8sClient.Status().Update(ctx, &createdWl)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+				util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByAdmissionCheck, 1)
+
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					g.Expect(createdWl.Status.Conditions).To(gomega.ContainElements(
@@ -341,13 +367,19 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 							Status:  metav1.ConditionTrue,
 							Reason:  "AdmissionCheck",
 							Message: "At least one admission check is false",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,
 							Status:  metav1.ConditionTrue,
 							Reason:  "Admitted",
 							Message: "The workload is admitted",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.WorkloadQuotaReserved,
+							Status:  metav1.ConditionTrue,
+							Reason:  "QuotaReserved",
+							Message: "Quota reserved in ClusterQueue cluster-queue",
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -360,15 +392,21 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadFinished,
 							Status:  metav1.ConditionTrue,
-							Reason:  "AdmissionChecksRejected",
+							Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
 							Message: "Admission checks [check1] are rejected",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,
 							Status:  metav1.ConditionFalse,
-							Reason:  "NoReservationNoChecks",
+							Reason:  "NoReservationUnsatisfiedChecks",
 							Message: "The workload has no reservation and not all checks ready",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.WorkloadQuotaReserved,
+							Status:  metav1.ConditionFalse,
+							Reason:  "Pending",
+							Message: "By test",
+						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -379,7 +417,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		ginkgo.BeforeEach(func() {
 			workloadPriorityClass = testing.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
 			gomega.Expect(k8sClient.Create(ctx, workloadPriorityClass)).To(gomega.Succeed())
-
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

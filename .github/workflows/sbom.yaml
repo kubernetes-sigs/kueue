@@ -14,24 +14,28 @@ jobs:
       contents: write
     name: Install bom and generate SBOM
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Set tag name
         shell: bash
         run: |
           TAG=${{ github.event.inputs.tag }}
           echo "TAG=$TAG" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
       - name: Install bom
-        uses: kubernetes-sigs/release-actions/setup-bom@v0.1.2
-      - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: kubernetes-sigs/release-actions/setup-bom@2f8b9ec22aedc9ce15039b6c7716aa6c2907df1c # v0.2.0
       - name: Generate SBOM
         shell: bash
         run: |
-          bom generate -o /tmp/kueue.spdx .
-          cd /tmp
-          tar zcf sbom.tar.gz *.spdx
+          bom generate --format=json -o /tmp/kueue-$TAG.spdx.json .
+         
       - name: Upload SBOM
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload $TAG /tmp/sbom.tar.gz
+          gh release upload $TAG /tmp/kueue-$TAG.spdx.json

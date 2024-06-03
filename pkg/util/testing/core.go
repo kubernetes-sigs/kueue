@@ -18,6 +18,7 @@ package testing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -57,7 +58,7 @@ func CheckLatestEvent(ctx context.Context, k8sClient client.Client,
 
 	length := len(events.Items)
 	if length == 0 {
-		return false, fmt.Errorf("no events currently exist")
+		return false, errors.New("no events currently exist")
 	}
 
 	item := events.Items[length-1]

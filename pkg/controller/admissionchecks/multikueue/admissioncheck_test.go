@@ -49,17 +49,21 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Generation(1).
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
-						Type:    kueue.AdmissionCheckActive,
-						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
-						Message: `Cannot load the AdmissionChecks parameters: multikueueconfigs.kueue.x-k8s.io "config1" not found`,
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionFalse,
+						Reason:             "BadConfig",
+						Message:            `Cannot load the AdmissionChecks parameters: multikueueconfigs.kueue.x-k8s.io "config1" not found`,
+						ObservedGeneration: 1,
 					}).
 					Obj(),
 			},
@@ -83,6 +87,7 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Generation(1).
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
@@ -92,11 +97,14 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
-						Type:    kueue.AdmissionCheckActive,
-						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
-						Message: "Missing clusters: [worker1]",
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoUsableClusters",
+						Message:            "Missing clusters: [worker1]",
+						ObservedGeneration: 1,
 					}).
 					Obj(),
 			},
@@ -107,53 +115,101 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Generation(1).
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
 				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
 			},
-
 			clusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").Active(metav1.ConditionFalse, "ByTest", "by test").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
+					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
-						Type:    kueue.AdmissionCheckActive,
-						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
-						Message: "Inactive clusters: [worker1]",
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoUsableClusters",
+						Message:            "Inactive clusters: [worker1]",
+						ObservedGeneration: 1,
 					}).
 					Obj(),
 			},
 		},
-		"missing and inactive cluster": {
+		"all clusters missing or inactive": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Generation(1).
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
 				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2", "worker3").Obj(),
 			},
-
 			clusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").Active(metav1.ConditionFalse, "ByTest", "by test").Obj(),
-				*utiltesting.MakeMultiKueueCluster("worker2").Active(metav1.ConditionTrue, "ByTest", "by test").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
+					Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker2").
+					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
+					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
-						Type:    kueue.AdmissionCheckActive,
-						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
-						Message: "Missing clusters: [worker3], Inactive clusters: [worker1]",
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoUsableClusters",
+						Message:            "Missing clusters: [worker3], Inactive clusters: [worker1 worker2]",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
+		},
+		"partially active": {
+			reconcileFor: "ac1",
+			checks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(ControllerName).
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Generation(1).
+					Obj(),
+			},
+			configs: []kueuealpha.MultiKueueConfig{
+				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2", "worker3").Obj(),
+			},
+			clusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
+					Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker2").
+					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
+					Obj(),
+			},
+			wantChecks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(ControllerName).
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
+					Condition(metav1.Condition{
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionTrue,
+						Reason:             "SomeActiveClusters",
+						Message:            "Missing clusters: [worker3], Inactive clusters: [worker1]",
+						ObservedGeneration: 1,
 					}).
 					Obj(),
 			},
@@ -164,23 +220,29 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Generation(1).
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
 				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
 			},
 			clusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").Active(metav1.ConditionTrue, "ByTest", "by test").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
+					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
-						Type:    kueue.AdmissionCheckActive,
-						Status:  metav1.ConditionTrue,
-						Reason:  "Active",
-						Message: `The admission check is active`,
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Active",
+						Message:            `The admission check is active`,
+						ObservedGeneration: 1,
 					}).
 					Obj(),
 			},
@@ -218,10 +280,12 @@ func TestReconcile(t *testing.T) {
 				t.Errorf("unexpected list checks error: %s", listErr)
 			}
 
-			if diff := cmp.Diff(tc.wantChecks, checks.Items, cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(metav1.ObjectMeta{}), cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+			if diff := cmp.Diff(tc.wantChecks, checks.Items, cmpopts.EquateEmpty(),
+				cmpopts.IgnoreTypes(metav1.ObjectMeta{}),
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+				cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type })); diff != "" {
 				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
 			}
-
 		})
 	}
 }

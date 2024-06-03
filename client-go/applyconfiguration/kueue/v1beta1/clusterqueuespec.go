@@ -25,14 +25,16 @@ import (
 // ClusterQueueSpecApplyConfiguration represents an declarative configuration of the ClusterQueueSpec type for use
 // with apply.
 type ClusterQueueSpecApplyConfiguration struct {
-	ResourceGroups    []ResourceGroupApplyConfiguration         `json:"resourceGroups,omitempty"`
-	Cohort            *string                                   `json:"cohort,omitempty"`
-	QueueingStrategy  *kueuev1beta1.QueueingStrategy            `json:"queueingStrategy,omitempty"`
-	NamespaceSelector *v1.LabelSelector                         `json:"namespaceSelector,omitempty"`
-	FlavorFungibility *FlavorFungibilityApplyConfiguration      `json:"flavorFungibility,omitempty"`
-	Preemption        *ClusterQueuePreemptionApplyConfiguration `json:"preemption,omitempty"`
-	AdmissionChecks   []string                                  `json:"admissionChecks,omitempty"`
-	StopPolicy        *kueuev1beta1.StopPolicy                  `json:"stopPolicy,omitempty"`
+	ResourceGroups          []ResourceGroupApplyConfiguration          `json:"resourceGroups,omitempty"`
+	Cohort                  *string                                    `json:"cohort,omitempty"`
+	QueueingStrategy        *kueuev1beta1.QueueingStrategy             `json:"queueingStrategy,omitempty"`
+	NamespaceSelector       *v1.LabelSelector                          `json:"namespaceSelector,omitempty"`
+	FlavorFungibility       *FlavorFungibilityApplyConfiguration       `json:"flavorFungibility,omitempty"`
+	Preemption              *ClusterQueuePreemptionApplyConfiguration  `json:"preemption,omitempty"`
+	AdmissionChecks         []string                                   `json:"admissionChecks,omitempty"`
+	AdmissionChecksStrategy *AdmissionChecksStrategyApplyConfiguration `json:"admissionChecksStrategy,omitempty"`
+	StopPolicy              *kueuev1beta1.StopPolicy                   `json:"stopPolicy,omitempty"`
+	FairSharing             *FairSharingApplyConfiguration             `json:"fairSharing,omitempty"`
 }
 
 // ClusterQueueSpecApplyConfiguration constructs an declarative configuration of the ClusterQueueSpec type for use with
@@ -104,10 +106,26 @@ func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionChecks(values ...strin
 	return b
 }
 
+// WithAdmissionChecksStrategy sets the AdmissionChecksStrategy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AdmissionChecksStrategy field is set to the value of the last call.
+func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionChecksStrategy(value *AdmissionChecksStrategyApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
+	b.AdmissionChecksStrategy = value
+	return b
+}
+
 // WithStopPolicy sets the StopPolicy field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the StopPolicy field is set to the value of the last call.
 func (b *ClusterQueueSpecApplyConfiguration) WithStopPolicy(value kueuev1beta1.StopPolicy) *ClusterQueueSpecApplyConfiguration {
 	b.StopPolicy = &value
+	return b
+}
+
+// WithFairSharing sets the FairSharing field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FairSharing field is set to the value of the last call.
+func (b *ClusterQueueSpecApplyConfiguration) WithFairSharing(value *FairSharingApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
+	b.FairSharing = value
 	return b
 }

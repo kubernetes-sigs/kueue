@@ -38,13 +38,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
 var (
-	parentWorkloadKey = ".metadata.parentWorkload"
-	gvk               = batchv1.SchemeGroupVersion.WithKind("Job")
+	gvk = batchv1.SchemeGroupVersion.WithKind("Job")
 
 	FrameworkName = "batch/job"
 )
@@ -116,7 +116,11 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, o
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Queueing reconcile for child jobs")
 	var childJobs batchv1.JobList
-	if err := h.client.List(ctx, &childJobs, client.InNamespace(w.Namespace), client.MatchingFields{parentWorkloadKey: w.Name}); err != nil {
+	owner := metav1.GetControllerOf(w)
+	if owner == nil {
+		return
+	}
+	if err := h.client.List(ctx, &childJobs, client.InNamespace(w.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: string(owner.UID)}); err != nil {
 		klog.Error(err, "Unable to list child jobs")
 		return
 	}
@@ -210,8 +214,8 @@ func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 var (
 	// the legacy names are no longer defined in the api, only in k/2/apis/batch
 	legacyJobNameLabel       = "job-name"
-	legacyControllerUidLabel = "controller-uid"
-	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUidLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+	legacyControllerUIDLabel = "controller-uid"
+	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUIDLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
 )
 
 func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
@@ -273,29 +277,14 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *Job) Finished() (metav1.Condition, bool) {
-	var conditionType batchv1.JobConditionType
-	var finished bool
-
+func (j *Job) Finished() (message string, success, finished bool) {
 	for _, c := range j.Status.Conditions {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
-			conditionType = c.Type
-			finished = true
-			break
+			return c.Message, c.Type != batchv1.JobFailed, true
 		}
 	}
 
-	condition := metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  "JobFinished",
-		Message: "Job finished successfully",
-	}
-	if conditionType == batchv1.JobFailed {
-		condition.Message = "Job failed"
-	}
-
-	return condition, finished
+	return "", true, false
 }
 
 func (j *Job) PodsReady() bool {
@@ -330,19 +319,13 @@ func (j *Job) syncCompletionWithParallelism() bool {
 	return false
 }
 
-func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
-		job := fromObject(o)
-		if pwName := jobframework.ParentWorkloadName(job); pwName != "" {
-			return []string{pwName}
-		}
-		return nil
-	}); err != nil {
+func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {
+	if err := fieldIndexer.IndexField(ctx, &batchv1.Job{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID); err != nil {
 		return err
 	}
-	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+	return jobframework.SetupWorkloadOwnerIndex(ctx, fieldIndexer, gvk)
 }
 
-func GetWorkloadNameForJob(jobName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
+func GetWorkloadNameForJob(jobName string, jobUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }

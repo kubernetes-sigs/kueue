@@ -27,8 +27,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -41,9 +39,14 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/queue"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	// +kubebuilder:scaffold:imports
+)
+
+const (
+	testingWorkerLostTimeout = 3 * time.Second
 )
 
 type cluster struct {
@@ -54,30 +57,7 @@ type cluster struct {
 }
 
 func (c *cluster) kubeConfigBytes() ([]byte, error) {
-	cfg := clientcmdapi.Config{
-		Kind:       "config",
-		APIVersion: "v1",
-		Clusters: map[string]*clientcmdapi.Cluster{
-			"default-cluster": {
-				Server:                   c.cfg.Host,
-				CertificateAuthorityData: c.cfg.CAData,
-			},
-		},
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{
-			"default-user": {
-				ClientCertificateData: c.cfg.CertData,
-				ClientKeyData:         c.cfg.KeyData,
-			},
-		},
-		Contexts: map[string]*clientcmdapi.Context{
-			"default-context": {
-				Cluster:  "default-cluster",
-				AuthInfo: "default-user",
-			},
-		},
-		CurrentContext: "default-context",
-	}
-	return clientcmd.Write(cfg)
+	return utiltesting.RestConfigToKubeConfig(c.cfg)
 }
 
 var (
@@ -173,6 +153,9 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name, multikueue.WithGCInterval(2*time.Second))
+	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+		multikueue.WithGCInterval(2*time.Second),
+		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
+	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

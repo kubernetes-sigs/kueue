@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sample-cronjob
+  namespace: default
+spec:
+  schedule: "* * * * *"
+  jobTemplate:
+    metadata:
+      labels:
+        kueue.x-k8s.io/queue-name: user-queue
+    spec:
+      parallelism: 3
+      completions: 3
+      template:
+        spec:
+          containers:
+          - name: dummy-job
+            image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
+            args: ["10s"]
+            resources:
+              requests:
+                cpu: 1
+                memory: "200Mi"
+          restartPolicy: Never

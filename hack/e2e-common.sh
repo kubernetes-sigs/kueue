@@ -14,7 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
+export GINKGO="$ROOT_DIR"/bin/ginkgo
+export KIND="$ROOT_DIR"/bin/kind
+export YQ="$ROOT_DIR"/bin/yq
 
+export JOBSET_MANIFEST=https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml
+export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
+export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 
 # $1 - cluster name
 function cluster_cleanup {
@@ -50,10 +57,18 @@ function cluster_kind_load_image {
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context kind-${1}
-    if [[ $E2E_KIND_VERSION = *1.26* ]]; then
-        kubectl apply --server-side -k test/e2e/config_1_26
-    else
-        kubectl apply --server-side -k test/e2e/config
-    fi
+    kubectl apply --server-side -k test/e2e/config
 }
 
+#$1 - cluster name
+function install_jobset {
+    cluster_kind_load_image ${1} ${JOBSET_IMAGE}
+    kubectl config use-context kind-${1}
+    kubectl apply --server-side -f ${JOBSET_MANIFEST}
+}
+
+export INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
+
+function restore_managers_image {
+    (cd config/components/manager && $KUSTOMIZE edit set image controller=$INITIAL_IMAGE)
+}

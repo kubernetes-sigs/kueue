@@ -11,6 +11,8 @@ spec:
     kind: ClusterQueue
     listKind: ClusterQueueList
     plural: clusterqueues
+    shortNames:
+    - cq
     singular: clusterqueue
   scope: Cluster
   versions:
@@ -59,11 +61,42 @@ spec:
             description: ClusterQueueSpec defines the desired state of ClusterQueue
             properties:
               admissionChecks:
-                description: admissionChecks lists the AdmissionChecks required by
-                  this ClusterQueue
+                description: |-
+                  admissionChecks lists the AdmissionChecks required by this ClusterQueue.
+                  Cannot be used along with AdmissionCheckStrategy.
                 items:
                   type: string
                 type: array
+              admissionChecksStrategy:
+                description: |-
+                  admissionCheckStrategy defines a list of strategies to determine which ResourceFlavors require AdmissionChecks.
+                  This property cannot be used in conjunction with the 'admissionChecks' property.
+                properties:
+                  admissionChecks:
+                    description: admissionChecks is a list of strategies for AdmissionChecks
+                    items:
+                      description: AdmissionCheckStrategyRule defines rules for a
+                        single AdmissionCheck
+                      properties:
+                        name:
+                          description: name is an AdmissionCheck's name.
+                          type: string
+                        onFlavors:
+                          description: |-
+                            onFlavors is a list of ResourceFlavors' names that this AdmissionCheck should run for.
+                            If empty, the AdmissionCheck will run for all workloads submitted to the ClusterQueue.
+                          items:
+                            description: ResourceFlavorReference is the name of the
+                              ResourceFlavor.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          type: array
+                      required:
+                      - name
+                      type: object
+                    type: array
+                type: object
               cohort:
                 description: |-
                   cohort that this ClusterQueue belongs to. CQs that belong to the
@@ -84,8 +117,33 @@ spec:
 
                   Validation of a cohort name is equivalent to that of object names:
                   subdomain in DNS (RFC 1123).
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
+              fairSharing:
+                description: |-
+                  fairSharing defines the properties of the ClusterQueue when participating in fair sharing.
+                  The values are only relevant if fair sharing is enabled in the Kueue configuration.
+                properties:
+                  weight:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 1
+                    description: |-
+                      weight gives a comparative advantage to this ClusterQueue when competing for unused
+                      resources in the cohort against other ClusterQueues.
+                      The share of a ClusterQueue is based on the dominant resource usage above nominal
+                      quotas for each resource, divided by the weight.
+                      Admission prioritizes scheduling workloads from ClusterQueues with the lowest share
+                      and preempting workloads from the ClusterQueues with the highest share.
+                      A zero weight implies infinite share value, meaning that this ClusterQueue will always
+                      be at disadvantage against other ClusterQueues.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
               flavorFungibility:
+                default: {}
                 description: |-
                   flavorFungibility defines whether a workload should try the next flavor
                   before borrowing or preempting in the flavor being evaluated.
@@ -154,11 +212,13 @@ spec:
                           items:
                             type: string
                           type: array
+                          x-kubernetes-list-type: atomic
                       required:
                       - key
                       - operator
                       type: object
                     type: array
+                    x-kubernetes-list-type: atomic
                   matchLabels:
                     additionalProperties:
                       type: string
@@ -170,6 +230,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               preemption:
+                default: {}
                 description: |-
                   preemption describes policies to preempt Workloads from this ClusterQueue
                   or the ClusterQueue's cohort.
@@ -191,6 +252,7 @@ spec:
                   lower priority first.
                 properties:
                   borrowWithinCohort:
+                    default: {}
                     description: |-
                       borrowWithinCohort provides configuration to allow preemption within
                       cohort while borrowing.
@@ -259,11 +321,15 @@ spec:
                     - LowerOrNewerEqualPriority
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never
+                  rule: '!(self.reclaimWithinCohort == ''Never'' && has(self.borrowWithinCohort)
+                    &&  self.borrowWithinCohort.policy != ''Never'')'
               queueingStrategy:
                 default: BestEffortFIFO
                 description: |-
                   QueueingStrategy indicates the queueing strategy of the workloads
-                  across the queues in this ClusterQueue. This field is immutable.
+                  across the queues in this ClusterQueue.
                   Current Supported Strategies:
 
 
@@ -315,6 +381,8 @@ spec:
                               name of this flavor. The name should match the .metadata.name of a
                               ResourceFlavor. If a matching ResourceFlavor does not exist, the
                               ClusterQueue will have an Active condition set to False.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
                           resources:
                             description: |-
@@ -402,6 +470,10 @@ spec:
                   - coveredResources
                   - flavors
                   type: object
+                  x-kubernetes-validations:
+                  - message: flavors must have the same number of resources as the
+                      coveredResources
+                    rule: self.flavors.all(x, size(x.resources) == size(self.coveredResources))
                 maxItems: 16
                 type: array
                 x-kubernetes-list-type: atomic
@@ -424,6 +496,10 @@ spec:
                 - HoldAndDrain
                 type: string
             type: object
+            x-kubernetes-validations:
+            - message: borrowingLimit must be nil when cohort is empty
+              rule: '!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg,
+                rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true'
           status:
             description: ClusterQueueStatus defines the observed state of ClusterQueue
             properties:
@@ -508,6 +584,21 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              fairSharing:
+                description: FairSharing contains the information about the current
+                  status of fair sharing.
+                properties:
+                  weightedShare:
+                    description: |-
+                      WeightedShare represent the maximum of the ratios of usage above nominal
+                      quota to the lendable resources in the cohort, among all the resources
+                      provided by the ClusterQueue, and divided by the weight.
+                      If zero, it means that the usage of the ClusterQueue is below the nominal quota.
+                      If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
+                      the maximum possible share value.
+                    format: int64
+                    type: integer
+                type: object
               flavorsReservation:
                 description: |-
                   flavorsReservation are the reserved quotas, by flavor, currently in use by the
@@ -516,6 +607,8 @@ spec:
                   properties:
                     name:
                       description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
                     resources:
                       description: resources lists the quota usage for the resources
@@ -568,6 +661,8 @@ spec:
                   properties:
                     name:
                       description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
                     resources:
                       description: resources lists the quota usage for the resources

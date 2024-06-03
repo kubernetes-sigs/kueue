@@ -63,7 +63,6 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 		} else {
 			return nil
 		}
-
 	}
 
 	remoteJob = batchv1.Job{
@@ -100,4 +99,8 @@ func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient c
 
 func (b *batchJobAdapter) KeepAdmissionCheckPending() bool {
 	return true
+}
+
+func (b *batchJobAdapter) IsJobManagedByKueue(_ context.Context, _ client.Client, _ types.NamespacedName) (bool, string, error) {
+	return true, "", nil
 }

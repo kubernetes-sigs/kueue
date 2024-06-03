@@ -163,6 +163,20 @@ pending workloads.</p>
    <p>MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.</p>
 </td>
 </tr>
+<tr><td><code>fairSharing</code> <B>[Required]</B><br/>
+<a href="#FairSharing"><code>FairSharing</code></a>
+</td>
+<td>
+   <p>FairSharing controls the fair sharing semantics across the cluster.</p>
+</td>
+</tr>
+<tr><td><code>resources</code> <B>[Required]</B><br/>
+<a href="#Resources"><code>Resources</code></a>
+</td>
+<td>
+   <p>Resources provides additional configuration options for handling the resources.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -395,6 +409,54 @@ must be named tls.key and tls.crt, respectively.</p>
 </tbody>
 </table>
 
+## `FairSharing`     {#FairSharing}
+    
+
+**Appears in:**
+
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>enable</code> <B>[Required]</B><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>enable indicates whether to enable fair sharing for all cohorts.
+Defaults to false.</p>
+</td>
+</tr>
+<tr><td><code>preemptionStrategies</code> <B>[Required]</B><br/>
+<a href="#PreemptionStrategy"><code>[]PreemptionStrategy</code></a>
+</td>
+<td>
+   <p>preemptionStrategies indicates which constraints should a preemption satisfy.
+The preemption algorithm will only use the next strategy in the list if the
+incoming workload (preemptor) doesn't fit after using the previous strategies.
+Possible values are:</p>
+<ul>
+<li>LessThanOrEqualToFinalShare: Only preempt a workload if the share of the preemptor CQ
+with the preemptor workload is less than or equal to the share of the preemptee CQ
+without the workload to be preempted.
+This strategy might favor preemption of smaller workloads in the preemptee CQ,
+regardless of priority or start time, in an effort to keep the share of the CQ
+as high as possible.</li>
+<li>LessThanInitialShare: Only preempt a workload if the share of the preemptor CQ
+with the incoming workload is strictly less than the share of the preemptee CQ.
+This strategy doesn't depend on the share usage of the workload being preempted.
+As a result, the strategy chooses to preempt workloads with the lowest priority and
+newest start time first.
+The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `Integrations`     {#Integrations}
     
 
@@ -429,11 +491,34 @@ Possible options:</p>
 </ul>
 </td>
 </tr>
+<tr><td><code>externalFrameworks</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>List of GroupVersionKinds that are managed for Kueue by external controllers;
+the expected format is <code>Kind.version.group.com</code>.</p>
+</td>
+</tr>
 <tr><td><code>podOptions</code> <B>[Required]</B><br/>
 <a href="#PodIntegrationOptions"><code>PodIntegrationOptions</code></a>
 </td>
 <td>
    <p>PodOptions defines kueue controller behaviour for pod objects</p>
+</td>
+</tr>
+<tr><td><code>labelKeysToCopy</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>labelKeysToCopy is a list of label keys that should be copied from the job into the
+workload object. It is not required for the job to have all the labels from this
+list. If a job does not have some label with the given key from this list, the
+constructed workload object will be created without this label. In the case
+of creating a workload from a composable job (pod group), if multiple objects
+have labels with some key from the list, the values of these labels must
+match or otherwise the workload creation would fail. The labels are copied only
+during the workload creation and are not updated even if the labels of the
+underlying job are changed.</p>
 </td>
 </tr>
 </tbody>
@@ -512,6 +597,15 @@ remote objects that ware created by this multikueue manager cluster and delete
 them if their local counterpart no longer exists.</p>
 </td>
 </tr>
+<tr><td><code>workerLostTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>WorkerLostTimeout defines the time a local workload's multikueue admission check state is kept Ready
+if the connection with its reserving worker cluster is lost.</p>
+<p>Defaults to 15 minutes.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -545,6 +639,18 @@ them if their local counterpart no longer exists.</p>
 </tr>
 </tbody>
 </table>
+
+## `PreemptionStrategy`     {#PreemptionStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [FairSharing](#FairSharing)
+
+
+
+
 
 ## `QueueVisibility`     {#QueueVisibility}
     
@@ -613,13 +719,33 @@ that was evicted due to Pod readiness. The possible values are:</p>
    <p>BackoffLimitCount defines the maximum number of re-queuing retries.
 Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).
 When it is null, the workloads will repeatedly and endless re-queueing.</p>
-<p>Every backoff duration is about &quot;1.41284738^(n-1)+Rand&quot; where the &quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;,
-and the &quot;Rand&quot; represents the random jitter. During this time, the workload is taken as an inadmissible and
+<p>Every backoff duration is about &quot;b*2^(n-1)+Rand&quot; where:</p>
+<ul>
+<li>&quot;b&quot; represents the base set by &quot;BackoffBaseSeconds&quot; parameter,</li>
+<li>&quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;,</li>
+<li>&quot;Rand&quot; represents the random jitter.
+During this time, the workload is taken as an inadmissible and
 other workloads will have a chance to be admitted.
-For example, when the &quot;waitForPodsReady.timeout&quot; is the default, the workload deactivation time is as follows:
-{backoffLimitCount, workloadDeactivationSeconds}
-~= {1, 601}, {2, 902}, ...,{5, 1811}, ...,{10, 3374}, ...,{20, 8730}, ...,{30, 86400(=24 hours)}, ...</p>
+By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</li>
+</ul>
 <p>Defaults to null.</p>
+</td>
+</tr>
+<tr><td><code>backoffBaseSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffBaseSeconds defines the base for the exponential backoff for
+re-queuing an evicted workload.</p>
+<p>Defaults to 60.</p>
+</td>
+</tr>
+<tr><td><code>backoffMaxSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.</p>
+<p>Defaults to 3600.</p>
 </td>
 </tr>
 </tbody>
@@ -636,6 +762,29 @@ For example, when the &quot;waitForPodsReady.timeout&quot; is the default, the w
 
 
 
+
+## `Resources`     {#Resources}
+    
+
+**Appears in:**
+
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>excludeResourcePrefixes</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>ExcludedResourcePrefixes defines which resources should be ignored by Kueue</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `WaitForPodsReady`     {#WaitForPodsReady}
     

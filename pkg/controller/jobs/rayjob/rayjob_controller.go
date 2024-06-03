@@ -20,9 +20,10 @@ import (
 	"context"
 	"strings"
 
-	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -32,7 +33,7 @@ import (
 )
 
 var (
-	gvk = rayjobapi.GroupVersion.WithKind("RayJob")
+	gvk = rayv1.GroupVersion.WithKind("RayJob")
 )
 
 const (
@@ -45,8 +46,8 @@ func init() {
 		SetupIndexes:           SetupIndexes,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupRayJobWebhook,
-		JobType:                &rayjobapi.RayJob{},
-		AddToScheme:            rayjobapi.AddToScheme,
+		JobType:                &rayv1.RayJob{},
+		AddToScheme:            rayv1.AddToScheme,
 		IsManagingObjectsOwner: isRayJob,
 	}))
 }
@@ -63,12 +64,12 @@ func init() {
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &RayJob{} })
 
-type RayJob rayjobapi.RayJob
+type RayJob rayv1.RayJob
 
 var _ jobframework.GenericJob = (*RayJob)(nil)
 
 func (j *RayJob) Object() client.Object {
-	return (*rayjobapi.RayJob)(j)
+	return (*rayv1.RayJob)(j)
 }
 
 func (j *RayJob) IsSuspended() bool {
@@ -76,7 +77,7 @@ func (j *RayJob) IsSuspended() bool {
 }
 
 func (j *RayJob) IsActive() bool {
-	return j.Status.JobDeploymentStatus != rayjobapi.JobDeploymentStatusSuspended
+	return j.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusSuspended
 }
 
 func (j *RayJob) Suspend() {
@@ -159,29 +160,25 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	return changed
 }
 
-func (j *RayJob) Finished() (metav1.Condition, bool) {
-	condition := metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  string(j.Status.JobStatus),
-		Message: j.Status.Message,
-	}
-
-	return condition, j.Status.JobStatus == rayjobapi.JobStatusFailed || j.Status.JobStatus == rayjobapi.JobStatusSucceeded
+func (j *RayJob) Finished() (message string, success, finished bool) {
+	message = j.Status.Message
+	success = j.Status.JobStatus != rayv1.JobStatusFailed
+	finished = j.Status.JobStatus == rayv1.JobStatusFailed || j.Status.JobStatus == rayv1.JobStatusSucceeded
+	return message, success, finished
 }
 
 func (j *RayJob) PodsReady() bool {
-	return j.Status.RayClusterStatus.State == rayjobapi.Ready
+	return j.Status.RayClusterStatus.State == rayv1.Ready
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
-func GetWorkloadNameForRayJob(jobName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
+func GetWorkloadNameForRayJob(jobName string, jobUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }
 
 func isRayJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "RayJob" && (strings.HasPrefix(owner.APIVersion, "ray.io/v1alpha1") || strings.HasPrefix(owner.APIVersion, "ray.io/v1"))
+	return owner.Kind == "RayJob" && strings.HasPrefix(owner.APIVersion, "ray.io/v1")
 }

@@ -1,18 +1,58 @@
 # golangci-lint configuration file
 # see: https://golangci-lint.run/usage/configuration/
 
-# Options for analysis running
-run:
-  # Which dirs to skip: they won't be analyzed;
-  skip-dirs:
-    - bin
-
 # Settings of specific linters
 linters-settings:
+  gocritic:
+    enabled-checks:
+      - dupImport
+    disabled-checks:
+      - appendAssign
+      - exitAfterDefer
   goimports:
     local-prefixes: sigs.k8s.io/kueue
+  govet:
+    enable:
+      - nilness
+  perfsprint:
+    int-conversion: false
+    errorf: true
+    sprintf1: false
+    strconcat: false
+  revive:
+    enable-all-rules: false
+    rules:
+      - name: empty-lines
+      - name: var-naming
 
 # Settings for enabling and disabling linters
 linters:
   enable:
+    - copyloopvar
+    - dupword
+    - durationcheck
+    - ginkgolinter
+    - gocritic
     - goimports
+    - govet
+    - loggercheck
+    - misspell
+    - perfsprint
+    - revive
+    - unconvert
+
+# Settings related to issues
+issues:
+  # Which dirs to exclude: issues from them won't be reported
+  exclude-dirs:
+    - bin
+  # Excluding configuration per-path, per-linter, per-text and per-source
+  exclude-rules:
+    - linters:
+      - staticcheck
+      # TODO(#768): Drop when incrementing the API version.
+      text: "SA1019: constants.QueueAnnotation is deprecated"
+  # Show all issues from a linter
+  max-issues-per-linter: 0
+  # Show all issues with the same text
+  max-same-issues: 0

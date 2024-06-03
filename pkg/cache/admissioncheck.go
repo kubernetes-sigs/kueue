@@ -17,5 +17,8 @@ limitations under the License.
 package cache
 
 type AdmissionCheck struct {
-	Active bool
+	Active                       bool
+	Controller                   string
+	SingleInstanceInClusterQueue bool
+	FlavorIndependent            bool
 }

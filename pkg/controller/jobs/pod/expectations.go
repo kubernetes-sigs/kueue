@@ -41,9 +41,9 @@ func newUIDExpectations(name string) *expectationsStore {
 	}
 }
 
-func (e *expectationsStore) ExpectUIDs(log logr.Logger, key types.NamespacedName, UIDs []types.UID) {
-	log.V(3).Info("Expecting UIDs", "store", e.name, "key", key, "uids", UIDs)
-	expectedUIDs := sets.New[types.UID](UIDs...)
+func (e *expectationsStore) ExpectUIDs(log logr.Logger, key types.NamespacedName, uids []types.UID) {
+	log.V(3).Info("Expecting UIDs", "store", e.name, "key", key, "uids", uids)
+	expectedUIDs := sets.New[types.UID](uids...)
 	e.Lock()
 	defer e.Unlock()
 

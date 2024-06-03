@@ -8,15 +8,8 @@ steps:
     entrypoint: make
     args:
       - image-push
-    env:
-      - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
-      - GIT_TAG=$_GIT_TAG
-      - EXTRA_TAG=$_PULL_BASE_REF
-      - DOCKER_BUILDX_CMD=/buildx-entrypoint
-  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20221214-1b4dd4d69a'
-    entrypoint: make
-    args:
       - debug-image-push
+      - importer-image-push
     env:
       - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
       - GIT_TAG=$_GIT_TAG
@@ -31,3 +24,4 @@ substitutions:
   _PULL_BASE_REF: 'main'
 options:
   substitution_option: ALLOW_LOOSE
+  machineType: 'N1_HIGHCPU_8'

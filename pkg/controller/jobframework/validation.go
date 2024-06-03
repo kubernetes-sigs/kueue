@@ -30,20 +30,31 @@ import (
 var (
 	annotationsPath               = field.NewPath("metadata", "annotations")
 	labelsPath                    = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 	supportedPrebuiltWlJobGVKs    = sets.New(batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		jobset.SchemeGroupVersion.WithKind("JobSet").String())
 )
 
-func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
+// ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
+func ValidateJobOnCreate(job GenericJob) field.ErrorList {
+	return validateCreateForQueueName(job)
+}
+
+// ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
+func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
+	allErrs := validateUpdateForQueueName(oldJob, newJob)
+	allErrs = append(allErrs, validateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
+	return allErrs
+}
+
+func validateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.QueueLabel)...)
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.PrebuiltWorkloadLabel)...)
 	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
 
-	// this rule should be relaxed when its confirmed that running wit a prebuilt wl is fully supported by each integration
+	// this rule should be relaxed when its confirmed that running with a prebuilt wl is fully supported by each integration
 	if _, hasPrebuilt := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]; hasPrebuilt {
 		gvk := job.GVK().String()
 		if !supportedPrebuiltWlJobGVKs.Has(gvk) {
@@ -73,17 +84,7 @@ func ValidateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList
 	return allErrs
 }
 
-func ValidateCreateForParentWorkload(job GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if _, exists := job.Object().GetAnnotations()[constants.ParentWorkloadAnnotation]; exists {
-		if job.Object().GetOwnerReferences() == nil {
-			allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "must not add a parent workload annotation to job without OwnerReference"))
-		}
-	}
-	return allErrs
-}
-
-func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
+func validateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
@@ -95,12 +96,7 @@ func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	return allErrs
 }
 
-func ValidateUpdateForParentWorkload(oldJob, newJob GenericJob) field.ErrorList {
-	allErrs := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob), ParentWorkloadName(oldJob), parentWorkloadKeyPath)
-	return allErrs
-}
-
-func ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
+func validateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := apivalidation.ValidateImmutableField(workloadPriorityClassName(oldJob), workloadPriorityClassName(newJob), workloadPriorityClassNamePath)
 	return allErrs
 }

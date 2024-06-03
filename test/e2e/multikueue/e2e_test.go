@@ -17,6 +17,9 @@ limitations under the License.
 package mke2e
 
 import (
+	"fmt"
+	"os/exec"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -104,13 +107,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueAc)).Should(gomega.Succeed())
 
 		ginkgo.By("wait for check active", func() {
-			updatetedAc := kueue.AdmissionCheck{}
+			updatedAc := kueue.AdmissionCheck{}
 			acKey := client.ObjectKeyFromObject(multiKueueAc)
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sManagerClient.Get(ctx, acKey, &updatetedAc)).To(gomega.Succeed())
-				g.Expect(apimeta.IsStatusConditionTrue(updatetedAc.Status.Conditions, kueue.AdmissionCheckActive)).To(gomega.BeTrue())
+				g.Expect(k8sManagerClient.Get(ctx, acKey, &updatedAc)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(updatedAc.Status.Conditions, kueue.AdmissionCheckActive)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 		})
 		managerFlavor = utiltesting.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, managerFlavor)).Should(gomega.Succeed())
@@ -196,7 +198,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: managerNs.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
 			ginkgo.By("Waiting to be admitted in worker1", func() {
@@ -215,11 +217,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "JobFinished",
-						Message: `Job finished successfully`,
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+						Type:   kueue.WorkloadFinished,
+						Status: metav1.ConditionTrue,
+						Reason: kueue.WorkloadFinishedReasonSucceeded,
+					}, util.IgnoreConditionMessage, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -248,6 +249,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 2 CPU in total, this jobset can only be admitted in worker 1.
 			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 				Queue(managerLq.Name).
+				ManagedBy(multikueue.ControllerName).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
@@ -268,7 +270,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name), Namespace: managerNs.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
 			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
@@ -284,7 +286,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "Admitted",
 						Message: "The workload is admitted",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -310,9 +312,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  "JobSetFinished",
-						Message: "JobSet finished successfully",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "jobset completed successfully",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -336,7 +338,83 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Reason:  "AllJobsCompleted",
 						Message: "jobset completed successfully",
 					},
-					cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					util.IgnoreConditionTimestampsAndObservedGeneration)))
+			})
+		})
+	})
+	ginkgo.When("The connection to a worker cluster is unreliable", func() {
+		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
+			worker1Cq2 := utiltesting.MakeClusterQueue("q2").
+				ResourceGroup(
+					*utiltesting.MakeFlavorQuotas(worker1Flavor.Name).
+						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceMemory, "1G").
+						Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sWorker1Client.Create(ctx, worker1Cq2)).Should(gomega.Succeed())
+
+			worker1Container := fmt.Sprintf("%s-control-plane", worker1ClusterName)
+			worker1ClusterKey := client.ObjectKeyFromObject(workerCluster1)
+
+			ginkgo.By("Disconnecting worker1 container from the kind network", func() {
+				cmd := exec.Command("docker", "network", "disconnect", "kind", worker1Container)
+				output, err := cmd.CombinedOutput()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+
+				podList := &corev1.PodList{}
+				podListOptions := client.InNamespace("kueue-system")
+				gomega.Eventually(func(g gomega.Gomega) error {
+					return k8sWorker1Client.List(ctx, podList, podListOptions)
+				}, util.LongTimeout, util.Interval).ShouldNot(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the cluster to become inactive", func() {
+				readClient := &kueuealpha.MultiKueueCluster{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
+					g.Expect(readClient.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						metav1.Condition{
+							Type:   kueuealpha.MultiKueueClusterActive,
+							Status: metav1.ConditionFalse,
+							Reason: "ClientConnectionFailed",
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration, util.IgnoreConditionMessage)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Reconnecting worker1 container to the kind network", func() {
+				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
+				output, err := cmd.CombinedOutput()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				gomega.Eventually(func() error {
+					return util.DeleteClusterQueue(ctx, k8sWorker1Client, worker1Cq2)
+				}, util.LongTimeout, util.Interval).ShouldNot(gomega.HaveOccurred())
+
+				// After reconnecting the container to the network, when we try to get pods,
+				// we get it with the previous values (as before disconnect). Therefore, it
+				// takes some time for the cluster to restore them, and we got actually values.
+				// To be sure that the leader of kueue-control-manager successfully recovered
+				// we can check it by removing already created Cluster Queue.
+				var cq kueue.ClusterQueue
+				gomega.Eventually(func() error {
+					return k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(worker1Cq2), &cq)
+				}, util.LongTimeout, util.Interval).Should(utiltesting.BeNotFoundError())
+			})
+
+			ginkgo.By("Waiting for the cluster do become active", func() {
+				readClient := &kueuealpha.MultiKueueCluster{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
+					g.Expect(readClient.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						metav1.Condition{
+							Type:    kueuealpha.MultiKueueClusterActive,
+							Status:  metav1.ConditionTrue,
+							Reason:  "Active",
+							Message: "Connected",
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

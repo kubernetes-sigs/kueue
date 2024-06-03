@@ -20,13 +20,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 var (
@@ -113,11 +116,11 @@ func refValidForGK(ref *kueue.AdmissionCheckParametersReference, gk schema.Group
 	return true, nil
 }
 
-func IndexerByConfigFunction(ControllerName string, gvk schema.GroupVersionKind) client.IndexerFunc {
+func IndexerByConfigFunction(controllerName string, gvk schema.GroupVersionKind) client.IndexerFunc {
 	gk := gvk.GroupKind()
 	return func(obj client.Object) []string {
 		ac, isAc := obj.(*kueue.AdmissionCheck)
-		if !isAc || ac == nil || ac.Spec.ControllerName != ControllerName {
+		if !isAc || ac == nil || ac.Spec.ControllerName != controllerName {
 			return nil
 		}
 		if isvalid, _ := refValidForGK(ac.Spec.Parameters, gk); !isvalid {
@@ -128,16 +131,44 @@ func IndexerByConfigFunction(ControllerName string, gvk schema.GroupVersionKind)
 }
 
 // FilterForController - returns a list of check names controlled by ControllerName.
-func FilterForController(ctx context.Context, c client.Client, states []kueue.AdmissionCheckState, ControllerName string) ([]string, error) {
+func FilterForController(ctx context.Context, c client.Client, states []kueue.AdmissionCheckState, controllerName string) ([]string, error) {
 	var retActive []string
 	for _, state := range states {
 		ac := &kueue.AdmissionCheck{}
 
 		if err := c.Get(ctx, types.NamespacedName{Name: state.Name}, ac); client.IgnoreNotFound(err) != nil {
 			return nil, err
-		} else if err == nil && ac.Spec.ControllerName == ControllerName {
+		} else if err == nil && ac.Spec.ControllerName == controllerName {
 			retActive = append(retActive, ac.Name)
 		}
 	}
 	return retActive, nil
+}
+
+// FilterProvReqAnnotations returns annotations containing the Provisioning Request annotation prefix.
+func FilterProvReqAnnotations(annotations map[string]string) map[string]string {
+	res := make(map[string]string)
+	for k, v := range annotations {
+		if strings.HasPrefix(k, controllerconsts.ProvReqAnnotationPrefix) {
+			res[k] = v
+		}
+	}
+	return res
+}
+
+// NewAdmissionChecks aggregates AdmissionChecks from .spec.AdmissionChecks and .spec.AdmissionChecksStrategy
+func NewAdmissionChecks(cq *kueue.ClusterQueue) map[string]sets.Set[kueue.ResourceFlavorReference] {
+	var checks map[string]sets.Set[kueue.ResourceFlavorReference]
+	if cq.Spec.AdmissionChecksStrategy != nil {
+		checks = make(map[string]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
+		for _, check := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+			checks[check.Name] = sets.New[kueue.ResourceFlavorReference](check.OnFlavors...)
+		}
+	} else {
+		checks = make(map[string]sets.Set[kueue.ResourceFlavorReference], len(cq.Spec.AdmissionChecks))
+		for _, checkName := range cq.Spec.AdmissionChecks {
+			checks[checkName] = sets.New[kueue.ResourceFlavorReference]()
+		}
+	}
+	return checks
 }

@@ -4,6 +4,7 @@ kind: ClusterRole
 metadata:
   name: '{{ include "kueue.fullname" . }}-workload-editor-role'
   labels:
+  {{- include "kueue.labels" . | nindent 4 }}
     rbac.kueue.x-k8s.io/batch-admin: "true"
 rules:
   - apiGroups:

@@ -26,7 +26,6 @@ import (
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -38,7 +37,6 @@ import (
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -52,8 +50,10 @@ func TestSetupControllers(t *testing.T) {
 	}{
 		"setup controllers succeed": {
 			opts: []Option{
-				WithEnabledFrameworks(&configapi.Integrations{
-					Frameworks: []string{"batch/job", "kubeflow.org/mpijob"},
+				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob"}),
+				WithEnabledExternalFrameworks([]string{
+					"Foo.v1.example.com",
+					"Bar.v2.example.com",
 				}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -63,9 +63,7 @@ func TestSetupControllers(t *testing.T) {
 		},
 		"mapper doesn't have kubeflow.org/mpijob, but no error occur": {
 			opts: []Option{
-				WithEnabledFrameworks(&configapi.Integrations{
-					Frameworks: []string{"batch/job", "kubeflow.org/mpijob"},
-				}),
+				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob"}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
@@ -75,7 +73,7 @@ func TestSetupControllers(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, logger := utiltesting.ContextWithLog(t)
-			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kubeflow.AddToScheme, rayjobapi.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme).Build()
+			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kubeflow.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme).Build()
 
 			mgrOpts := ctrlmgr.Options{
 				Scheme: k8sClient.Scheme(),
@@ -128,9 +126,7 @@ func TestSetupIndexes(t *testing.T) {
 					Obj(),
 			},
 			opts: []Option{
-				WithEnabledFrameworks(&configapi.Integrations{
-					Frameworks: []string{"batch/job"},
-				}),
+				WithEnabledFrameworks([]string{"batch/job"}),
 			},
 			filter:        client.MatchingFields{GetOwnerKey(batchv1.SchemeGroupVersion.WithKind("Job")): "alpha"},
 			wantWorkloads: []string{"alpha-wl"},
@@ -145,9 +141,7 @@ func TestSetupIndexes(t *testing.T) {
 					Obj(),
 			},
 			opts: []Option{
-				WithEnabledFrameworks(&configapi.Integrations{
-					Frameworks: []string{"batch/job"},
-				}),
+				WithEnabledFrameworks([]string{"batch/job"}),
 			},
 			filter:                client.MatchingFields{GetOwnerKey(kubeflow.SchemeGroupVersionKind): "alpha"},
 			wantFieldMatcherError: true,

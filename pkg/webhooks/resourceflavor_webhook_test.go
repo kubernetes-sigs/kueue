@@ -50,16 +50,6 @@ func TestValidateResourceFlavor(t *testing.T) {
 				}).Obj(),
 		},
 		{
-			// Taint validation is not exhaustively tested, because the code was copied from upstream k8s.
-			name: "invalid taint",
-			rf: utiltesting.MakeResourceFlavor("resource-flavor").Taint(corev1.Taint{
-				Key: "skdajf",
-			}).Obj(),
-			wantErr: field.ErrorList{
-				field.Required(field.NewPath("spec", "nodeTaints").Index(0).Child("effect"), ""),
-			},
-		},
-		{
 			name: "invalid label name",
 			rf:   utiltesting.MakeResourceFlavor("resource-flavor").Label("@abc", "foo").Obj(),
 			wantErr: field.ErrorList{
@@ -71,45 +61,6 @@ func TestValidateResourceFlavor(t *testing.T) {
 			rf:   utiltesting.MakeResourceFlavor("resource-flavor").Label("foo", "@abc").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", ""),
-			},
-		},
-		{
-			name: "bad tolerations",
-			rf: utiltesting.MakeResourceFlavor("resource-flavor").
-				Toleration(corev1.Toleration{
-					Key:      "@abc",
-					Operator: corev1.TolerationOpEqual,
-					Value:    "v",
-					Effect:   corev1.TaintEffectNoSchedule,
-				}).
-				Toleration(corev1.Toleration{
-					Key:      "abc",
-					Operator: corev1.TolerationOpExists,
-					Value:    "v",
-					Effect:   corev1.TaintEffectNoSchedule,
-				}).
-				Toleration(corev1.Toleration{
-					Key:      "abc",
-					Operator: corev1.TolerationOpEqual,
-					Value:    "v",
-					Effect:   corev1.TaintEffect("not-valid"),
-				}).
-				Toleration(corev1.Toleration{
-					Key:      "abc",
-					Operator: corev1.TolerationOpEqual,
-					Value:    "v",
-					Effect:   corev1.TaintEffectNoSchedule,
-				}).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "tolerations").Index(0).Child("key"), "@abc", ""),
-				field.Invalid(field.NewPath("spec", "tolerations").Index(1).Child("operator"), corev1.Toleration{
-					Key:      "abc",
-					Operator: corev1.TolerationOpExists,
-					Value:    "v",
-					Effect:   corev1.TaintEffectNoSchedule,
-				}, ""),
-				field.NotSupported(field.NewPath("spec", "tolerations").Index(2).Child("effect"), corev1.TaintEffect("not-valid"), []corev1.TaintEffect{}),
 			},
 		},
 	}

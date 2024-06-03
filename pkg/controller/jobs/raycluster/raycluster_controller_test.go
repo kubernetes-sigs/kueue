@@ -28,6 +28,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -144,25 +145,26 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("a", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(kueue.PodSet{
-						Name:  "head",
-						Count: int32(1),
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								RestartPolicy: corev1.RestartPolicyNever,
-								Containers: []corev1.Container{
-									{
-										Name: "head-container",
-										Resources: corev1.ResourceRequirements{
-											Requests: make(corev1.ResourceList),
+					PodSets(
+						kueue.PodSet{
+							Name:  "head",
+							Count: int32(1),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									RestartPolicy: corev1.RestartPolicyNever,
+									Containers: []corev1.Container{
+										{
+											Name: "head-container",
+											Resources: corev1.ResourceRequirements{
+												Requests: make(corev1.ResourceList),
+											},
 										},
 									},
 								},
 							},
 						},
-					},
 						kueue.PodSet{
 							Name:  "workers-group-0",
 							Count: int32(1),
@@ -256,9 +258,13 @@ func TestReconciler(t *testing.T) {
 					).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
+					Generation(1).
 					Condition(metav1.Condition{
-						Type:   kueue.WorkloadEvicted,
-						Status: metav1.ConditionTrue,
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadEvictedByDeactivation,
+						Message:            "The workload was deactivated",
+						ObservedGeneration: 1,
 					}).
 					Admitted(true).
 					Obj(),
@@ -301,21 +307,35 @@ func TestReconciler(t *testing.T) {
 							},
 						}).
 					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
+					Generation(1).
 					Condition(metav1.Condition{
-						Type:   kueue.WorkloadEvicted,
-						Status: metav1.ConditionTrue,
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadEvictedByDeactivation,
+						Message:            "The workload was deactivated",
+						ObservedGeneration: 1,
 					}).
 					Condition(metav1.Condition{
-						Type:   kueue.WorkloadQuotaReserved,
-						Status: metav1.ConditionFalse,
-						Reason: "Pending",
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "The workload was deactivated",
+						ObservedGeneration: 1,
 					}).
 					Admitted(true).
 					Condition(metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionFalse,
-						Reason:  "NoReservation",
-						Message: "The workload has no reservation",
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadEvictedByDeactivation,
+						Message:            "The workload was deactivated",
+						ObservedGeneration: 1,
 					}).
 					Obj(),
 			},
@@ -323,9 +343,8 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme)
+			clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)

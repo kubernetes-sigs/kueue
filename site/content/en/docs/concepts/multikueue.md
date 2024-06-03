@@ -1,7 +1,7 @@
 ---
 title: "MultiKueue"
 date: 2024-02-26
-weight: 7
+weight: 8
 description: >
   Kueue multi cluster job dispatching.
 ---
@@ -58,10 +58,9 @@ Known Limitations:
 There is an ongoing effort to overcome these limitations by adding the possibility to disable the reconciliation of some jobs by the Kubernetes `batch/Job` controller. Details in `kubernetes/enhancements` [KEP-4368](https://github.com/kubernetes/enhancements/tree/master/keps/sig-apps/4368-support-managed-by-label-for-batch-jobs#readme).
 
 ### JobSet
-Known Limitations:
-- Since unsuspending a JobSet in the manager cluster will lead to its local execution and updating the status of a local JobSet could conflict with its main controller, you should only install the JobSet CRDs, but not the controller.
 
-An approach similar to the one described for [`batch/Job`](#batchjob) is taken into account to overcome this. 
+When you want to submit JobSets to a ClusterQueue with a MultiKueue admission check, you should set the `spec.managedBy` field to `kueue.x-k8s.io/multikueue`, otherwise the admission check controller will `Reject` the workload causing it to be marked as `Finished` with an error indicating the cause.
+The `managedBy` field is available in JobSet v0.5.0 and newer.
 
 ## Submitting Jobs
 In a [configured MultiKueue environment](/docs/tasks/manage/setup_multikueue), you can submit any MultiKueue supported job to the Manager cluster, targeting a ClusterQueue configured for Multikueue.

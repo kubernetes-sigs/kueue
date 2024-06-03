@@ -139,12 +139,6 @@ func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
 	return j.SetAnnotation(constants.QueueAnnotation, queue)
 }
 
-// ParentWorkload sets the parent-workload annotation
-func (j *JobWrapper) ParentWorkload(parentWorkload string) *JobWrapper {
-	j.Annotations[constants.ParentWorkloadAnnotation] = parentWorkload
-	return j
-}
-
 func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
 	j.Annotations[key] = content
 	return j
@@ -232,6 +226,12 @@ func (j *JobWrapper) Active(c int32) *JobWrapper {
 // Condition adds a condition
 func (j *JobWrapper) Condition(c batchv1.JobCondition) *JobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
+	return j
+}
+
+// Generation sets the generation
+func (j *JobWrapper) Generation(g int64) *JobWrapper {
+	j.ObjectMeta.Generation = g
 	return j
 }
 

@@ -70,6 +70,7 @@ type ClusterQueueReconciler struct {
 	snapUpdateCh                         chan event.GenericEvent
 	watchers                             []ClusterQueueUpdateWatcher
 	reportResourceMetrics                bool
+	fairSharingEnabled                   bool
 	queueVisibilityUpdateInterval        time.Duration
 	queueVisibilityClusterQueuesMaxCount int32
 }
@@ -77,6 +78,7 @@ type ClusterQueueReconciler struct {
 type ClusterQueueReconcilerOptions struct {
 	Watchers                             []ClusterQueueUpdateWatcher
 	ReportResourceMetrics                bool
+	FairSharingEnabled                   bool
 	QueueVisibilityUpdateInterval        time.Duration
 	QueueVisibilityClusterQueuesMaxCount int32
 }
@@ -93,6 +95,12 @@ func WithWatchers(watchers ...ClusterQueueUpdateWatcher) ClusterQueueReconcilerO
 func WithReportResourceMetrics(report bool) ClusterQueueReconcilerOption {
 	return func(o *ClusterQueueReconcilerOptions) {
 		o.ReportResourceMetrics = report
+	}
+}
+
+func WithFairSharing(enabled bool) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.FairSharingEnabled = enabled
 	}
 }
 
@@ -136,6 +144,7 @@ func NewClusterQueueReconciler(
 		snapUpdateCh:                         make(chan event.GenericEvent, updateChBuffer),
 		watchers:                             options.Watchers,
 		reportResourceMetrics:                options.ReportResourceMetrics,
+		fairSharingEnabled:                   options.FairSharingEnabled,
 		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
 		queueVisibilityClusterQueuesMaxCount: options.QueueVisibilityClusterQueuesMaxCount,
 	}
@@ -302,11 +311,12 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 		return true
 	}
 	defer r.notifyWatchers(oldCq, newCq)
+	specUpdated := !equality.Semantic.DeepEqual(oldCq.Spec, newCq.Spec)
 
 	if err := r.cache.UpdateClusterQueue(newCq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
-	if err := r.qManager.UpdateClusterQueue(context.Background(), newCq); err != nil {
+	if err := r.qManager.UpdateClusterQueue(context.Background(), newCq, specUpdated); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 
@@ -649,11 +659,23 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
 	cq.Status.PendingWorkloadsStatus = r.getWorkloadsStatus(cq)
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
-		Type:    kueue.ClusterQueueActive,
-		Status:  conditionStatus,
-		Reason:  reason,
-		Message: msg,
+		Type:               kueue.ClusterQueueActive,
+		Status:             conditionStatus,
+		Reason:             reason,
+		Message:            msg,
+		ObservedGeneration: cq.Generation,
 	})
+	if r.fairSharingEnabled {
+		if r.reportResourceMetrics {
+			metrics.ReportClusterQueueWeightedShare(cq.Name, stats.WeightedShare)
+		}
+		if cq.Status.FairSharing == nil {
+			cq.Status.FairSharing = &kueue.FairSharingStatus{}
+		}
+		cq.Status.FairSharing.WeightedShare = stats.WeightedShare
+	} else {
+		cq.Status.FairSharing = nil
+	}
 	if !equality.Semantic.DeepEqual(cq.Status, oldStatus) {
 		return r.client.Status().Update(ctx, cq)
 	}

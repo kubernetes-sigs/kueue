@@ -1,6 +1,0 @@
-apiVersion: kueue.x-k8s.io/v1alpha2
-kind: LocalQueue
-metadata:
-  name: {{.Name}}
-spec:
-  clusterQueue: {{.ClusterQueue}}

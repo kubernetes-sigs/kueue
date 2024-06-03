@@ -17,11 +17,15 @@ limitations under the License.
 package cache
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -371,10 +375,8 @@ func TestFitInCohort(t *testing.T) {
 			if got != tc.wantFit {
 				t.Errorf("Unexpected result, %v", got)
 			}
-
 		})
 	}
-
 }
 
 func TestClusterQueueUpdate(t *testing.T) {
@@ -458,5 +460,729 @@ func TestClusterQueueUpdate(t *testing.T) {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
+	cqWithAC := utiltesting.MakeClusterQueue("cq").
+		AdmissionChecks("check1", "check2", "check3").
+		Obj()
+
+	cqWithACStrategy := utiltesting.MakeClusterQueue("cq2").
+		AdmissionCheckStrategy(
+			*utiltesting.MakeAdmissionCheckStrategyRule("check1").Obj(),
+			*utiltesting.MakeAdmissionCheckStrategyRule("check2").Obj(),
+			*utiltesting.MakeAdmissionCheckStrategyRule("check3").Obj()).
+		Obj()
+
+	cqWithACPerFlavor := utiltesting.MakeClusterQueue("cq3").
+		AdmissionCheckStrategy(
+			*utiltesting.MakeAdmissionCheckStrategyRule("check1", "flavor1", "flavor2", "flavor3").Obj(),
+		).
+		Obj()
+
+	testcases := []struct {
+		name            string
+		cq              *kueue.ClusterQueue
+		cqStatus        metrics.ClusterQueueStatus
+		admissionChecks map[string]AdmissionCheck
+		wantStatus      metrics.ClusterQueueStatus
+		wantReason      string
+	}{
+		{
+			name:     "Pending clusterQueue updated valid AC list",
+			cq:       cqWithAC,
+			cqStatus: pending,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: active,
+			wantReason: "Ready",
+		},
+		{
+			name:     "Pending clusterQueue with an AC strategy updated valid AC list",
+			cq:       cqWithACStrategy,
+			cqStatus: pending,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: active,
+			wantReason: "Ready",
+		},
+		{
+			name:     "Active clusterQueue updated with not found AC",
+			cq:       cqWithAC,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue with an AC strategy updated with not found AC",
+			cq:       cqWithACStrategy,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue updated with inactive AC",
+			cq:       cqWithAC,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     false,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue with an AC strategy updated with inactive AC",
+			cq:       cqWithACStrategy,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     false,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue updated with duplicate single instance AC Controller",
+			cq:       cqWithAC,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:                       true,
+					Controller:                   "controller1",
+					SingleInstanceInClusterQueue: true,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:                       true,
+					Controller:                   "controller2",
+					SingleInstanceInClusterQueue: true,
+				},
+			},
+			wantStatus: pending,
+			wantReason: "MultipleSingleInstanceControllerChecks",
+		},
+		{
+			name:     "Active clusterQueue with an AC strategy updated with duplicate single instance AC Controller",
+			cq:       cqWithACStrategy,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:                       true,
+					Controller:                   "controller1",
+					SingleInstanceInClusterQueue: true,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:                       true,
+					Controller:                   "controller2",
+					SingleInstanceInClusterQueue: true,
+				},
+			},
+			wantStatus: pending,
+			wantReason: "MultipleSingleInstanceControllerChecks",
+		},
+		{
+			name:     "Active clusterQueue with a FlavorIndependent AC applied per ResourceFlavor",
+			cq:       cqWithACPerFlavor,
+			cqStatus: pending,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:            true,
+					Controller:        "controller1",
+					FlavorIndependent: true,
+				},
+			},
+			wantStatus: pending,
+			wantReason: "FlavorIndependentAdmissionCheckAppliedPerFlavor",
+		},
+		{
+			name:     "Terminating clusterQueue updated with valid AC list",
+			cq:       cqWithAC,
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+		{
+			name:     "Terminating clusterQueue with an AC strategy updated with valid AC list",
+			cq:       cqWithACStrategy,
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+		{
+			name:     "Terminating clusterQueue updated with not found AC",
+			cq:       cqWithAC,
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+		{
+			name:     "Terminating clusterQueue with an AC strategy updated with not found AC",
+			cq:       cqWithACStrategy,
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			cq, err := cache.newClusterQueue(tc.cq)
+			if err != nil {
+				t.Fatalf("failed to new clusterQueue %v", err)
+			}
+
+			cq.Status = tc.cqStatus
+
+			// Align the admission check related internals to the desired Status.
+			if tc.cqStatus == active {
+				cq.hasMultipleSingleInstanceControllersChecks = false
+				cq.hasMissingOrInactiveAdmissionChecks = false
+				cq.hasFlavorIndependentAdmissionCheckAppliedPerFlavor = false
+			} else {
+				cq.hasMultipleSingleInstanceControllersChecks = true
+				cq.hasMissingOrInactiveAdmissionChecks = true
+				cq.hasFlavorIndependentAdmissionCheckAppliedPerFlavor = true
+			}
+			cq.updateWithAdmissionChecks(tc.admissionChecks)
+
+			if cq.Status != tc.wantStatus {
+				t.Errorf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
+			}
+
+			gotReason, _ := cq.inactiveReason()
+			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
+				t.Errorf("Unexpected inactiveReason (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDominantResourceShare(t *testing.T) {
+	cases := map[string]struct {
+		cq          ClusterQueue
+		flvResQ     FlavorResourceQuantities
+		wantDRValue int
+		wantDRName  corev1.ResourceName
+	}{
+		"no cohort": {
+			cq: ClusterQueue{
+				FairWeight: oneQuantity,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  2,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"usage below nominal": {
+			cq: ClusterQueue{
+				FairWeight: oneQuantity,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  2,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  10,
+					},
+				},
+			},
+		},
+		"usage above nominal": {
+			cq: ClusterQueue{
+				FairWeight: oneQuantity,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 3_000,
+						"example.com/gpu":  7,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  10,
+					},
+				},
+			},
+			wantDRName:  "example.com/gpu",
+			wantDRValue: 200, // (7-5)*1000/10
+		},
+		"one resource above nominal": {
+			cq: ClusterQueue{
+				FairWeight: oneQuantity,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 3_000,
+						"example.com/gpu":  3,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  10,
+					},
+				},
+			},
+			wantDRName:  corev1.ResourceCPU,
+			wantDRValue: 100, // (3-2)*1000/10
+		},
+		"usage with workload above nominal": {
+			cq: ClusterQueue{
+				FairWeight: oneQuantity,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  2,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  10,
+					},
+				},
+			},
+			flvResQ: FlavorResourceQuantities{
+				"default": {
+					corev1.ResourceCPU: 4_000,
+					"example.com/gpu":  4,
+				},
+			},
+			wantDRName:  corev1.ResourceCPU,
+			wantDRValue: 300, // (1+4-2)*1000/10
+		},
+		"A resource with zero lendable": {
+			cq: ClusterQueue{
+				FairWeight: oneQuantity,
+				Usage: FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  1,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 2_000,
+									},
+									"example.com/gpu": {
+										Nominal:      2,
+										LendingLimit: ptr.To[int64](0),
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10_000,
+						"example.com/gpu":  0,
+					},
+				},
+			},
+			flvResQ: FlavorResourceQuantities{
+				"default": {
+					corev1.ResourceCPU: 4_000,
+					"example.com/gpu":  4,
+				},
+			},
+			wantDRName:  corev1.ResourceCPU,
+			wantDRValue: 300, // (1+4-2)*1000/10
+		},
+		"multiple flavors": {
+			cq: ClusterQueue{
+				FairWeight: oneQuantity,
+				Usage: FlavorResourceQuantities{
+					"on-demand": {
+						corev1.ResourceCPU: 15_000,
+					},
+					"spot": {
+						corev1.ResourceCPU: 5_000,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "on-demand",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 20_000,
+									},
+								},
+							},
+							{
+								Name: "spot",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									corev1.ResourceCPU: {
+										Nominal: 80_000,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 200_000,
+					},
+				},
+			},
+			flvResQ: FlavorResourceQuantities{
+				"on-demand": {
+					corev1.ResourceCPU: 10_000,
+				},
+			},
+			wantDRName:  corev1.ResourceCPU,
+			wantDRValue: 25, // ((15+10-20)+0)*1000/200 (spot under nominal)
+		},
+		"above nominal with integer weight": {
+			cq: ClusterQueue{
+				FairWeight: resource.MustParse("2"),
+				Usage: FlavorResourceQuantities{
+					"default": {
+						"example.com/gpu": 7,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						"example.com/gpu": 10,
+					},
+				},
+			},
+			wantDRName:  "example.com/gpu",
+			wantDRValue: 100, // ((7-5)*1000/10)/2
+		},
+		"above nominal with decimal weight": {
+			cq: ClusterQueue{
+				FairWeight: resource.MustParse("0.5"),
+				Usage: FlavorResourceQuantities{
+					"default": {
+						"example.com/gpu": 7,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						"example.com/gpu": 10,
+					},
+				},
+			},
+			wantDRName:  "example.com/gpu",
+			wantDRValue: 400, // ((7-5)*1000/10)/(1/2)
+		},
+		"above nominal with zero weight": {
+			cq: ClusterQueue{
+				Usage: FlavorResourceQuantities{
+					"default": {
+						"example.com/gpu": 7,
+					},
+				},
+				ResourceGroups: []ResourceGroup{
+					{
+						Flavors: []FlavorQuotas{
+							{
+								Name: "default",
+								Resources: map[corev1.ResourceName]*ResourceQuota{
+									"example.com/gpu": {
+										Nominal: 5,
+									},
+								},
+							},
+						},
+					},
+				},
+				Cohort: &Cohort{
+					Lendable: map[corev1.ResourceName]int64{
+						"example.com/gpu": 10,
+					},
+				},
+			},
+			wantDRValue: math.MaxInt,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			drValue, drName := tc.cq.DominantResourceShareWith(tc.flvResQ)
+			if drValue != tc.wantDRValue {
+				t.Errorf("DominantResourceShare(_) returned value %d, want %d", drValue, tc.wantDRValue)
+			}
+			if drName != tc.wantDRName {
+				t.Errorf("DominantResourceShare(_) returned resource %s, want %s", drName, tc.wantDRName)
+			}
+		})
+	}
+}
+
+func TestCohortLendable(t *testing.T) {
+	cq := ClusterQueue{
+		Cohort: &Cohort{
+			Members: sets.New(
+				&ClusterQueue{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 8_000,
+						"example.com/gpu":  3,
+					},
+				},
+				&ClusterQueue{
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 2_000,
+					},
+				},
+			),
+		},
+	}
+
+	wantLendable := map[corev1.ResourceName]int64{
+		corev1.ResourceCPU: 10_000,
+		"example.com/gpu":  3,
+	}
+
+	lendable := cq.Cohort.CalculateLendable()
+	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
+		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
 	}
 }

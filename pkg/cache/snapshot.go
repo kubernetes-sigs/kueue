@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"maps"
+
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -24,7 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -39,20 +41,25 @@ type Snapshot struct {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	updateUsage(wl, cq.Usage, -1)
-	if cq.Cohort != nil {
-		updateUsage(wl, cq.Cohort.Usage, -1)
-	}
+	cq.addOrRemoveWorkload(wl, -1)
 }
 
-// AddWorkload removes a workload from its corresponding ClusterQueue and
+// AddWorkload adds a workload from its corresponding ClusterQueue and
 // updates resource usage.
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	updateUsage(wl, cq.Usage, 1)
-	if cq.Cohort != nil {
-		updateUsage(wl, cq.Cohort.Usage, 1)
+	cq.addOrRemoveWorkload(wl, 1)
+}
+
+func (c *ClusterQueue) addOrRemoveWorkload(wl *workload.Info, m int64) {
+	updateFlavorUsage(wl, c.Usage, m)
+	if c.Cohort != nil {
+		if features.Enabled(features.LendingLimit) {
+			updateCohortUsage(wl, c, m)
+		} else {
+			updateFlavorUsage(wl, c.Cohort.Usage, m)
+		}
 	}
 }
 
@@ -70,7 +77,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 			"cohort", cohortName,
 			"resourceGroups", cq.ResourceGroups,
 			"usage", cq.Usage,
-			"workloads", maps.Keys(cq.Workloads),
+			"workloads", utilmaps.Keys(cq.Workloads),
 		)
 	}
 	for name, cohort := range cohorts {
@@ -112,6 +119,7 @@ func (c *Cache) Snapshot() Snapshot {
 				cqCopy.Cohort = cohortCopy
 				cohortCopy.Members.Insert(cqCopy)
 				cohortCopy.AllocatableResourceGeneration += cqCopy.AllocatableResourceGeneration
+				cohortCopy.Lendable = cohortCopy.CalculateLendable()
 			}
 		}
 	}
@@ -126,26 +134,20 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		ResourceGroups:                c.ResourceGroups, // Shallow copy is enough.
 		RGByResource:                  c.RGByResource,   // Shallow copy is enough.
 		FlavorFungibility:             c.FlavorFungibility,
+		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
 		Usage:                         make(FlavorResourceQuantities, len(c.Usage)),
-		Workloads:                     make(map[string]*workload.Info, len(c.Workloads)),
+		Lendable:                      maps.Clone(c.Lendable),
+		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
 		Status:                        c.Status,
-		AdmissionChecks:               c.AdmissionChecks.Clone(),
-	}
-	for fName, rUsage := range c.Usage {
-		rUsageCopy := make(map[corev1.ResourceName]int64, len(rUsage))
-		for k, v := range rUsage {
-			rUsageCopy[k] = v
-		}
-		cc.Usage[fName] = rUsageCopy
-	}
-	for k, v := range c.Workloads {
-		// Shallow copy is enough.
-		cc.Workloads[k] = v
+		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
 	}
 
+	for fName, rUsage := range c.Usage {
+		cc.Usage[fName] = maps.Clone(rUsage)
+	}
 	if features.Enabled(features.LendingLimit) {
 		cc.GuaranteedQuota = c.GuaranteedQuota
 	}

@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
@@ -36,6 +37,7 @@ const (
 	LimitRangeHasContainerType = "spec.hasContainerType"
 	WorkloadQuotaReservedKey   = "status.quotaReserved"
 	WorkloadRuntimeClassKey    = "spec.runtimeClass"
+	OwnerReferenceUID          = "metadata.ownerReferences.uid"
 )
 
 func IndexQueueClusterQueue(obj client.Object) []string {
@@ -110,6 +112,10 @@ func IndexWorkloadRuntimeClass(obj client.Object) []string {
 	return nil
 }
 
+func IndexOwnerUID(obj client.Object) []string {
+	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
+}
+
 // Setup sets the index with the given fields for core apis.
 func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
@@ -129,6 +135,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	}
 	if err := indexer.IndexField(ctx, &corev1.LimitRange{}, LimitRangeHasContainerType, IndexLimitRangeHasContainerType); err != nil {
 		return fmt.Errorf("setting index on hasContainerType for limitRange: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
+		return fmt.Errorf("setting index on ownerReferences.uid for Workload: %w", err)
 	}
 	return nil
 }

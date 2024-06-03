@@ -92,6 +92,5 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 			},
 			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime"))))
 		return nil
-
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
 }

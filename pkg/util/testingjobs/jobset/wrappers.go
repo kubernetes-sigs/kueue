@@ -109,6 +109,12 @@ func (j *JobSetWrapper) Label(k, v string) *JobSetWrapper {
 	return j
 }
 
+// Annotations sets annotations to the JobSet.
+func (j *JobSetWrapper) Annotations(annotations map[string]string) *JobSetWrapper {
+	j.ObjectMeta.Annotations = annotations
+	return j
+}
+
 // Queue updates the queue name of the JobSet.
 func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
 	return j.Label(constants.QueueLabel, queue)
@@ -153,5 +159,11 @@ func (j *JobSetWrapper) JobsStatus(statuses ...jobsetapi.ReplicatedJobStatus) *J
 // Condition adds a condition
 func (j *JobSetWrapper) Condition(c metav1.Condition) *JobSetWrapper {
 	apimeta.SetStatusCondition(&j.Status.Conditions, c)
+	return j
+}
+
+// ManagedBy adds a managedby.
+func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
+	j.Spec.ManagedBy = &c
 	return j
 }

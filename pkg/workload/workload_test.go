@@ -26,18 +26,21 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
-		workload kueue.Workload
-		wantInfo Info
+		workload    kueue.Workload
+		infoOptions []InfoOption
+		wantInfo    Info
 	}{
 		"pending": {
 			workload: *utiltesting.MakeWorkload("", "").
@@ -188,18 +191,36 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"filterResources": {
+			workload: *utiltesting.MakeWorkload("", "").
+				Request(corev1.ResourceCPU, "10m").
+				Request(corev1.ResourceMemory, "512Ki").
+				Request("networking.example.com/vpc1", "1").
+				Obj(),
+			infoOptions: []InfoOption{WithExcludedResourcePrefixes([]string{"dummyPrefix", "networking.example.com/"})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Requests: Requests{
+							corev1.ResourceCPU:    10,
+							corev1.ResourceMemory: 512 * 1024,
+						},
+						Count: 1,
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info := NewInfo(&tc.workload)
+			info := NewInfo(&tc.workload, tc.infoOptions...)
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
-
-var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 
 func TestUpdateWorkloadStatus(t *testing.T) {
 	cases := map[string]struct {
@@ -218,10 +239,11 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
-						Message: "didn't fit",
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Pending",
+						Message:            "didn't fit",
+						ObservedGeneration: 1,
 					},
 				},
 			},
@@ -243,9 +265,10 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:   kueue.WorkloadQuotaReserved,
-						Status: metav1.ConditionTrue,
-						Reason: "Admitted",
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						ObservedGeneration: 1,
 					},
 				},
 			},
@@ -253,9 +276,9 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			workload := utiltesting.MakeWorkload("foo", "bar").Obj()
+			workload := utiltesting.MakeWorkload("foo", "bar").Generation(1).Obj()
 			workload.Status = tc.oldStatus
-			cl := utiltesting.NewFakeClient(workload)
+			cl := utiltesting.NewFakeClientSSAAsSM(workload)
 			ctx := context.Background()
 			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-prefix")
 			if err != nil {
@@ -265,7 +288,11 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			if err := cl.Get(ctx, client.ObjectKeyFromObject(workload), &updatedWl); err != nil {
 				t.Fatalf("Failed obtaining updated object: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
+			if diff := cmp.Diff(
+				tc.wantStatus,
+				updatedWl.Status,
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+			); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 			}
 		})
@@ -365,17 +392,17 @@ func TestReclaimablePodsAreEqual(t *testing.T) {
 			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
 			wantResult: false,
 		},
-		"one value missmatch": {
+		"one value mismatch": {
 			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
 			b:          []kueue.ReclaimablePod{{Name: "rp2", Count: 1}, {Name: "rp1", Count: 1}},
 			wantResult: false,
 		},
-		"one name missmatch": {
+		"one name mismatch": {
 			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
 			b:          []kueue.ReclaimablePod{{Name: "rp3", Count: 3}, {Name: "rp1", Count: 1}},
 			wantResult: false,
 		},
-		"length missmatch": {
+		"length mismatch": {
 			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
 			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
 			wantResult: false,
@@ -398,14 +425,14 @@ func TestReclaimablePodsAreEqual(t *testing.T) {
 
 func TestAssignmentClusterQueueState(t *testing.T) {
 	cases := map[string]struct {
-		state              *AssigmentClusterQueueState
+		state              *AssignmentClusterQueueState
 		wantPendingFlavors bool
 	}{
 		"no info": {
 			wantPendingFlavors: false,
 		},
 		"all done": {
-			state: &AssigmentClusterQueueState{
+			state: &AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    -1,
@@ -419,7 +446,7 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			wantPendingFlavors: false,
 		},
 		"some pending": {
-			state: &AssigmentClusterQueueState{
+			state: &AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    0,
@@ -433,7 +460,7 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			wantPendingFlavors: true,
 		},
 		"all pending": {
-			state: &AssigmentClusterQueueState{
+			state: &AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    1,
@@ -452,29 +479,6 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			got := tc.state.PendingFlavors()
 			if got != tc.wantPendingFlavors {
 				t.Errorf("state.PendingFlavors() = %t, want %t", got, tc.wantPendingFlavors)
-			}
-		})
-	}
-}
-
-func TestHasRequeueState(t *testing.T) {
-	cases := map[string]struct {
-		workload *kueue.Workload
-		want     bool
-	}{
-		"workload has requeue state": {
-			workload: utiltesting.MakeWorkload("test", "test").RequeueState(ptr.To[int32](5), ptr.To(metav1.Now())).Obj(),
-			want:     true,
-		},
-		"workload doesn't have requeue state": {
-			workload: utiltesting.MakeWorkload("test", "test").RequeueState(nil, nil).Obj(),
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := HasRequeueState(tc.workload)
-			if tc.want != got {
-				t.Errorf("Unexpected result from HasRequeuState\nwant:%v\ngot:%v\n", tc.want, got)
 			}
 		})
 	}
@@ -580,6 +584,174 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 			if diff := cmp.Diff(tc.wantCondition, gotCondition,
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); len(diff) != 0 {
 				t.Errorf("Unexpected condition from IsEvictedByPodsReadyTimeout: (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestFlavorResourceUsage(t *testing.T) {
+	cases := map[string]struct {
+		info *Info
+		want map[kueue.ResourceFlavorReference]Requests
+	}{
+		"nil": {},
+		"one podset, no flavors": {
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Requests: Requests{
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  3,
+					},
+				}},
+			},
+			want: map[kueue.ResourceFlavorReference]Requests{
+				"": {
+					corev1.ResourceCPU: 1_000,
+					"example.com/gpu":  3,
+				},
+			},
+		},
+		"one podset, multiple flavors": {
+			info: &Info{
+				TotalRequests: []PodSetResources{{
+					Requests: Requests{
+						corev1.ResourceCPU: 1_000,
+						"example.com/gpu":  3,
+					},
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
+						"example.com/gpu":  "gpu",
+					},
+				}},
+			},
+			want: map[kueue.ResourceFlavorReference]Requests{
+				"default": {
+					corev1.ResourceCPU: 1_000,
+				},
+				"gpu": {
+					"example.com/gpu": 3,
+				},
+			},
+		},
+		"multiple podsets, multiple flavors": {
+			info: &Info{
+				TotalRequests: []PodSetResources{
+					{
+						Requests: Requests{
+							corev1.ResourceCPU: 1_000,
+							"example.com/gpu":  3,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+							"example.com/gpu":  "model_a",
+						},
+					},
+					{
+						Requests: Requests{
+							corev1.ResourceCPU:    2_000,
+							corev1.ResourceMemory: 2 * utiltesting.Gi,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "default",
+							corev1.ResourceMemory: "default",
+						},
+					},
+					{
+						Requests: Requests{
+							"example.com/gpu": 1,
+						},
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							"example.com/gpu": "model_b",
+						},
+					},
+				},
+			},
+			want: map[kueue.ResourceFlavorReference]Requests{
+				"default": {
+					corev1.ResourceCPU:    3_000,
+					corev1.ResourceMemory: 2 * utiltesting.Gi,
+				},
+				"model_a": {
+					"example.com/gpu": 3,
+				},
+				"model_b": {
+					"example.com/gpu": 1,
+				},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.info.FlavorResourceUsage()
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("info.ResourceUsage() returned (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAdmissionCheckStrategy(t *testing.T) {
+	cases := map[string]struct {
+		cq                  *kueue.ClusterQueue
+		wl                  *kueue.Workload
+		wantAdmissionChecks sets.Set[string]
+	}{
+		"AdmissionCheckStrategy with a flavor": {
+			wl: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New("ac1"),
+		},
+		"AdmissionCheckStrategy with an unmatched flavor": {
+			wl: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "unmatched-flavor").Obj()).
+				Obj(),
+			wantAdmissionChecks: nil,
+		},
+		"AdmissionCheckStrategy without a flavor": {
+			wl: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				AdmissionCheckStrategy(*utiltesting.MakeAdmissionCheckStrategyRule("ac1").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New("ac1"),
+		},
+		"Two AdmissionCheckStrategies, one with flavor, one without flavor": {
+			wl: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("cq").Assignment("cpu", "flavor1", "1").Obj()).
+				Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				AdmissionCheckStrategy(
+					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
+				Obj(),
+			wantAdmissionChecks: sets.New("ac1", "ac2"),
+		},
+		"Workload has no QuotaReserved": {
+			wl: utiltesting.MakeWorkload("wl", "ns").
+				Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").
+				AdmissionCheckStrategy(
+					*utiltesting.MakeAdmissionCheckStrategyRule("ac1", "flavor1").Obj(),
+					*utiltesting.MakeAdmissionCheckStrategyRule("ac2").Obj()).
+				Obj(),
+			wantAdmissionChecks: nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			gotAdmissionChecks := AdmissionChecksForWorkload(log, tc.wl, utilac.NewAdmissionChecks(tc.cq))
+
+			if diff := cmp.Diff(tc.wantAdmissionChecks, gotAdmissionChecks); diff != "" {
+				t.Errorf("Unexpected AdmissionChecks, (want-/got+):\n%s", diff)
 			}
 		})
 	}

@@ -34,11 +34,21 @@ func getTestGaugeVec() *prometheus.GaugeVec {
 	return ret
 }
 
+func getTestCounterVec() *prometheus.CounterVec {
+	ret := prometheus.NewCounterVec(prometheus.CounterOpts{}, []string{"c1", "c2"})
+	ret.With(prometheus.Labels{"c1": "l1v1", "c2": "l2v1"}).Inc()
+	ret.With(prometheus.Labels{"c1": "l1v1", "c2": "l2v2"}).Inc()
+	ret.With(prometheus.Labels{"c1": "l1v1", "c2": "l2v3"}).Inc()
+	ret.With(prometheus.Labels{"c1": "l1v2", "c2": "l2v1"}).Inc()
+	ret.With(prometheus.Labels{"c1": "l1v2", "c2": "l2v2"}).Inc()
+	return ret
+}
+
 func TestCollect(t *testing.T) {
 	cases := map[string]struct {
-		vec    *prometheus.GaugeVec
+		vec    prometheus.Collector
 		labels map[string]string
-		want   []GaugeDataPoint
+		want   []MetricDataPoint
 	}{
 		"nil": {
 			vec:    nil,
@@ -48,12 +58,12 @@ func TestCollect(t *testing.T) {
 		"empty": {
 			vec:    prometheus.NewGaugeVec(prometheus.GaugeOpts{}, nil),
 			labels: nil,
-			want:   []GaugeDataPoint{},
+			want:   []MetricDataPoint{},
 		},
 		"filter l1": {
 			vec:    getTestGaugeVec(),
 			labels: map[string]string{"l1": "l1v1"},
-			want: []GaugeDataPoint{
+			want: []MetricDataPoint{
 				{Labels: map[string]string{"l1": "l1v1", "l2": "l2v1"}, Value: 1},
 				{Labels: map[string]string{"l1": "l1v1", "l2": "l2v2"}, Value: 2},
 				{Labels: map[string]string{"l1": "l1v1", "l2": "l2v3"}, Value: 3},
@@ -62,7 +72,7 @@ func TestCollect(t *testing.T) {
 		"filter l2": {
 			vec:    getTestGaugeVec(),
 			labels: map[string]string{"l2": "l2v1"},
-			want: []GaugeDataPoint{
+			want: []MetricDataPoint{
 				{Labels: map[string]string{"l1": "l1v1", "l2": "l2v1"}, Value: 1},
 				{Labels: map[string]string{"l1": "l1v2", "l2": "l2v1"}, Value: 4},
 			},
@@ -70,19 +80,19 @@ func TestCollect(t *testing.T) {
 		"filter both": {
 			vec:    getTestGaugeVec(),
 			labels: map[string]string{"l1": "l1v2", "l2": "l2v1"},
-			want: []GaugeDataPoint{
+			want: []MetricDataPoint{
 				{Labels: map[string]string{"l1": "l1v2", "l2": "l2v1"}, Value: 4},
 			},
 		},
 		"filter no match": {
 			vec:    getTestGaugeVec(),
 			labels: map[string]string{"l3": "l3v1"},
-			want:   []GaugeDataPoint{},
+			want:   []MetricDataPoint{},
 		},
 		"empty filter": {
 			vec:    getTestGaugeVec(),
 			labels: nil,
-			want: []GaugeDataPoint{
+			want: []MetricDataPoint{
 				{Labels: map[string]string{"l1": "l1v2", "l2": "l2v1"}, Value: 4},
 				{Labels: map[string]string{"l1": "l1v2", "l2": "l2v2"}, Value: 5},
 				{Labels: map[string]string{"l1": "l1v1", "l2": "l2v1"}, Value: 1},
@@ -90,15 +100,34 @@ func TestCollect(t *testing.T) {
 				{Labels: map[string]string{"l1": "l1v1", "l2": "l2v3"}, Value: 3},
 			},
 		},
+		"empty filter for counter metrics": {
+			vec:    getTestCounterVec(),
+			labels: nil,
+			want: []MetricDataPoint{
+				{Labels: map[string]string{"c1": "l1v1", "c2": "l2v1"}, Value: 1},
+				{Labels: map[string]string{"c1": "l1v1", "c2": "l2v2"}, Value: 1},
+				{Labels: map[string]string{"c1": "l1v1", "c2": "l2v3"}, Value: 1},
+				{Labels: map[string]string{"c1": "l1v2", "c2": "l2v1"}, Value: 1},
+				{Labels: map[string]string{"c1": "l1v2", "c2": "l2v2"}, Value: 1},
+			},
+		},
+		"filter c1 for counter metrics": {
+			vec:    getTestCounterVec(),
+			labels: map[string]string{"c1": "l1v1"},
+			want: []MetricDataPoint{
+				{Labels: map[string]string{"c1": "l1v1", "c2": "l2v1"}, Value: 1},
+				{Labels: map[string]string{"c1": "l1v1", "c2": "l2v2"}, Value: 1},
+				{Labels: map[string]string{"c1": "l1v1", "c2": "l2v3"}, Value: 1},
+			},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := CollectFilteredGaugeVec(tc.vec, tc.labels)
-			if diff := cmp.Diff(tc.want, got, cmpopts.SortSlices(func(a, b GaugeDataPoint) bool { return a.Less(&b) })); len(diff) != 0 {
+			if diff := cmp.Diff(tc.want, got, cmpopts.SortSlices(func(a, b MetricDataPoint) bool { return a.Less(&b) })); len(diff) != 0 {
 				t.Errorf("Unexpected data points (-want,+got):\n%s", diff)
 			}
 		})
-
 	}
 }

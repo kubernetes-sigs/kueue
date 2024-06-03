@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -63,6 +64,7 @@ func TestWlReconcile(t *testing.T) {
 		worker1Jobs       []batchv1.Job
 		// second worker
 		useSecondWorker      bool
+		worker2Reconnecting  bool
 		worker2OnDeleteError error
 		worker2OnGetError    error
 		worker2OnCreateError error
@@ -91,7 +93,7 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().Obj(),
 			},
 		},
-		"unmanaged wl (no parent) is ignored": {
+		"unmanaged wl (no parent) is rejected": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -100,7 +102,22 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected, Message: "No multikueue adapter found"}).
+					Obj(),
+			},
+		},
+		"unmanaged wl (owned by pod) is rejected": {
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "uid1").
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "uid1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected, Message: `No multikueue adapter found for owner kind "/v1, Kind=Pod"`}).
 					Obj(),
 			},
 		},
@@ -122,6 +139,26 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantError: errFake,
+		},
+		"reconnecting clients are skipped": {
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+			useSecondWorker:     true,
+			worker2Reconnecting: true,
+			worker2OnGetError:   errFake,
+
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+			wantError: nil,
 		},
 		"wl without reservation, clears the workload objects": {
 			reconcileFor: "wl1",
@@ -423,11 +460,191 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"the local workload admission check Ready if the remote WorkerLostTimeout is not exceeded": {
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:               "ac1",
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(-defaultWorkerLostTimeout / 2)), // 50% of the timeout
+						Message:            `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+		},
+		"the local workload's admission check is set to Retry if the WorkerLostTimeout is exceeded": {
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:               "ac1",
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(-defaultWorkerLostTimeout * 3 / 2)), // 150% of the timeout
+						Message:            `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateRetry,
+						Message: `Reserving remote lost`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+		},
+		"the local workload's admission check is set to Pending when it is in Retry without quota": {
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateRetry,
+						Message: `Reserving remote lost`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStatePending,
+						Message: `Requeued`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+		},
+		"worker reconnects after the local workload is requeued, remote objects are deleted": {
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStatePending,
+						Message: `Requeued`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStatePending,
+						Message: `Requeued`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					Obj(),
+			},
+
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+		},
+		"worker reconnects after the local workload is requeued and got reservation on a second worker": {
+			// the worker with the oldest reservation is kept
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStatePending,
+						Message: `The workload got reservation on "worker2"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					QuotaReservedTime(time.Now().Add(-time.Hour)). // one hour ago
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					QuotaReservedTime(time.Now().Add(-time.Minute)). // one minute ago
+					Obj(),
+			},
+			worker2Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStatePending,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().Obj(),
+			},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			manageBuilder, ctx := getClientBuilder()
+			manageBuilder = manageBuilder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 			workerClusters := []string{"worker1"}
 			if tc.useSecondWorker {
@@ -445,13 +662,13 @@ func TestWlReconcile(t *testing.T) {
 
 			managerClient := manageBuilder.Build()
 
-			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin)
+			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil)
 
 			worker1Builder, _ := getClientBuilder()
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs})
 			worker1Client := worker1Builder.Build()
 
-			w1remoteClient := newRemoteClient(managerClient, nil, defaultOrigin)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 			w1remoteClient.client = worker1Client
 			cRec.remoteClients["worker1"] = w1remoteClient
 
@@ -481,34 +698,36 @@ func TestWlReconcile(t *testing.T) {
 				})
 				worker2Client = worker2Builder.Build()
 
-				w2remoteClient := newRemoteClient(managerClient, nil, defaultOrigin)
+				w2remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 				w2remoteClient.client = worker2Client
+				if tc.worker2Reconnecting {
+					w2remoteClient.pendingReconnect.Store(true)
+				}
 				cRec.remoteClients["worker2"] = w2remoteClient
-
 			}
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
-			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin)
+			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultWorkerLostTimeout)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 
-			gotManagersWokloads := &kueue.WorkloadList{}
-			if err := managerClient.List(ctx, gotManagersWokloads); err != nil {
+			gotManagersWorkloads := &kueue.WorkloadList{}
+			if err := managerClient.List(ctx, gotManagersWorkloads); err != nil {
 				t.Errorf("unexpected list manager's workloads error: %s", err)
 			} else {
-				if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWokloads.Items, objCheckOpts...); diff != "" {
+				if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWorkloads.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected manager's workloads (-want/+got):\n%s", diff)
 				}
 			}
 
-			gotWorker1Wokloads := &kueue.WorkloadList{}
-			if err := worker1Client.List(ctx, gotWorker1Wokloads); err != nil {
+			gotWorker1Workloads := &kueue.WorkloadList{}
+			if err := worker1Client.List(ctx, gotWorker1Workloads); err != nil {
 				t.Errorf("unexpected list worker's workloads error: %s", err)
 			} else {
-				if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Wokloads.Items, objCheckOpts...); diff != "" {
+				if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Workloads.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected worker's workloads (-want/+got):\n%s", diff)
 				}
 			}
@@ -532,11 +751,11 @@ func TestWlReconcile(t *testing.T) {
 			}
 
 			if tc.useSecondWorker {
-				gotWorker2Wokloads := &kueue.WorkloadList{}
-				if err := worker2Client.List(ctx, gotWorker2Wokloads); err != nil {
+				gotWorker2Workloads := &kueue.WorkloadList{}
+				if err := worker2Client.List(ctx, gotWorker2Workloads); err != nil {
 					t.Errorf("unexpected list worker2 workloads error: %s", err)
 				} else {
-					if diff := cmp.Diff(tc.wantWorker2Workloads, gotWorker2Wokloads.Items, objCheckOpts...); diff != "" {
+					if diff := cmp.Diff(tc.wantWorker2Workloads, gotWorker2Workloads.Items, objCheckOpts...); diff != "" {
 						t.Errorf("unexpected worker2 workloads (-want/+got):\n%s", diff)
 					}
 				}

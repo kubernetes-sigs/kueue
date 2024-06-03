@@ -21,11 +21,15 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -33,22 +37,65 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+)
+
+const (
+	StatusPending       = "pending"
+	StatusQuotaReserved = "quotaReserved"
+	StatusAdmitted      = "admitted"
+	StatusFinished      = "finished"
 )
 
 var (
-	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
+	admissionManagedConditions = []string{
+		kueue.WorkloadQuotaReserved,
+		kueue.WorkloadEvicted,
+		kueue.WorkloadAdmitted,
+		kueue.WorkloadPreempted,
+		kueue.WorkloadRequeued,
+	}
 )
 
-type AssigmentClusterQueueState struct {
+func Status(w *kueue.Workload) string {
+	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
+		return StatusFinished
+	}
+	if IsAdmitted(w) {
+		return StatusAdmitted
+	}
+	if HasQuotaReservation(w) {
+		return StatusQuotaReserved
+	}
+	return StatusPending
+}
+
+type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int
 	CohortGeneration       int64
 	ClusterQueueGeneration int64
 }
 
-func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
-	c := AssigmentClusterQueueState{
+type InfoOptions struct {
+	excludedResourcePrefixes []string
+}
+
+type InfoOption func(*InfoOptions)
+
+var defaultOptions = InfoOptions{}
+
+// WithExcludedResourcePrefixes adds the prefixes
+func WithExcludedResourcePrefixes(n []string) InfoOption {
+	return func(o *InfoOptions) {
+		o.excludedResourcePrefixes = n
+	}
+}
+
+func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
+	c := AssignmentClusterQueueState{
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
 		CohortGeneration:       s.CohortGeneration,
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
@@ -61,7 +108,7 @@ func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
 
 // PendingFlavors returns whether there are pending flavors to try
 // after the last attempt.
-func (s *AssigmentClusterQueueState) PendingFlavors() bool {
+func (s *AssignmentClusterQueueState) PendingFlavors() bool {
 	if s == nil {
 		// This is only reached in unit tests.
 		return false
@@ -76,6 +123,20 @@ func (s *AssigmentClusterQueueState) PendingFlavors() bool {
 	return false
 }
 
+func (s *AssignmentClusterQueueState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
+	if !features.Enabled(features.FlavorFungibility) {
+		return 0
+	}
+	if s == nil || ps >= len(s.LastTriedFlavorIdx) {
+		return 0
+	}
+	idx, ok := s.LastTriedFlavorIdx[ps][res]
+	if !ok {
+		return 0
+	}
+	return idx + 1
+}
+
 // Info holds a Workload object and some pre-processing.
 type Info struct {
 	Obj *kueue.Workload
@@ -84,14 +145,18 @@ type Info struct {
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
 	ClusterQueue   string
-	LastAssignment *AssigmentClusterQueueState
+	LastAssignment *AssignmentClusterQueueState
 }
 
 type PodSetResources struct {
-	Name     string
+	Name string
+	// Requests incorporates the requests from all pods in the podset.
 	Requests Requests
-	Count    int32
-	Flavors  map[corev1.ResourceName]kueue.ResourceFlavorReference
+	// Count indicates how many pods are in the podset.
+	Count int32
+
+	// Flavors are populated when the Workload is assigned.
+	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
@@ -107,7 +172,11 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	return ret
 }
 
-func NewInfo(w *kueue.Workload) *Info {
+func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	info := &Info{
 		Obj: w,
 	}
@@ -116,6 +185,9 @@ func NewInfo(w *kueue.Workload) *Info {
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
 		info.TotalRequests = totalRequestsFromPodSets(w)
+	}
+	if len(options.excludedResourcePrefixes) > 0 {
+		dropExcludedResources(info.TotalRequests, options.excludedResourcePrefixes)
 	}
 	return info
 }
@@ -126,6 +198,45 @@ func (i *Info) Update(wl *kueue.Workload) {
 
 func (i *Info) CanBePartiallyAdmitted() bool {
 	return CanBePartiallyAdmitted(i.Obj)
+}
+
+// ResourceUsage returns the total resource usage for the workload,
+// per flavor (if assigned, otherwise flavor shows as empty string), per resource.
+func (i *Info) FlavorResourceUsage() map[kueue.ResourceFlavorReference]Requests {
+	if i == nil || len(i.TotalRequests) == 0 {
+		return nil
+	}
+	total := make(map[kueue.ResourceFlavorReference]Requests)
+	for _, psReqs := range i.TotalRequests {
+		for res, q := range psReqs.Requests {
+			flv := psReqs.Flavors[res]
+			if requests, found := total[flv]; found {
+				requests[res] += q
+			} else {
+				total[flv] = Requests{
+					res: q,
+				}
+			}
+		}
+	}
+	return total
+}
+
+func dropExcludedResources(resources []PodSetResources, excludedPrefixes []string) {
+	for _, resource := range resources {
+		for requestKey := range resource.Requests {
+			exclude := false
+			for _, excludedPrefix := range excludedPrefixes {
+				if strings.HasPrefix(string(requestKey), excludedPrefix) {
+					exclude = true
+					break
+				}
+			}
+			if exclude {
+				delete(resource.Requests, requestKey)
+			}
+		}
+	}
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
@@ -156,7 +267,6 @@ func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
 }
 
 func podSetsCounts(wl *kueue.Workload) map[string]int32 {
-
 	ret := make(map[string]int32, len(wl.Spec.PodSets))
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
@@ -294,6 +404,7 @@ func UpdateStatus(ctx context.Context,
 		LastTransitionTime: now,
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: wl.Generation,
 	}
 
 	newWl := BaseSSAWorkload(wl)
@@ -301,19 +412,52 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
-func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) {
+// UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
+// the admission and set the WorkloadRequeued status.
+// Returns whether any change was done.
+func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: wl.Generation,
 	}
-	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-	wl.Status.Admission = nil
+	changed := apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+	if wl.Status.Admission != nil {
+		wl.Status.Admission = nil
+		changed = true
+	}
 
 	// Reset the admitted condition if necessary.
-	_ = SyncAdmittedCondition(wl)
+	if SyncAdmittedCondition(wl) {
+		changed = true
+	}
+	return changed
+}
+
+// SetRequeuedCondition sets the WorkloadRequeued condition to true
+func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status bool) {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadRequeued,
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: wl.Generation,
+	}
+	if status {
+		condition.Status = metav1.ConditionTrue
+	} else {
+		condition.Status = metav1.ConditionFalse
+	}
+	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+}
+
+func QueuedWaitTime(wl *kueue.Workload) time.Duration {
+	queuedTime := wl.CreationTimestamp.Time
+	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); c != nil {
+		queuedTime = c.LastTransitionTime.Time
+	}
+	return time.Since(queuedTime)
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
@@ -342,29 +486,49 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 // The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
 func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	w.Status.Admission = admission
+	message := fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue)
 	admittedCond := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
 		Reason:             "QuotaReserved",
-		Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue),
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
 
-	//reset Evicted condition if present.
+	// reset Evicted condition if present.
 	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
 		evictedCond.Status = metav1.ConditionFalse
+		evictedCond.Reason = "QuotaReserved"
+		evictedCond.Message = api.TruncateConditionMessage("Previously: " + evictedCond.Message)
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
+	// reset Preempted condition if present.
+	if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil {
+		preemptedCond.Status = metav1.ConditionFalse
+		preemptedCond.Reason = "QuotaReserved"
+		preemptedCond.Message = api.TruncateConditionMessage("Previously: " + preemptedCond.Message)
+		preemptedCond.LastTransitionTime = metav1.Now()
+	}
+}
+
+func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
+	condition := metav1.Condition{
+		Type:    kueue.WorkloadPreempted,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: api.TruncateConditionMessage(message),
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
 func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadEvicted,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
-		Message:            message,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
@@ -403,7 +567,7 @@ type Ordering struct {
 // be the workload creation time or the last time a PodsReady timeout has occurred.
 func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
-		if evictedCond, evictedByTimout := IsEvictedByPodsReadyTimeout(w); evictedByTimout {
+		if evictedCond, evictedByTimeout := IsEvictedByPodsReadyTimeout(w); evictedByTimeout {
 			return &evictedCond.LastTransitionTime
 		}
 	}
@@ -415,7 +579,7 @@ func HasQuotaReservation(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 }
 
-// UpdateReclaimablePods updates the ReclaimablePods list for the workload wit SSA.
+// UpdateReclaimablePods updates the ReclaimablePods list for the workload with SSA.
 func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
 	patch := BaseSSAWorkload(w)
 	patch.Status.ReclaimablePods = reclaimablePods
@@ -440,11 +604,6 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 		}
 	}
 	return true
-}
-
-// HasRequeueState returns true if the workload has re-queue state.
-func HasRequeueState(w *kueue.Workload) bool {
-	return w.Status.RequeueState != nil
 }
 
 // IsAdmitted returns true if the workload is admitted.
@@ -476,4 +635,50 @@ func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) e
 		return c.Update(ctx, wl)
 	}
 	return nil
+}
+
+// AdmissionChecksForWorkload returns AdmissionChecks that should be assigned to a specific Workload based on
+// ClusterQueue configuration and ResourceFlavors
+func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionChecks map[string]sets.Set[kueue.ResourceFlavorReference]) sets.Set[string] {
+	// If all admissionChecks should be run for all flavors we don't need to wait for Workload's Admission to be set.
+	// This is also the case if admissionChecks are specified with ClusterQueue.Spec.AdmissionChecks instead of
+	// ClusterQueue.Spec.AdmissionCheckStrategy
+	allFlavors := true
+	for _, flavors := range admissionChecks {
+		if len(flavors) != 0 {
+			allFlavors = false
+		}
+	}
+	if allFlavors {
+		return sets.New(utilmaps.Keys(admissionChecks)...)
+	}
+
+	// Kueue sets AdmissionChecks first based on ClusterQueue configuration and at this point Workload has no
+	// ResourceFlavors assigned, so we cannot match AdmissionChecks to ResourceFlavor.
+	// After Quota is reserved, another reconciliation happens and we can match AdmissionChecks to ResourceFlavors
+	if wl.Status.Admission == nil {
+		log.V(2).Info("Workload has no Admission", "Workload", klog.KObj(wl))
+		return nil
+	}
+
+	var assignedFlavors []kueue.ResourceFlavorReference
+	for _, podSet := range wl.Status.Admission.PodSetAssignments {
+		for _, flavor := range podSet.Flavors {
+			assignedFlavors = append(assignedFlavors, flavor)
+		}
+	}
+
+	acNames := sets.New[string]()
+	for acName, flavors := range admissionChecks {
+		if len(flavors) == 0 {
+			acNames.Insert(acName)
+			continue
+		}
+		for _, fName := range assignedFlavors {
+			if flavors.Has(fName) {
+				acNames.Insert(acName)
+			}
+		}
+	}
+	return acNames
 }

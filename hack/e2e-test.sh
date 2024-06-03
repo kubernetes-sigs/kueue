@@ -19,10 +19,7 @@ set -o nounset
 set -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-ROOT_DIR=$SOURCE_DIR/..
-export KUSTOMIZE=$ROOT_DIR/bin/kustomize
-export GINKGO=$ROOT_DIR/bin/ginkgo
-export KIND=$ROOT_DIR/bin/kind
+ROOT_DIR="$SOURCE_DIR/.."
 export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
 
 source ${SOURCE_DIR}/e2e-common.sh
@@ -35,7 +32,8 @@ function cleanup {
         fi
 	cluster_cleanup $KIND_CLUSTER_NAME
     fi
-    exit 0
+    #do the image restore here for the case when an error happened during deploy
+    restore_managers_image
 }
 
 function startup {
@@ -44,7 +42,7 @@ function startup {
         if [ ! -d "$ARTIFACTS" ]; then
             mkdir -p "$ARTIFACTS"
         fi
-	cluster_create $KIND_CLUSTER_NAME  $SOURCE_DIR/kind-cluster.yaml 
+	cluster_create "$KIND_CLUSTER_NAME"  "$SOURCE_DIR/kind-cluster.yaml" 
     fi
 }
 
@@ -54,6 +52,8 @@ function kind_load {
         docker pull $E2E_TEST_IMAGE
 	cluster_kind_load $KIND_CLUSTER_NAME
     fi
+    docker pull registry.k8s.io/jobset/jobset:$JOBSET_VERSION
+    install_jobset $KIND_CLUSTER_NAME
 }
 
 function kueue_deploy {

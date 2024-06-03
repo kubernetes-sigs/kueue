@@ -70,6 +70,12 @@ type Configuration struct {
 
 	// MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.
 	MultiKueue *MultiKueue `json:"multiKueue,omitempty"`
+
+	// FairSharing controls the fair sharing semantics across the cluster.
+	FairSharing *FairSharing `json:"fairSharing,omitempty"`
+
+	// Resources provides additional configuration options for handling the resources.
+	Resources *Resources `json:"resources,omitempty"`
 }
 
 type ControllerManager struct {
@@ -215,6 +221,13 @@ type MultiKueue struct {
 	// them if their local counterpart no longer exists.
 	// +optional
 	Origin *string `json:"origin,omitempty"`
+
+	// WorkerLostTimeout defines the time a local workload's multikueue admission check state is kept Ready
+	// if the connection with its reserving worker cluster is lost.
+	//
+	// Defaults to 15 minutes.
+	// +optional
+	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
 }
 
 type RequeuingStrategy struct {
@@ -231,16 +244,30 @@ type RequeuingStrategy struct {
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	// When it is null, the workloads will repeatedly and endless re-queueing.
 	//
-	// Every backoff duration is about "1.41284738^(n-1)+Rand" where the "n" represents the "workloadStatus.requeueState.count",
-	// and the "Rand" represents the random jitter. During this time, the workload is taken as an inadmissible and
+	// Every backoff duration is about "b*2^(n-1)+Rand" where:
+	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
+	// - "n" represents the "workloadStatus.requeueState.count",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and
 	// other workloads will have a chance to be admitted.
-	// For example, when the "waitForPodsReady.timeout" is the default, the workload deactivation time is as follows:
-	//   {backoffLimitCount, workloadDeactivationSeconds}
-	//     ~= {1, 601}, {2, 902}, ...,{5, 1811}, ...,{10, 3374}, ...,{20, 8730}, ...,{30, 86400(=24 hours)}, ...
+	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 	//
 	// Defaults to null.
 	// +optional
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+
+	// BackoffBaseSeconds defines the base for the exponential backoff for
+	// re-queuing an evicted workload.
+	//
+	// Defaults to 60.
+	// +optional
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	//
+	// Defaults to 3600.
+	// +optional
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 
 type RequeuingTimestamp string
@@ -292,8 +319,22 @@ type Integrations struct {
 	//  - "kubeflow.org/xgboostjob"
 	//  - "pod"
 	Frameworks []string `json:"frameworks,omitempty"`
+	// List of GroupVersionKinds that are managed for Kueue by external controllers;
+	// the expected format is `Kind.version.group.com`.
+	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
 	// PodOptions defines kueue controller behaviour for pod objects
 	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
+
+	// labelKeysToCopy is a list of label keys that should be copied from the job into the
+	// workload object. It is not required for the job to have all the labels from this
+	// list. If a job does not have some label with the given key from this list, the
+	// constructed workload object will be created without this label. In the case
+	// of creating a workload from a composable job (pod group), if multiple objects
+	// have labels with some key from the list, the values of these labels must
+	// match or otherwise the workload creation would fail. The labels are copied only
+	// during the workload creation and are not updated even if the labels of the
+	// underlying job are changed.
+	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 
 type PodIntegrationOptions struct {
@@ -322,4 +363,40 @@ type ClusterQueueVisibility struct {
 	// The maximal value is 4000.
 	// Defaults to 10.
 	MaxCount int32 `json:"maxCount,omitempty"`
+}
+
+type Resources struct {
+	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
+	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
+}
+
+type PreemptionStrategy string
+
+const (
+	LessThanOrEqualToFinalShare PreemptionStrategy = "LessThanOrEqualToFinalShare"
+	LessThanInitialShare        PreemptionStrategy = "LessThanInitialShare"
+)
+
+type FairSharing struct {
+	// enable indicates whether to enable fair sharing for all cohorts.
+	// Defaults to false.
+	Enable bool `json:"enable"`
+
+	// preemptionStrategies indicates which constraints should a preemption satisfy.
+	// The preemption algorithm will only use the next strategy in the list if the
+	// incoming workload (preemptor) doesn't fit after using the previous strategies.
+	// Possible values are:
+	// - LessThanOrEqualToFinalShare: Only preempt a workload if the share of the preemptor CQ
+	//   with the preemptor workload is less than or equal to the share of the preemptee CQ
+	//   without the workload to be preempted.
+	//   This strategy might favor preemption of smaller workloads in the preemptee CQ,
+	//   regardless of priority or start time, in an effort to keep the share of the CQ
+	//   as high as possible.
+	// - LessThanInitialShare: Only preempt a workload if the share of the preemptor CQ
+	//   with the incoming workload is strictly less than the share of the preemptee CQ.
+	//   This strategy doesn't depend on the share usage of the workload being preempted.
+	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
+	//   newest start time first.
+	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
+	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
 }

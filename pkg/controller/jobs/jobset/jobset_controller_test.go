@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -202,7 +203,8 @@ var (
 	}
 	workloadCmpOpts = []cmp.Option{
 		cmpopts.EquateEmpty(),
-		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
+		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta"),
+		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name", "Labels", "ResourceVersion", "OwnerReferences", "Finalizers"),
 		cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"),
@@ -223,7 +225,7 @@ func TestReconciler(t *testing.T) {
 		wantWorkloads     []kueue.Workload
 		wantErr           error
 	}{
-		"workload is created with podsets": {
+		"workload is created with podsets and a ProvReq annotation": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
@@ -239,8 +241,12 @@ func TestReconciler(t *testing.T) {
 					Replicas:    2,
 					Completions: 2,
 					Parallelism: 2,
-				},
-			).Obj(),
+				}).
+				Annotations(map[string]string{
+					controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
+					"invalid-provreq-prefix/test-annotation-2":                   "test-val-2",
+				}).
+				Obj(),
 			wantJob: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",
@@ -253,10 +259,15 @@ func TestReconciler(t *testing.T) {
 					Replicas:    2,
 					Completions: 2,
 					Parallelism: 2,
-				},
-			).Obj(),
+				}).
+				Annotations(map[string]string{
+					controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val",
+					"invalid-provreq-prefix/test-annotation-2":                   "test-val-2",
+				}).
+				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("jobset", "ns").
+					Annotations(map[string]string{controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
 					PodSets(
 						*utiltesting.MakePodSet("replicated-job-1", 1).Obj(),
 						*utiltesting.MakePodSet("replicated-job-2", 4).Obj(),
@@ -404,5 +415,4 @@ func TestReconciler(t *testing.T) {
 			}
 		})
 	}
-
 }

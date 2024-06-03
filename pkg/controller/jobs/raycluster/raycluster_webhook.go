@@ -18,7 +18,6 @@ import (
 	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -28,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -61,22 +59,7 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults", "job", klog.KObj(job))
-
-	// We don't want to double count for a ray cluster created by a RayJob
-	if owner := metav1.GetControllerOf(job.Object()); owner != nil && jobframework.IsOwnerManagedByKueue(owner) {
-		log.Info("RayCluster is owned by RayJob")
-		if job.Annotations == nil {
-			job.Annotations = make(map[string]string)
-		}
-		if pwName, err := jobframework.GetWorkloadNameForOwnerRef(owner); err != nil {
-			return err
-		} else {
-			job.Annotations[constants.ParentWorkloadAnnotation] = pwName
-		}
-		return nil
-	}
-
-	jobframework.ApplyDefaultForSuspend((*RayCluster)(job), w.manageJobsWithoutQueueName)
+	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
 	return nil
 }
 
@@ -119,7 +102,7 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) field.ErrorLis
 		}
 	}
 
-	allErrors = append(allErrors, jobframework.ValidateCreateForQueueName(kueueJob)...)
+	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
 	return allErrors
 }
 
@@ -130,9 +113,8 @@ func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj r
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayCluster)(newJob)) != "" {
 		log.Info("Validating update", "job", klog.KObj(newJob))
-		allErrors := jobframework.ValidateUpdateForQueueName((*RayCluster)(oldJob), (*RayCluster)(newJob))
+		allErrors := jobframework.ValidateJobOnUpdate((*RayCluster)(oldJob), (*RayCluster)(newJob))
 		allErrors = append(allErrors, w.validateCreate(newJob)...)
-		allErrors = append(allErrors, jobframework.ValidateUpdateForWorkloadPriorityClassName((*RayCluster)(oldJob), (*RayCluster)(newJob))...)
 		return nil, allErrors.ToAggregate()
 	}
 	return nil, nil

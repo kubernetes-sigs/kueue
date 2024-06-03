@@ -17,7 +17,7 @@ limitations under the License.
 package rayjob
 
 import (
-	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,20 +27,20 @@ import (
 )
 
 // JobWrapper wraps a RayJob.
-type JobWrapper struct{ rayjobapi.RayJob }
+type JobWrapper struct{ rayv1.RayJob }
 
 // MakeJob creates a wrapper for a suspended rayJob
 func MakeJob(name, ns string) *JobWrapper {
-	return &JobWrapper{rayjobapi.RayJob{
+	return &JobWrapper{rayv1.RayJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   ns,
 			Annotations: make(map[string]string, 1),
 		},
-		Spec: rayjobapi.RayJobSpec{
+		Spec: rayv1.RayJobSpec{
 			ShutdownAfterJobFinishes: true,
-			RayClusterSpec: &rayjobapi.RayClusterSpec{
-				HeadGroupSpec: rayjobapi.HeadGroupSpec{
+			RayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{"p1": "v1"},
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -52,7 +52,7 @@ func MakeJob(name, ns string) *JobWrapper {
 						},
 					},
 				},
-				WorkerGroupSpecs: []rayjobapi.WorkerGroupSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName:      "workers-group-0",
 						Replicas:       ptr.To[int32](1),
@@ -77,7 +77,7 @@ func MakeJob(name, ns string) *JobWrapper {
 }
 
 // Obj returns the inner Job.
-func (j *JobWrapper) Obj() *rayjobapi.RayJob {
+func (j *JobWrapper) Obj() *rayv1.RayJob {
 	return &j.RayJob
 }
 
@@ -131,12 +131,12 @@ func (j *JobWrapper) WithEnableAutoscaling(value *bool) *JobWrapper {
 	return j
 }
 
-func (j *JobWrapper) WithWorkerGroups(workers ...rayjobapi.WorkerGroupSpec) *JobWrapper {
+func (j *JobWrapper) WithWorkerGroups(workers ...rayv1.WorkerGroupSpec) *JobWrapper {
 	j.Spec.RayClusterSpec.WorkerGroupSpecs = workers
 	return j
 }
 
-func (j *JobWrapper) WithHeadGroupSpec(value rayjobapi.HeadGroupSpec) *JobWrapper {
+func (j *JobWrapper) WithHeadGroupSpec(value rayv1.HeadGroupSpec) *JobWrapper {
 	j.Spec.RayClusterSpec.HeadGroupSpec = value
 	return j
 }
@@ -158,4 +158,15 @@ func (j *JobWrapper) WorkloadPriorityClass(wpc string) *JobWrapper {
 	}
 	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
 	return j
+}
+
+// Generation sets the generation of the job.
+func (j *JobWrapper) Generation(num int64) *JobWrapper {
+	j.ObjectMeta.Generation = num
+	return j
+}
+
+// Clone returns a deep copy of the job.
+func (j *JobWrapper) Clone() *JobWrapper {
+	return &JobWrapper{*j.DeepCopy()}
 }

@@ -19,24 +19,34 @@ package config
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
 func TestValidate(t *testing.T) {
+	testScheme := runtime.NewScheme()
+	if err := configapi.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientgoscheme.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+
 	defaultQueueVisibility := &configapi.QueueVisibility{
 		UpdateIntervalSeconds: configapi.DefaultQueueVisibilityUpdateIntervalSeconds,
 		ClusterQueues: &configapi.ClusterQueueVisibility{
 			MaxCount: configapi.DefaultClusterQueuesMaxCount,
 		},
 	}
-
 	defaultPodIntegrationOptions := &configapi.PodIntegrationOptions{
 		NamespaceSelector: &metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -49,7 +59,6 @@ func TestValidate(t *testing.T) {
 		},
 		PodSelector: &metav1.LabelSelector{},
 	}
-
 	defaultIntegrations := &configapi.Integrations{
 		Frameworks: []string{"batch/job"},
 		PodOptions: defaultPodIntegrationOptions,
@@ -79,7 +88,7 @@ func TestValidate(t *testing.T) {
 				field.Invalid(field.NewPath("queueVisibility").Child("updateIntervalSeconds"), 0, fmt.Sprintf("greater than or equal to %d", queueVisibilityClusterQueuesUpdateIntervalSeconds)),
 			},
 		},
-		"invalid queue visibility cluster queue max count": {
+		"invalid queue visibility cluster queue max count due to exceeding maximal value": {
 			cfg: &configapi.Configuration{
 				QueueVisibility: &configapi.QueueVisibility{
 					ClusterQueues: &configapi.ClusterQueueVisibility{
@@ -91,6 +100,108 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("queueVisibility").Child("clusterQueues").Child("maxCount"), 4001, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)),
+			},
+		},
+		"negative queue visibility cluster queue max cont": {
+			cfg: &configapi.Configuration{
+				QueueVisibility: &configapi.QueueVisibility{
+					ClusterQueues: &configapi.ClusterQueueVisibility{
+						MaxCount: -1,
+					},
+					UpdateIntervalSeconds: 1,
+				},
+				Integrations: defaultIntegrations,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "queueVisibility.clusterQueues.maxCount",
+				},
+			},
+		},
+		"empty integrations.frameworks": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "integrations.frameworks",
+				},
+			},
+		},
+		"unregistered integrations.frameworks": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"unregistered/jobframework"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "integrations.frameworks[0]",
+				},
+			},
+		},
+		"duplicate integrations.frameworks": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{
+						"batch/job",
+						"batch/job",
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "integrations.frameworks[1]",
+				},
+			},
+		},
+		"duplicate frameworks between integrations.frameworks and integrations.externalFrameworks": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks:         []string{"batch/job"},
+					ExternalFrameworks: []string{"Job.v1.batch"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "integrations.externalFrameworks[0]",
+				},
+			},
+		},
+		"invalid format integrations.externalFrameworks": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks:         []string{"batch/job"},
+					ExternalFrameworks: []string{"invalid"},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "integrations.externalFrameworks[0]",
+				},
+			},
+		},
+		"duplicate integrations.externalFrameworks": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					ExternalFrameworks: []string{
+						"Foo.v1.example.com",
+						"Foo.v1.example.com",
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "integrations.externalFrameworks[1]",
+				},
 			},
 		},
 		"nil PodIntegrationOptions": {
@@ -230,29 +341,40 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"supported waitForPodsReady.requeuingStrategy.timestamp": {
+		"negative waitForPodsReady.timeout": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Enable: true,
-					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp: ptr.To(configapi.CreationTimestamp),
+					Timeout: &metav1.Duration{
+						Duration: -1,
 					},
 				},
 			},
-			wantErr: nil,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.timeout",
+				},
+			},
 		},
-		"non-negative waitForPodsReady.requeuingStrategy.backoffLimitCount": {
+		"valid waitForPodsReady": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Enable: true,
+					Timeout: &metav1.Duration{
+						Duration: 50,
+					},
+					BlockAdmission: ptr.To(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						BackoffLimitCount: ptr.To[int32](10),
+						Timestamp:          ptr.To(configapi.CreationTimestamp),
+						BackoffLimitCount:  ptr.To[int32](10),
+						BackoffBaseSeconds: ptr.To[int32](30),
+						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
 				},
 			},
-			wantErr: nil,
 		},
 		"negative waitForPodsReady.requeuingStrategy.backoffLimitCount": {
 			cfg: &configapi.Configuration{
@@ -271,11 +393,178 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative waitForPodsReady.requeuingStrategy.backoffBaseSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						BackoffBaseSeconds: ptr.To[int32](-1),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.requeuingStrategy.backoffBaseSeconds",
+				},
+			},
+		},
+		"negative waitForPodsReady.requeuingStrategy.backoffMaxSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						BackoffMaxSeconds: ptr.To[int32](-1),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.requeuingStrategy.backoffMaxSeconds",
+				},
+			},
+		},
+		"negative multiKueue.gcInterval": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval: &metav1.Duration{
+						Duration: -time.Second,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.gcInterval",
+				},
+			},
+		},
+		"negative multiKueue.workerLostTimeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					WorkerLostTimeout: &metav1.Duration{
+						Duration: -time.Second,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.workerLostTimeout",
+				},
+			},
+		},
+		"invalid .multiKueue.origin label value": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					Origin: ptr.To("=]"),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.origin",
+				},
+			},
+		},
+		"valid .multiKueue configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval: &metav1.Duration{
+						Duration: time.Second,
+					},
+					Origin: ptr.To("valid"),
+					WorkerLostTimeout: &metav1.Duration{
+						Duration: 2 * time.Second,
+					},
+				},
+			},
+		},
+		"unsupported preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					Enable:               true,
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, "UNKNOWN", configapi.LessThanInitialShare, configapi.LessThanOrEqualToFinalShare},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "fairSharing.preemptionStrategies",
+				},
+			},
+		},
+		"valid preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					Enable:               true,
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, configapi.LessThanInitialShare},
+				},
+			},
+		},
+		"invalid .internalCertManagement.webhookSecretName": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:            ptr.To(true),
+					WebhookSecretName: ptr.To(":)"),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "internalCertManagement.webhookSecretName",
+				},
+			},
+		},
+		"invalid .internalCertManagement.webhookServiceName": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To("0-invalid"),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "internalCertManagement.webhookServiceName",
+				},
+			},
+		},
+		"disabled .internalCertManagement with invalid .internalCertManagement.webhookServiceName": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(false),
+					WebhookServiceName: ptr.To("0-invalid"),
+				},
+			},
+		},
+		"valid .internalCertManagement": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To("webhook-svc"),
+					WebhookSecretName:  ptr.To("webhook-sec"),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantErr, validate(tc.cfg), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})

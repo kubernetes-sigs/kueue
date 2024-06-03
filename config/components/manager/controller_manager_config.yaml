@@ -13,7 +13,7 @@ leaderElection:
 controller:
   groupKindConcurrency:
     Job.batch: 5
-    Pod.: 5
+    Pod: 5
     Workload.kueue.x-k8s.io: 5
     LocalQueue.kueue.x-k8s.io: 1
     ClusterQueue.kueue.x-k8s.io: 1
@@ -23,7 +23,14 @@ clientConnection:
   burst: 100
 #pprofBindAddress: :8083
 #waitForPodsReady:
-#  enable: true
+#  enable: false
+#  timeout: 5m
+#  blockAdmission: false
+#  requeuingStrategy:
+#    timestamp: Eviction
+#    backoffLimitCount: null # null indicates infinite requeuing
+#    backoffBaseSeconds: 60
+#    backoffMaxSeconds: 3600
 #manageJobsWithoutQueueName: true
 #internalCertManagement:
 #  enable: false
@@ -41,10 +48,17 @@ integrations:
   - "kubeflow.org/pytorchjob"
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
-# - "pod"
-# podOptions:
-#   namespaceSelector:
-#     matchExpressions:
-#       - key: kubernetes.io/metadata.name
-#         operator: NotIn
-#         values: [ kube-system, kueue-system ]
+#  - "pod"
+#  externalFrameworks:
+#  - "Foo.v1.example.com"
+#  podOptions:
+#    namespaceSelector:
+#      matchExpressions:
+#        - key: kubernetes.io/metadata.name
+#          operator: NotIn
+#          values: [ kube-system, kueue-system ]
+#fairSharing:
+#  enable: true
+#  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
+#resources:
+#  excludeResourcePrefixes: []
