@@ -6,7 +6,7 @@ description: >
   Troubleshooting the status of a Provisioning Request
 ---
 
-This document helps you troubleshoot ProvisioningRequests which is an API defined by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41).
+This document helps you troubleshoot ProvisioningRequests, which is an API defined by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/4872bddce2bcc5b4a5f6a3d569111c11b8a2baf4/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1/types.go#L41).
 
 You can see the Provisioning Request [documentation](https://cloud.google.com/kubernetes-engine/docs/how-to/provisioningrequest).
 
@@ -14,7 +14,7 @@ Provisioning Requests are created in Kueue with [Provisioning Admission Check Co
 
 ## Before you begin
 
-Before you begin troubleshooting make sure your cluster meets the following requirements:
+Before you begin troubleshooting, make sure your cluster meets the following requirements:
 - Your cluster's version is at least 1.28.3-gke.1098000 with the Cluster Autoscaler at least 28.122.0
 - Kueue's version is at least 0.5.0
 - You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration)
