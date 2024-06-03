@@ -12,7 +12,7 @@ Kueue creates ProvisioningRequests via the [Provisioning Admission Check Control
 
 ## Before you begin
 
-Before you begin troubleshooting make sure your cluster meets the following requirements:
+Before you begin troubleshooting, make sure your cluster meets the following requirements:
 - Your cluster has ClusterAutoscaler enabled and ClusterAutoscaler supports ProvisioningRequest API.
 Check your cloud provider's documentation to determine the minimum versions that support ProvisioningRequest. If you use GKE, your cluster's version should be at least `1.28.3-gke.1098000`.
 - You use a type of nodes that support ProvisioningRequest. It may vary depending on your cloud provider.
