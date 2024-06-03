@@ -64,9 +64,11 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:
 
-> **Note**: This feature depends on [servicemonitor CRD](https://github.com/prometheus-operator/kube-prometheus/blob/main/manifests/setup/0servicemonitorCustomResourceDefinition.yaml), please ensure that CRD is installed first.
-> We can follow `https://prometheus-operator.dev/docs/prologue/quick-start/` to install it.
-> 
+{{% alert title="Note" color="primary" %}}
+This feature depends on [servicemonitor CRD](https://github.com/prometheus-operator/kube-prometheus/blob/main/manifests/setup/0servicemonitorCustomResourceDefinition.yaml), please ensure that CRD is installed first.
+
+We can follow `https://prometheus-operator.dev/docs/prologue/quick-start/` to install it.
+{{% /alert %}}
 
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/prometheus.yaml
@@ -150,9 +152,16 @@ data:
 
 __The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
 
-> **Note**
-> See [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) to learn
+{{% alert title="Note" color="primary" %}}
+See [Sequential Admission with Ready Pods](/docs/tasks/manage/setup_sequential_admission) to learn
 more about using `waitForPodsReady` for Kueue.
+{{% /alert %}}
+
+{{% alert title="Note" color="primary" %}}
+Certain Kubernetes distributions might use batch/jobs to perform maintenance operations.
+For these distributions, setting `manageJobsWithoutQueueName` to `true` without disabling the
+`batch/job` integration may prevent system-created jobs from executing.
+{{% /alert %}}
 
 4. Apply the customized manifests to the cluster:
 
