@@ -14,7 +14,7 @@ Kueue creates ProvisioningRequests via the [Provisioning Admission Check Control
 
 Before you begin troubleshooting make sure your cluster meets the following requirements:
 - Check your cloud provider's documentation to determine the minimum versions that support ProvisioningRequest. If you use GKE, your cluster's version should be at least `1.28.3-gke.1098000` with the Cluster Autoscaler at least `28.122.0`
-- Kueue's version is at least `0.5.0`
+- Kueue's version is at least `0.5.3`
 - You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration)
 - You use a type of nodes that support ProvisioningRequest. It may vary depending on your cloud provider.
 
