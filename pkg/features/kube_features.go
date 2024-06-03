@@ -130,5 +130,5 @@ func LogFeatureGates(log logr.Logger) {
 			features[f] = Enabled(f)
 		}
 	}
-	log.V(2).Info("Feature gates:", "Feature gates:", features)
+	log.V(2).Info("Loaded feature gates", "featureGates", features)
 }
