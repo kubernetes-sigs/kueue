@@ -491,7 +491,7 @@ wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING 
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "wl1",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 					},
 					Priority:               10,
 					LocalQueueName:         "lq1",
@@ -501,7 +501,7 @@ wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING 
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "wl2",
-						Namespace: "default",
+						Namespace: metav1.NamespaceDefault,
 					},
 					Priority:               20,
 					LocalQueueName:         "lq2",

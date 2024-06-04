@@ -17,8 +17,36 @@ limitations under the License.
 package list
 
 import (
+	"errors"
+	"os"
+	"strconv"
+
 	"github.com/spf13/cobra"
 )
+
+const (
+	defaultListRequestLimit         = 100
+	KueuectlListRequestLimitEnvName = "KUEUECTL_LIST_REQUEST_LIMIT"
+)
+
+var (
+	invalidListRequestLimitError = errors.New("invalid list request limit")
+)
+
+func listRequestLimit() (int64, error) {
+	listRequestLimitEnv := os.Getenv(KueuectlListRequestLimitEnvName)
+
+	if len(listRequestLimitEnv) == 0 {
+		return defaultListRequestLimit, nil
+	}
+
+	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
+	if err != nil {
+		return 0, invalidListRequestLimitError
+	}
+
+	return limit, nil
+}
 
 func addFieldSelectorFlagVar(cmd *cobra.Command, p *string) {
 	cmd.Flags().StringVar(p, "field-selector", "",
