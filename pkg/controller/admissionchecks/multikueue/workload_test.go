@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -60,7 +61,7 @@ func TestWlReconcile(t *testing.T) {
 		reconcileFor             string
 		managersWorkloads        []kueue.Workload
 		managersJobs             []batchv1.Job
-		managersDeletedWorkloads map[string]*kueue.Workload
+		managersDeletedWorkloads []*kueue.Workload
 		worker1Workloads         []kueue.Workload
 		worker1Jobs              []batchv1.Job
 		// second worker
@@ -87,8 +88,8 @@ func TestWlReconcile(t *testing.T) {
 		},
 		"missing workload (in deleted workload cache)": {
 			reconcileFor: "wl1",
-			managersDeletedWorkloads: map[string]*kueue.Workload{
-				"wl1": baseWorkloadBuilder.Clone().
+			managersDeletedWorkloads: []*kueue.Workload{
+				baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -104,6 +105,16 @@ func TestWlReconcile(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
+		"missing workload (in deleted workload cache), no remote objects": {
+			reconcileFor: "wl1",
+			managersDeletedWorkloads: []*kueue.Workload{
+				baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 		},
@@ -732,8 +743,10 @@ func TestWlReconcile(t *testing.T) {
 			helper, _ := newMultiKueueStoreHelper(managerClient)
 			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultWorkerLostTimeout)
 
-			for name, val := range tc.managersDeletedWorkloads {
-				reconciler.deletedWlCache.Add(types.NamespacedName{Name: name, Namespace: TestNamespace}.String(), val)
+			for _, val := range tc.managersDeletedWorkloads {
+				reconciler.Delete(event.DeleteEvent{
+					Object: val,
+				})
 			}
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
@@ -795,6 +808,10 @@ func TestWlReconcile(t *testing.T) {
 						t.Errorf("unexpected worker2 jobs (-want/+got):\n%s", diff)
 					}
 				}
+			}
+
+			if l := reconciler.deletedWlCache.Len(); l > 0 {
+				t.Errorf("unexpected deletedWlCache len %d expecting 0", l)
 			}
 		})
 	}

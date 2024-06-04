@@ -146,6 +146,12 @@ func (dwc *SyncMap[K, V]) Get(k K) (V, bool) {
 	return v, found
 }
 
+func (dwc *SyncMap[K, V]) Len() int {
+	dwc.lock.RLock()
+	defer dwc.lock.RUnlock()
+	return len(dwc.m)
+}
+
 func (dwc *SyncMap[K, V]) Delete(k K) {
 	dwc.lock.Lock()
 	defer dwc.lock.Unlock()

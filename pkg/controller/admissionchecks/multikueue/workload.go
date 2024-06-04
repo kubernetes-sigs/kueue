@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -436,6 +435,25 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	return reconcile.Result{}, errors.Join(errs...)
 }
 
+func (w *wlReconciler) Create(_ event.CreateEvent) bool {
+	return true
+}
+
+func (w *wlReconciler) Delete(de event.DeleteEvent) bool {
+	if wl, isWl := de.Object.(*kueue.Workload); isWl && !de.DeleteStateUnknown {
+		w.deletedWlCache.Add(client.ObjectKeyFromObject(wl).String(), wl)
+	}
+	return true
+}
+
+func (w *wlReconciler) Update(_ event.UpdateEvent) bool {
+	return true
+}
+
+func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
+	return true
+}
+
 func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout time.Duration) *wlReconciler {
 	return &wlReconciler{
 		client:            c,
@@ -457,18 +475,10 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		},
 	}
 
-	filter := predicate.Funcs{
-		DeleteFunc: func(de event.DeleteEvent) bool {
-			if wl, isWl := de.Object.(*kueue.Workload); isWl && !de.DeleteStateUnknown {
-				w.deletedWlCache.Add(client.ObjectKeyFromObject(wl).String(), wl)
-			}
-			return true
-		},
-	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
 		WatchesRawSource(&source.Channel{Source: w.clusters.wlUpdateCh}, syncHndl).
-		WithEventFilter(filter).
+		WithEventFilter(w).
 		Complete(w)
 }
 
