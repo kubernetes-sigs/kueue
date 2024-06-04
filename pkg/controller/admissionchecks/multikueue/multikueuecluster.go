@@ -50,6 +50,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
 const (
@@ -80,6 +81,7 @@ type remoteClient struct {
 	watchCancel  func()
 	kubeconfig   []byte
 	origin       string
+	adapters     map[string]jobframework.MultiKueueAdapter
 
 	connecting         atomic.Bool
 	failedConnAttempts uint
@@ -90,13 +92,14 @@ type remoteClient struct {
 	builderOverride clientWithWatchBuilder
 }
 
-func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- event.GenericEvent, origin, clusterName string) *remoteClient {
+func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- event.GenericEvent, origin, clusterName string, adapters map[string]jobframework.MultiKueueAdapter) *remoteClient {
 	rc := &remoteClient{
 		clusterName:  clusterName,
 		wlUpdateCh:   wlUpdateCh,
 		watchEndedCh: watchEndedCh,
 		localClient:  localClient,
 		origin:       origin,
+		adapters:     adapters,
 	}
 	rc.connecting.Store(true)
 	return rc
@@ -110,18 +113,9 @@ func newClientWithWatch(kubeconfig []byte, options client.Options) (client.WithW
 	return client.NewWithWatch(restConfig, options)
 }
 
-type multiKueueWatcher interface {
-	// returns an empty list of objects
-	GetEmptyList() client.ObjectList
-	// returns the key of the workload of interest
-	// - the object name for workloads
-	// - the prebuilt workload for job types
-	GetWorkloadKey(runtime.Object) (types.NamespacedName, error)
-}
-
 type workloadKueueWatcher struct{}
 
-var _ multiKueueWatcher = (*workloadKueueWatcher)(nil)
+var _ jobframework.MultiKueueWatcher = (*workloadKueueWatcher)(nil)
 
 func (*workloadKueueWatcher) GetEmptyList() client.ObjectList {
 	return &kueue.WorkloadList{}
@@ -169,8 +163,8 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 	}
 
 	// add a watch for all the adapters implementing multiKueueWatcher
-	for kind, adapter := range adapters {
-		watcher, implementsWatcher := adapter.(multiKueueWatcher)
+	for kind, adapter := range rc.adapters {
+		watcher, implementsWatcher := adapter.(jobframework.MultiKueueWatcher)
 		if !implementsWatcher {
 			continue
 		}
@@ -189,7 +183,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 	return nil, nil
 }
 
-func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKueueWatcher) error {
+func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
 	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList(), client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
@@ -290,7 +284,7 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		if controller := metav1.GetControllerOf(&remoteWl); controller != nil {
 			ownerKey := klog.KRef(remoteWl.Namespace, controller.Name)
 			adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
-			if adapter, found := adapters[adapterKey]; !found {
+			if adapter, found := rc.adapters[adapterKey]; !found {
 				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
 			} else {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownnerKind", controller)
@@ -339,6 +333,8 @@ type clustersReconciler struct {
 	watchEndedCh chan event.GenericEvent
 
 	fsWatcher *KubeConfigFSWatcher
+
+	adapters map[string]jobframework.MultiKueueAdapter
 }
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
@@ -365,7 +361,7 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, origin, clusterName)
+		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, origin, clusterName, c.adapters)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -507,7 +503,7 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher) *clustersReconciler {
+func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:     c,
 		configNamespace: namespace,
@@ -517,6 +513,7 @@ func newClustersReconciler(c client.Client, namespace string, gcInterval time.Du
 		origin:          origin,
 		watchEndedCh:    make(chan event.GenericEvent, eventChBufferSize),
 		fsWatcher:       fsWatcher,
+		adapters:        adapters,
 	}
 }
 

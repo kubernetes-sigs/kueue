@@ -36,10 +36,14 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+
+	// To ensure the integration manager gets populated
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 var (
@@ -985,32 +989,33 @@ func TestWlReconcile(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			defer features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, !tc.withoutJobManagedBy)()
-			manageBuilder, ctx := getClientBuilder()
-			manageBuilder = manageBuilder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			managerBuilder, ctx := getClientBuilder()
+			managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
 			workerClusters := []string{"worker1"}
 			if tc.useSecondWorker {
 				workerClusters = append(workerClusters, "worker2")
 			}
-			manageBuilder = manageBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
-			manageBuilder = manageBuilder.WithStatusSubresource(slices.Map(tc.managersWorkloads, func(w *kueue.Workload) client.Object { return w })...)
-			manageBuilder = manageBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
-			manageBuilder = manageBuilder.WithObjects(
+			managerBuilder = managerBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
+			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersWorkloads, func(w *kueue.Workload) client.Object { return w })...)
+			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
+			managerBuilder = managerBuilder.WithObjects(
 				utiltesting.MakeMultiKueueConfig("config1").Clusters(workerClusters...).Obj(),
 				utiltesting.MakeAdmissionCheck("ac1").ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			)
 
-			managerClient := manageBuilder.Build()
+			managerClient := managerBuilder.Build()
 
-			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil)
+			adapters, _ := jobframework.GetMultiKueueAdapters()
+			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters)
 
 			worker1Builder, _ := getClientBuilder()
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs})
 			worker1Client := worker1Builder.Build()
 
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connecting.Store(false)
 			cRec.remoteClients["worker1"] = w1remoteClient
@@ -1041,7 +1046,7 @@ func TestWlReconcile(t *testing.T) {
 				})
 				worker2Client = worker2Builder.Build()
 
-				w2remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
+				w2remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
 				w2remoteClient.client = worker2Client
 				if !tc.worker2Reconnecting {
 					w2remoteClient.connecting.Store(false)
@@ -1050,7 +1055,7 @@ func TestWlReconcile(t *testing.T) {
 			}
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
-			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultWorkerLostTimeout, time.Second)
+			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultWorkerLostTimeout, time.Second, adapters)
 
 			for _, val := range tc.managersDeletedWorkloads {
 				reconciler.Delete(event.DeleteEvent{
@@ -1090,11 +1095,11 @@ func TestWlReconcile(t *testing.T) {
 				}
 			}
 
-			gotWorker1Job := &batchv1.JobList{}
-			if err := worker1Client.List(ctx, gotWorker1Job); err != nil {
+			gotWorker1Jobs := &batchv1.JobList{}
+			if err := worker1Client.List(ctx, gotWorker1Jobs); err != nil {
 				t.Error("unexpected list worker's jobs error")
 			} else {
-				if diff := cmp.Diff(tc.wantWorker1Jobs, gotWorker1Job.Items, objCheckOpts...); diff != "" {
+				if diff := cmp.Diff(tc.wantWorker1Jobs, gotWorker1Jobs.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
 				}
 			}
@@ -1109,11 +1114,11 @@ func TestWlReconcile(t *testing.T) {
 					}
 				}
 
-				gotWorker2Job := &batchv1.JobList{}
-				if err := worker2Client.List(ctx, gotWorker2Job); err != nil {
+				gotWorker2Jobs := &batchv1.JobList{}
+				if err := worker2Client.List(ctx, gotWorker2Jobs); err != nil {
 					t.Errorf("unexpected list worker2 jobs error: %s", err)
 				} else {
-					if diff := cmp.Diff(tc.wantWorker2Jobs, gotWorker2Job.Items, objCheckOpts...); diff != "" {
+					if diff := cmp.Diff(tc.wantWorker2Jobs, gotWorker2Jobs.Items, objCheckOpts...); diff != "" {
 						t.Errorf("unexpected worker2 jobs (-want/+got):\n%s", diff)
 					}
 				}

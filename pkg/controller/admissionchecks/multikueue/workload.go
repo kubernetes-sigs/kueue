@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,21 +35,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	adapters = map[string]jobAdapter{
-		batchv1.SchemeGroupVersion.WithKind("Job").String():   &batchJobAdapter{},
-		jobset.SchemeGroupVersion.WithKind("JobSet").String(): &jobsetAdapter{},
-	}
-
 	errNoActiveClusters = errors.New("no active clusters")
 )
 
@@ -62,33 +57,17 @@ type wlReconciler struct {
 	workerLostTimeout time.Duration
 	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
 	eventsBatchPeriod time.Duration
+	adapters          map[string]jobframework.MultiKueueAdapter
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
-
-type jobAdapter interface {
-	// Creates the Job object in the worker cluster using remote client, if not already created.
-	// Copy the status from the remote job if already exists.
-	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
-	// Deletes the Job in the worker cluster.
-	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
-	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
-	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
-	// suspended and not start the execution locally.
-	KeepAdmissionCheckPending() bool
-	// IsJobManagedByKueue returns:
-	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
-	// - a reason indicating why the job is not managed by Kueue
-	// - any API error encountered during the check
-	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
-}
 
 type wlGroup struct {
 	local         *kueue.Workload
 	remotes       map[string]*kueue.Workload
 	remoteClients map[string]*remoteClient
 	acName        string
-	jobAdapter    jobAdapter
+	jobAdapter    jobframework.MultiKueueAdapter
 	controllerKey types.NamespacedName
 }
 
@@ -201,7 +180,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	// If the workload is deleted there is a chance that it's owner is also deleted. In that case
 	// we skip calling `IsJobManagedByKueue` as its output would not be reliable.
 	if !isDeleted {
-		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
+		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace}, kueuealpha.MultiKueueControllerName)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -271,15 +250,15 @@ func (w *wlReconciler) multikueueAC(ctx context.Context, local *kueue.Workload) 
 	return workload.FindAdmissionCheck(local.Status.AdmissionChecks, relevantChecks[0]), nil
 }
 
-func (w *wlReconciler) adapter(local *kueue.Workload) (jobAdapter, *metav1.OwnerReference) {
+func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAdapter, *metav1.OwnerReference) {
 	if controller := metav1.GetControllerOf(local); controller != nil {
 		adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
-		return adapters[adapterKey], controller
+		return w.adapters[adapterKey], controller
 	}
 	return nil, nil
 }
 
-func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName string, adapter jobAdapter, controllerName string) (*wlGroup, error) {
+func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName string, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
 	rClients, err := w.remoteClientsForAC(ctx, acName)
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
@@ -459,7 +438,7 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout, eventsBatchPeriod time.Duration) *wlReconciler {
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter) *wlReconciler {
 	return &wlReconciler{
 		client:            c,
 		helper:            helper,
@@ -468,6 +447,7 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 		workerLostTimeout: workerLostTimeout,
 		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
 		eventsBatchPeriod: eventsBatchPeriod,
+		adapters:          adapters,
 	}
 }
 
@@ -488,20 +468,9 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Complete(w)
 }
 
-func cleanObjectMeta(orig *metav1.ObjectMeta) metav1.ObjectMeta {
-	// to clone the labels and annotations
-	clone := orig.DeepCopy()
-	return metav1.ObjectMeta{
-		Name:        clone.Name,
-		Namespace:   clone.Namespace,
-		Labels:      clone.Labels,
-		Annotations: clone.Annotations,
-	}
-}
-
 func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl := &kueue.Workload{}
-	remoteWl.ObjectMeta = cleanObjectMeta(&orig.ObjectMeta)
+	remoteWl.ObjectMeta = api.ObjectMetaForCreation(&orig.ObjectMeta)
 	if remoteWl.Labels == nil {
 		remoteWl.Labels = make(map[string]string)
 	}
