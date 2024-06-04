@@ -249,6 +249,7 @@ The currently supported features are:
 |---------|---------|-------|-------|-------|
 | `FlavorFungibility` | `true` | beta | 0.5 |  |
 | `MultiKueue` | `false` | Alpha | 0.6 | |
+| `MultiKueueBatchJobWithManageBy` | `false` | Alpha | 0.8 | |
 | `PartialAdmission` | `false` | Alpha | 0.4 | 0.4 |
 | `PartialAdmission` | `true` | Beta | 0.5 |  |
 | `ProvisioningACC` | `false` | Alpha | 0.5 | 0.6 |

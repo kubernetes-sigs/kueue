@@ -84,6 +84,12 @@ const (
 	//
 	// Enables lending limit.
 	LendingLimit featuregate.Feature = "LendingLimit"
+
+	// owner: @trasc
+	// alpha: v0.8
+	//
+	// Enable the usage of batch.Job spec.managedBy field its MultiKueue integration.
+	MultiKueueBatchJobWithManageBy featuregate.Feature = "MultiKueueBatchJobWithManageBy"
 )
 
 func init() {
@@ -97,14 +103,15 @@ func init() {
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	PartialAdmission:            {Default: true, PreRelease: featuregate.Beta},
-	QueueVisibility:             {Default: false, PreRelease: featuregate.Alpha},
-	FlavorFungibility:           {Default: true, PreRelease: featuregate.Beta},
-	ProvisioningACC:             {Default: true, PreRelease: featuregate.Beta},
-	VisibilityOnDemand:          {Default: false, PreRelease: featuregate.Alpha},
-	PrioritySortingWithinCohort: {Default: true, PreRelease: featuregate.Beta},
-	MultiKueue:                  {Default: false, PreRelease: featuregate.Alpha},
-	LendingLimit:                {Default: false, PreRelease: featuregate.Alpha},
+	PartialAdmission:               {Default: true, PreRelease: featuregate.Beta},
+	QueueVisibility:                {Default: false, PreRelease: featuregate.Alpha},
+	FlavorFungibility:              {Default: true, PreRelease: featuregate.Beta},
+	ProvisioningACC:                {Default: true, PreRelease: featuregate.Beta},
+	VisibilityOnDemand:             {Default: false, PreRelease: featuregate.Alpha},
+	PrioritySortingWithinCohort:    {Default: true, PreRelease: featuregate.Beta},
+	MultiKueue:                     {Default: false, PreRelease: featuregate.Alpha},
+	LendingLimit:                   {Default: false, PreRelease: featuregate.Alpha},
+	MultiKueueBatchJobWithManageBy: {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {

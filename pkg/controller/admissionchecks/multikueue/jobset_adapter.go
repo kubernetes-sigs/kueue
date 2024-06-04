@@ -81,6 +81,10 @@ func (b *jobsetAdapter) DeleteRemoteObject(ctx context.Context, remoteClient cli
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
+func (b *jobsetAdapter) KeepAdmissionCheckPending() bool {
+	return false
+}
+
 func (b *jobsetAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	js := jobset.JobSet{}
 	err := c.Get(ctx, key, &js)

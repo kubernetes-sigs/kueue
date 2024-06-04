@@ -71,6 +71,10 @@ type jobAdapter interface {
 	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
 	// Deletes the Job in the worker cluster.
 	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
+	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
+	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
+	// suspended and not start the execution locally.
+	KeepAdmissionCheckPending() bool
 	// IsJobManagedByKueue returns:
 	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
 	// - a reason indicating why the job is not managed by Kueue
@@ -384,7 +388,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected {
-			acs.State = kueue.CheckStateReady
+			if group.jobAdapter.KeepAdmissionCheckPending() {
+				acs.State = kueue.CheckStatePending
+			} else {
+				acs.State = kueue.CheckStateReady
+			}
 			// update the message
 			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
 			// update the transition time since is used to detect the lost worker state.

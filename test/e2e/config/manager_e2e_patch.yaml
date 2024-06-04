@@ -3,4 +3,4 @@
   value: IfNotPresent
 - op: add
   path: /spec/template/spec/containers/0/args/-
-  value: --feature-gates=VisibilityOnDemand=true,MultiKueue=true
+  value: --feature-gates=VisibilityOnDemand=true,MultiKueue=true,MultiKueueBatchJobWithManageBy=true

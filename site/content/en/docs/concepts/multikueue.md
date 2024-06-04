@@ -51,6 +51,17 @@ For a job to be subject to multi cluster dispatching, you need to assign it to a
 ## Supported jobs
 
 ### batch/Job
+
+The batch/Job integration can work in two different ways depending on the state of MultiKueueBatchJobWithManageBy feature gate, check the [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) for setup details.
+
+#### MultiKueueBatchJobWithManageBy disabled
+
+Known Limitations:
+- Since unsuspending a Job in the manager cluster will lead to its local execution, the AdmissionCheckStates are kept `Pending` during the remote job execution.
+- Since updating the status of a local Job could conflict with the Kubernetes Job controller, the manager does not sync the Job status during the job execution. The manager copies the final status of the remote Job when the remote workload is marked as `Finished`.
+
+#### MultiKueueBatchJobWithManageBy enabled
+
 When you want to submit Job to a ClusterQueue with a MultiKueue admission check, you should set the `spec.managedBy` field to `kueue.x-k8s.io/multikueue`, otherwise the admission check controller will `Reject` the workload causing it to be marked as `Finished` with an error indicating the cause.
 
 The `managedBy` field is available as an Alpha feature staring Kubernetes 1.30.0, check the [Delegation of managing a Job object to external controller](https://kubernetes.io/docs/concepts/workloads/controllers/job/#delegation-of-managing-a-job-object-to-external-controller) for details.

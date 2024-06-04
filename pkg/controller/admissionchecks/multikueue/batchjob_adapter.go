@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -30,6 +31,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	kueuejob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 type batchJobAdapter struct{}
@@ -51,8 +53,25 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 
 	// the remote job exists
 	if err == nil {
-		localJob.Status = remoteJob.Status
-		return localClient.Status().Update(ctx, &localJob)
+		if features.Enabled(features.MultiKueueBatchJobWithManageBy) {
+			localJob.Status = remoteJob.Status
+			return localClient.Status().Update(ctx, &localJob)
+		} else {
+			remoteFinished := false
+			for _, c := range remoteJob.Status.Conditions {
+				if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
+					remoteFinished = true
+					break
+				}
+			}
+
+			if remoteFinished {
+				localJob.Status = remoteJob.Status
+				return localClient.Status().Update(ctx, &localJob)
+			} else {
+				return nil
+			}
+		}
 	}
 
 	remoteJob = batchv1.Job{
@@ -75,8 +94,10 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 
-	// clear the managedBy enables the batch/Job controller to take over
-	remoteJob.Spec.ManagedBy = nil
+	if features.Enabled(features.MultiKueueBatchJobWithManageBy) {
+		// clear the managedBy enables the batch/Job controller to take over
+		remoteJob.Spec.ManagedBy = nil
+	}
 
 	return remoteClient.Create(ctx, &remoteJob)
 }
@@ -90,7 +111,15 @@ func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient c
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
+func (b *batchJobAdapter) KeepAdmissionCheckPending() bool {
+	return !features.Enabled(features.MultiKueueBatchJobWithManageBy)
+}
+
 func (b *batchJobAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	if !features.Enabled(features.MultiKueueBatchJobWithManageBy) {
+		return true, "", nil
+	}
+
 	job := batchv1.Job{}
 	err := c.Get(ctx, key, &job)
 	if err != nil {

@@ -70,14 +70,17 @@ var (
 	worker1TestCluster      cluster
 	worker2TestCluster      cluster
 	managersConfigNamespace *corev1.Namespace
+	featuregatesT           *testing.T
 )
 
 func TestMultiKueue(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
+	featuregatesT = t
 	ginkgo.RunSpecs(t,
 		"Multikueue Suite",
 	)
+	featuregatesT = nil
 }
 
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
