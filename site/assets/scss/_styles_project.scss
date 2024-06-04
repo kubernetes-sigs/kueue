@@ -176,3 +176,33 @@ nav.foldable-nav .ul-1 .with-child>label:hover:before {
 nav.foldable-nav .ul-1 .with-child>input:checked~label:hover:before {
   transform: rotate(90deg) !important;
 }
+
+div.feature-state-notice {
+    background-color: #daeaf9;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-bottom: 1em;
+
+    font-size: 1.2em;
+
+    > .feature-state-name::before {
+      content: 'ⓘ  ';
+      color: #326ce5; // Kubernetes blue
+    }
+    > .feature-state-name {
+      display: inline-block;
+      font-size: 0.95em;
+      font-weight: bold;
+      color: #000;
+      background-color: #daeaf9;
+    }
+
+    code {
+      color: #000;
+      font-size: 1em;
+      background-color: #daeaf9;
+    }
+
+    margin-right: 2em;
+    max-width: 80%;
+  }
