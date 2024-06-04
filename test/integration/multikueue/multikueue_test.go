@@ -697,13 +697,13 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, createdWorkload)).To(gomega.Succeed())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
