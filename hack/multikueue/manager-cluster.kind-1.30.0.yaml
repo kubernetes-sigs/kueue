@@ -1,5 +1,7 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+featureGates:
+  JobManagedBy: true
 nodes:
 - role: control-plane
   kubeadmConfigPatches:
@@ -12,9 +14,7 @@ nodes:
     controllerManager:
       extraArgs:
         v: "2"
-        feature-gates: "JobManagedBy=true"
     apiServer:
       extraArgs:
         enable-aggregator-routing: "true"
         v: "2"
-        feature-gates: "JobManagedBy=true"
