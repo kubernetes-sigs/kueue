@@ -64,7 +64,7 @@ kubectl config use-context manager-cluster
 
 If you are using Kueue in version 0.7.0 or newer install the JobSet on the
 management cluster (see [JobSet Installation](https://jobset.sigs.k8s.io/docs/installation/)
-for more details). We recommend using JobSet 0.5.1+ for MultiKueue.
+for more details). Please install JobSet 0.5.1 or newer for MultiKueue.
 
 {{% alert title="Warning" color="warning" %}}
 If you are using an older version of Kueue than 0.7.0, only install the JobSet
