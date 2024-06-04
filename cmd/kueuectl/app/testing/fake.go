@@ -3,6 +3,7 @@ package testing
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
@@ -13,7 +14,8 @@ import (
 type TestClientGetter struct {
 	util.ClientGetter
 
-	ClientSet versioned.Interface
+	KueueClientset versioned.Interface
+	K8sClientset   k8s.Interface
 
 	configFlags *genericclioptions.TestConfigFlags
 }
@@ -26,9 +28,9 @@ func NewTestClientGetter() *TestClientGetter {
 		WithClientConfig(clientConfig).
 		WithNamespace(metav1.NamespaceDefault)
 	return &TestClientGetter{
-		ClientGetter: util.NewClientGetter(configFlags),
-		ClientSet:    fake.NewSimpleClientset(),
-		configFlags:  configFlags,
+		ClientGetter:   util.NewClientGetter(configFlags),
+		KueueClientset: fake.NewSimpleClientset(),
+		configFlags:    configFlags,
 	}
 }
 
@@ -38,5 +40,9 @@ func (f *TestClientGetter) WithNamespace(ns string) *TestClientGetter {
 }
 
 func (f *TestClientGetter) KueueClientSet() (versioned.Interface, error) {
-	return f.ClientSet, nil
+	return f.KueueClientset, nil
+}
+
+func (f *TestClientGetter) K8sClientSet() (k8s.Interface, error) {
+	return f.K8sClientset, nil
 }

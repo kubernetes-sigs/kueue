@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -98,6 +99,9 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)
 	addLocalQueueFilterFlagVar(cmd, &o.LocalQueueFilter)
+
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("clusterqueue", completion.ClusterQueueNameFunc(clientGetter, nil)))
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter)))
 
 	cmd.Flags().StringArray("status", nil, `Filter workloads by status. Must be "all", "pending", "admitted" or "finished"`)
 

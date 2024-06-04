@@ -564,8 +564,8 @@ wl2               j2         lq2          cq2            PENDING   22           
 				},
 			}, clientset.Fake.ReactionChain...)
 
-			tf.ClientSet = clientset
-			tf.ClientSet.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists
+			tf.KueueClientset = clientset
+			tf.KueueClientset.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists
 
 			cmd := NewWorkloadCmd(tf, streams)
 			cmd.SetArgs(tc.args)

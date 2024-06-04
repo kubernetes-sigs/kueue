@@ -144,7 +144,7 @@ cq1    cohort1   1                   2                    true     60m
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
 			tf := cmdtesting.NewTestClientGetter()
-			tf.ClientSet = fake.NewSimpleClientset(tc.objs...)
+			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
 
 			cmd := NewClusterQueueCmd(tf, streams)
 			cmd.SetArgs(tc.args)

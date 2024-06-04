@@ -146,7 +146,7 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 				tf.WithNamespace(tc.ns)
 			}
 
-			tf.ClientSet = fake.NewSimpleClientset(tc.objs...)
+			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
 
 			cmd := NewListCmd(tf, streams)
 			cmd.SetArgs(tc.args)
