@@ -19,11 +19,13 @@ package kueuectl
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -72,14 +74,17 @@ var _ = ginkgo.Describe("Kueuectl List", ginkgo.Ordered, ginkgo.ContinueOnFailur
 
 			kueuectl.SetArgs([]string{"list", "localqueue", "--field-selector",
 				fmt.Sprintf("metadata.name=%s", lq1.Name), "--namespace", ns.Name})
+			executeTime := time.Now()
 			err := kueuectl.Execute()
 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
-			gomega.Expect(output.String()).Should(gomega.Equal(`NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            0                   0                    0s
-`))
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
+lq1    cq1            0                   0                    %s
+`,
+				duration.HumanDuration(executeTime.Sub(lq1.CreationTimestamp.Time)),
+			)))
 		})
 
 		// Simple client set that are using on unit tests not allow paging.
@@ -90,16 +95,21 @@ lq1    cq1            0                   0                    0s
 
 			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
 			kueuectl.SetArgs([]string{"list", "localqueue", "--namespace", ns.Name})
+			executeTime := time.Now()
 			err := kueuectl.Execute()
 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
-			gomega.Expect(output.String()).Should(gomega.Equal(`NAME                         CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1                          cq1                            0                   0                    0s
-lq2                          very-long-cluster-queue-name   0                   0                    0s
-very-long-local-queue-name   cq1                            0                   0                    0s
-`))
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
+lq1                          cq1                            0                   0                    %s
+lq2                          very-long-cluster-queue-name   0                   0                    %s
+very-long-local-queue-name   cq1                            0                   0                    %s
+`,
+				duration.HumanDuration(executeTime.Sub(lq1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(lq2.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(lq3.CreationTimestamp.Time)),
+			)))
 		})
 	})
 
@@ -131,11 +141,14 @@ very-long-local-queue-name   cq1                            0                   
 			kueuectl.SetArgs([]string{"list", "clusterqueue", "--field-selector",
 				fmt.Sprintf("metadata.name=%s", cq1.Name)})
 			err := kueuectl.Execute()
+			executeTime := time.Now()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-			gomega.Expect(output.String()).Should(gomega.Equal(`NAME   COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
-cq1             0                   0                    true     0s
-`))
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq1             0                   0                    true     %s
+`,
+				duration.HumanDuration(executeTime.Sub(cq1.CreationTimestamp.Time)),
+			)))
 		})
 
 		// Simple client set that are using on unit tests not allow paging.
@@ -146,14 +159,18 @@ cq1             0                   0                    true     0s
 
 			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
 			kueuectl.SetArgs([]string{"list", "clusterqueue"})
+			executeTime := time.Now()
 			err := kueuectl.Execute()
 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-			gomega.Expect(output.String()).Should(gomega.Equal(`NAME                           COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
-cq1                                     0                   0                    true     0s
-very-long-cluster-queue-name            0                   0                    false    0s
-`))
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                           COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq1                                     0                   0                    true     %s
+very-long-cluster-queue-name            0                   0                    false    %s
+`,
+				duration.HumanDuration(executeTime.Sub(cq1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(cq2.CreationTimestamp.Time)),
+			)))
 		})
 
 		ginkgo.When("List Workloads", func() {
@@ -182,13 +199,15 @@ very-long-cluster-queue-name            0                   0                   
 
 				kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
 					fmt.Sprintf("metadata.name=%s", wl1.Name), "--namespace", ns.Name})
+				executeTime := time.Now()
 				err := kueuectl.Execute()
 
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 				gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-				gomega.Expect(output.String()).Should(gomega.Equal(`NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1                          lq1                         PENDING                       0s
-`))
+				gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+wl1                          lq1                         PENDING                       %s
+`,
+					duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)))))
 			})
 
 			// Simple client set that are using on unit tests not allow paging.
@@ -199,15 +218,20 @@ wl1                          lq1                         PENDING                
 
 				os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
 				kueuectl.SetArgs([]string{"list", "workload", "--namespace", ns.Name})
+				executeTime := time.Now()
 				err := kueuectl.Execute()
 
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 				gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-				gomega.Expect(output.String()).Should(gomega.Equal(`NAME                      JOB TYPE   JOB NAME   LOCALQUEUE                   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-very-long-workload-name                         lq1                                         PENDING                       0s
-wl1                                             lq1                                         PENDING                       0s
-wl2                                             very-long-local-queue-name                  PENDING                       0s
-`))
+				gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                      JOB TYPE   JOB NAME   LOCALQUEUE                   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+very-long-workload-name                         lq1                                         PENDING                       %s
+wl1                                             lq1                                         PENDING                       %s
+wl2                                             very-long-local-queue-name                  PENDING                       %s
+`,
+					duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)),
+					duration.HumanDuration(executeTime.Sub(wl2.CreationTimestamp.Time)),
+					duration.HumanDuration(executeTime.Sub(wl3.CreationTimestamp.Time)),
+				)))
 			})
 		})
 	})
