@@ -92,8 +92,8 @@ func (b *jobsetAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client
 		return false, "", err
 	}
 	jobsetControllerName := ptr.Deref(js.Spec.ManagedBy, "")
-	if jobsetControllerName != ControllerName {
-		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", ControllerName, jobsetControllerName), nil
+	if jobsetControllerName != kueuealpha.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueuealpha.MultiKueueControllerName, jobsetControllerName), nil
 	}
 	return true, "", nil
 }

@@ -49,7 +49,7 @@ func TestWlReconcileJobset(t *testing.T) {
 	}
 
 	baseWorkloadBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
-	baseJobSetBuilder := testingjobset.MakeJobSet("jobset1", TestNamespace).ManagedBy(ControllerName)
+	baseJobSetBuilder := testingjobset.MakeJobSet("jobset1", TestNamespace).ManagedBy(kueuealpha.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		managersWorkloads        []kueue.Workload
@@ -103,7 +103,7 @@ func TestWlReconcileJobset(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateRejected,
-						Message: fmt.Sprintf("The owner is not managed by Kueue: Expecting spec.managedBy to be %q not \"\"", ControllerName),
+						Message: fmt.Sprintf("The owner is not managed by Kueue: Expecting spec.managedBy to be %q not \"\"", kueuealpha.MultiKueueControllerName),
 					}).
 					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -328,7 +328,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			manageBuilder = manageBuilder.WithStatusSubresource(slices.Map(tc.managersJobSets, func(w *jobset.JobSet) client.Object { return w })...)
 			manageBuilder = manageBuilder.WithObjects(
 				utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
-				utiltesting.MakeAdmissionCheck("ac1").ControllerName(ControllerName).
+				utiltesting.MakeAdmissionCheck("ac1").ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			)

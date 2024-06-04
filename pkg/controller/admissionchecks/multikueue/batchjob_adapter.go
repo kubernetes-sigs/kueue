@@ -124,8 +124,8 @@ func (b *batchJobAdapter) IsJobManagedByKueue(ctx context.Context, c client.Clie
 		return false, "", err
 	}
 	jobControllerName := ptr.Deref(job.Spec.ManagedBy, "")
-	if jobControllerName != ControllerName {
-		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", ControllerName, jobControllerName), nil
+	if jobControllerName != kueuealpha.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueuealpha.MultiKueueControllerName, jobControllerName), nil
 	}
 	return true, "", nil
 }
