@@ -37,7 +37,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.17.3
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240320141353-395cfc7486e6
 	sigs.k8s.io/controller-tools v0.14.0
-	sigs.k8s.io/jobset v0.5.1
+	sigs.k8s.io/jobset v0.5.2
 	sigs.k8s.io/kind v0.20.0
 	sigs.k8s.io/kustomize/kustomize/v4 v4.5.7
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1
