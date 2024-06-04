@@ -14,10 +14,10 @@ Kueue creates ProvisioningRequests via the [Provisioning Admission Check Control
 
 Before you begin troubleshooting, make sure your cluster meets the following requirements:
 - Your cluster has ClusterAutoscaler enabled and ClusterAutoscaler supports ProvisioningRequest API.
-Check your cloud provider's documentation to determine the minimum versions that support ProvisioningRequest. If you use GKE, your cluster's version should be at least `1.28.3-gke.1098000`.
+Check your cloud provider's documentation to determine the minimum versions that support ProvisioningRequest. If you use GKE, your cluster should be running version `1.28.3-gke.1098000` or newer.
 - You use a type of nodes that support ProvisioningRequest. It may vary depending on your cloud provider.
 - Kueue's version is `v0.5.3` or newer.
-- You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration).
+- You have enabled the `ProvisioningACC` in [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration). This feature gate is enabled by default for Kueue `v0.7.0` or newer.
 
 ## Identifying the Provisioning Request for your job
 
@@ -29,7 +29,7 @@ You can run the following command to see a brief state of a Provisioning Request
 kubectl describe workload WORKLOAD_NAME
 ```
 
-Kueue creates ProvisioningRequests using a naming pattern that helps you identify the corresponding request for your workload.
+Kueue creates ProvisioningRequests using a naming pattern that helps you identify the request corresponding to your workload.
 
 ```
 [NAME OF YOUR WORKLOAD]-[NAME OF THE ADMISSION CHECK]-[NUMBER OF RETRY]
@@ -45,6 +45,7 @@ The output of the `kubectl describe workload` command should look similar to the
 
 ```bash
 [...]
+Status:
   Admission Checks:
     Last Transition Time:  2024-05-22T10:47:46Z
     Message:               Provisioning Request was successfully provisioned.
@@ -59,7 +60,7 @@ The output of the `kubectl describe workload` command should look similar to the
 
 ## What is the current state of my Provisioning Request?
 
-One of the reasons why your job is not running might be that ProvisioningRequest is waiting to be provisioned.
+One possible reason your job is not running might be that ProvisioningRequest is waiting to be provisioned.
 To find out if this is the case you can view Provisioning Request's state by running the following command:
 
 ```bash
@@ -109,7 +110,7 @@ reason that prevented the provisioning.
 
 The Provisioning Request state is described in the `.conditions[*].status` field.
 An empty field means ProvisinongRequest is still being processed by the ClusterAutoscaler.
-Otherwise, it falls into one the states listed below:
+Otherwise, it falls into one of the states listed below:
 - `Accepted` - indicates that the ProvisioningRequest was accepted by ClusterAutoscaler, so ClusterAutoscaler will attempt to provision the nodes for it.
 - `Provisioned` - indicates that all of the requested resources were created and are available in the cluster. ClusterAutoscaler will set this condition when the VM creation finishes successfully.
 - `Failed` - indicates that it is impossible to obtain resources to fulfill this ProvisioningRequest. Condition Reason and Message will contain more details about what failed.
@@ -122,7 +123,7 @@ The states transitions are as follow:
 
 ## Why a Provisioning Request is not created?
 
-If Kueue didn't create a Provisioning Request for your job, try checking the following requirements:
+If Kueue did not create a Provisioning Request for your job, try checking the following requirements:
 
 ### a. Ensure the Kueue's controller manager enables the `ProvisioningACC` feature gate
 
@@ -132,7 +133,7 @@ Run the following command to check whether your Kueue's controller manager has e
 kubectl describe pod -n kueue-system kueue-controller-manager-
 ```
 
-The args for kueue container should be similar to this:
+The arguments for Kueue container should be similar to the following:
 
 ```bash
     ...
@@ -142,18 +143,70 @@ The args for kueue container should be similar to this:
       --feature-gates=ProvisioningACC=true
 ```
 
-### Ensure the ClusterQueue and the LocalQueue are active
-You can check the state of ClusterQueues and LocalQueues if the queues are ready for the Workloads.
+Please note for Kueue `v0.7.0` or newer the feature is enabled by default, so you may see different output.
+
+### b. Ensure your Workload has reserved quota
+
+To check if your Workload has reserved quota in a ClusterQueue check your Workload's status by running the following command:
+
+```bash
+kubectl describe workload WORKLOAD_NAME
+```
+
+The output should be similar to the following:
+
+```bash
+[...]
+Status:
+  Conditions:
+    Last Transition Time:  2024-05-22T10:26:40Z
+    Message:               Quota reserved in ClusterQueue cluster-queue
+    Observed Generation:   1
+    Reason:                QuotaReserved
+    Status:                True
+    Type:                  QuotaReserved
+```
+
+If the output you get is similar to the following:
+
+```bash
+  Conditions:
+    Last Transition Time:  2024-05-22T08:48:47Z
+    Message:               couldn't assign flavors to pod set main: insufficient unused quota for memory in flavor default-flavor, 4396Mi more needed
+    Observed Generation:   1
+    Reason:                Pending
+    Status:                False
+    Type:                  QuotaReserved
+```
+
+This means you do not have sufficient free capacity in your ClusterQueue.
+
+Other reasons why your Workload has not reserved quota may relate to LocalQueue/ClusterQueue misconfiguration, e.g.:
+
+```bash
+Status:
+  Conditions:
+    Last Transition Time:  2024-05-22T08:57:09Z
+    Message:               ClusterQueue cluster-queue doesn't exist
+    Observed Generation:   1
+    Reason:                Inadmissible
+    Status:                False
+    Type:                  QuotaReserved
+```
+
+You can check if ClusterQueues and LocalQueues are ready to admit your Workloads.
 Please see the [Troubleshooting Queues](/docs/tasks/troubleshooting/troubleshooting_queues/) for more details.
 
 
-### Ensure the Admission Check is active
+### c. Ensure the Admission Check is active
 
 To check if the Admission Check that your job uses is active run the following command:
 
 ```bash
 kubectl describe admissionchecks ADMISSIONCHECK_NAME
 ```
+
+Where `ADMISSIONCHECK_NAME` is a name configured in your ClusterQueue spec. Please see the [Admission Check documentation](/docs/concepts/admission_check/) for more details.
 
 The status of the Admission Check should be similar to:
 
