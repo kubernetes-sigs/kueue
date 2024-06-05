@@ -181,7 +181,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	} else {
 		var updated, evicted bool
-		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); cond == nil || cond.Reason != kueue.WorkloadEvictedByDeactivation {
+		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 			message := "The workload is deactivated"
 
 			// The deactivation reason could be deduced as the maximum number of re-queuing retries if the workload met all criteria below:

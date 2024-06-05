@@ -894,6 +894,30 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](100), nil).
 				Obj(),
 		},
+		"should keep the previous eviction reason when the Workload is already evicted by other reason even though the Workload is deactivated.": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				Obj(),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

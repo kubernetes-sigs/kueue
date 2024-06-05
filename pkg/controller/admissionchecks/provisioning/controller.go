@@ -213,15 +213,8 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		attempt := int32(1)
 		shouldCreatePr := false
 		if exists {
-			switch {
-			case isCapacityRevoked(oldPr):
-				if workload.IsActive(wl) && !workload.IsFinished(wl) {
-					if err := c.deactivateWorkload(ctx, wl, fmt.Sprintf("Deactivating workload because capacity for %v has been revoked", oldPr.Name)); err != nil {
-						return nil, err
-					}
-					c.record.Eventf(wl, corev1.EventTypeWarning, "CapacityRevoked", "Deactivating workload because capacity for %v has been revoked", oldPr.Name)
-				}
-			case isFailed(oldPr):
+			attempt = getAttempt(log, oldPr, wl.Name, checkName)
+			if apimeta.IsStatusConditionTrue(oldPr.Status.Conditions, autoscaling.Failed) {
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
 				if attempt <= MaxRetries {
 					prFailed := apimeta.FindStatusCondition(oldPr.Status.Conditions, autoscaling.Failed)
@@ -538,15 +531,6 @@ func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []ku
 				ClassNameAnnotationKey: pr.Spec.ProvisioningClassName},
 		}
 	})
-}
-
-func (c *Controller) deactivateWorkload(ctx context.Context, wl *kueue.Workload, msg string) error {
-	updatedWl := &kueue.Workload{}
-	if err := c.client.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl); err != nil {
-		return err
-	}
-	updatedWl.Spec.Active = ptr.To(false)
-	return c.client.Update(ctx, updatedWl)
 }
 
 type acHandler struct {

@@ -68,18 +68,3 @@ func CheckLatestEvent(ctx context.Context, k8sClient client.Client,
 
 	return false, fmt.Errorf("mismatch with the latest event: got r:%v t:%v n:%v, reg %v", item.Reason, item.Type, item.Note, item.Regarding)
 }
-
-// HasEventAppeared returns if an event has been emitted
-func HasEventAppeared(ctx context.Context, k8sClient client.Client, event corev1.Event) (bool, error) {
-	events := &corev1.EventList{}
-	if err := k8sClient.List(ctx, events, &client.ListOptions{}); err != nil {
-		return false, err
-	}
-
-	for _, item := range events.Items {
-		if item.Reason == event.Reason && item.Type == event.Type && item.Message == event.Message {
-			return true, nil
-		}
-	}
-	return false, nil
-}

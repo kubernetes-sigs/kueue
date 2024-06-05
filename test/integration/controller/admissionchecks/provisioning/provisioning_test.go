@@ -16,7 +16,6 @@ limitations under the License.
 package provisioning
 
 import (
-	"fmt"
 	"path/filepath"
 	"time"
 
@@ -492,7 +491,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should deactivate the workload when it's not Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
+		ginkgo.It("Should set AdmissionCheck status to Rejected when it's not Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -522,7 +521,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking if workload is deactivated, an event is emitted and a metric is increased", func() {
+			ginkgo.By("Checking if workload has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
@@ -530,24 +529,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRejected))
-
-					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
-					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
-					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
-
-					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
-						Reason:  "CapacityRevoked",
-						Type:    corev1.EventTypeWarning,
-						Message: fmt.Sprintf("Deactivating workload because capacity for %v has been revoked", provReqKey.Name),
-					})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(ok).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
-		ginkgo.It("Should not deactivate the workload when it's Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
+		ginkgo.It("Should not set AdmissionCheck status to Rejected when it's Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
 			// This happens only if the job doesn't allow retries or a user sets .spec.backOffLimit = 0
 			ginkgo.By("Setting the admission check to the workload", func() {
 				updatedWl := &kueue.Workload{}
@@ -607,11 +593,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
-
-					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeTrue())
-					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeFalse())
-					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 0)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

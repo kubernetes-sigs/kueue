@@ -794,7 +794,7 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workloads status gets deactivated when is not finished and receives the provisioning request's CapacityRevoked condition": {
+		"workload sets AdmissionCheck status to Rejected when it is not finished and receives the provisioning request's CapacityRevoked condition": {
 			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Admitted(true).
 				Obj(),
@@ -841,19 +841,10 @@ func TestReconcile(t *testing.T) {
 						State: kueue.CheckStatePending,
 					}).
 					Admitted(true).
-					Active(false).
 					Obj(),
 			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    "CapacityRevoked",
-					Message:   "Deactivating workload because capacity for wl-check1-1 has been revoked",
-				},
-			},
 		},
-		"workloads status gets deactivated when is not admitted and receives the provisioning request's CapacityRevoked condition": {
+		"workload sets AdmissionCheck status to Rejected when it is not admitted and receives the provisioning request's CapacityRevoked condition": {
 			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Admitted(false).
 				Obj(),
@@ -900,19 +891,10 @@ func TestReconcile(t *testing.T) {
 						State: kueue.CheckStatePending,
 					}).
 					Admitted(false).
-					Active(false).
 					Obj(),
 			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    "CapacityRevoked",
-					Message:   "Deactivating workload because capacity for wl-check1-1 has been revoked",
-				},
-			},
 		},
-		"workloads status doesnt get deactivated when it's finished and receives the provisioning request's CapacityRevoked condition": {
+		"workloads doesnt set AdmissionCheck status to Rejected when it is finished and receives the provisioning request's CapacityRevoked condition": {
 			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadFinished,
