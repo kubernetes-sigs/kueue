@@ -469,6 +469,30 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRejected))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
+
+			ginkgo.By("Checking if workload is deactivated, an event is emitted and a metric is increased", func() {
+				updatedWl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+
+					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
+					g.Expect(state).NotTo(gomega.BeNil())
+					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRejected))
+
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
+
+					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+						Reason:  "AdmissionCheckRejected",
+						Type:    corev1.EventTypeWarning,
+						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v has got Rejected", ac.Name),
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(ok).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.It("Should set AdmissionCheck status to Rejected when it's not Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
@@ -509,6 +533,19 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRejected))
+
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
+
+					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+						Reason:  "AdmissionCheckRejected",
+						Type:    corev1.EventTypeWarning,
+						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v has got Rejected", ac.Name),
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(ok).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -1089,6 +1126,30 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
 					g.Expect(state).NotTo(gomega.BeNil())
 					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRejected))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking if workload is deactivated, an event is emitted and a metric is increased", func() {
+				updatedWl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+
+					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
+					g.Expect(state).NotTo(gomega.BeNil())
+					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRejected))
+
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
+
+					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+						Reason:  "AdmissionCheckRejected",
+						Type:    corev1.EventTypeWarning,
+						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v has got Rejected", ac.Name),
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(ok).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

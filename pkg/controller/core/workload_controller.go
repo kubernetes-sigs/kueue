@@ -346,19 +346,42 @@ func isDisabledRequeuedByReason(w *kueue.Workload, reason string) bool {
 }
 
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || !workload.HasRetryOrRejectedChecks(wl) {
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || !workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl) {
 		return false, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Workload is evicted due to admission checks")
-	message := "At least one admission check is false"
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, message)
+	if workload.HasRetryChecks(wl) {
+		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "At least one admission check is false")
+		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+		if err == nil {
+			cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+			metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByAdmissionCheck)
+		}
+		return true, client.IgnoreNotFound(err)
+	}
+	// if Workload has Rejected checks deactivate it
+	if err := r.deactivateWorkload(ctx, wl); err != nil {
+		return false, err
+	}
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByDeactivation, "At least one admission check is Rejected")
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 	if err == nil {
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message)
+		metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByDeactivation)
 	}
+	r.recorder.Eventf(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", "Deactivating workload because AdmissionCheck for %v has got Rejected", workload.GetRejectedChecks(wl)[0])
 	return true, client.IgnoreNotFound(err)
+
+}
+
+func (r *WorkloadReconciler) deactivateWorkload(ctx context.Context, wl *kueue.Workload) error {
+	updatedWl := &kueue.Workload{}
+	if err := r.client.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl); err != nil {
+		return err
+	}
+	updatedWl.Spec.Active = ptr.To(false)
+	return r.client.Update(ctx, updatedWl)
 }
 
 func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cq *kueue.ClusterQueue) (bool, error) {
