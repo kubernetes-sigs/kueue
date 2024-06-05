@@ -357,7 +357,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					return k8sClient.Status().Update(ctx, &createdWl)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByAdmissionCheck, 1)
+				util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
@@ -365,8 +365,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadEvicted,
 							Status:  metav1.ConditionTrue,
-							Reason:  "AdmissionCheck",
-							Message: "At least one admission check is false",
+							Reason:  kueue.WorkloadEvictedByDeactivation,
+							Message: "At least one admission check is Rejected",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,

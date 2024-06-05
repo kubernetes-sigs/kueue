@@ -361,7 +361,8 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		return true, client.IgnoreNotFound(err)
 	}
 	// if Workload has Rejected checks deactivate it
-	if err := r.deactivateWorkload(ctx, wl); err != nil {
+	wl.Spec.Active = ptr.To(false)
+	if err := r.client.Update(ctx, wl); err != nil {
 		return false, err
 	}
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByDeactivation, "At least one admission check is Rejected")
@@ -372,16 +373,6 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	}
 	r.recorder.Eventf(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", "Deactivating workload because AdmissionCheck for %v has got Rejected", workload.GetRejectedChecks(wl)[0])
 	return true, client.IgnoreNotFound(err)
-
-}
-
-func (r *WorkloadReconciler) deactivateWorkload(ctx context.Context, wl *kueue.Workload) error {
-	updatedWl := &kueue.Workload{}
-	if err := r.client.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl); err != nil {
-		return err
-	}
-	updatedWl.Spec.Active = ptr.To(false)
-	return r.client.Update(ctx, updatedWl)
 }
 
 func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cq *kueue.ClusterQueue) (bool, error) {

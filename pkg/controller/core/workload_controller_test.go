@@ -497,24 +497,36 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
+				Active(false).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
-				Condition(metav1.Condition{
-					Type:    "Evicted",
-					Status:  "True",
-					Reason:  "AdmissionCheck",
-					Message: "At least one admission check is false",
-				}).
+				Conditions(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionTrue,
+					Reason:  "AdmittedByTest",
+					Message: "Admitted by ClusterQueue q1",
+				},
+					metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "ByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByDeactivation,
+						Message: "At least one admission check is Rejected",
+					}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToAdmissionCheck",
-					Message:   "At least one admission check is false",
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Warning",
+					Reason:    "AdmissionCheckRejected",
 				},
 			},
 		},
