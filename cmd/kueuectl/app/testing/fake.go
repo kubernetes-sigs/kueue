@@ -14,10 +14,6 @@ import (
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 	kueuefake "sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8s "k8s.io/client-go/kubernetes"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
 type TestClientGetter struct {
@@ -43,6 +39,11 @@ func NewTestClientGetter() *TestClientGetter {
 		K8sClientset:   k8sfake.NewSimpleClientset(),
 		configFlags:    configFlags,
 	}
+}
+
+func (f *TestClientGetter) WithRestMapper(mapper meta.RESTMapper) *TestClientGetter {
+	f.configFlags.WithRESTMapper(mapper)
+	return f
 }
 
 func (f *TestClientGetter) WithNamespace(ns string) *TestClientGetter {

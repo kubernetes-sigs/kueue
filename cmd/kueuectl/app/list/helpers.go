@@ -18,7 +18,6 @@ package list
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -36,27 +35,6 @@ const (
 var (
 	invalidListRequestLimitError = errors.New("invalid list request limit")
 )
-
-func listRequestLimit() (int64, error) {
-	listRequestLimitEnv := os.Getenv(KueuectlListRequestLimitEnvName)
-
-	if len(listRequestLimitEnv) == 0 {
-		return defaultListRequestLimit, nil
-	}
-
-	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
-	if err != nil {
-		return 0, invalidListRequestLimitError
-	}
-
-	return limit, nil
-}
-
-type objectRef struct {
-	APIGroup string
-	Kind     string
-	Name     string
-}
 
 func listRequestLimit() (int64, error) {
 	listRequestLimitEnv := os.Getenv(KueuectlListRequestLimitEnvName)
@@ -140,27 +118,4 @@ func decodeResourceTypeName(mapper meta.RESTMapper, s string) (gvk schema.GroupV
 	found = true
 
 	return
-}
-
-// parseForObjectFilterFlag parses the user input --for flag and returns a objectRef struct
-func parseForObjectFilterFlag(input string) (objectRef, error) {
-	objRef := objectRef{}
-	if input == "" {
-		return objRef, nil
-	}
-
-	parts := strings.Split(input, "/")
-	if len(parts) > 2 {
-		return objRef, fmt.Errorf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", input)
-	}
-
-	if len(parts) == 1 {
-		objRef.Name = parts[0]
-		return objRef, nil
-	}
-
-	objRef.Name = parts[1]
-	objRef.Kind, objRef.APIGroup, _ = strings.Cut(parts[0], ".")
-
-	return objRef, nil
 }

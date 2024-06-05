@@ -51,11 +51,10 @@ type PodOptions struct {
 	LabelSelector          string
 	FieldSelector          string
 	UserSpecifiedForObject string
-	ForObject              objectRef
+	ForName                string
+	ForGVK                 schema.GroupVersionKind
 
 	Clientset k8s.Interface
-
-	ToPrinter func(noHeaders bool) (printers.ResourcePrinterFunc, error)
 
 	genericiooptions.IOStreams
 }
@@ -88,7 +87,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 	addAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
-	addForObjectFilterFlagVar(cmd, &o.UserSpecifiedForObject)
+	addForObjectFlagVar(cmd, &o.UserSpecifiedForObject)
 
 	_ = cmd.MarkFlagRequired("for")
 
@@ -113,28 +112,39 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 		return err
 	}
 
-	o.ToPrinter = func(noHeaders bool) (printers.ResourcePrinterFunc, error) {
-		if !o.PrintFlags.OutputFlagSpecified() {
-			printer := newPodTablePrinter().
-				WithNamespace(o.AllNamespaces).
-				WithNoHeaders(noHeaders)
-			return printer.PrintObj, nil
-		}
-
-		printer, err := o.PrintFlags.ToPrinter()
+	// parse --for flag
+	if o.UserSpecifiedForObject != "" {
+		mapper, err := clientGetter.ToRESTMapper()
 		if err != nil {
-			return nil, err
+			return err
 		}
-
-		return printer.PrintObj, nil
-	}
-
-	o.ForObject, err = parseForObjectFilterFlag(o.UserSpecifiedForObject)
-	if err != nil {
-		return err
+		var found bool
+		o.ForGVK, o.ForName, found, err = decodeResourceTypeName(mapper, o.UserSpecifiedForObject)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", o.UserSpecifiedForObject)
+		}
 	}
 
 	return nil
+}
+
+func (o *PodOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, error) {
+	if !o.PrintFlags.OutputFlagSpecified() {
+		printer := newPodTablePrinter().
+			WithNamespace(o.AllNamespaces).
+			WithNoHeaders(headers)
+		return printer.PrintObj, nil
+	}
+
+	printer, err := o.PrintFlags.ToPrinter()
+	if err != nil {
+		return nil, err
+	}
+
+	return printer.PrintObj, nil
 }
 
 // Run prints the pods for a specific Job
@@ -164,8 +174,6 @@ func (o *PodOptions) listPods(ctx context.Context) error {
 
 	tabWriter := printers.GetNewTabWriter(o.Out)
 	for {
-		noHeaders := totalCount > 0
-
 		podList, err := o.Clientset.CoreV1().Pods(namespace).List(ctx, opts)
 		if err != nil {
 			return err
@@ -174,8 +182,9 @@ func (o *PodOptions) listPods(ctx context.Context) error {
 		podList.Items = o.filterPodsByOwnerRef(podList)
 
 		totalCount += len(podList.Items)
+		headers := totalCount == 0
 
-		printer, err := o.ToPrinter(noHeaders)
+		printer, err := o.ToPrinter(headers)
 		if err != nil {
 			return err
 		}
@@ -207,6 +216,7 @@ func (o *PodOptions) listPods(ctx context.Context) error {
 	}
 }
 
+// filterPodsByOwnerRef filter pods based on the ownerReferences from the --for flag
 func (o *PodOptions) filterPodsByOwnerRef(podList *corev1.PodList) []corev1.Pod {
 	filteredPods := make([]corev1.Pod, 0, len(podList.Items))
 
@@ -214,8 +224,8 @@ func (o *PodOptions) filterPodsByOwnerRef(podList *corev1.PodList) []corev1.Pod 
 		for _, ownerRef := range podList.Items[i].OwnerReferences {
 			gv, _ := schema.ParseGroupVersion(ownerRef.APIVersion)
 
-			if strings.EqualFold(o.ForObject.Kind, ownerRef.Kind) && strings.EqualFold(o.ForObject.Name, ownerRef.Name) {
-				if o.ForObject.APIGroup == "" || strings.EqualFold(o.ForObject.APIGroup, gv.Group) {
+			if strings.EqualFold(o.ForGVK.Kind, ownerRef.Kind) && strings.EqualFold(o.ForName, ownerRef.Name) {
+				if o.ForGVK.Group == "" || strings.EqualFold(o.ForGVK.Group, gv.Group) {
 					filteredPods = append(filteredPods, podList.Items[i])
 					break
 				}
