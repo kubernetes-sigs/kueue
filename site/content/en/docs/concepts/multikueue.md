@@ -6,8 +6,8 @@ description: >
   Kueue multi cluster job dispatching.
 ---
 
-{{% alert title="Warning" color="warning" %}}
-_Available in Kueue v0.6.0 and later_
+{{% alert title="Note" color="primary" %}}
+Available in Kueue v0.6.0 and newer
 {{% /alert %}}
 
 {{% alert title="Warning" color="warning" %}}
@@ -59,8 +59,7 @@ There is an ongoing effort to overcome these limitations by adding the possibili
 
 ### JobSet
 
-When you want to submit JobSets to a ClusterQueue with a MultiKueue admission check, you should set the `spec.managedBy` field to `kueue.x-k8s.io/multikueue`, otherwise the admission check controller will `Reject` the workload causing it to be marked as `Finished` with an error indicating the cause.
-The `managedBy` field is available in JobSet v0.5.0 and newer.
+We recommend using JobSet v0.5.1 or newer.
 
 ## Submitting Jobs
 In a [configured MultiKueue environment](/docs/tasks/manage/setup_multikueue), you can submit any MultiKueue supported job to the Manager cluster, targeting a ClusterQueue configured for Multikueue.
