@@ -179,7 +179,7 @@ If the output you get is similar to the following:
     Type:                  QuotaReserved
 ```
 
-This means you do not have sufficient free capacity in your ClusterQueue.
+This means you do not have sufficient free quota in your ClusterQueue.
 
 Other reasons why your Workload has not reserved quota may relate to LocalQueue/ClusterQueue misconfiguration, e.g.:
 
