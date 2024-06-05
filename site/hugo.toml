@@ -79,6 +79,7 @@ ignoreFiles = []
   twitter = "kubernetesio" # add your twitter profile
 
   copyright = "The Kubernetes Authors"
+  trademark_link = "https://www.linuxfoundation.org/legal/trademark-usage"
 
   # Google Custom Search Engine ID.
   # gcs_engine_id = "007239566369470735695:624rglujm-w"
