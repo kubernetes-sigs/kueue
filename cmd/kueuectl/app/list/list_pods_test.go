@@ -20,12 +20,15 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -39,6 +42,7 @@ func TestPodCmd(t *testing.T) {
 		name       string
 		namespace  string
 		pods       []runtime.Object
+		mapperGVKs []schema.GroupVersionKind
 		args       []string
 		wantOut    string
 		wantOutErr string
@@ -83,6 +87,13 @@ func TestPodCmd(t *testing.T) {
 					Status: corev1.PodStatus{
 						Phase: "COMPLETED",
 					},
+				},
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "batch",
+					Version: "",
+					Kind:    "Job",
 				},
 			},
 			args: []string{"--for", "job/test-job"},
@@ -131,6 +142,13 @@ valid-pod-2   COMPLETED   60m
 					},
 				},
 			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "batch",
+					Version: "",
+					Kind:    "Job",
+				},
+			},
 			args:    []string{"--for", "job/test-job"},
 			wantOut: "",
 			wantOutErr: `No resources found in default namespace.
@@ -176,6 +194,13 @@ valid-pod-2   COMPLETED   60m
 					},
 				},
 			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "batch",
+					Version: "",
+					Kind:    "Job",
+				},
+			},
 			args:    []string{"--for", "job/test-job", "-A"},
 			wantOut: "",
 			wantOutErr: `No resources found.
@@ -219,6 +244,13 @@ valid-pod-2   COMPLETED   60m
 					Status: corev1.PodStatus{
 						Phase: "COMPLETED",
 					},
+				},
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "batch",
+					Version: "",
+					Kind:    "Job",
 				},
 			},
 			args: []string{"--for", "job/sample-job", "-A"},
@@ -267,6 +299,13 @@ dev-team-b   valid-pod-2   COMPLETED   60m
 					},
 				},
 			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "kubeflow.org",
+					Version: "",
+					Kind:    "PyTorchJob",
+				},
+			},
 			args: []string{"--for", "pytorchjob/test-job"},
 			wantOut: `NAME          STATUS    AGE
 valid-pod-1   RUNNING   60m
@@ -310,6 +349,13 @@ valid-pod-1   RUNNING   60m
 					Status: corev1.PodStatus{
 						Phase: "COMPLETED",
 					},
+				},
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "kubeflow.org",
+					Version: "",
+					Kind:    "MXJob",
 				},
 			},
 			args: []string{"--for", "mxjob/test-job"},
@@ -357,6 +403,13 @@ valid-pod-1   RUNNING   60m
 					},
 				},
 			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "kubeflow.org",
+					Version: "",
+					Kind:    "PaddleJob",
+				},
+			},
 			args: []string{"--for", "paddlejob/test-job"},
 			wantOut: `NAME          STATUS    AGE
 valid-pod-1   RUNNING   60m
@@ -400,6 +453,13 @@ valid-pod-1   RUNNING   60m
 					Status: corev1.PodStatus{
 						Phase: "COMPLETED",
 					},
+				},
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "kubeflow.org",
+					Version: "",
+					Kind:    "TFJob",
 				},
 			},
 			args: []string{"--for", "tfjob/test-job"},
@@ -447,6 +507,13 @@ valid-pod-1   RUNNING   60m
 					},
 				},
 			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "kubeflow.org",
+					Version: "",
+					Kind:    "MPIJob",
+				},
+			},
 			args: []string{"--for", "mpijob/test-job"},
 			wantOut: `NAME          STATUS    AGE
 valid-pod-1   RUNNING   60m
@@ -490,6 +557,13 @@ valid-pod-1   RUNNING   60m
 					Status: corev1.PodStatus{
 						Phase: "COMPLETED",
 					},
+				},
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "kubeflow.org",
+					Version: "",
+					Kind:    "XGBoostJob",
 				},
 			},
 			args: []string{"--for", "xgboostjob/test-job"},
@@ -537,6 +611,13 @@ valid-pod-1   RUNNING   60m
 					},
 				},
 			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "ray.io",
+					Version: "",
+					Kind:    "RayJob",
+				},
+			},
 			args: []string{"--for", "rayjob/test-job"},
 			wantOut: `NAME          STATUS    AGE
 valid-pod-1   RUNNING   60m
@@ -580,6 +661,13 @@ valid-pod-1   RUNNING   60m
 					Status: corev1.PodStatus{
 						Phase: "COMPLETED",
 					},
+				},
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "ray.io",
+					Version: "",
+					Kind:    "RayCluster",
 				},
 			},
 			args: []string{"--for", "raycluster/test-job"},
@@ -627,6 +715,13 @@ valid-pod-1   RUNNING   60m
 					},
 				},
 			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "x-k8s.io",
+					Version: "",
+					Kind:    "JobSet",
+				},
+			},
 			args: []string{"--for", "jobset/test-job"},
 			wantOut: `NAME          STATUS    AGE
 valid-pod-1   RUNNING   60m
@@ -672,6 +767,13 @@ valid-pod-1   RUNNING   60m
 					},
 				},
 			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "x-k8s.io",
+					Version: "",
+					Kind:    "JobSet",
+				},
+			},
 			args: []string{"--for", "jobset.x-k8s.io/test-job"},
 			wantOut: `NAME          STATUS    AGE
 valid-pod-1   RUNNING   60m
@@ -683,8 +785,17 @@ valid-pod-1   RUNNING   60m
 		t.Run(tt.name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
+			mapper := func() *meta.DefaultRESTMapper {
+				m := meta.NewDefaultRESTMapper([]schema.GroupVersion{})
+				for _, gvk := range tt.mapperGVKs {
+					m.Add(gvk, meta.RESTScopeNamespace)
+				}
+				return m
+			}()
+
 			tf := cmdtesting.NewTestClientGetter()
 			tf.WithNamespace(metav1.NamespaceDefault)
+			tf.WithRestMapper(mapper)
 
 			clientset := k8sfake.NewSimpleClientset(tt.pods...)
 			tf.K8sClientset = clientset
