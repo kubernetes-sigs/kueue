@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	testingclock "k8s.io/utils/clock/testing"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
@@ -70,13 +71,13 @@ var _ = ginkgo.Describe("Kueuectl List", ginkgo.Ordered, ginkgo.ContinueOnFailur
 		ginkgo.It("Should print local queues list filtered by field selector", func() {
 			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
 			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
 			kueuectl.SetArgs([]string{"list", "localqueue", "--field-selector",
 				fmt.Sprintf("metadata.name=%s", lq1.Name), "--namespace", ns.Name})
-			executeTime := time.Now()
-			err := kueuectl.Execute()
 
+			err := kueuectl.Execute()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
@@ -91,13 +92,13 @@ lq1    cq1            0                   0                    %s
 		ginkgo.It("Should print local queues list with paging", func() {
 			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
 			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
 			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
 			kueuectl.SetArgs([]string{"list", "localqueue", "--namespace", ns.Name})
-			executeTime := time.Now()
-			err := kueuectl.Execute()
 
+			err := kueuectl.Execute()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
@@ -136,12 +137,12 @@ very-long-local-queue-name   cq1                            0                   
 		ginkgo.It("Should print local queues list filtered by field selector", func() {
 			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
 			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
 			kueuectl.SetArgs([]string{"list", "clusterqueue", "--field-selector",
 				fmt.Sprintf("metadata.name=%s", cq1.Name)})
 			err := kueuectl.Execute()
-			executeTime := time.Now()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
@@ -155,11 +156,11 @@ cq1             0                   0                    true     %s
 		ginkgo.It("Should print local queues list with paging", func() {
 			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
 			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
 			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
 			kueuectl.SetArgs([]string{"list", "clusterqueue"})
-			executeTime := time.Now()
 			err := kueuectl.Execute()
 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
@@ -195,11 +196,11 @@ very-long-cluster-queue-name            0                   0                   
 			ginkgo.It("Should print workloads list filtered by field selector", func() {
 				streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				executeTime := time.Now()
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
 				kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
 					fmt.Sprintf("metadata.name=%s", wl1.Name), "--namespace", ns.Name})
-				executeTime := time.Now()
 				err := kueuectl.Execute()
 
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
@@ -214,11 +215,11 @@ wl1                          lq1                         PENDING                
 			ginkgo.It("Should print workloads list with paging", func() {
 				streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				executeTime := time.Now()
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
 				os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
 				kueuectl.SetArgs([]string{"list", "workload", "--namespace", ns.Name})
-				executeTime := time.Now()
 				err := kueuectl.Execute()
 
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)

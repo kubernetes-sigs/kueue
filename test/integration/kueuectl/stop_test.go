@@ -17,12 +17,15 @@ limitations under the License.
 package kueuectl
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -64,7 +67,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 			ginkgo.By("Stop the created Workload", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
 
 				kueuectl.SetArgs([]string{"stop", "workload", wl.Name, "--namespace", ns.Name})
 				err := kueuectl.Execute()
@@ -102,7 +105,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 				ginkgo.By("Stop created ClusterQueue", func() {
 					streams, _, output, _ := genericiooptions.NewTestIOStreams()
 					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
 
 					kueuectl.SetArgs(append([]string{"stop", "clusterqueue", createdClusterQueue.Name}, stopCmdArgs...))
 					err := kueuectl.Execute()

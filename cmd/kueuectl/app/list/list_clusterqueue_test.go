@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	testingclock "k8s.io/utils/clock/testing"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
@@ -146,7 +147,7 @@ cq1    cohort1   1                   2                    true     60m
 			tf := cmdtesting.NewTestClientGetter()
 			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
 
-			cmd := NewClusterQueueCmd(tf, streams)
+			cmd := NewClusterQueueCmd(tf, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

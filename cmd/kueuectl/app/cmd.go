@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/create"
@@ -34,6 +35,7 @@ import (
 )
 
 type KueuectlOptions struct {
+	Clock       clock.Clock
 	ConfigFlags *genericclioptions.ConfigFlags
 
 	genericiooptions.IOStreams
@@ -48,6 +50,7 @@ func NewDefaultKueuectlCmd() *cobra.Command {
 	return NewKueuectlCmd(KueuectlOptions{
 		ConfigFlags: defaultConfigFlags().WithWarningPrinter(ioStreams),
 		IOStreams:   ioStreams,
+		Clock:       clock.RealClock{},
 	})
 }
 
@@ -75,7 +78,8 @@ func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	cmd.AddCommand(create.NewCreateCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(resume.NewResumeCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(stop.NewStopCmd(clientGetter, o.IOStreams))
-	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams))
+	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
+
 	pCommands, err := passthrough.NewCommands()
 	if err != nil {
 		// we can still use the other commands, jut push an warning

@@ -21,13 +21,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
@@ -51,6 +51,7 @@ func newListWorkloadResources() *listWorkloadResources {
 }
 
 type listWorkloadPrinter struct {
+	clock        clock.Clock
 	printOptions printers.PrintOptions
 	resources    *listWorkloadResources
 }
@@ -100,8 +101,14 @@ func (p *listWorkloadPrinter) WithResources(r *listWorkloadResources) *listWorkl
 	return p
 }
 
+func (p *listWorkloadPrinter) WithClock(c clock.Clock) *listWorkloadPrinter {
+	p.clock = c
+	return p
+}
+
 func newWorkloadTablePrinter() *listWorkloadPrinter {
 	return &listWorkloadPrinter{
+		clock:     clock.RealClock{},
 		resources: newListWorkloadResources(),
 	}
 }
@@ -139,7 +146,7 @@ func (p *listWorkloadPrinter) printWorkload(wl *v1beta1.Workload) metav1.TableRo
 		clusterQueueName,
 		strings.ToUpper(workload.Status(wl)),
 		positionInQueue,
-		duration.HumanDuration(time.Since(wl.CreationTimestamp.Time)),
+		duration.HumanDuration(p.clock.Since(wl.CreationTimestamp.Time)),
 	}
 
 	return row

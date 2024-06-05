@@ -25,6 +25,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -42,6 +43,7 @@ the label selector or the field selector.`
 )
 
 type LocalQueueOptions struct {
+	Clock      clock.Clock
 	PrintFlags *genericclioptions.PrintFlags
 
 	Limit              int64
@@ -56,15 +58,16 @@ type LocalQueueOptions struct {
 	genericiooptions.IOStreams
 }
 
-func NewLocalQueueOptions(streams genericiooptions.IOStreams) *LocalQueueOptions {
+func NewLocalQueueOptions(streams genericiooptions.IOStreams, clock clock.Clock) *LocalQueueOptions {
 	return &LocalQueueOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
+		Clock:      clock,
 	}
 }
 
-func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
-	o := NewLocalQueueOptions(streams)
+func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
+	o := NewLocalQueueOptions(streams, clock)
 
 	cmd := &cobra.Command{
 		Use: "localqueue [-–clusterqueue CLUSTER_QUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]",
@@ -120,7 +123,8 @@ func (o *LocalQueueOptions) ToPrinter(headers bool) (printers.ResourcePrinterFun
 	if !o.PrintFlags.OutputFlagSpecified() {
 		printer := newLocalQueueTablePrinter().
 			WithNamespace(o.AllNamespaces).
-			WithHeaders(headers)
+			WithHeaders(headers).
+			WithClock(o.Clock)
 		return printer.PrintObj, nil
 	}
 

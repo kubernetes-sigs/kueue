@@ -27,6 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -42,6 +43,7 @@ const (
 )
 
 type ClusterQueueOptions struct {
+	Clock clock.Clock
 	// PrintFlags holds options necessary for obtaining a printer
 	PrintFlags *genericclioptions.PrintFlags
 
@@ -59,15 +61,16 @@ type ClusterQueueOptions struct {
 	genericiooptions.IOStreams
 }
 
-func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOptions {
+func NewClusterQueueOptions(streams genericiooptions.IOStreams, clock clock.Clock) *ClusterQueueOptions {
 	return &ClusterQueueOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
+		Clock:      clock,
 	}
 }
 
-func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
-	o := NewClusterQueueOptions(streams)
+func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
+	o := NewClusterQueueOptions(streams, clock)
 
 	cmd := &cobra.Command{
 		Use:                   "clusterqueue [--selector key1=value1] [--field-selector key1=value1] [--active=true|false]",
@@ -117,7 +120,8 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 func (o *ClusterQueueOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, error) {
 	if !o.PrintFlags.OutputFlagSpecified() {
 		printer := newClusterQueueTablePrinter().
-			WithHeaders(headers)
+			WithHeaders(headers).
+			WithClock(o.Clock)
 		return printer.PrintObj, nil
 	}
 
