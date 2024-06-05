@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -57,11 +58,12 @@ func TestWlReconcile(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
 
 	cases := map[string]struct {
-		reconcileFor      string
-		managersWorkloads []kueue.Workload
-		managersJobs      []batchv1.Job
-		worker1Workloads  []kueue.Workload
-		worker1Jobs       []batchv1.Job
+		reconcileFor             string
+		managersWorkloads        []kueue.Workload
+		managersJobs             []batchv1.Job
+		managersDeletedWorkloads []*kueue.Workload
+		worker1Workloads         []kueue.Workload
+		worker1Jobs              []batchv1.Job
 		// second worker
 		useSecondWorker      bool
 		worker2Reconnecting  bool
@@ -83,6 +85,38 @@ func TestWlReconcile(t *testing.T) {
 	}{
 		"missing workload": {
 			reconcileFor: "missing workload",
+		},
+		"missing workload (in deleted workload cache)": {
+			reconcileFor: "wl1",
+			managersDeletedWorkloads: []*kueue.Workload{
+				baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
+		"missing workload (in deleted workload cache), no remote objects": {
+			reconcileFor: "wl1",
+			managersDeletedWorkloads: []*kueue.Workload{
+				baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
 		},
 		"unmanaged wl (no ac) is ignored": {
 			reconcileFor: "wl1",
@@ -709,6 +743,12 @@ func TestWlReconcile(t *testing.T) {
 			helper, _ := newMultiKueueStoreHelper(managerClient)
 			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultWorkerLostTimeout)
 
+			for _, val := range tc.managersDeletedWorkloads {
+				reconciler.Delete(event.DeleteEvent{
+					Object: val,
+				})
+			}
+
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
@@ -768,6 +808,10 @@ func TestWlReconcile(t *testing.T) {
 						t.Errorf("unexpected worker2 jobs (-want/+got):\n%s", diff)
 					}
 				}
+			}
+
+			if l := reconciler.deletedWlCache.Len(); l > 0 {
+				t.Errorf("unexpected deletedWlCache len %d expecting 0", l)
 			}
 		})
 	}

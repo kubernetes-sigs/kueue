@@ -41,6 +41,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -59,6 +60,7 @@ type wlReconciler struct {
 	clusters          *clustersReconciler
 	origin            string
 	workerLostTimeout time.Duration
+	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -156,13 +158,22 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 	wl := &kueue.Workload{}
-	if err := w.client.Get(ctx, req.NamespacedName, wl); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+	isDeleted := false
+	err := w.client.Get(ctx, req.NamespacedName, wl)
+	switch {
+	case client.IgnoreNotFound(err) != nil:
+		return reconcile.Result{}, err
+	case err != nil:
+		oldWl, found := w.deletedWlCache.Get(req.String())
+		if !found {
+			return reconcile.Result{}, nil
+		}
+		wl = oldWl
+		isDeleted = true
+
+	default:
+		isDeleted = !wl.DeletionTimestamp.IsZero()
 	}
-	// NOTE: the not found needs to be treated and should result in the deletion of all the remote workloads.
-	// since the list of remotes can only be taken from its list of admission check stats we need to either
-	// 1. use a finalizer
-	// 2. try to trigger the remote deletion from an event filter.
 
 	mkAc, err := w.multikueueAC(ctx, wl)
 	if err != nil {
@@ -198,6 +209,17 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
 	if err != nil {
 		return reconcile.Result{}, err
+	}
+
+	if isDeleted {
+		for cluster := range grp.remotes {
+			err := grp.RemoveRemoteObjects(ctx, cluster)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+		}
+		w.deletedWlCache.Delete(req.String())
+		return reconcile.Result{}, nil
 	}
 
 	return w.reconcileGroup(ctx, grp)
@@ -413,6 +435,25 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	return reconcile.Result{}, errors.Join(errs...)
 }
 
+func (w *wlReconciler) Create(_ event.CreateEvent) bool {
+	return true
+}
+
+func (w *wlReconciler) Delete(de event.DeleteEvent) bool {
+	if wl, isWl := de.Object.(*kueue.Workload); isWl && !de.DeleteStateUnknown {
+		w.deletedWlCache.Add(client.ObjectKeyFromObject(wl).String(), wl)
+	}
+	return true
+}
+
+func (w *wlReconciler) Update(_ event.UpdateEvent) bool {
+	return true
+}
+
+func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
+	return true
+}
+
 func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout time.Duration) *wlReconciler {
 	return &wlReconciler{
 		client:            c,
@@ -420,6 +461,7 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 		clusters:          cRec,
 		origin:            origin,
 		workerLostTimeout: workerLostTimeout,
+		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
 	}
 }
 
@@ -436,6 +478,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
 		WatchesRawSource(&source.Channel{Source: w.clusters.wlUpdateCh}, syncHndl).
+		WithEventFilter(w).
 		Complete(w)
 }
 
