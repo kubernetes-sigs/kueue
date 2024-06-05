@@ -24,8 +24,8 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/testing"
 	clientset "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
-	kjobv1alpha1 "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/typed/apis/v1alpha1"
-	fakekjobv1alpha1 "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/typed/apis/v1alpha1/fake"
+	kjobctlv1alpha1 "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/typed/apis/v1alpha1"
+	fakekjobctlv1alpha1 "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/typed/apis/v1alpha1/fake"
 )
 
 // NewSimpleClientset returns a clientset that will respond with the provided objects.
@@ -78,7 +78,7 @@ var (
 	_ testing.FakeClient  = &Clientset{}
 )
 
-// KjobV1alpha1 retrieves the KjobV1alpha1Client
-func (c *Clientset) KjobV1alpha1() kjobv1alpha1.KjobV1alpha1Interface {
-	return &fakekjobv1alpha1.FakeKjobV1alpha1{Fake: &c.Fake}
+// KjobctlV1alpha1 retrieves the KjobctlV1alpha1Client
+func (c *Clientset) KjobctlV1alpha1() kjobctlv1alpha1.KjobctlV1alpha1Interface {
+	return &fakekjobctlv1alpha1.FakeKjobctlV1alpha1{Fake: &c.Fake}
 }

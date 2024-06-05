@@ -6,14 +6,14 @@ domain: x-k8s.io
 layout:
 - go.kubebuilder.io/v4
 projectName: kjobctl
-repo: x-k8s.io/kueue
+repo: x-k8s.io/kjobctl
 resources:
-- api:
+- apis:
     crdVersion: v1
     namespaced: true
   domain: x-k8s.io
-  group: kueue.experimental
+  group: kjobctl
   kind: VolumeBundle
-  path: x-k8s.io/kueue/apis/v1alpha1
+  path: x-k8s.io/kjobctl/apis/v1alpha1
   version: v1alpha1
 version: "3"

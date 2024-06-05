@@ -15,6 +15,6 @@ limitations under the License.
 */
 
 // +kubebuilder:object:generate=true
-// +groupName=kjob.experimental.kueue.x-k8s.io
+// +groupName=kjobctl.x-k8s.io
 
 package v1alpha1

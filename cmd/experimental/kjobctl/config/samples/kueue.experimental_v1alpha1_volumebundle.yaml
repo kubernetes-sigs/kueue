@@ -1,9 +1,0 @@
-apiVersion: kjob.experimental.kueue.x-k8s.io/v1alpha1
-kind: VolumeBundle
-metadata:
-  labels:
-    app.kubernetes.io/name: kjobctl
-    app.kubernetes.io/managed-by: kustomize
-  name: volumebundle-sample
-spec:
-  # TODO(user): Add fields here

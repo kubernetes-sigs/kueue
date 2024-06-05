@@ -1,4 +1,0 @@
-## Append samples of your project ##
-resources:
-- kueue.experimental_v1alpha1_volumebundle.yaml
-# +kubebuilder:scaffold:manifestskustomizesamples

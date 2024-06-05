@@ -14,16 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package util
 
 import (
-	"os"
-
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd"
+	"github.com/spf13/cobra"
+	"k8s.io/klog/v2"
 )
 
-func main() {
-	if err := cmd.NewDefaultKjobctlCmd().Execute(); err != nil {
-		os.Exit(1)
+func FlagString(cmd *cobra.Command, flag string) string {
+	s, err := cmd.Flags().GetString(flag)
+	if err != nil {
+		klog.Fatalf("error accessing flag %s for command %s: %v", flag, cmd.Name(), err)
 	}
+	return s
 }

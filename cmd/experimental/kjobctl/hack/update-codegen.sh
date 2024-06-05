@@ -30,7 +30,7 @@ source "${CODEGEN_PKG}/kube_codegen.sh"
 # Generating conversion and defaults functions
 kube::codegen::gen_helpers \
   --boilerplate ${KJOBCTL_ROOT}/hack/boilerplate.go.txt \
-  "${KJOBCTL_ROOT}/apis/v1alpha1"
+  "${KJOBCTL_ROOT}"
 
 kube::codegen::gen_client \
   --boilerplate ${KJOBCTL_ROOT}/hack/boilerplate.go.txt \

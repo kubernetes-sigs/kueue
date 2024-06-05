@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package util
 
 import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	k8s "k8s.io/client-go/kubernetes"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
 )
@@ -25,7 +26,8 @@ import (
 type ClientGetter interface {
 	genericclioptions.RESTClientGetter
 
-	KueueClientSet() (versioned.Interface, error)
+	K8sClientSet() (k8s.Interface, error)
+	KjobctlClientset() (versioned.Interface, error)
 }
 
 type clientGetterImpl struct {
@@ -40,8 +42,22 @@ func NewClientGetter(clientGetter genericclioptions.RESTClientGetter) ClientGett
 	}
 }
 
-func (f *clientGetterImpl) KueueClientSet() (versioned.Interface, error) {
-	config, err := f.ToRESTConfig()
+func (cg *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
+	config, err := cg.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := k8s.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset, nil
+}
+
+func (cg *clientGetterImpl) KjobctlClientset() (versioned.Interface, error) {
+	config, err := cg.ToRESTConfig()
 	if err != nil {
 		return nil, err
 	}

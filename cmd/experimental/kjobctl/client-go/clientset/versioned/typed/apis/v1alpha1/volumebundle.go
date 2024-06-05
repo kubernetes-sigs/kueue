@@ -55,7 +55,7 @@ type volumeBundles struct {
 }
 
 // newVolumeBundles returns a VolumeBundles
-func newVolumeBundles(c *KjobV1alpha1Client, namespace string) *volumeBundles {
+func newVolumeBundles(c *KjobctlV1alpha1Client, namespace string) *volumeBundles {
 	return &volumeBundles{
 		client: c.RESTClient(),
 		ns:     namespace,

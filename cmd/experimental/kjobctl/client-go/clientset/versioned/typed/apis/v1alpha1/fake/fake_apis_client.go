@@ -23,17 +23,17 @@ import (
 	v1alpha1 "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/typed/apis/v1alpha1"
 )
 
-type FakeKjobV1alpha1 struct {
+type FakeKjobctlV1alpha1 struct {
 	*testing.Fake
 }
 
-func (c *FakeKjobV1alpha1) VolumeBundles(namespace string) v1alpha1.VolumeBundleInterface {
+func (c *FakeKjobctlV1alpha1) VolumeBundles(namespace string) v1alpha1.VolumeBundleInterface {
 	return &FakeVolumeBundles{c, namespace}
 }
 
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
-func (c *FakeKjobV1alpha1) RESTClient() rest.Interface {
+func (c *FakeKjobctlV1alpha1) RESTClient() rest.Interface {
 	var ret *rest.RESTClient
 	return ret
 }

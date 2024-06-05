@@ -9,14 +9,12 @@ GOBIN=$(shell go env GOBIN)
 endif
 
 GO_CMD ?= go
+GO_FMT ?= gofmt
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
-
-.PHONY: all
-all: build
 
 ##@ General
 
@@ -45,6 +43,28 @@ manifests: controller-gen ## Generate ClusterRole and CustomResourceDefinition o
 generate: gomod-download controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 	./hack/update-codegen.sh $(GO_CMD)
+
+.PHONY: verify
+verify: gomod-verify ci-lint fmt-verify manifests generate
+	git --no-pager diff --exit-code config/crd apis client-go
+
+.PHONY: gomod-verify
+gomod-verify:
+	$(GO_CMD) mod tidy
+	git --no-pager diff --exit-code go.mod go.sum
+
+.PHONY: ci-lint
+ci-lint: golangci-lint
+	$(GOLANGCI_LINT) run --timeout 15m0s
+
+.PHONY: fmt-verify
+fmt-verify:
+	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go')`; \
+	if [ -n "$$out" ]; then \
+	    echo "$$out"; \
+	    exit 1; \
+	fi
+
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -75,16 +95,6 @@ lint: golangci-lint ## Run golangci-lint linter
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
 
-##@ Build
-
-.PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
-
-.PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
-
 ##@ Deployment
 
 ifndef ignore-not-found
@@ -98,6 +108,10 @@ install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~
 .PHONY: uninstall
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: kubectl-kjob
+kubectl-kjob: ## Build kubectl-kjob binary file to bin directory.
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kjob cmd/main.go
 
 ##@ Dependencies
 

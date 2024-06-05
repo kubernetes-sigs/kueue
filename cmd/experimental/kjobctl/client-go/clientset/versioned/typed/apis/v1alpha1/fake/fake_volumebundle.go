@@ -30,7 +30,7 @@ import (
 
 // FakeVolumeBundles implements VolumeBundleInterface
 type FakeVolumeBundles struct {
-	Fake *FakeKjobV1alpha1
+	Fake *FakeKjobctlV1alpha1
 	ns   string
 }
 
