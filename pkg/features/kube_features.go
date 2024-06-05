@@ -103,14 +103,14 @@ func init() {
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	PartialAdmission:               {Default: true, PreRelease: featuregate.Beta},
-	QueueVisibility:                {Default: false, PreRelease: featuregate.Alpha},
-	FlavorFungibility:              {Default: true, PreRelease: featuregate.Beta},
-	ProvisioningACC:                {Default: true, PreRelease: featuregate.Beta},
-	VisibilityOnDemand:             {Default: false, PreRelease: featuregate.Alpha},
-	PrioritySortingWithinCohort:    {Default: true, PreRelease: featuregate.Beta},
-	MultiKueue:                     {Default: false, PreRelease: featuregate.Alpha},
-	LendingLimit:                   {Default: false, PreRelease: featuregate.Alpha},
+	PartialAdmission:                {Default: true, PreRelease: featuregate.Beta},
+	QueueVisibility:                 {Default: false, PreRelease: featuregate.Alpha},
+	FlavorFungibility:               {Default: true, PreRelease: featuregate.Beta},
+	ProvisioningACC:                 {Default: true, PreRelease: featuregate.Beta},
+	VisibilityOnDemand:              {Default: false, PreRelease: featuregate.Alpha},
+	PrioritySortingWithinCohort:     {Default: true, PreRelease: featuregate.Beta},
+	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
+	LendingLimit:                    {Default: false, PreRelease: featuregate.Alpha},
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
 }
 
