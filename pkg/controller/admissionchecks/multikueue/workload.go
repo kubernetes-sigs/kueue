@@ -197,13 +197,17 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
 	}
 
-	managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
-	if err != nil {
-		return reconcile.Result{}, err
-	}
+	// If the workload is deleted there is a chance that it's owner is also deleted. In that case
+	// we skip calling `IsJobManagedByKueue` as its output would not be reliable.
+	if !isDeleted {
+		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
+		if err != nil {
+			return reconcile.Result{}, err
+		}
 
-	if !managed {
-		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+		if !managed {
+			return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+		}
 	}
 
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)

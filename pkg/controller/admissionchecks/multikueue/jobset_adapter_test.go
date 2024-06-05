@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -50,10 +51,11 @@ func TestWlReconcileJobset(t *testing.T) {
 	baseJobSetBuilder := testingjobset.MakeJobSet("jobset1", TestNamespace).ManagedBy(ControllerName)
 
 	cases := map[string]struct {
-		managersWorkloads []kueue.Workload
-		managersJobSets   []jobset.JobSet
-		worker1Workloads  []kueue.Workload
-		worker1JobSets    []jobset.JobSet
+		managersWorkloads        []kueue.Workload
+		managersJobSets          []jobset.JobSet
+		managersDeletedWorkloads []*kueue.Workload
+		worker1Workloads         []kueue.Workload
+		worker1JobSets           []jobset.JobSet
 
 		wantError             error
 		wantManagersWorkloads []kueue.Workload
@@ -61,6 +63,27 @@ func TestWlReconcileJobset(t *testing.T) {
 		wantWorker1Workloads  []kueue.Workload
 		wantWorker1JobSets    []jobset.JobSet
 	}{
+		"missing workload (in deleted workload cache)": {
+			managersDeletedWorkloads: []*kueue.Workload{
+				baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			worker1JobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
 		"wl with unmanaged owner is rejected ": {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -325,6 +348,11 @@ func TestWlReconcileJobset(t *testing.T) {
 			helper, _ := newMultiKueueStoreHelper(managerClient)
 			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultWorkerLostTimeout)
 
+			for _, val := range tc.managersDeletedWorkloads {
+				reconciler.Delete(event.DeleteEvent{
+					Object: val,
+				})
+			}
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}})
 			if gotErr != nil {
 				t.Errorf("unexpected error: %s", gotErr)
