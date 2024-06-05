@@ -198,11 +198,11 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
-	if err != nil {
+	if err != nil && !isDeleted {
 		return reconcile.Result{}, err
 	}
 
-	if !managed {
+	if !managed && !isDeleted {
 		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
 	}
 
