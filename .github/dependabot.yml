@@ -1,9 +1,27 @@
 version: 2
 updates:
 
-  # Maintain dependencies for go
+  # Maintain dependencies for go in root
   - package-ecosystem: "gomod"
     directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+    groups:
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+    ignore:
+      # Ignore major and minor versions for dependencies updates
+      # Allow patches and security updates.
+      - dependency-name: k8s.io/*
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+# Maintain dependencies for go for internal tools
+  - package-ecosystem: "gomod"
+    directory: "/hack/internal/tools"
     schedule:
       interval: "weekly"
     labels:

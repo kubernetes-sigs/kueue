@@ -13,6 +13,7 @@
 # limitations under the License.
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
+TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
 BIN_DIR ?= $(PROJECT_DIR)/bin
 EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
 
@@ -24,16 +25,16 @@ endif
 GO_CMD ?= go
 
 # Use go.mod go version as source.
-GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
-GOLANGCI_LINT_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint)
-CONTROLLER_GEN_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-tools)
-KUSTOMIZE_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v4)
-ENVTEST_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
-GOTESTSUM_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
-KIND_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
-YQ_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
-HELM_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v3/cmd/helm)
-HUGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/gohugoio/hugo)
+GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+GOLANGCI_LINT_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint)
+CONTROLLER_GEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-tools)
+KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v4)
+ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
+GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
+KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
+YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
+HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v3/cmd/helm)
+HUGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/gohugoio/hugo)
 
 ##@ Tools
 
