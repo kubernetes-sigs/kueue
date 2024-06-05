@@ -761,11 +761,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 	})
 
 	ginkgo.It("Should remove the worker's workload and job when managers job is deleted", func() {
-		if managerK8sVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
-			ginkgo.Skip("the managers kubernetes version is less then 1.30")
-		}
 		job := testingjob.MakeJob("job", managerNs.Name).
-			ManagedBy(multikueue.ControllerName).
 			Queue(managerLq.Name).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())

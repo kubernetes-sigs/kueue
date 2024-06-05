@@ -56,22 +56,20 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 		if features.Enabled(features.MultiKueueBatchJobWithManageBy) {
 			localJob.Status = remoteJob.Status
 			return localClient.Status().Update(ctx, &localJob)
-		} else {
-			remoteFinished := false
-			for _, c := range remoteJob.Status.Conditions {
-				if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
-					remoteFinished = true
-					break
-				}
-			}
-
-			if remoteFinished {
-				localJob.Status = remoteJob.Status
-				return localClient.Status().Update(ctx, &localJob)
-			} else {
-				return nil
+		}
+		remoteFinished := false
+		for _, c := range remoteJob.Status.Conditions {
+			if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
+				remoteFinished = true
+				break
 			}
 		}
+
+		if remoteFinished {
+			localJob.Status = remoteJob.Status
+			return localClient.Status().Update(ctx, &localJob)
+		}
+		return nil
 	}
 
 	remoteJob = batchv1.Job{
