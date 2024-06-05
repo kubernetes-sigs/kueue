@@ -143,7 +143,7 @@ The arguments for Kueue container should be similar to the following:
       --feature-gates=ProvisioningACC=true
 ```
 
-Please note for Kueue `v0.7.0` or newer the feature is enabled by default, so you may see different output.
+Note for Kueue `v0.7.0` or newer the feature is enabled by default, so you may see different output.
 
 ### b. Ensure your Workload has reserved quota
 
@@ -195,7 +195,7 @@ Status:
 ```
 
 You can check if ClusterQueues and LocalQueues are ready to admit your Workloads.
-Please see the [Troubleshooting Queues](/docs/tasks/troubleshooting/troubleshooting_queues/) for more details.
+See the [Troubleshooting Queues](/docs/tasks/troubleshooting/troubleshooting_queues/) for more details.
 
 
 ### c. Ensure the Admission Check is active
@@ -206,7 +206,7 @@ To check if the Admission Check that your job uses is active run the following c
 kubectl describe admissionchecks ADMISSIONCHECK_NAME
 ```
 
-Where `ADMISSIONCHECK_NAME` is a name configured in your ClusterQueue spec. Please see the [Admission Check documentation](/docs/concepts/admission_check/) for more details.
+Where `ADMISSIONCHECK_NAME` is a name configured in your ClusterQueue spec. See the [Admission Check documentation](/docs/concepts/admission_check/) for more details.
 
 The status of the Admission Check should be similar to:
 
@@ -221,4 +221,4 @@ Status:
     Type:                  Active
 ```
 
-If none of the above steps resolves your problem, please contact us at the [Slack `wg-batch` channel](https://kubernetes.slack.com/archives/C032ZE66A2X)
+If none of the above steps resolves your problem, contact us at the [Slack `wg-batch` channel](https://kubernetes.slack.com/archives/C032ZE66A2X)
