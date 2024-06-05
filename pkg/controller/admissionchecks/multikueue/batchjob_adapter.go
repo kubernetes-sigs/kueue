@@ -53,7 +53,7 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 
 	// the remote job exists
 	if err == nil {
-		if features.Enabled(features.MultiKueueBatchJobWithManageBy) {
+		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
 			localJob.Status = remoteJob.Status
 			return localClient.Status().Update(ctx, &localJob)
 		}
@@ -92,7 +92,7 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 
-	if features.Enabled(features.MultiKueueBatchJobWithManageBy) {
+	if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
 		// clear the managedBy enables the batch/Job controller to take over
 		remoteJob.Spec.ManagedBy = nil
 	}
@@ -110,11 +110,11 @@ func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient c
 }
 
 func (b *batchJobAdapter) KeepAdmissionCheckPending() bool {
-	return !features.Enabled(features.MultiKueueBatchJobWithManageBy)
+	return !features.Enabled(features.MultiKueueBatchJobWithManagedBy)
 }
 
 func (b *batchJobAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
-	if !features.Enabled(features.MultiKueueBatchJobWithManageBy) {
+	if !features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
 		return true, "", nil
 	}
 

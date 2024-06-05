@@ -89,7 +89,7 @@ const (
 	// alpha: v0.8
 	//
 	// Enable the usage of batch.Job spec.managedBy field its MultiKueue integration.
-	MultiKueueBatchJobWithManageBy featuregate.Feature = "MultiKueueBatchJobWithManageBy"
+	MultiKueueBatchJobWithManagedBy featuregate.Feature = "MultiKueueBatchJobWithManagedBy"
 )
 
 func init() {
@@ -111,7 +111,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	PrioritySortingWithinCohort:    {Default: true, PreRelease: featuregate.Beta},
 	MultiKueue:                     {Default: false, PreRelease: featuregate.Alpha},
 	LendingLimit:                   {Default: false, PreRelease: featuregate.Alpha},
-	MultiKueueBatchJobWithManageBy: {Default: false, PreRelease: featuregate.Alpha},
+	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {
