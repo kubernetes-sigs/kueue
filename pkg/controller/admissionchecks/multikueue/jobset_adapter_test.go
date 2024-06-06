@@ -342,6 +342,7 @@ func TestWlReconcileJobset(t *testing.T) {
 
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 			w1remoteClient.client = worker1Client
+			w1remoteClient.connecting.Store(false)
 
 			cRec.remoteClients["worker1"] = w1remoteClient
 

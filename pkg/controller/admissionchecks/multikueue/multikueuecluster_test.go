@@ -76,7 +76,7 @@ func newTestClient(config string, watchCancel func()) *remoteClient {
 
 func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 	rc.failedConnAttempts = a
-	rc.pendingReconnect.Store(true)
+	rc.connecting.Store(true)
 	return rc
 }
 
@@ -535,6 +535,7 @@ func TestRemoteClientGC(t *testing.T) {
 
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 			w1remoteClient.client = worker1Client
+			w1remoteClient.connecting.Store(false)
 
 			w1remoteClient.runGC(ctx)
 
