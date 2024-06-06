@@ -426,6 +426,8 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
 	log := ctrl.LoggerFrom(ctx)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
+	wlPatch := workload.BaseSSAWorkload(wl)
+	recorderMessages := make([]string, 0, len(checks))
 	updated := false
 	for _, check := range checks {
 		checkState := *checksMap[check]
@@ -495,24 +497,23 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			}
 		}
 
-		wlPatch := workload.BaseSSAWorkload(wl)
 		existingCondition := workload.FindAdmissionCheck(wlPatch.Status.AdmissionChecks, checkState.Name)
-		var message string
 		if existingCondition != nil && existingCondition.State != checkState.State {
-			message = fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existingCondition.State, checkState.State)
+			message := fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existingCondition.State, checkState.State)
 			if checkState.Message != "" {
 				message += fmt.Sprintf(" with message %s", checkState.Message)
 			}
+			recorderMessages = append(recorderMessages, message)
 		}
-		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
 
-		if updated {
-			if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership); err != nil {
-				return err
-			}
-			if message != "" {
-				c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(message))
-			}
+		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
+	}
+	if updated {
+		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership); err != nil {
+			return err
+		}
+		for i := range recorderMessages {
+			c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
 	return nil
