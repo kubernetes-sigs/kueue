@@ -81,7 +81,7 @@ type remoteClient struct {
 	kubeconfig   []byte
 	origin       string
 
-	pendingReconnect   atomic.Bool
+	connecting         atomic.Bool
 	failedConnAttempts uint
 
 	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
@@ -98,6 +98,7 @@ func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- 
 		localClient:  localClient,
 		origin:       origin,
 	}
+	rc.connecting.Store(true)
 	return rc
 }
 
@@ -139,7 +140,7 @@ func (*workloadKueueWatcher) GetWorkloadKey(o runtime.Object) (types.NamespacedN
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
 func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (*time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(kubeconfig, rc.kubeconfig)
-	if !configChanged && !rc.pendingReconnect.Load() {
+	if !configChanged && !rc.connecting.Load() {
 		return nil, nil
 	}
 
@@ -183,7 +184,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 		}
 	}
 
-	rc.pendingReconnect.Store(false)
+	rc.connecting.Store(false)
 	rc.failedConnAttempts = 0
 	return nil, nil
 }
@@ -218,9 +219,9 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKu
 		log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
 		// If the context is not yet Done , queue a reconcile to attempt reconnection
 		if ctx.Err() == nil {
-			oldReconnect := rc.pendingReconnect.Swap(true)
+			oldConnecting := rc.connecting.Swap(true)
 			// reconnect if this is the first watch failing.
-			if !oldReconnect {
+			if !oldConnecting {
 				log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
 				rc.queueWatchEndedEvent(ctx)
 			}
@@ -258,6 +259,12 @@ func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 // is owned by a job, also delete the job.
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
+
+	if rc.connecting.Load() {
+		log.V(5).Info("Skip disconnected client")
+		return
+	}
+
 	lst := &kueue.WorkloadList{}
 	err := rc.client.List(ctx, lst, client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
 	if err != nil {

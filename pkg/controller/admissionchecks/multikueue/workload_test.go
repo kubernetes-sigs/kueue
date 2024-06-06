@@ -1012,6 +1012,7 @@ func TestWlReconcile(t *testing.T) {
 
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 			w1remoteClient.client = worker1Client
+			w1remoteClient.connecting.Store(false)
 			cRec.remoteClients["worker1"] = w1remoteClient
 
 			var worker2Client client.WithWatch
@@ -1042,8 +1043,8 @@ func TestWlReconcile(t *testing.T) {
 
 				w2remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
 				w2remoteClient.client = worker2Client
-				if tc.worker2Reconnecting {
-					w2remoteClient.pendingReconnect.Store(true)
+				if !tc.worker2Reconnecting {
+					w2remoteClient.connecting.Store(false)
 				}
 				cRec.remoteClients["worker2"] = w2remoteClient
 			}
