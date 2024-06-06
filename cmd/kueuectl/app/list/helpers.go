@@ -90,12 +90,11 @@ func addForObjectFlagVar(cmd *cobra.Command, p *string) {
 // (empty or not), whether it successfully found one, and an error
 // copied from https://github.com/kubernetes/kubernetes/blob/8565e375251450a291f0af3c6195c7a5bf890292/staging/src/k8s.io/kubectl/pkg/cmd/events/events.go#L380
 func decodeResourceTypeName(mapper meta.RESTMapper, s string) (gvk schema.GroupVersionKind, name string, found bool, err error) {
-	if !strings.Contains(s, "/") {
-		return
-	}
 	seg := strings.Split(s, "/")
 	if len(seg) != 2 {
-		err = errors.New("arguments in resource/name form may not have more than one slash")
+		if len(seg) > 2 {
+			err = errors.New("arguments in resource/name form may not have more than one slash")
+		}
 		return
 	}
 	resource, name := seg[0], seg[1]
