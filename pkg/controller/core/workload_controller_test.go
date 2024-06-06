@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -317,6 +318,8 @@ var (
 
 func TestReconcile(t *testing.T) {
 	testStartTime := time.Now()
+	fakeClock := testingclock.NewFakeClock(testStartTime)
+
 	cases := map[string]struct {
 		workload       *kueue.Workload
 		cq             *kueue.ClusterQueue
@@ -376,7 +379,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"admit": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuotaAt(utiltesting.MakeAdmission("q1").Obj(), testStartTime).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
@@ -400,6 +403,8 @@ func TestReconcile(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
 					EventType: "Normal",
 					Reason:    "Admitted",
+					Message: fmt.Sprintf("Admitted by ClusterQueue q1, wait time since reservation was %.0fs",
+						fakeClock.Since(metav1.NewTime(testStartTime).Time.Truncate(time.Second)).Seconds()),
 				},
 			},
 		},
@@ -475,6 +480,7 @@ func TestReconcile(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "ns", Name: "ownername"},
 					EventType: "Normal",
 					Reason:    "WorkloadFinished",
+					Message:   "Admission checks [check] are rejected",
 				},
 			},
 		},
@@ -930,7 +936,7 @@ func TestReconcile(t *testing.T) {
 			qManager := queue.NewManager(cl, cqCache)
 			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
 			// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
-			reconciler.clock = testingclock.NewFakeClock(testStartTime)
+			reconciler.clock = fakeClock
 
 			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
@@ -964,7 +970,7 @@ func TestReconcile(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
