@@ -247,7 +247,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (m
 	for _, clusterName := range cfg.Spec.Clusters {
 		if client, found := w.clusters.controllerFor(clusterName); found {
 			// Skip the client if its reconnect is ongoing.
-			if !client.pendingReconnect.Load() {
+			if !client.connecting.Load() {
 				clients[clusterName] = client
 			}
 		}
