@@ -11,7 +11,7 @@ require (
 	helm.sh/helm/v3 v3.15.1
 	k8s.io/code-generator v0.30.1
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240522175850-2e9781e9fc60
-	sigs.k8s.io/controller-tools v0.14.0
+	sigs.k8s.io/controller-tools v0.15.0
 	sigs.k8s.io/kind v0.23.0
 	sigs.k8s.io/kustomize/kustomize/v4 v4.5.7
 )
