@@ -27,6 +27,7 @@ import (
 	"github.com/onsi/gomega"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -58,6 +59,8 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
+	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+
 	managerClusterName = os.Getenv("MANAGER_KIND_CLUSTER_NAME")
 	gomega.Expect(managerClusterName).NotTo(gomega.BeEmpty(), "MANAGER_KIND_CLUSTER_NAME should not be empty")
 

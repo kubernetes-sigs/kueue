@@ -26,6 +26,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
@@ -53,6 +54,8 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
+	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+
 	k8sClient = util.CreateClientUsingCluster("")
 	visibilityClient = util.CreateVisibilityClient("")
 	impersonatedVisibilityClient = util.CreateVisibilityClient("system:serviceaccount:kueue-system:default")
