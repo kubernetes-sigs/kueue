@@ -7,7 +7,7 @@ fullnameOverride: ""
 enablePrometheus: false
 # Enable x509 automated certificate management using cert-manager (cert-manager.io)
 enableCertManager: false
-# Customize controlerManager
+# Customize controllerManager
 controllerManager:
   #featureGates:
   #  - name: PartialAdmission
