@@ -366,7 +366,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 							Type:    kueue.WorkloadEvicted,
 							Status:  metav1.ConditionTrue,
 							Reason:  kueue.WorkloadEvictedByDeactivation,
-							Message: "At least one admission check is Rejected",
+							Message: "The workload is deactivated",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 						gomega.BeComparableTo(metav1.Condition{
 							Type:    kueue.WorkloadAdmitted,

@@ -514,12 +514,6 @@ func TestReconcile(t *testing.T) {
 						Status:  metav1.ConditionTrue,
 						Reason:  "ByTest",
 						Message: "Admitted by ClusterQueue q1",
-					},
-					metav1.Condition{
-						Type:    kueue.WorkloadEvicted,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadEvictedByDeactivation,
-						Message: "At least one admission check is Rejected",
 					}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
