@@ -471,7 +471,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 				}
 			case isCapacityRevoked(pr):
 				if workload.IsActive(wl) && !workload.IsFinished(wl) {
-					// We mark the admission check as rejected to trigger workload eviction and deactivation.
+					// We mark the admission check as rejected to trigger workload eviction.
 					// This is needed to prevent replacement pods being stuck in the pending phase indefinitely
 					// as the nodes are already deleted by Cluster Autoscaler.
 					updated = updateCheckState(&checkState, kueue.CheckStateRejected) || updated
