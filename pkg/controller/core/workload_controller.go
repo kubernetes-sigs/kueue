@@ -153,7 +153,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	if ptr.Deref(wl.Spec.Active, true) {
+	if workload.IsActive(&wl) {
 		var updated bool
 		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
 			switch cond.Reason {
@@ -420,7 +420,7 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionCh
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if !ptr.Deref(wl.Spec.Active, true) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+	if !workload.IsActive(wl) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 		// the workload has already been evicted by the PodsReadyTimeout or been deactivated.
 		return ctrl.Result{}, nil
 	}
@@ -568,7 +568,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	status := workload.Status(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	ctx := ctrl.LoggerInto(context.Background(), log)
-	active := ptr.Deref(wl.Spec.Active, true)
+	active := workload.IsActive(wl)
 
 	prevQueue := oldWl.Spec.QueueName
 	if prevQueue != wl.Spec.QueueName {

@@ -290,7 +290,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			time.Sleep(podsReadyTimeout)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
-				g.Expect(ptr.Deref(prodWl.Spec.Active, true)).Should(gomega.BeFalse())
+				g.Expect(workload.IsActive(prodWl)).Should(gomega.BeFalse())
 				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
 				workload.SetRequeuedCondition(prodWl, kueue.WorkloadEvictedByDeactivation, "by test", false)
 				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, prodWl, true)).Should(gomega.Succeed())
@@ -686,7 +686,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
 				Count: ptr.To[int32](2),
 			}, false)
-			gomega.Expect(ptr.Deref(prodWl.Spec.Active, true)).Should(gomega.BeTrue())
+			gomega.Expect(workload.IsActive(prodWl)).Should(gomega.BeTrue())
 		})
 	})
 

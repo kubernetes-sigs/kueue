@@ -335,10 +335,10 @@ func TestReconcile(t *testing.T) {
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			configs: []kueue.ProvisioningRequestConfig{{ObjectMeta: metav1.ObjectMeta{Name: "config1"}}},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				GetProvisioningRequestName("wl", baseCheck.Name, 1): {
+				ProvisioningRequestName("wl", baseCheck.Name, 1): {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: TestNamespace,
-						Name:      GetProvisioningRequestName("wl", baseCheck.Name, 1),
+						Name:      ProvisioningRequestName("wl", baseCheck.Name, 1),
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								Name: "wl",
@@ -741,8 +741,8 @@ func TestReconcile(t *testing.T) {
 				baseWorkload.Name: baseWorkloadWithCheck1Ready.DeepCopy(),
 			},
 			wantRequestsNotFound: []string{
-				GetProvisioningRequestName("wl", "check1", 1),
-				GetProvisioningRequestName("wl", "check2", 1),
+				ProvisioningRequestName("wl", "check1", 1),
+				ProvisioningRequestName("wl", "check2", 1),
 			},
 		},
 		"workloads status gets updated based on the provisioning request": {
@@ -791,6 +791,161 @@ func TestReconcile(t *testing.T) {
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
 					}).
+					Obj(),
+			},
+		},
+		"workload sets AdmissionCheck status to Rejected when it is not finished and receives the provisioning request's CapacityRevoked condition": {
+			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Admitted(true).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config1",
+					},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+					},
+				},
+			},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest,
+					[]metav1.Condition{
+						{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.Accepted,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.CapacityRevoked,
+							Status: metav1.ConditionTrue,
+						},
+					}),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateRejected,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Admitted(true).
+					Obj(),
+			},
+		},
+		"workload sets AdmissionCheck status to Rejected when it is not admitted and receives the provisioning request's CapacityRevoked condition": {
+			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Admitted(false).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config1",
+					},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+					},
+				},
+			},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest,
+					[]metav1.Condition{
+						{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.Accepted,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.CapacityRevoked,
+							Status: metav1.ConditionTrue,
+						},
+					}),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateRejected,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Admitted(false).
+					Obj(),
+			},
+		},
+		"workloads doesnt set AdmissionCheck status to Rejected when it is finished and receives the provisioning request's CapacityRevoked condition": {
+			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "ByTest",
+					Message: "Finished by test",
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config1",
+					},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+					},
+				},
+			},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest,
+					[]metav1.Condition{
+						{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.Accepted,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.CapacityRevoked,
+							Status: metav1.ConditionTrue,
+						},
+					}),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStatePending,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Finished().
 					Obj(),
 			},
 		},
