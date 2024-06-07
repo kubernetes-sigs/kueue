@@ -25,7 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -509,6 +509,14 @@ func TestReconcile(t *testing.T) {
 					Message: "At least one admission check is false",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToAdmissionCheck",
+					Message:   "At least one admission check is false",
+				},
+			},
 		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
@@ -555,6 +563,14 @@ func TestReconcile(t *testing.T) {
 				// 10s * 2^(4-1) = 80s
 				RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Add(80*time.Second).Truncate(time.Second)))).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
 		},
 		"deactivate workload when reaching backoffLimitCount": {
 			reconcilerOpts: []Option{
@@ -590,12 +606,6 @@ func TestReconcile(t *testing.T) {
 				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{{
-				Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-				EventType: v1.EventTypeNormal,
-				Reason:    kueue.WorkloadEvictedByDeactivation,
-				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffLimitCount",
-			}},
 		},
 		"wait time should be limited to backoffMaxSeconds": {
 			reconcilerOpts: []Option{
@@ -642,6 +652,14 @@ func TestReconcile(t *testing.T) {
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
 				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
 		},
 		"should set the WorkloadRequeued condition to true on re-activated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -818,6 +836,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToInactiveWorkload",
+					Message:   "The workload is deactivated",
+				},
+			},
 		},
 		"should set the Evicted condition with InactiveWorkload reason when the .spec.active is False, Admitted, and the Workload has Evicted=False condition": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -842,6 +868,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToInactiveWorkload",
+					Message:   "The workload is deactivated",
+				},
+			},
 		},
 		"[backoffLimitCount: 0] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition": {
@@ -881,6 +915,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToInactiveWorkload",
+					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				},
+			},
 		},
 		"[backoffLimitCount: 100] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
 			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition, and the requeueState.count equals to backoffLimitCount": {
@@ -923,6 +965,14 @@ func TestReconcile(t *testing.T) {
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
 				RequeueState(ptr.To[int32](100), nil).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToInactiveWorkload",
+					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				},
+			},
 		},
 		"should keep the previous eviction reason when the Workload is already evicted by other reason even though the Workload is deactivated.": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -969,6 +1019,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The ClusterQueue is stopped",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToClusterQueueStopped",
+					Message:   "The ClusterQueue is stopped",
+				},
+			},
 		},
 		"should set the Evicted condition with LocalQueueStopped reason when the StopPolicy is HoldAndDrain": {
 			cq: utiltesting.MakeClusterQueue("cq").Obj(),

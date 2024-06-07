@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -686,4 +688,9 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 		}
 	}
 	return acNames
+}
+
+func ReportEvictedWorkload(recorder record.EventRecorder, wl *kueue.Workload, cqName, reason, message string) {
+	metrics.ReportEvictedWorkloads(cqName, reason)
+	recorder.Event(wl, corev1.EventTypeNormal, fmt.Sprintf("%sDueTo%s", kueue.WorkloadEvicted, reason), message)
 }
