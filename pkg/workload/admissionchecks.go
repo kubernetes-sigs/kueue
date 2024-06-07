@@ -138,7 +138,7 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
 	return mustHaveChecks.Len() == 0
 }
 
-// HasRetryChecks returns true if any of the workloads checks is Retry or Rejected
+// HasRetryChecks returns true if any of the workloads checks is Retry
 func HasRetryChecks(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
 		state := wl.Status.AdmissionChecks[i].State
@@ -149,7 +149,7 @@ func HasRetryChecks(wl *kueue.Workload) bool {
 	return false
 }
 
-// HasRetryOrRejectedChecks returns true if any of the workloads checks is Rejected
+// HasRejectedChecks returns true if any of the workloads checks is Rejected
 func HasRejectedChecks(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
 		state := wl.Status.AdmissionChecks[i].State
