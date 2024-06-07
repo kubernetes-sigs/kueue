@@ -211,10 +211,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			ginkgo.By("Checking no provision request is created", func() {
-				provReqKey := types.NamespacedName{
-					Namespace: wlKey.Namespace,
-					Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac.Name, 1),
-				}
 				gomega.Consistently(func() error {
 					request := &autoscaling.ProvisioningRequest{}
 					return k8sClient.Get(ctx, provReqKey, request)
@@ -249,10 +245,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			createdRequest := &autoscaling.ProvisioningRequest{}
 			ginkgo.By("Checking that the provision request is created", func() {
-				provReqKey := types.NamespacedName{
-					Namespace: wlKey.Namespace,
-					Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac.Name, 1),
-				}
 				gomega.Eventually(func() error {
 					return k8sClient.Get(ctx, provReqKey, createdRequest)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -311,10 +303,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			ginkgo.By("Checking that the provision request is preserved", func() {
-				provReqKey := types.NamespacedName{
-					Namespace: wlKey.Namespace,
-					Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac.Name, 1),
-				}
 				gomega.Consistently(func() error {
 					return k8sClient.Get(ctx, provReqKey, createdRequest)
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
@@ -346,10 +334,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			provReqKey := types.NamespacedName{
-				Namespace: wlKey.Namespace,
-				Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac.Name, 1),
-			}
 			ginkgo.By("Setting the provision request as Accepted", func() {
 				createdRequest := &autoscaling.ProvisioningRequest{}
 				gomega.Eventually(func() error {
@@ -462,10 +446,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			ginkgo.By("Setting the provision request as Failed", func() {
 				createdRequest := &autoscaling.ProvisioningRequest{}
-				provReqKey := types.NamespacedName{
-					Namespace: wlKey.Namespace,
-					Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac.Name, 1),
-				}
 				gomega.Eventually(func() error {
 					err := k8sClient.Get(ctx, provReqKey, createdRequest)
 					if err != nil {
@@ -623,10 +603,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			createdRequest := &autoscaling.ProvisioningRequest{}
-			provReqKey := types.NamespacedName{
-				Namespace: wlKey.Namespace,
-				Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac.Name, 1),
-			}
 			ginkgo.By("Checking that the provision request is created", func() {
 				gomega.Eventually(func() error {
 					return k8sClient.Get(ctx, provReqKey, createdRequest)
@@ -712,10 +688,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			ginkgo.By("Checking no provision request is deleted", func() {
-				provReqKey := types.NamespacedName{
-					Namespace: wlKey.Namespace,
-					Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac.Name, 1),
-				}
 				gomega.Eventually(func() error {
 					request := &autoscaling.ProvisioningRequest{}
 					return k8sClient.Get(ctx, provReqKey, request)
@@ -757,11 +729,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			createdRequest := &autoscaling.ProvisioningRequest{}
-			provReqKey := types.NamespacedName{
-				Namespace: wlKey.Namespace,
-				Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac.Name, 1),
-			}
-
 			ginkgo.By("Checking that the provision request is created", func() {
 				gomega.Eventually(func() error {
 					return k8sClient.Get(ctx, provReqKey, createdRequest)

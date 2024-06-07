@@ -1742,7 +1742,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 			ginkgo.By("checking the workload is evicted due to pods ready timeout")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeTrue())
+				g.Expect(workload.IsActive(wl)).Should(gomega.BeTrue())
 				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
 				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(ptr.To[int32](1)))
 				g.Expect(wl.Status.RequeueState.RequeueAt).Should(gomega.BeNil())
@@ -1794,7 +1794,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 			ginkgo.By("checking the workload is deactivated and evicted")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
+				g.Expect(workload.IsActive(wl)).Should(gomega.BeFalse())
 				g.Expect(wl.Status.RequeueState).Should(gomega.BeNil())
 				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
 					gomega.BeComparableTo(metav1.Condition{

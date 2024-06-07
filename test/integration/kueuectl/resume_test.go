@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -57,7 +58,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 			ginkgo.By("Get the created Workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wl.Name, Namespace: ns.Name}, createdWorkload)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
+					g.Expect(workload.IsActive(wl)).Should(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -74,7 +75,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 			ginkgo.By("Check that the Workload successfully resumed", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wl.Name, Namespace: ns.Name}, wl)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeTrue())
+					g.Expect(workload.IsActive(wl)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
