@@ -346,7 +346,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 			})
 
-			ginkgo.By("setting a rejected check conditions the workload should be evicted and admitted condition kept", func() {
+			ginkgo.By("setting a rejected check conditions the workload should be deactivated and evicted", func() {
 				gomega.Eventually(func() error {
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
@@ -381,6 +381,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 							Message: "Quota reserved in ClusterQueue cluster-queue",
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
+					g.Expect(workload.IsActive(&createdWl)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

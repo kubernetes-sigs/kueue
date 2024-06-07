@@ -524,6 +524,32 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"admitted workload with retry checks": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRetry,
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRetry,
+				}).
+				Condition(metav1.Condition{
+					Type:    "Evicted",
+					Status:  "True",
+					Reason:  "AdmissionCheck",
+					Message: "At least one admission check is false",
+				}).
+				Obj(),
+		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
