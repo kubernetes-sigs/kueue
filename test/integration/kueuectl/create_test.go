@@ -17,12 +17,15 @@ limitations under the License.
 package kueuectl
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -57,7 +60,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			ginkgo.By("Create a local queue with full flags", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(output)
 

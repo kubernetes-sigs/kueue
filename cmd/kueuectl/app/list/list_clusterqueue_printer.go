@@ -19,17 +19,18 @@ package list
 import (
 	"errors"
 	"io"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 type listClusterQueuePrinter struct {
+	clock        clock.Clock
 	printOptions printers.PrintOptions
 }
 
@@ -52,7 +53,7 @@ func (p *listClusterQueuePrinter) PrintObj(obj runtime.Object, out io.Writer) er
 			{Name: "Active", Type: "boolean"},
 			{Name: "Age", Type: "string"},
 		},
-		Rows: printClusterQueueList(list),
+		Rows: p.printClusterQueueList(list),
 	}
 
 	return printer.PrintObj(table, out)
@@ -63,19 +64,26 @@ func (p *listClusterQueuePrinter) WithHeaders(f bool) *listClusterQueuePrinter {
 	return p
 }
 
-func newClusterQueueTablePrinter() *listClusterQueuePrinter {
-	return &listClusterQueuePrinter{}
+func (p *listClusterQueuePrinter) WithClock(c clock.Clock) *listClusterQueuePrinter {
+	p.clock = c
+	return p
 }
 
-func printClusterQueueList(list *v1beta1.ClusterQueueList) []metav1.TableRow {
+func newClusterQueueTablePrinter() *listClusterQueuePrinter {
+	return &listClusterQueuePrinter{
+		clock: clock.RealClock{},
+	}
+}
+
+func (p *listClusterQueuePrinter) printClusterQueueList(list *v1beta1.ClusterQueueList) []metav1.TableRow {
 	rows := make([]metav1.TableRow, len(list.Items))
 	for index := range list.Items {
-		rows[index] = printClusterQueue(&list.Items[index])
+		rows[index] = p.printClusterQueue(&list.Items[index])
 	}
 	return rows
 }
 
-func printClusterQueue(clusterQueue *v1beta1.ClusterQueue) metav1.TableRow {
+func (p *listClusterQueuePrinter) printClusterQueue(clusterQueue *v1beta1.ClusterQueue) metav1.TableRow {
 	row := metav1.TableRow{
 		Object: runtime.RawExtension{Object: clusterQueue},
 	}
@@ -85,7 +93,7 @@ func printClusterQueue(clusterQueue *v1beta1.ClusterQueue) metav1.TableRow {
 		clusterQueue.Status.PendingWorkloads,
 		clusterQueue.Status.AdmittedWorkloads,
 		isActiveStatus(clusterQueue),
-		duration.HumanDuration(time.Since(clusterQueue.CreationTimestamp.Time)),
+		duration.HumanDuration(p.clock.Since(clusterQueue.CreationTimestamp.Time)),
 	}
 
 	return row

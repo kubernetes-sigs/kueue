@@ -27,6 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -53,6 +54,7 @@ const (
 )
 
 type WorkloadOptions struct {
+	Clock      clock.Clock
 	PrintFlags *genericclioptions.PrintFlags
 
 	Limit              int64
@@ -69,15 +71,16 @@ type WorkloadOptions struct {
 	genericiooptions.IOStreams
 }
 
-func NewWorkloadOptions(streams genericiooptions.IOStreams) *WorkloadOptions {
+func NewWorkloadOptions(streams genericiooptions.IOStreams, clock clock.Clock) *WorkloadOptions {
 	return &WorkloadOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
+		Clock:      clock,
 	}
 }
 
-func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
-	o := NewWorkloadOptions(streams)
+func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
+	o := NewWorkloadOptions(streams, clock)
 
 	cmd := &cobra.Command{
 		Use:                   "workload [-–clusterqueue CLUSTER_QUEUE_NAME] [-–localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]",
@@ -165,7 +168,8 @@ func (o *WorkloadOptions) ToPrinter(r *listWorkloadResources, headers bool) (pri
 		printer := newWorkloadTablePrinter().
 			WithResources(r).
 			WithNamespace(o.AllNamespaces).
-			WithHeaders(headers)
+			WithHeaders(headers).
+			WithClock(o.Clock)
 		return printer.PrintObj, nil
 	}
 	printer, err := o.PrintFlags.ToPrinter()

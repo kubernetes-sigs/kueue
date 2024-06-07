@@ -31,6 +31,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	kubetesting "k8s.io/client-go/testing"
+	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
@@ -567,7 +568,8 @@ wl2               j2         lq2          cq2            PENDING   22           
 			tf.KueueClientset = clientset
 			tf.KueueClientset.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists
 
-			cmd := NewWorkloadCmd(tf, streams)
+			fc := testingclock.NewFakeClock(testStartTime)
+			cmd := NewWorkloadCmd(tf, streams, fc)
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
