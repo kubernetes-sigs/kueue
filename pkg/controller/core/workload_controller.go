@@ -360,7 +360,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		}
 		return true, client.IgnoreNotFound(err)
 	}
-	// if Workload has Rejected checks deactivate it
+	// at this point we know a Workload has at least one Rejected AdmissionCheck
 	wl.Spec.Active = ptr.To(false)
 	if err := r.client.Update(ctx, wl); err != nil {
 		return false, err
