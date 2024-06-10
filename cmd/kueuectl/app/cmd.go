@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/resume"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/stop"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/version"
 )
 
 type KueuectlOptions struct {
@@ -79,6 +80,8 @@ func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	cmd.AddCommand(resume.NewResumeCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(stop.NewStopCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
+	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
+	cmd.AddCommand(version.NewVersionCmd(clientGetter, o.IOStreams))
 
 	pCommands, err := passthrough.NewCommands()
 	if err != nil {

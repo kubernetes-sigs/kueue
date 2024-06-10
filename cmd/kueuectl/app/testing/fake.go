@@ -4,10 +4,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	k8s "k8s.io/client-go/kubernetes"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
-	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
+	kueuefake "sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
@@ -29,7 +30,8 @@ func NewTestClientGetter() *TestClientGetter {
 		WithNamespace(metav1.NamespaceDefault)
 	return &TestClientGetter{
 		ClientGetter:   util.NewClientGetter(configFlags),
-		KueueClientset: fake.NewSimpleClientset(),
+		KueueClientset: kueuefake.NewSimpleClientset(),
+		K8sClientset:   k8sfake.NewSimpleClientset(),
 		configFlags:    configFlags,
 	}
 }
