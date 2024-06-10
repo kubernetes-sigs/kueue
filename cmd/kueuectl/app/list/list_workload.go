@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -231,6 +232,8 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		namespace = ""
 	}
 
+	var jobUID types.UID
+	var jobUIDLabelSelector string
 	if o.Result != nil {
 		infos, err := o.Result.Infos()
 		if err != nil {
@@ -251,22 +254,23 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
 			return nil
 		}
-		jobUID := job.GetUID()
+		jobUID = job.GetUID()
 
 		if len(o.LabelSelector) != 0 {
-			o.LabelSelector += ","
+			jobUIDLabelSelector += ","
 		}
-		o.LabelSelector += fmt.Sprintf("%s=%s", constants.JobUIDLabel, jobUID)
+		jobUIDLabelSelector += fmt.Sprintf("%s=%s", constants.JobUIDLabel, jobUID)
 	}
 
 	opts := metav1.ListOptions{
-		LabelSelector: o.LabelSelector,
+		LabelSelector: o.LabelSelector + jobUIDLabelSelector,
 		FieldSelector: o.FieldSelector,
 		Limit:         o.Limit,
 	}
 
 	tabWriter := printers.GetNewTabWriter(o.Out)
 
+	var enableOwnerReferenceFilter bool
 	for {
 		headers := totalCount == 0
 
@@ -275,7 +279,13 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		o.filterList(list)
+		if o.Result != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
+			opts.LabelSelector = o.LabelSelector
+			enableOwnerReferenceFilter = true
+			continue
+		}
+
+		o.filterList(list, enableOwnerReferenceFilter, jobUID)
 
 		totalCount += len(list.Items)
 
@@ -327,13 +337,14 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	}
 }
 
-func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList) {
+func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList, enableOwnerReferenceFilter bool, uid types.UID) {
 	if len(list.Items) == 0 {
 		return
 	}
 	filteredItems := make([]v1beta1.Workload, 0, len(o.LocalQueueFilter))
 	for _, wl := range list.Items {
-		if o.filterByLocalQueue(&wl) && o.filterByClusterQueue(&wl) && o.filterByStatuses(&wl) {
+		if o.filterByLocalQueue(&wl) && o.filterByClusterQueue(&wl) && o.filterByStatuses(&wl) &&
+			o.filterByOwnerReference(&wl, enableOwnerReferenceFilter, uid) {
 			filteredItems = append(filteredItems, wl)
 		}
 	}
@@ -370,6 +381,20 @@ func (o *WorkloadOptions) filterByStatuses(wl *v1beta1.Workload) bool {
 
 	if o.StatusesFilter.Has(workloadStatusFinished) && status == workload.StatusFinished {
 		return true
+	}
+
+	return false
+}
+
+func (o *WorkloadOptions) filterByOwnerReference(wl *v1beta1.Workload, isEnabled bool, uid types.UID) bool {
+	if !isEnabled {
+		return true
+	}
+
+	for _, ow := range wl.OwnerReferences {
+		if ow.UID == uid {
+			return true
+		}
 	}
 
 	return false

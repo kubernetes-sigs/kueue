@@ -29,6 +29,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -556,6 +557,73 @@ wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING 
 wl1    job.batch   job-test   lq1          cq1            PENDING                       120m
 `,
 		},
+		"should print workload list with resource filter and composable jobs": {
+			args: []string{"--for", "pod/pod-test-1"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+				{
+					GroupVersion: "v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "pod",
+							Kind:         "Pod",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-test-1", "pod-test-uid-1").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-test-2", "pod-test-uid-2").
+					Queue("lq2").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				corev1.SchemeGroupVersion.WithKind("Pod"),
+			},
+			job: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-test",
+						Namespace: "default",
+						UID:       types.UID("pod-test-uid-1"),
+					},
+				},
+			},
+			wantOut: `NAME   JOB TYPE   JOB NAME                 LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+wl2    pod        pod-test-1, pod-test-2   lq2          cq2            PENDING                       3h
+`,
+		},
 		"should print workload list with custom resource filter": {
 			args: []string{"--for", "rayjob/job-test"},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -767,6 +835,9 @@ wl2               j2         lq2          cq2            PENDING   22           
 					t.Errorf("Unexpected error\n%s", err)
 				}
 				if err := batchv1.AddToScheme(scheme); err != nil {
+					t.Errorf("Unexpected error\n%s", err)
+				}
+				if err := corev1.AddToScheme(scheme); err != nil {
 					t.Errorf("Unexpected error\n%s", err)
 				}
 
