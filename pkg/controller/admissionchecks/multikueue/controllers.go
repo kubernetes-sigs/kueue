@@ -63,9 +63,9 @@ func WithWorkerLostTimeout(d time.Duration) SetupOption {
 	}
 }
 
-// WithEventBatchPeriod - sets the delay used when adding remote triggered
+// WithEventsBatchPeriod - sets the delay used when adding remote triggered
 // events to the workload's reconcile queue.
-func WithEventBatchPeriod(d time.Duration) SetupOption {
+func WithEventsBatchPeriod(d time.Duration) SetupOption {
 	return func(o *SetupOptions) {
 		o.eventsBatchPeriod = d
 	}
