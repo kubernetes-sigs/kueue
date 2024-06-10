@@ -76,8 +76,8 @@ type WorkloadOptions struct {
 
 	UserSpecifiedForObject string
 
-	ClientSet clientset.Interface
-	Result    *resource.Result
+	ClientSet                 clientset.Interface
+	UnstructuredObjectsStream *resource.Result
 
 	genericiooptions.IOStreams
 }
@@ -201,7 +201,7 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 		if err := r.Err(); err != nil {
 			return err
 		}
-		o.Result = r
+		o.UnstructuredObjectsStream = r
 	}
 
 	return nil
@@ -234,8 +234,8 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 
 	var jobUID types.UID
 	var jobUIDLabelSelector string
-	if o.Result != nil {
-		infos, err := o.Result.Infos()
+	if o.UnstructuredObjectsStream != nil {
+		infos, err := o.UnstructuredObjectsStream.Infos()
 		if err != nil {
 			return err
 		}
@@ -279,7 +279,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		if o.Result != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
+		if o.UnstructuredObjectsStream != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
 			opts.LabelSelector = o.LabelSelector
 			enableOwnerReferenceFilter = true
 			continue
