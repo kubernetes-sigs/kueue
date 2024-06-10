@@ -154,7 +154,9 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
-				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) {
+				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) &&
+			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
+				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) {
 			c.inadmissibleWorkloads[key] = wInfo
 			return
 		}
@@ -168,8 +170,12 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	c.heap.PushOrUpdate(wInfo)
 }
 
-// backoffWaitingTimeExpired returns true if the current time is after the requeueAt.
+// backoffWaitingTimeExpired returns true if the current time is after the requeueAt
+// and Requeued condition not present or equal True.
 func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
+	if apimeta.IsStatusConditionFalse(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued) {
+		return false
+	}
 	if wInfo.Obj.Status.RequeueState == nil || wInfo.Obj.Status.RequeueState.RequeueAt == nil {
 		return true
 	}
