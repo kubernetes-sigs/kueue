@@ -219,7 +219,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// because we need to react to API cluster cq events, the list of checks from a cache can lead to race conditions
 		cq := kueue.ClusterQueue{}
 		if err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &cq); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		// If stopped cluster queue is started we need to set the WorkloadRequeued condition to true.
 		if isDisabledRequeuedByClusterQueueStopped(&wl) && ptr.Deref(cq.Spec.StopPolicy, kueue.None) == kueue.None {
