@@ -31,7 +31,6 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
-	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -73,11 +72,11 @@ type WorkloadOptions struct {
 	StatusesFilter     sets.Set[int]
 	forGVK             schema.GroupVersionKind
 	forName            string
+	forObject          *unstructured.Unstructured
 
 	UserSpecifiedForObject string
 
-	ClientSet                 clientset.Interface
-	UnstructuredObjectsStream *resource.Result
+	ClientSet clientset.Interface
 
 	genericiooptions.IOStreams
 }
@@ -201,7 +200,26 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 		if err := r.Err(); err != nil {
 			return err
 		}
-		o.UnstructuredObjectsStream = r
+		infos, err := r.Infos()
+		if err != nil {
+			return err
+		}
+
+		if len(infos) == 0 {
+			if !o.AllNamespaces {
+				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+			} else {
+				fmt.Fprintln(o.ErrOut, "No resources found")
+			}
+			return nil
+		}
+
+		job, ok := infos[0].Object.(*unstructured.Unstructured)
+		if !ok {
+			fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
+			return nil
+		}
+		o.forObject = job
 	}
 
 	return nil
@@ -234,27 +252,8 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 
 	var jobUID types.UID
 	var jobUIDLabelSelector string
-	if o.UnstructuredObjectsStream != nil {
-		infos, err := o.UnstructuredObjectsStream.Infos()
-		if err != nil {
-			return err
-		}
-
-		if len(infos) == 0 {
-			if !o.AllNamespaces {
-				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
-			} else {
-				fmt.Fprintln(o.ErrOut, "No resources found")
-			}
-			return nil
-		}
-
-		job, ok := infos[0].Object.(*unstructured.Unstructured)
-		if !ok {
-			fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
-			return nil
-		}
-		jobUID = job.GetUID()
+	if o.forObject != nil {
+		jobUID = o.forObject.GetUID()
 
 		if len(o.LabelSelector) != 0 {
 			jobUIDLabelSelector += ","
@@ -279,7 +278,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		if o.UnstructuredObjectsStream != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
+		if o.forObject != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
 			opts.LabelSelector = o.LabelSelector
 			enableOwnerReferenceFilter = true
 			continue
