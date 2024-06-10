@@ -4,11 +4,8 @@ metadata:
   name: "cluster-queue-2"
 spec:
   namespaceSelector: {} # match all.
-  flavorFallbackStrategy:
-    rules:
-      - name: "reservation" # first we try with reservation flavor
-        timeout: 10m        # we wait for 10 mins for a job to be started
-      - name: "spot"        # if job is not started after 10 mins we try spot flavor
-        timeout: 15m        # we wait for 15 min for a job to be started
-      - name: "on-demand"   # if job is not started after 15 mins we try on-demand flavor
-      # no timeout since there is no flavor to fallback to
+  admissionChecksStrategy:
+    admissionChecks:
+    - name: "sample-prov"           # Name of the AdmissionCheck to be run
+      onFlavors: ["default-flavor"] # This AdmissionCheck will only run for Workloads that use default-flavor
+    - name: "sample-prov-2" # This AdmissionCheck will run for all Workloads regardless of a used ResourceFlavor

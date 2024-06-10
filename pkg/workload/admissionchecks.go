@@ -99,13 +99,13 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
 }
 
-// GetRejectedChecks returns the list of Rejected admission checks
-func GetRejectedChecks(wl *kueue.Workload) []string {
-	rejectedChecks := make([]string, 0, len(wl.Status.AdmissionChecks))
+// RejectedChecks returns the list of Rejected admission checks
+func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
+	rejectedChecks := make([]kueue.AdmissionCheckState, 0, len(wl.Status.AdmissionChecks))
 	for i := range wl.Status.AdmissionChecks {
 		ac := wl.Status.AdmissionChecks[i]
 		if ac.State == kueue.CheckStateRejected {
-			rejectedChecks = append(rejectedChecks, ac.Name)
+			rejectedChecks = append(rejectedChecks, ac)
 		}
 	}
 	return rejectedChecks
