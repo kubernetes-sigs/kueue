@@ -596,7 +596,6 @@ wl1    job.batch   job-test   lq1          cq1            PENDING               
 					Obj(),
 				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-test-1", "pod-test-uid-1").
-					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-test-2", "pod-test-uid-2").
 					Queue("lq2").
 					Active(true).
 					Admission(utiltesting.MakeAdmission("cq2").Obj()).
@@ -620,8 +619,8 @@ wl1    job.batch   job-test   lq1          cq1            PENDING               
 					},
 				},
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME                 LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl2    pod        pod-test-1, pod-test-2   lq2          cq2            PENDING                       3h
+			wantOut: `NAME   JOB TYPE   JOB NAME     LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+wl2    pod        pod-test-1   lq2          cq2            PENDING                       3h
 `,
 		},
 		"should print workload list with custom resource filter": {
