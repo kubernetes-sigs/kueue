@@ -29,7 +29,7 @@ type ClientGetter interface {
 
 	KueueClientSet() (versioned.Interface, error)
 	K8sClientSet() (k8s.Interface, error)
-	NewBuilder() *resource.Builder
+	NewResourceBuilder() *resource.Builder
 }
 
 type clientGetterImpl struct {
@@ -72,6 +72,6 @@ func (f *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
 	return clientset, nil
 }
 
-func (f *clientGetterImpl) NewBuilder() *resource.Builder {
+func (f *clientGetterImpl) NewResourceBuilder() *resource.Builder {
 	return resource.NewBuilder(f.RESTClientGetter)
 }

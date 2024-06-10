@@ -59,7 +59,7 @@ func (f *TestClientGetter) K8sClientSet() (k8s.Interface, error) {
 	return f.K8sClientset, nil
 }
 
-func (f *TestClientGetter) NewBuilder() *resource.Builder {
+func (f *TestClientGetter) NewResourceBuilder() *resource.Builder {
 	return resource.NewFakeBuilder(
 		func(version schema.GroupVersion) (resource.RESTClient, error) {
 			return f.UnstructuredClient, nil

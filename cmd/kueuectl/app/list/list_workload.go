@@ -187,7 +187,7 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 			return errors.New("--for must be in resource/name form")
 		}
 
-		r := clientGetter.NewBuilder().
+		r := clientGetter.NewResourceBuilder().
 			Unstructured().
 			NamespaceParam(o.Namespace).
 			DefaultNamespace().
