@@ -217,7 +217,7 @@ func DeleteRuntimeClass(ctx context.Context, c client.Client, runtimeClass *node
 	return nil
 }
 
-func UnholdQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
+func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var cqCopy kueue.ClusterQueue
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
@@ -226,6 +226,18 @@ func UnholdQueue(ctx context.Context, k8sClient client.Client, cq *kueue.Cluster
 		}
 		cqCopy.Spec.StopPolicy = ptr.To(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var lqCopy kueue.LocalQueue
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &lqCopy)).To(gomega.Succeed())
+		if ptr.Deref(lqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
+			return
+		}
+		lqCopy.Spec.StopPolicy = ptr.To(kueue.None)
+		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 

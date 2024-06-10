@@ -1206,6 +1206,20 @@ There could be up to 16 resources.</p>
    <p>clusterQueue is a reference to a clusterQueue that backs this localQueue.</p>
 </td>
 </tr>
+<tr><td><code>stopPolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-StopPolicy"><code>StopPolicy</code></a>
+</td>
+<td>
+   <p>stopPolicy - if set to a value different from None, the LocalQueue is considered Inactive,
+no new reservation being made.</p>
+<p>Depending on its value, its associated workloads will:</p>
+<ul>
+<li>None - Workloads are admitted</li>
+<li>HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.</li>
+<li>Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.</li>
+</ul>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1827,6 +1841,8 @@ words, it's the used quota that is over the nominalQuota.</p>
 **Appears in:**
 
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
 
 
