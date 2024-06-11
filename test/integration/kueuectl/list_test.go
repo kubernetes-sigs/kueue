@@ -24,10 +24,12 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
@@ -123,9 +125,17 @@ very-long-local-queue-name   cq1                            0                   
 		ginkgo.JustBeforeEach(func() {
 			cq1 = testing.MakeClusterQueue("cq1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq1)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).Should(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(cq1.Status.Conditions, v1beta1.ClusterQueueActive)).Should(gomega.BeTrue())
+			}).Should(gomega.Succeed())
 
 			cq2 = testing.MakeClusterQueue("very-long-cluster-queue-name").Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq2)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq2), cq2)).Should(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(cq2.Status.Conditions, v1beta1.ClusterQueueActive)).Should(gomega.BeTrue())
+			}).Should(gomega.Succeed())
 		})
 
 		ginkgo.JustAfterEach(func() {
@@ -134,7 +144,7 @@ very-long-local-queue-name   cq1                            0                   
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.
-		ginkgo.It("Should print local queues list filtered by field selector", func() {
+		ginkgo.It("Should print cluster queues list filtered by field selector", func() {
 			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
 			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 			executeTime := time.Now()
@@ -153,7 +163,7 @@ cq1             0                   0                    true     %s
 		})
 
 		// Simple client set that are using on unit tests not allow paging.
-		ginkgo.It("Should print local queues list with paging", func() {
+		ginkgo.It("Should print cluster queues list with paging", func() {
 			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
 			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 			executeTime := time.Now()
@@ -167,7 +177,7 @@ cq1             0                   0                    true     %s
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                           COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
 cq1                                     0                   0                    true     %s
-very-long-cluster-queue-name            0                   0                    false    %s
+very-long-cluster-queue-name            0                   0                    true     %s
 `,
 				duration.HumanDuration(executeTime.Sub(cq1.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(cq2.CreationTimestamp.Time)),
