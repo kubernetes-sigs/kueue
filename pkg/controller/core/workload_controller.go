@@ -338,12 +338,13 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "At least one admission check is false")
+	message := "At least one admission check is false"
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, message)
 	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
 		return false, client.IgnoreNotFound(err)
 	}
 	cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-	metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByAdmissionCheck)
+	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message)
 	return true, nil
 }
 

@@ -547,6 +547,14 @@ func TestReconcile(t *testing.T) {
 					Message: "At least one admission check is false",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Normal",
+					Reason:    "EvictedDueToAdmissionCheck",
+					Message:   "At least one admission check is false",
+				},
+			},
 		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
