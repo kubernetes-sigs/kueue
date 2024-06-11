@@ -181,9 +181,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	} else {
 		var updated, evicted bool
+		message := "The workload is deactivated"
 		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-			message := "The workload is deactivated"
-
 			// The deactivation reason could be deduced as the maximum number of re-queuing retries if the workload met all criteria below:
 			//  1. The waitForPodsReady feature is enabled, which means that it has "PodsReady" condition.
 			//  2. The workload has already exceeded the PodsReadyTimeout.
@@ -208,7 +207,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 			}
 			if evicted && wl.Status.Admission != nil {
-				metrics.ReportEvictedWorkloads(string(wl.Status.Admission.ClusterQueue), kueue.WorkloadEvictedByDeactivation)
+				workload.ReportEvictedWorkload(r.recorder, &wl, string(wl.Status.Admission.ClusterQueue),
+					kueue.WorkloadEvictedByDeactivation, message)
 			}
 			return ctrl.Result{}, nil
 		}
@@ -351,11 +351,12 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	}
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Workload is evicted due to admission checks")
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "At least one admission check is false")
+	message := "At least one admission check is false"
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, message)
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 	if err == nil {
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-		metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByAdmissionCheck)
+		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message)
 	}
 	return true, client.IgnoreNotFound(err)
 }
@@ -433,10 +434,11 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 			return false, nil
 		}
 		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", cqName))
-		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByClusterQueueStopped, "The ClusterQueue is stopped")
+		message := "The ClusterQueue is stopped"
+		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByClusterQueueStopped, message)
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 		if err == nil {
-			metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByClusterQueueStopped)
+			workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByClusterQueueStopped, message)
 		}
 		return true, client.IgnoreNotFound(err)
 	}
@@ -510,11 +512,12 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
 		return ctrl.Result{}, err
 	}
-	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
+	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String())
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, message)
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 	if err == nil {
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-		metrics.ReportEvictedWorkloads(cqName, kueue.WorkloadEvictedByPodsReadyTimeout)
+		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByPodsReadyTimeout, message)
 	}
 	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
@@ -534,8 +537,6 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 		if err := r.client.Update(ctx, wl); err != nil {
 			return false, err
 		}
-		r.recorder.Eventf(wl, corev1.EventTypeNormal, kueue.WorkloadEvictedByDeactivation,
-			"Deactivated Workload %q by reached re-queue backoffLimitCount", klog.KObj(wl))
 		return true, nil
 	}
 	// Every backoff duration is about "60s*2^(n-1)+Rand" where:
