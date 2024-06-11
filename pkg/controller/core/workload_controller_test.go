@@ -454,7 +454,7 @@ func TestReconcile(t *testing.T) {
 				DeletionTimestamp(testStartTime).
 				Obj(),
 		},
-		"unadmitted workload with rejected checks": {
+		"unadmitted workload with rejected checks gets deactivated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -466,27 +466,22 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Active(false).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
-				Condition(metav1.Condition{
-					Type:    "Finished",
-					Status:  "True",
-					Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
-					Message: "Deactivating workload because AdmissionCheck for check was Rejected: ",
-				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "ownername"},
-					EventType: "Normal",
-					Reason:    "WorkloadFinished",
-					Message:   "Admission checks [check] are rejected",
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Warning",
+					Reason:    "AdmissionCheckRejected",
+					Message:   "Deactivating workload because AdmissionCheck for check was Rejected: ",
 				},
 			},
 		},
-		"admitted workload with rejected checks": {
+		"admitted workload with rejected checks gets deactivated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
