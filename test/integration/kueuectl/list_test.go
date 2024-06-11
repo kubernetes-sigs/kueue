@@ -229,9 +229,9 @@ very-long-workload-name                         lq1                             
 wl1                                             lq1                                         PENDING                       %s
 wl2                                             very-long-local-queue-name                  PENDING                       %s
 `,
+					duration.HumanDuration(executeTime.Sub(wl3.CreationTimestamp.Time)),
 					duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)),
 					duration.HumanDuration(executeTime.Sub(wl2.CreationTimestamp.Time)),
-					duration.HumanDuration(executeTime.Sub(wl3.CreationTimestamp.Time)),
 				)))
 			})
 		})
