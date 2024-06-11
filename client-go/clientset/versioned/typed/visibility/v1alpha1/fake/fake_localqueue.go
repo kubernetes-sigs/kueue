@@ -43,22 +43,24 @@ var localqueuesKind = v1alpha1.SchemeGroupVersion.WithKind("LocalQueue")
 
 // Get takes name of the localQueue, and returns the corresponding localQueue object, and an error if there is any.
 func (c *FakeLocalQueues) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.LocalQueue, err error) {
+	emptyResult := &v1alpha1.LocalQueue{}
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(localqueuesResource, c.ns, name), &v1alpha1.LocalQueue{})
+		Invokes(testing.NewGetAction(localqueuesResource, c.ns, name), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.LocalQueue), err
 }
 
 // List takes label and field selectors, and returns the list of LocalQueues that match those selectors.
 func (c *FakeLocalQueues) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.LocalQueueList, err error) {
+	emptyResult := &v1alpha1.LocalQueueList{}
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(localqueuesResource, localqueuesKind, c.ns, opts), &v1alpha1.LocalQueueList{})
+		Invokes(testing.NewListAction(localqueuesResource, localqueuesKind, c.ns, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 
 	label, _, _ := testing.ExtractFromListOptions(opts)
@@ -83,22 +85,24 @@ func (c *FakeLocalQueues) Watch(ctx context.Context, opts v1.ListOptions) (watch
 
 // Create takes the representation of a localQueue and creates it.  Returns the server's representation of the localQueue, and an error, if there is any.
 func (c *FakeLocalQueues) Create(ctx context.Context, localQueue *v1alpha1.LocalQueue, opts v1.CreateOptions) (result *v1alpha1.LocalQueue, err error) {
+	emptyResult := &v1alpha1.LocalQueue{}
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(localqueuesResource, c.ns, localQueue), &v1alpha1.LocalQueue{})
+		Invokes(testing.NewCreateAction(localqueuesResource, c.ns, localQueue), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.LocalQueue), err
 }
 
 // Update takes the representation of a localQueue and updates it. Returns the server's representation of the localQueue, and an error, if there is any.
 func (c *FakeLocalQueues) Update(ctx context.Context, localQueue *v1alpha1.LocalQueue, opts v1.UpdateOptions) (result *v1alpha1.LocalQueue, err error) {
+	emptyResult := &v1alpha1.LocalQueue{}
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(localqueuesResource, c.ns, localQueue), &v1alpha1.LocalQueue{})
+		Invokes(testing.NewUpdateAction(localqueuesResource, c.ns, localQueue), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.LocalQueue), err
 }
@@ -121,11 +125,12 @@ func (c *FakeLocalQueues) DeleteCollection(ctx context.Context, opts v1.DeleteOp
 
 // Patch applies the patch and returns the patched localQueue.
 func (c *FakeLocalQueues) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.LocalQueue, err error) {
+	emptyResult := &v1alpha1.LocalQueue{}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(localqueuesResource, c.ns, name, pt, data, subresources...), &v1alpha1.LocalQueue{})
+		Invokes(testing.NewPatchSubresourceAction(localqueuesResource, c.ns, name, pt, data, subresources...), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.LocalQueue), err
 }
@@ -143,22 +148,24 @@ func (c *FakeLocalQueues) Apply(ctx context.Context, localQueue *visibilityv1alp
 	if name == nil {
 		return nil, fmt.Errorf("localQueue.Name must be provided to Apply")
 	}
+	emptyResult := &v1alpha1.LocalQueue{}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(localqueuesResource, c.ns, *name, types.ApplyPatchType, data), &v1alpha1.LocalQueue{})
+		Invokes(testing.NewPatchSubresourceAction(localqueuesResource, c.ns, *name, types.ApplyPatchType, data), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.LocalQueue), err
 }
 
 // GetPendingWorkloadsSummary takes name of the localQueue, and returns the corresponding pendingWorkloadsSummary object, and an error if there is any.
 func (c *FakeLocalQueues) GetPendingWorkloadsSummary(ctx context.Context, localQueueName string, options v1.GetOptions) (result *v1alpha1.PendingWorkloadsSummary, err error) {
+	emptyResult := &v1alpha1.PendingWorkloadsSummary{}
 	obj, err := c.Fake.
-		Invokes(testing.NewGetSubresourceAction(localqueuesResource, c.ns, "pendingworkloads", localQueueName), &v1alpha1.PendingWorkloadsSummary{})
+		Invokes(testing.NewGetSubresourceAction(localqueuesResource, c.ns, "pendingworkloads", localQueueName), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.PendingWorkloadsSummary), err
 }

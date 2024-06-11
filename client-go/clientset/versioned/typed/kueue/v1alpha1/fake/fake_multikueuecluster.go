@@ -42,20 +42,22 @@ var multikueueclustersKind = v1alpha1.SchemeGroupVersion.WithKind("MultiKueueClu
 
 // Get takes name of the multiKueueCluster, and returns the corresponding multiKueueCluster object, and an error if there is any.
 func (c *FakeMultiKueueClusters) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.MultiKueueCluster, err error) {
+	emptyResult := &v1alpha1.MultiKueueCluster{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootGetAction(multikueueclustersResource, name), &v1alpha1.MultiKueueCluster{})
+		Invokes(testing.NewRootGetAction(multikueueclustersResource, name), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.MultiKueueCluster), err
 }
 
 // List takes label and field selectors, and returns the list of MultiKueueClusters that match those selectors.
 func (c *FakeMultiKueueClusters) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.MultiKueueClusterList, err error) {
+	emptyResult := &v1alpha1.MultiKueueClusterList{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootListAction(multikueueclustersResource, multikueueclustersKind, opts), &v1alpha1.MultiKueueClusterList{})
+		Invokes(testing.NewRootListAction(multikueueclustersResource, multikueueclustersKind, opts), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 
 	label, _, _ := testing.ExtractFromListOptions(opts)
@@ -79,31 +81,34 @@ func (c *FakeMultiKueueClusters) Watch(ctx context.Context, opts v1.ListOptions)
 
 // Create takes the representation of a multiKueueCluster and creates it.  Returns the server's representation of the multiKueueCluster, and an error, if there is any.
 func (c *FakeMultiKueueClusters) Create(ctx context.Context, multiKueueCluster *v1alpha1.MultiKueueCluster, opts v1.CreateOptions) (result *v1alpha1.MultiKueueCluster, err error) {
+	emptyResult := &v1alpha1.MultiKueueCluster{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootCreateAction(multikueueclustersResource, multiKueueCluster), &v1alpha1.MultiKueueCluster{})
+		Invokes(testing.NewRootCreateAction(multikueueclustersResource, multiKueueCluster), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.MultiKueueCluster), err
 }
 
 // Update takes the representation of a multiKueueCluster and updates it. Returns the server's representation of the multiKueueCluster, and an error, if there is any.
 func (c *FakeMultiKueueClusters) Update(ctx context.Context, multiKueueCluster *v1alpha1.MultiKueueCluster, opts v1.UpdateOptions) (result *v1alpha1.MultiKueueCluster, err error) {
+	emptyResult := &v1alpha1.MultiKueueCluster{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateAction(multikueueclustersResource, multiKueueCluster), &v1alpha1.MultiKueueCluster{})
+		Invokes(testing.NewRootUpdateAction(multikueueclustersResource, multiKueueCluster), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.MultiKueueCluster), err
 }
 
 // UpdateStatus was generated because the type contains a Status member.
 // Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *FakeMultiKueueClusters) UpdateStatus(ctx context.Context, multiKueueCluster *v1alpha1.MultiKueueCluster, opts v1.UpdateOptions) (*v1alpha1.MultiKueueCluster, error) {
+func (c *FakeMultiKueueClusters) UpdateStatus(ctx context.Context, multiKueueCluster *v1alpha1.MultiKueueCluster, opts v1.UpdateOptions) (result *v1alpha1.MultiKueueCluster, err error) {
+	emptyResult := &v1alpha1.MultiKueueCluster{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateSubresourceAction(multikueueclustersResource, "status", multiKueueCluster), &v1alpha1.MultiKueueCluster{})
+		Invokes(testing.NewRootUpdateSubresourceAction(multikueueclustersResource, "status", multiKueueCluster), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.MultiKueueCluster), err
 }
@@ -125,10 +130,11 @@ func (c *FakeMultiKueueClusters) DeleteCollection(ctx context.Context, opts v1.D
 
 // Patch applies the patch and returns the patched multiKueueCluster.
 func (c *FakeMultiKueueClusters) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.MultiKueueCluster, err error) {
+	emptyResult := &v1alpha1.MultiKueueCluster{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceAction(multikueueclustersResource, name, pt, data, subresources...), &v1alpha1.MultiKueueCluster{})
+		Invokes(testing.NewRootPatchSubresourceAction(multikueueclustersResource, name, pt, data, subresources...), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.MultiKueueCluster), err
 }
@@ -146,10 +152,11 @@ func (c *FakeMultiKueueClusters) Apply(ctx context.Context, multiKueueCluster *k
 	if name == nil {
 		return nil, fmt.Errorf("multiKueueCluster.Name must be provided to Apply")
 	}
+	emptyResult := &v1alpha1.MultiKueueCluster{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceAction(multikueueclustersResource, *name, types.ApplyPatchType, data), &v1alpha1.MultiKueueCluster{})
+		Invokes(testing.NewRootPatchSubresourceAction(multikueueclustersResource, *name, types.ApplyPatchType, data), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.MultiKueueCluster), err
 }
@@ -168,10 +175,11 @@ func (c *FakeMultiKueueClusters) ApplyStatus(ctx context.Context, multiKueueClus
 	if name == nil {
 		return nil, fmt.Errorf("multiKueueCluster.Name must be provided to Apply")
 	}
+	emptyResult := &v1alpha1.MultiKueueCluster{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceAction(multikueueclustersResource, *name, types.ApplyPatchType, data, "status"), &v1alpha1.MultiKueueCluster{})
+		Invokes(testing.NewRootPatchSubresourceAction(multikueueclustersResource, *name, types.ApplyPatchType, data, "status"), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.MultiKueueCluster), err
 }

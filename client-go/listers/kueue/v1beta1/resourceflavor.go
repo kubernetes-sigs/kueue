@@ -18,8 +18,8 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/listers"
 	"k8s.io/client-go/tools/cache"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -38,30 +38,10 @@ type ResourceFlavorLister interface {
 
 // resourceFlavorLister implements the ResourceFlavorLister interface.
 type resourceFlavorLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*v1beta1.ResourceFlavor]
 }
 
 // NewResourceFlavorLister returns a new ResourceFlavorLister.
 func NewResourceFlavorLister(indexer cache.Indexer) ResourceFlavorLister {
-	return &resourceFlavorLister{indexer: indexer}
-}
-
-// List lists all ResourceFlavors in the indexer.
-func (s *resourceFlavorLister) List(selector labels.Selector) (ret []*v1beta1.ResourceFlavor, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.ResourceFlavor))
-	})
-	return ret, err
-}
-
-// Get retrieves the ResourceFlavor from the index for a given name.
-func (s *resourceFlavorLister) Get(name string) (*v1beta1.ResourceFlavor, error) {
-	obj, exists, err := s.indexer.GetByKey(name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1beta1.Resource("resourceflavor"), name)
-	}
-	return obj.(*v1beta1.ResourceFlavor), nil
+	return &resourceFlavorLister{listers.New[*v1beta1.ResourceFlavor](indexer, v1beta1.Resource("resourceflavor"))}
 }
