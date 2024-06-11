@@ -294,7 +294,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				uowner.SetName(owner.Name)
 				uowner.SetNamespace(wl.Namespace)
 				uowner.SetUID(owner.UID)
-				r.recorder.Eventf(&uowner, corev1.EventTypeNormal, "WorkloadFinished", "Admission checks %v are rejected", rejectedChecks)
+				r.recorder.Eventf(&uowner, corev1.EventTypeNormal, "WorkloadFinished", "Admission checks %v are rejected", checkNames)
 			}
 		}
 		return ctrl.Result{}, err
