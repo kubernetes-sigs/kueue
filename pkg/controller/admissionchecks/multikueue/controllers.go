@@ -20,6 +20,8 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 const (
@@ -32,6 +34,7 @@ type SetupOptions struct {
 	gcInterval        time.Duration
 	origin            string
 	workerLostTimeout time.Duration
+	eventsBatchPeriod time.Duration
 }
 
 type SetupOption func(o *SetupOptions)
@@ -60,11 +63,20 @@ func WithWorkerLostTimeout(d time.Duration) SetupOption {
 	}
 }
 
+// WithEventsBatchPeriod - sets the delay used when adding remote triggered
+// events to the workload's reconcile queue.
+func WithEventsBatchPeriod(d time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.eventsBatchPeriod = d
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
 		origin:            defaultOrigin,
 		workerLostTimeout: defaultWorkerLostTimeout,
+		eventsBatchPeriod: constants.UpdatesBatchPeriod,
 	}
 
 	for _, o := range opts {
@@ -94,6 +106,6 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, options.workerLostTimeout)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, options.workerLostTimeout, options.eventsBatchPeriod)
 	return wlRec.setupWithManager(mgr)
 }

@@ -61,6 +61,7 @@ type wlReconciler struct {
 	origin            string
 	workerLostTimeout time.Duration
 	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
+	eventsBatchPeriod time.Duration
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -458,7 +459,7 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout time.Duration) *wlReconciler {
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout, eventsBatchPeriod time.Duration) *wlReconciler {
 	return &wlReconciler{
 		client:            c,
 		helper:            helper,
@@ -466,16 +467,17 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 		origin:            origin,
 		workerLostTimeout: workerLostTimeout,
 		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
+		eventsBatchPeriod: eventsBatchPeriod,
 	}
 }
 
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
-			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: e.Object.GetNamespace(),
 				Name:      e.Object.GetName(),
-			}})
+			}}, w.eventsBatchPeriod)
 		},
 	}
 
