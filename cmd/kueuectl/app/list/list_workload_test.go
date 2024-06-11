@@ -17,7 +17,10 @@ limitations under the License.
 package list
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"testing"
 	"time"
 
@@ -26,10 +29,17 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/cli-runtime/pkg/resource"
 	fakediscovery "k8s.io/client-go/discovery/fake"
+	restfake "k8s.io/client-go/rest/fake"
 	kubetesting "k8s.io/client-go/testing"
 	testingclock "k8s.io/utils/clock/testing"
 
@@ -37,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -49,6 +60,8 @@ func TestWorkloadCmd(t *testing.T) {
 		pendingWorkloads []v1alpha1.PendingWorkload
 		objs             []runtime.Object
 		args             []string
+		mapperKinds      []schema.GroupVersionKind
+		job              []runtime.Object
 		wantOut          string
 		wantOutErr       string
 		wantErr          error
@@ -487,6 +500,265 @@ wl2    rayjob.ray.io             j2         lq2          cq2            PENDING 
 wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING                       3h
 `,
 		},
+		"should print workload list with resource filter": {
+			args: []string{"--for", "job.batch/job-test"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+					OwnerReference(kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind), "job-test", "test-uid").
+					Queue("lq2").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "job-test",
+						Namespace: "default",
+						UID:       types.UID("job-test-uid"),
+					},
+				},
+			},
+			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+wl1    job.batch   job-test   lq1          cq1            PENDING                       120m
+`,
+		},
+		"should print workload list with resource filter and composable jobs": {
+			args: []string{"--for", "pod/pod-test-1"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+				{
+					GroupVersion: "v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "pod",
+							Kind:         "Pod",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-test-1", "pod-test-uid-1").
+					Queue("lq2").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				corev1.SchemeGroupVersion.WithKind("Pod"),
+			},
+			job: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-test",
+						Namespace: "default",
+						UID:       types.UID("pod-test-uid-1"),
+					},
+				},
+			},
+			wantOut: `NAME   JOB TYPE   JOB NAME     LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+wl2    pod        pod-test-1   lq2          cq2            PENDING                       3h
+`,
+		},
+		"should print workload list with custom resource filter": {
+			args: []string{"--for", "rayjob/job-test"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "ray.io/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "rayjob",
+							Kind:         "RayJob",
+							Group:        "ray.io",
+						},
+					},
+				},
+				{
+					GroupVersion: "kubeflow.org/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "pytorchjob",
+							Kind:         "PyTorchJob",
+							Group:        "kubeflow.org",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid-1").
+					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "job-test", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid-2").
+					OwnerReference(kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind), "job-test", "test-uid").
+					Queue("lq2").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				rayv1.GroupVersion.WithKind("RayJob"),
+			},
+			job: []runtime.Object{
+				&rayv1.RayJob{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "job-test",
+						Namespace: "default",
+						UID:       types.UID("job-test-uid-1"),
+					},
+				},
+			},
+			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING                       120m
+`,
+		},
+		"should print workload list with full resource filter": {
+			args: []string{"--for", "rayjob.ray.io/job-test"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "ray.io/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "rayjob",
+							Kind:         "RayJob",
+							Group:        "ray.io",
+						},
+					},
+				},
+				{
+					GroupVersion: "kubeflow.org/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "pytorchjob",
+							Kind:         "PyTorchJob",
+							Group:        "kubeflow.org",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid-1").
+					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "job-test", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid-2").
+					OwnerReference(kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind), "job-test", "test-uid").
+					Queue("lq2").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq2").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				rayv1.GroupVersion.WithKind("RayJob"),
+			},
+			job: []runtime.Object{
+				&rayv1.RayJob{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "job-test",
+						Namespace: "default",
+						UID:       types.UID("job-test-uid-1"),
+					},
+				},
+			},
+			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING                       120m
+`,
+		},
 		"should print workload list with position in queue": {
 			pendingWorkloads: []v1alpha1.PendingWorkload{
 				{
@@ -546,6 +818,37 @@ wl2               j2         lq2          cq2            PENDING   22           
 			tf := cmdtesting.NewTestClientGetter()
 			if len(tc.ns) > 0 {
 				tf.WithNamespace(tc.ns)
+			}
+
+			if len(tc.mapperKinds) != 0 {
+				mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{})
+				for _, k := range tc.mapperKinds {
+					mapper.Add(k, meta.RESTScopeNamespace)
+				}
+				tf.WithRESTMapper(mapper)
+			}
+
+			if len(tc.job) != 0 {
+				scheme := runtime.NewScheme()
+				if err := rayv1.AddToScheme(scheme); err != nil {
+					t.Errorf("Unexpected error\n%s", err)
+				}
+				if err := batchv1.AddToScheme(scheme); err != nil {
+					t.Errorf("Unexpected error\n%s", err)
+				}
+				if err := corev1.AddToScheme(scheme); err != nil {
+					t.Errorf("Unexpected error\n%s", err)
+				}
+
+				codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
+
+				tf.UnstructuredClient = &restfake.RESTClient{
+					NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
+					Resp: &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.job[0])))),
+					},
+				}
 			}
 
 			clientset := fake.NewSimpleClientset(tc.objs...)

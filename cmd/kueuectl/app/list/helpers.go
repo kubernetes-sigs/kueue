@@ -20,8 +20,11 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 const (
@@ -76,4 +79,43 @@ func addLocalQueueFilterFlagVar(cmd *cobra.Command, p *string) {
 func addActiveFilterFlagVar(cmd *cobra.Command, p *[]bool) {
 	cmd.Flags().BoolSliceVar(p, "active", make([]bool, 0),
 		"Filter by active status. Valid values: 'true' and 'false'.")
+}
+
+func addForObjectFlagVar(cmd *cobra.Command, p *string) {
+	cmd.Flags().StringVar(p, "for", "",
+		"Filter workloads to only those pertaining to the specified resource.")
+}
+
+// decodeResourceTypeName handles type/name resource formats and returns a resource tuple
+// (empty or not), whether it successfully found one, and an error
+// copied from https://github.com/kubernetes/kubernetes/blob/8565e375251450a291f0af3c6195c7a5bf890292/staging/src/k8s.io/kubectl/pkg/cmd/events/events.go#L380
+func decodeResourceTypeName(mapper meta.RESTMapper, s string) (gvk schema.GroupVersionKind, name string, found bool, err error) {
+	seg := strings.Split(s, "/")
+	if len(seg) != 2 {
+		if len(seg) > 2 {
+			err = errors.New("arguments in resource/name form may not have more than one slash")
+		}
+		return
+	}
+	resource, name := seg[0], seg[1]
+
+	fullySpecifiedGVR, groupResource := schema.ParseResourceArg(strings.ToLower(resource))
+	gvr := schema.GroupVersionResource{}
+	if fullySpecifiedGVR != nil {
+		gvr, _ = mapper.ResourceFor(*fullySpecifiedGVR)
+	}
+	if gvr.Empty() {
+		gvr, err = mapper.ResourceFor(groupResource.WithVersion(""))
+		if err != nil {
+			return
+		}
+	}
+
+	gvk, err = mapper.KindFor(gvr)
+	if err != nil {
+		return
+	}
+	found = true
+
+	return
 }

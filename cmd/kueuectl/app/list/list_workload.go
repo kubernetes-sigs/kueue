@@ -18,11 +18,15 @@ package list
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -36,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -65,6 +70,11 @@ type WorkloadOptions struct {
 	ClusterQueueFilter string
 	LocalQueueFilter   string
 	StatusesFilter     sets.Set[int]
+	forGVK             schema.GroupVersionKind
+	forName            string
+	forObject          *unstructured.Unstructured
+
+	UserSpecifiedForObject string
 
 	ClientSet clientset.Interface
 
@@ -83,7 +93,8 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	o := NewWorkloadOptions(streams, clock)
 
 	cmd := &cobra.Command{
-		Use:                   "workload [-–clusterqueue CLUSTER_QUEUE_NAME] [-–localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]",
+		Use: "workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces] [--for TYPE[.API-GROUP]/NAME]",
+		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"wl"},
 		Short:                 "List Workload",
@@ -102,6 +113,7 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)
 	addLocalQueueFilterFlagVar(cmd, &o.LocalQueueFilter)
+	addForObjectFlagVar(cmd, &o.UserSpecifiedForObject)
 
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("clusterqueue", completion.ClusterQueueNameFunc(clientGetter, nil)))
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter)))
@@ -160,6 +172,56 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 		return err
 	}
 
+	if o.UserSpecifiedForObject != "" {
+		mapper, err := clientGetter.ToRESTMapper()
+		if err != nil {
+			return err
+		}
+		var found bool
+		o.forGVK, o.forName, found, err = decodeResourceTypeName(mapper, o.UserSpecifiedForObject)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return errors.New("--for must be in resource/name form")
+		}
+
+		r := clientGetter.NewResourceBuilder().
+			Unstructured().
+			NamespaceParam(o.Namespace).
+			DefaultNamespace().
+			AllNamespaces(o.AllNamespaces).
+			FieldSelectorParam(fmt.Sprintf("metadata.name=%s", o.forName)).
+			ResourceTypeOrNameArgs(true, o.forGVK.Kind).
+			ContinueOnError().
+			Latest().
+			Flatten().
+			Do()
+		if err := r.Err(); err != nil {
+			return err
+		}
+		infos, err := r.Infos()
+		if err != nil {
+			return err
+		}
+
+		if len(infos) == 0 {
+			if !o.AllNamespaces {
+				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+			} else {
+				fmt.Fprintln(o.ErrOut, "No resources found")
+			}
+			return nil
+		}
+
+		job, ok := infos[0].Object.(*unstructured.Unstructured)
+		if !ok {
+			fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
+			return nil
+		}
+		o.forObject = job
+	}
+
 	return nil
 }
 
@@ -188,14 +250,26 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		namespace = ""
 	}
 
+	var jobUID types.UID
+	var jobUIDLabelSelector string
+	if o.forObject != nil {
+		jobUID = o.forObject.GetUID()
+
+		if len(o.LabelSelector) != 0 {
+			jobUIDLabelSelector += ","
+		}
+		jobUIDLabelSelector += fmt.Sprintf("%s=%s", constants.JobUIDLabel, jobUID)
+	}
+
 	opts := metav1.ListOptions{
-		LabelSelector: o.LabelSelector,
+		LabelSelector: o.LabelSelector + jobUIDLabelSelector,
 		FieldSelector: o.FieldSelector,
 		Limit:         o.Limit,
 	}
 
 	tabWriter := printers.GetNewTabWriter(o.Out)
 
+	var enableOwnerReferenceFilter bool
 	for {
 		headers := totalCount == 0
 
@@ -204,7 +278,13 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		o.filterList(list)
+		if o.forObject != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
+			opts.LabelSelector = o.LabelSelector
+			enableOwnerReferenceFilter = true
+			continue
+		}
+
+		o.filterList(list, enableOwnerReferenceFilter, jobUID)
 
 		totalCount += len(list.Items)
 
@@ -256,13 +336,14 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	}
 }
 
-func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList) {
+func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList, enableOwnerReferenceFilter bool, uid types.UID) {
 	if len(list.Items) == 0 {
 		return
 	}
 	filteredItems := make([]v1beta1.Workload, 0, len(o.LocalQueueFilter))
 	for _, wl := range list.Items {
-		if o.filterByLocalQueue(&wl) && o.filterByClusterQueue(&wl) && o.filterByStatuses(&wl) {
+		if o.filterByLocalQueue(&wl) && o.filterByClusterQueue(&wl) && o.filterByStatuses(&wl) &&
+			o.filterByOwnerReference(&wl, enableOwnerReferenceFilter, uid) {
 			filteredItems = append(filteredItems, wl)
 		}
 	}
@@ -299,6 +380,20 @@ func (o *WorkloadOptions) filterByStatuses(wl *v1beta1.Workload) bool {
 
 	if o.StatusesFilter.Has(workloadStatusFinished) && status == workload.StatusFinished {
 		return true
+	}
+
+	return false
+}
+
+func (o *WorkloadOptions) filterByOwnerReference(wl *v1beta1.Workload, isEnabled bool, uid types.UID) bool {
+	if !isEnabled {
+		return true
+	}
+
+	for _, ow := range wl.OwnerReferences {
+		if ow.UID == uid {
+			return true
+		}
 	}
 
 	return false
