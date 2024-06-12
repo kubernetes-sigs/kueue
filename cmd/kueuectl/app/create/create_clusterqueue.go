@@ -139,7 +139,7 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
 			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
-			cobra.CheckErr(o.Validate(ctx))
+			cobra.CheckErr(o.validate())
 			cobra.CheckErr(o.Run(ctx))
 		},
 	}
@@ -224,7 +224,7 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 }
 
 // Validate validates required fields are set to support structured generation
-func (o *ClusterQueueOptions) Validate(ctx context.Context) error {
+func (o *ClusterQueueOptions) validate() error {
 	if len(o.Name) == 0 {
 		return errors.New("name must be specified")
 	}
