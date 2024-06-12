@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -87,12 +87,13 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(job.ObjectMeta.Namespace, localQueueName))
 		if err != nil {
-			return err
+			// Or return error, in case of error job will be rejected if there's no matching local queue
+			return nil
 		}
 		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
-			if admissionCheck.Controller == multikueue.ControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "job", klog.KObj(job), "oldManagedBy", job.Spec.ManagedBy, "managedBy", multikueue.ControllerName)
-				job.Spec.ManagedBy = ptr.To(multikueue.ControllerName)
+			if admissionCheck.Controller == v1alpha1.MultiKueueControllerName {
+				log.V(5).Info("Defaulting ManagedBy", "job", klog.KObj(job), "oldManagedBy", job.Spec.ManagedBy, "managedBy", v1alpha1.MultiKueueControllerName)
+				job.Spec.ManagedBy = ptr.To(v1alpha1.MultiKueueControllerName)
 				return nil
 			}
 		}
@@ -101,9 +102,6 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 }
 
 func canDefaultManagedBy(jobSpecManagedBy *string) bool {
-	// Only from k8s 1.30
-	// https://kubernetes.io/docs/concepts/workloads/controllers/job/#delegation-of-managing-a-job-object-to-external-controller
-	// TODO: check for JobManagedBy k8s feature gate?
 	return features.Enabled(features.MultiKueueBatchJobWithManagedBy) &&
 		features.Enabled(features.MultiKueue) &&
 		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
