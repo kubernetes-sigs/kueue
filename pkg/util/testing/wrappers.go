@@ -1069,6 +1069,11 @@ func (mkc *MultiKueueClusterWrapper) Obj() *kueuealpha.MultiKueueCluster {
 	return &mkc.MultiKueueCluster
 }
 
+func (mkc *MultiKueueClusterWrapper) ControllerName(controllerName string) *MultiKueueClusterWrapper {
+	mkc.Spec.ControllerName = controllerName
+	return mkc
+}
+
 func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueuealpha.LocationType, location string) *MultiKueueClusterWrapper {
 	mkc.Spec.KubeConfig = kueuealpha.KubeConfig{
 		Location:     location,

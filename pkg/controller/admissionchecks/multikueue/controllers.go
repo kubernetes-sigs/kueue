@@ -21,17 +21,19 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"sigs.k8s.io/kueue/pkg/constants"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
 const (
-	defaultGCInterval        = time.Minute
-	defaultOrigin            = "multikueue"
-	defaultWorkerLostTimeout = 5 * time.Minute
+	defaultGCInterval             = time.Minute
+	defaultOrigin                 = "multikueue"
+	defaultWorkerLostTimeout      = 5 * time.Minute
+	defaultMultikueControllerName = kueuealpha.MultiKueueControllerName
 )
 
 type SetupOptions struct {
+	controllerName    string
 	gcInterval        time.Duration
 	origin            string
 	workerLostTimeout time.Duration
@@ -72,13 +74,26 @@ func WithEventsBatchPeriod(d time.Duration) SetupOption {
 	}
 }
 
-func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
-	options := &SetupOptions{
+// WithControllerName - sets the controller name for which the multikueue
+// admission check match.
+func WithControllerName(controllerName string) SetupOption {
+	return func(o *SetupOptions) {
+		o.controllerName = controllerName
+	}
+}
+
+func NewSetupOptions() *SetupOptions {
+	return &SetupOptions{
 		gcInterval:        defaultGCInterval,
 		origin:            defaultOrigin,
 		workerLostTimeout: defaultWorkerLostTimeout,
 		eventsBatchPeriod: constants.UpdatesBatchPeriod,
+		controllerName:    defaultMultikueControllerName,
 	}
+}
+
+func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
+	options := NewSetupOptions()
 
 	for _, o := range opts {
 		o(options)
@@ -100,18 +115,18 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, adapters)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, *options, fsWatcher, adapters)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
 
-	acRec := newACReconciler(mgr.GetClient(), helper)
+	acRec := newACReconciler(mgr.GetClient(), helper, *options)
 	err = acRec.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, options.workerLostTimeout, options.eventsBatchPeriod, adapters)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, *options, adapters)
 	return wlRec.setupWithManager(mgr)
 }

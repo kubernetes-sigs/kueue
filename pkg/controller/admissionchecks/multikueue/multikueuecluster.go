@@ -312,6 +312,9 @@ type clustersReconciler struct {
 	remoteClients map[string]*remoteClient
 	wlUpdateCh    chan event.GenericEvent
 
+	// name of the admission check controller that manages the cluster
+	controllerName string
+
 	// gcInterval - time waiting between two GC runs.
 	gcInterval time.Duration
 
@@ -393,6 +396,10 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	err := c.localClient.Get(ctx, req.NamespacedName, cluster)
 	if client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
+	}
+
+	if err == nil && cluster.Spec.ControllerName != c.controllerName {
+		return reconcile.Result{}, nil
 	}
 
 	log.V(2).Info("Reconcile MultiKueueCluster")
@@ -503,14 +510,15 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter) *clustersReconciler {
+func newClustersReconciler(c client.Client, namespace string, so SetupOptions, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:     c,
 		configNamespace: namespace,
+		controllerName:  so.controllerName,
 		remoteClients:   make(map[string]*remoteClient),
 		wlUpdateCh:      make(chan event.GenericEvent, eventChBufferSize),
-		gcInterval:      gcInterval,
-		origin:          origin,
+		gcInterval:      so.gcInterval,
+		origin:          so.origin,
 		watchEndedCh:    make(chan event.GenericEvent, eventChBufferSize),
 		fsWatcher:       fsWatcher,
 		adapters:        adapters,

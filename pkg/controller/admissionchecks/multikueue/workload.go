@@ -50,6 +50,7 @@ var (
 )
 
 type wlReconciler struct {
+	controllerName    string
 	client            client.Client
 	helper            *multiKueueStoreHelper
 	clusters          *clustersReconciler
@@ -215,7 +216,7 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	acs.LastTransitionTime = metav1.NewTime(time.Now())
 	wlPatch := workload.BaseSSAWorkload(wl)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName), client.ForceOwnership)
+	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(w.controllerName), client.ForceOwnership)
 }
 
 func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (map[string]*remoteClient, error) {
@@ -239,7 +240,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (m
 }
 
 func (w *wlReconciler) multikueueAC(ctx context.Context, local *kueue.Workload) (*kueue.AdmissionCheckState, error) {
-	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, local.Status.AdmissionChecks, kueuealpha.MultiKueueControllerName)
+	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, local.Status.AdmissionChecks, w.controllerName)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +333,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			Reason:  remoteFinishedCond.Reason,
 			Message: remoteFinishedCond.Message,
 		})
-		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName+"-finish"), client.ForceOwnership)
+		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(w.controllerName+"-finish"), client.ForceOwnership)
 	}
 
 	// 2. delete all workloads that are out of sync or are not in the chosen worker
@@ -380,7 +381,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName), client.ForceOwnership)
+			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(w.controllerName), client.ForceOwnership)
 			if err != nil {
 				return reconcile.Result{}, err
 			}
@@ -399,7 +400,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			acs.LastTransitionTime = metav1.NewTime(time.Now())
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName), client.ForceOwnership)
+			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(w.controllerName), client.ForceOwnership)
 		}
 	}
 
@@ -438,15 +439,16 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter) *wlReconciler {
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, so SetupOptions, adapters map[string]jobframework.MultiKueueAdapter) *wlReconciler {
 	return &wlReconciler{
+		controllerName:    so.controllerName,
 		client:            c,
 		helper:            helper,
 		clusters:          cRec,
-		origin:            origin,
-		workerLostTimeout: workerLostTimeout,
+		origin:            so.origin,
+		workerLostTimeout: so.workerLostTimeout,
 		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
-		eventsBatchPeriod: eventsBatchPeriod,
+		eventsBatchPeriod: so.eventsBatchPeriod,
 		adapters:          adapters,
 	}
 }
