@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -49,7 +48,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -277,28 +275,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
-	// At this point the workload is not Admitted, if it has rejected admission checks mark it as finished.
-	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 {
-		log.V(3).Info("Workload has Rejected admission checks, Finish with failure")
-		err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished,
-			metav1.ConditionTrue,
-			kueue.WorkloadFinishedReasonAdmissionChecksRejected,
-			fmt.Sprintf("Admission checks %v are rejected", rejectedChecks),
-			constants.KueueName)
-		if err == nil {
-			for _, owner := range wl.OwnerReferences {
-				uowner := unstructured.Unstructured{}
-				uowner.SetKind(owner.Kind)
-				uowner.SetAPIVersion(owner.APIVersion)
-				uowner.SetName(owner.Name)
-				uowner.SetNamespace(wl.Namespace)
-				uowner.SetUID(owner.UID)
-				r.recorder.Eventf(&uowner, corev1.EventTypeNormal, "WorkloadFinished", "Admission checks %v are rejected", rejectedChecks)
-			}
-		}
-		return ctrl.Result{}, err
-	}
-
 	switch {
 	case !lqExists:
 		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, wl.Spec.QueueName))
@@ -345,20 +321,31 @@ func isDisabledRequeuedByReason(w *kueue.Workload, reason string) bool {
 	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == reason
 }
 
+// reconcileCheckBasedEviction returns true if Workload has been deactivated or evicted
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || !workload.HasRetryOrRejectedChecks(wl) {
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
 		return false, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Workload is evicted due to admission checks")
+	if workload.HasRejectedChecks(wl) {
+		wl.Spec.Active = ptr.To(false)
+		if err := r.client.Update(ctx, wl); err != nil {
+			return false, err
+		}
+		rejectedCheck := workload.RejectedChecks(wl)[0]
+		r.recorder.Eventf(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", "Deactivating workload because AdmissionCheck for %v was Rejected: %s", rejectedCheck.Name, rejectedCheck.Message)
+		return true, nil
+	}
+	// at this point we know a Workload has at least one Retry AdmissionCheck
 	message := "At least one admission check is false"
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, message)
-	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
-	if err == nil {
-		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message)
+	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
+		return false, client.IgnoreNotFound(err)
 	}
-	return true, client.IgnoreNotFound(err)
+	cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message)
+	return true, nil
 }
 
 func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cq *kueue.ClusterQueue) (bool, error) {

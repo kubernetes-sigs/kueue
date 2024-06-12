@@ -454,9 +454,10 @@ func TestReconcile(t *testing.T) {
 				DeletionTimestamp(testStartTime).
 				Obj(),
 		},
-		"unadmitted workload with rejected checks": {
+		"unadmitted workload with rejected checks gets deactivated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
@@ -464,27 +465,23 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Active(false).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
-				}).
-				Condition(metav1.Condition{
-					Type:    "Finished",
-					Status:  "True",
-					Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
-					Message: "Admission checks [check] are rejected",
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "ownername"},
-					EventType: "Normal",
-					Reason:    "WorkloadFinished",
-					Message:   "Admission checks [check] are rejected",
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Warning",
+					Reason:    "AdmissionCheckRejected",
+					Message:   "Deactivating workload because AdmissionCheck for check was Rejected: ",
 				},
 			},
 		},
-		"admitted workload with rejected checks": {
+		"admitted workload with rejected checks gets deactivated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
@@ -497,10 +494,51 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
+				Active(false).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
+				}).
+				Conditions(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionTrue,
+					Reason:  "AdmittedByTest",
+					Message: "Admitted by ClusterQueue q1",
+				},
+					metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "ByTest",
+						Message: "Admitted by ClusterQueue q1",
+					}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Warning",
+					Reason:    "AdmissionCheckRejected",
+					Message:   "Deactivating workload because AdmissionCheck for check was Rejected: ",
+				},
+			},
+		},
+		"admitted workload with retry checks": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRetry,
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRetry,
 				}).
 				Condition(metav1.Condition{
 					Type:    "Evicted",
@@ -511,8 +549,8 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Normal",
 					Reason:    "EvictedDueToAdmissionCheck",
 					Message:   "At least one admission check is false",
 				},

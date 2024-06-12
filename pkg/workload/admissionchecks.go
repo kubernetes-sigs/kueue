@@ -99,13 +99,13 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
 }
 
-// GetRejectedChecks returns the list of Rejected admission checks
-func GetRejectedChecks(wl *kueue.Workload) []string {
-	rejectedChecks := make([]string, 0, len(wl.Status.AdmissionChecks))
+// RejectedChecks returns the list of Rejected admission checks
+func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
+	rejectedChecks := make([]kueue.AdmissionCheckState, 0, len(wl.Status.AdmissionChecks))
 	for i := range wl.Status.AdmissionChecks {
 		ac := wl.Status.AdmissionChecks[i]
 		if ac.State == kueue.CheckStateRejected {
-			rejectedChecks = append(rejectedChecks, ac.Name)
+			rejectedChecks = append(rejectedChecks, ac)
 		}
 	}
 	return rejectedChecks
@@ -138,11 +138,22 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
 	return mustHaveChecks.Len() == 0
 }
 
-// HasRetryOrRejectedChecks returns true if any of the workloads checks are Retry or Rejected
-func HasRetryOrRejectedChecks(wl *kueue.Workload) bool {
+// HasRetryChecks returns true if any of the workloads checks is Retry
+func HasRetryChecks(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
 		state := wl.Status.AdmissionChecks[i].State
-		if state == kueue.CheckStateRetry || state == kueue.CheckStateRejected {
+		if state == kueue.CheckStateRetry {
+			return true
+		}
+	}
+	return false
+}
+
+// HasRejectedChecks returns true if any of the workloads checks is Rejected
+func HasRejectedChecks(wl *kueue.Workload) bool {
+	for i := range wl.Status.AdmissionChecks {
+		state := wl.Status.AdmissionChecks[i].State
+		if state == kueue.CheckStateRejected {
 			return true
 		}
 	}

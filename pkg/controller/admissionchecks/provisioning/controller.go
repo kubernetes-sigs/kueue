@@ -213,8 +213,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		attempt := int32(1)
 		shouldCreatePr := false
 		if exists {
-			attempt = getAttempt(log, oldPr, wl.Name, checkName)
-			if apimeta.IsStatusConditionTrue(oldPr.Status.Conditions, autoscaling.Failed) {
+			if isFailed(oldPr) {
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
 				if attempt <= MaxRetries {
 					prFailed := apimeta.FindStatusCondition(oldPr.Status.Conditions, autoscaling.Failed)
