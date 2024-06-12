@@ -96,29 +96,6 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	return c
 }
 
-var _ = ginkgo.BeforeSuite(func() {
-	var managerFeatureGates []string
-	version, err := versionutil.ParseGeneric(os.Getenv("ENVTEST_K8S_VERSION"))
-	if err != nil || !version.LessThan(versionutil.MustParseSemantic("1.30.0")) {
-		managerFeatureGates = []string{"JobManagedBy=true"}
-	}
-
-	managerTestCluster = createCluster(managerAndMultiKueueSetup, managerFeatureGates...)
-	worker1TestCluster = createCluster(managerSetup)
-	worker2TestCluster = createCluster(managerSetup)
-
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerTestCluster.cfg)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	managerK8sVersion, err = kubeversion.FetchServerVersion(discoveryClient)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-})
-
-var _ = ginkgo.AfterSuite(func() {
-	managerTestCluster.fwk.Teardown()
-	worker1TestCluster.fwk.Teardown()
-	worker2TestCluster.fwk.Teardown()
-})
-
 func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -160,7 +137,7 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
+func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context, gcInterval time.Duration) {
 	managerSetup(mgr, ctx)
 
 	managersConfigNamespace = &corev1.Namespace{
@@ -174,9 +151,34 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
-		multikueue.WithGCInterval(2*time.Second),
+		multikueue.WithGCInterval(gcInterval),
 		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
 		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+func multiclusterSetup(gcInterval time.Duration) {
+	var managerFeatureGates []string
+	version, err := versionutil.ParseGeneric(os.Getenv("ENVTEST_K8S_VERSION"))
+	if err != nil || !version.LessThan(versionutil.MustParseSemantic("1.30.0")) {
+		managerFeatureGates = []string{"JobManagedBy=true"}
+	}
+
+	managerTestCluster = createCluster(func(mgr manager.Manager, ctx context.Context) {
+		managerAndMultiKueueSetup(mgr, ctx, gcInterval)
+	}, managerFeatureGates...)
+	worker1TestCluster = createCluster(managerSetup)
+	worker2TestCluster = createCluster(managerSetup)
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerTestCluster.cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	managerK8sVersion, err = kubeversion.FetchServerVersion(discoveryClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+func multiclusterTeardown() {
+	managerTestCluster.fwk.Teardown()
+	worker1TestCluster.fwk.Teardown()
+	worker2TestCluster.fwk.Teardown()
 }
