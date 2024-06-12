@@ -27,6 +27,10 @@ const (
 	// MultiKueueOriginLabel is a label used to track the creator
 	// of multikueue remote objects.
 	MultiKueueOriginLabel = "kueue.x-k8s.io/multikueue-origin"
+
+	// MultiKueueControllerName is the name used by the MultiKueue
+	// admission check controller.
+	MultiKueueControllerName = "kueue.x-k8s.io/multikueue"
 )
 
 type LocationType string
