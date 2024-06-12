@@ -439,7 +439,7 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, so SetupOptions, adapters map[string]jobframework.MultiKueueAdapter) *wlReconciler {
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, so SetupOptions) *wlReconciler {
 	return &wlReconciler{
 		controllerName:    so.controllerName,
 		client:            c,
@@ -449,7 +449,7 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 		workerLostTimeout: so.workerLostTimeout,
 		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
 		eventsBatchPeriod: so.eventsBatchPeriod,
-		adapters:          adapters,
+		adapters:          so.adapters,
 	}
 }
 

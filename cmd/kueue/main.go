@@ -256,10 +256,18 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	}
 
 	if features.Enabled(features.MultiKueue) {
+		adapters, err := jobframework.GetMultiKueueAdapters()
+		if err != nil {
+			setupLog.Error(err, "Could not get the multikueue adapters")
+			os.Exit(1)
+		}
+
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
 			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
+			multikueue.WithControllerName(kueuealpha.MultiKueueControllerName),
+			multikueue.WithAdapters(adapters),
 		); err != nil {
 			setupLog.Error(err, "Could not setup MultiKueue controller")
 			os.Exit(1)

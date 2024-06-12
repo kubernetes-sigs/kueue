@@ -1011,7 +1011,8 @@ func TestWlReconcile(t *testing.T) {
 			adapters, _ := jobframework.GetMultiKueueAdapters()
 			setupOptions := NewSetupOptions()
 			setupOptions.gcInterval = 0
-			cRec := newClustersReconciler(managerClient, TestNamespace, *setupOptions, nil, adapters)
+			setupOptions.adapters = adapters
+			cRec := newClustersReconciler(managerClient, TestNamespace, *setupOptions, nil)
 
 			worker1Builder, _ := getClientBuilder()
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs})
@@ -1059,7 +1060,8 @@ func TestWlReconcile(t *testing.T) {
 			helper, _ := newMultiKueueStoreHelper(managerClient)
 			setupOptions.workerLostTimeout = defaultWorkerLostTimeout
 			setupOptions.eventsBatchPeriod = time.Second
-			reconciler := newWlReconciler(managerClient, helper, cRec, *setupOptions, adapters)
+			setupOptions.adapters = adapters
+			reconciler := newWlReconciler(managerClient, helper, cRec, *setupOptions)
 
 			for _, val := range tc.managersDeletedWorkloads {
 				reconciler.Delete(event.DeleteEvent{

@@ -399,7 +399,8 @@ func TestUpdateConfig(t *testing.T) {
 			adapters, _ := jobframework.GetMultiKueueAdapters()
 			setupOptions := NewSetupOptions()
 			setupOptions.gcInterval = 0
-			reconciler := newClustersReconciler(c, TestNamespace, *setupOptions, nil, adapters)
+			setupOptions.adapters = adapters
+			reconciler := newClustersReconciler(c, TestNamespace, *setupOptions, nil)
 			reconciler.rootContext = ctx
 
 			if len(tc.remoteClients) > 0 {

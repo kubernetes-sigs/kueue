@@ -26,10 +26,9 @@ import (
 )
 
 const (
-	defaultGCInterval             = time.Minute
-	defaultOrigin                 = "multikueue"
-	defaultWorkerLostTimeout      = 5 * time.Minute
-	defaultMultikueControllerName = kueuealpha.MultiKueueControllerName
+	defaultGCInterval        = time.Minute
+	defaultOrigin            = "multikueue"
+	defaultWorkerLostTimeout = 5 * time.Minute
 )
 
 type SetupOptions struct {
@@ -38,6 +37,7 @@ type SetupOptions struct {
 	origin            string
 	workerLostTimeout time.Duration
 	eventsBatchPeriod time.Duration
+	adapters          map[string]jobframework.MultiKueueAdapter
 }
 
 type SetupOption func(o *SetupOptions)
@@ -82,13 +82,22 @@ func WithControllerName(controllerName string) SetupOption {
 	}
 }
 
+// WithAdapters - sets the controller name for which the multikueue
+// admission check match.
+func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOption {
+	return func(o *SetupOptions) {
+		o.adapters = adapters
+	}
+}
+
 func NewSetupOptions() *SetupOptions {
 	return &SetupOptions{
 		gcInterval:        defaultGCInterval,
 		origin:            defaultOrigin,
 		workerLostTimeout: defaultWorkerLostTimeout,
 		eventsBatchPeriod: constants.UpdatesBatchPeriod,
-		controllerName:    defaultMultikueControllerName,
+		controllerName:    kueuealpha.MultiKueueControllerName,
+		adapters:          make(map[string]jobframework.MultiKueueAdapter),
 	}
 }
 
@@ -110,12 +119,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	adapters, err := jobframework.GetMultiKueueAdapters()
-	if err != nil {
-		return err
-	}
-
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, *options, fsWatcher, adapters)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, *options, fsWatcher)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
@@ -127,6 +131,6 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, *options, adapters)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, *options)
 	return wlRec.setupWithManager(mgr)
 }

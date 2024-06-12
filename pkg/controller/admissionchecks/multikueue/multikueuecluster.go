@@ -510,7 +510,7 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string, so SetupOptions, fsWatcher *KubeConfigFSWatcher, adapters map[string]jobframework.MultiKueueAdapter) *clustersReconciler {
+func newClustersReconciler(c client.Client, namespace string, so SetupOptions, fsWatcher *KubeConfigFSWatcher) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:     c,
 		configNamespace: namespace,
@@ -521,7 +521,7 @@ func newClustersReconciler(c client.Client, namespace string, so SetupOptions, f
 		origin:          so.origin,
 		watchEndedCh:    make(chan event.GenericEvent, eventChBufferSize),
 		fsWatcher:       fsWatcher,
-		adapters:        adapters,
+		adapters:        so.adapters,
 	}
 }
 
