@@ -38,6 +38,16 @@ spec:
             type: object
           spec:
             properties:
+              controllerName:
+                default: kueue.x-k8s.io/multikueue
+                description: |-
+                  controllerName is name of the controller which will actually perform
+                  the checks. This is the name with which controller identifies with,
+                  not necessarily a K8S Pod or Deployment name. Cannot be empty.
+                type: string
+                x-kubernetes-validations:
+                - message: field is immutable
+                  rule: self == oldSelf
               kubeConfig:
                 description: Information how to connect to the cluster.
                 properties:
@@ -61,6 +71,7 @@ spec:
                 - locationType
                 type: object
             required:
+            - controllerName
             - kubeConfig
             type: object
           status:

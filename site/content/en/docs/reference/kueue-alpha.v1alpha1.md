@@ -133,6 +133,15 @@ which the kueue controller manager is running. The config should be stored in th
 <tbody>
     
   
+<tr><td><code>controllerName</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>controllerName is name of the controller which will actually perform
+the checks. This is the name with which controller identifies with,
+not necessarily a K8S Pod or Deployment name. Cannot be empty.</p>
+</td>
+</tr>
 <tr><td><code>kubeConfig</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1alpha1-KubeConfig"><code>KubeConfig</code></a>
 </td>

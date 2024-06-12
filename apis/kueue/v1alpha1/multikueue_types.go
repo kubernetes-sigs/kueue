@@ -59,6 +59,14 @@ type KubeConfig struct {
 }
 
 type MultiKueueClusterSpec struct {
+	// controllerName is name of the controller which will actually perform
+	// the checks. This is the name with which controller identifies with,
+	// not necessarily a K8S Pod or Deployment name. Cannot be empty.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:default="kueue.x-k8s.io/multikueue"
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
+	ControllerName string `json:"controllerName"`
+
 	// Information how to connect to the cluster.
 	KubeConfig KubeConfig `json:"kubeConfig"`
 }
