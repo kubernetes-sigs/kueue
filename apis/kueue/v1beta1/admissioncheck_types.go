@@ -31,8 +31,7 @@ const (
 
 	// CheckStateRejected means that the check will not pass in the near future. It is not worth
 	// to retry.
-	// A workload having at least one check in this state will be evicted if admitted and
-	// will be marked as Finished.
+	// A workload having at least one check in this state will be evicted if admitted and deactivated
 	CheckStateRejected CheckState = "Rejected"
 
 	// CheckStatePending means that the check still hasn't been performed and the state can be
