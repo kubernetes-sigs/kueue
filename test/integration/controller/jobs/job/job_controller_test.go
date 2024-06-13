@@ -2093,7 +2093,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadEvictedByDeactivation,
+						Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2105,10 +2105,11 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadEvictedByDeactivation,
+						Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
+				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)).Should(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

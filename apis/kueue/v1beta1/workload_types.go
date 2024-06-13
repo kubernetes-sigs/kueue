@@ -328,6 +328,10 @@ const (
 
 	// WorkloadRequeued means that the Workload was requeued due to eviction.
 	WorkloadRequeued = "Requeued"
+
+	// WorkloadDeactivationTarget means that the Workload should be deactivated.
+	// This condition is temporary, so it should be removed after deactivation.
+	WorkloadDeactivationTarget = "DeactivationTarget"
 )
 
 const (
@@ -374,6 +378,10 @@ const (
 	// WorkloadLocalQueueRestarted indicates that the workload was requeued because
 	// local queue was restarted after being stopped.
 	WorkloadLocalQueueRestarted = "LocalQueueRestarted"
+
+	// WorkloadRequeuingLimitExceeded indicates that the workload exceeded max number
+	// of re-queuing retries.
+	WorkloadRequeuingLimitExceeded = "RequeuingLimitExceeded"
 )
 
 const (

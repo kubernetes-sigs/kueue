@@ -59,6 +59,7 @@ var (
 		kueue.WorkloadAdmitted,
 		kueue.WorkloadPreempted,
 		kueue.WorkloadRequeued,
+		kueue.WorkloadDeactivationTarget,
 	}
 )
 
@@ -520,6 +521,17 @@ func SetPreemptedCondition(w *kueue.Workload, reason string, message string) {
 		Status:  metav1.ConditionTrue,
 		Reason:  reason,
 		Message: api.TruncateConditionMessage(message),
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+func SetDeactivationTarget(w *kueue.Workload, reason string, message string) {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadDeactivationTarget,
+		Status:             metav1.ConditionTrue,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: w.Generation,
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }

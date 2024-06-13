@@ -152,6 +152,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if workload.IsActive(&wl) {
+		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
+			wl.Spec.Active = ptr.To(false)
+			err := r.client.Update(ctx, &wl)
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+
 		var updated bool
 		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
 			switch cond.Reason {
@@ -179,22 +185,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	} else {
 		var updated, evicted bool
+		reason := kueue.WorkloadEvictedByDeactivation
 		message := "The workload is deactivated"
+		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
 		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-			// The deactivation reason could be deduced as the maximum number of re-queuing retries if the workload met all criteria below:
-			//  1. The waitForPodsReady feature is enabled, which means that it has "PodsReady" condition.
-			//  2. The workload has already exceeded the PodsReadyTimeout.
-			//  3. The workload already has been re-queued previously, which means it doesn't have the requeueAt field.
-			//  4. The number of re-queued has already reached the waitForPodsReady.requeuingBackoffLimitCount.
-			if apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadPodsReady) &&
-				((wl.Status.RequeueState == nil && ptr.Equal(r.waitForPodsReady.requeuingBackoffLimitCount, ptr.To[int32](0))) ||
-					(wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt == nil &&
-						ptr.Equal(wl.Status.RequeueState.Count, r.waitForPodsReady.requeuingBackoffLimitCount))) {
-				message = fmt.Sprintf("%s due to exceeding the maximum number of re-queuing retries", message)
+			if dtCond != nil {
+				reason += dtCond.Reason
+				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
 			}
-			workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByDeactivation, message)
+			workload.SetEvictedCondition(&wl, reason, message)
 			updated = true
 			evicted = true
+		}
+		if dtCond != nil {
+			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
 		}
 		if wl.Status.RequeueState != nil {
 			wl.Status.RequeueState = nil
@@ -205,8 +209,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
 			}
 			if evicted && wl.Status.Admission != nil {
-				workload.ReportEvictedWorkload(r.recorder, &wl, string(wl.Status.Admission.ClusterQueue),
-					kueue.WorkloadEvictedByDeactivation, message)
+				workload.ReportEvictedWorkload(r.recorder, &wl, string(wl.Status.Admission.ClusterQueue), reason, message)
 			}
 			return ctrl.Result{}, nil
 		}
@@ -497,7 +500,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	}
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
 	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String())
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, message)
@@ -509,10 +512,10 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
-// triggerDeactivationOrBackoffRequeue deactivates a workload (".spec.active"="false")
+// triggerDeactivationOrBackoffRequeue trigger deactivation of workload
 // if a re-queued number has already exceeded the limit of re-queuing backoff.
 // Otherwise, it increments a re-queueing count and update a time to be re-queued.
-// It returns true as a first value if a workload is deactivated.
+// It returns true as a first value if a workload triggered deactivation.
 func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	if wl.Status.RequeueState == nil {
 		wl.Status.RequeueState = &kueue.RequeueState{}
@@ -520,8 +523,9 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	// If requeuingBackoffLimitCount equals to null, the workloads is repeatedly and endless re-queued.
 	requeuingCount := ptr.Deref(wl.Status.RequeueState.Count, 0) + 1
 	if r.waitForPodsReady.requeuingBackoffLimitCount != nil && requeuingCount > *r.waitForPodsReady.requeuingBackoffLimitCount {
-		wl.Spec.Active = ptr.To(false)
-		if err := r.client.Update(ctx, wl); err != nil {
+		workload.SetDeactivationTarget(wl, kueue.WorkloadRequeuingLimitExceeded,
+			"exceeding the maximum number of re-queuing retries")
+		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
 			return false, err
 		}
 		return true, nil

@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			// should observe a metrics of WorkloadEvictedByDeactivation
-			util.ExpectEvictedWorkloadsTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByDeactivation, 1)
+			util.ExpectEvictedWorkloadsTotalMetric(prodClusterQ.Name, "InactiveWorkloadRequeuingLimitExceeded", 1)
 
 			ginkgo.By("the reactivated workload should not be deactivated by the scheduler unless exceeding the backoffLimitCount")
 			gomega.Eventually(func(g gomega.Gomega) {
