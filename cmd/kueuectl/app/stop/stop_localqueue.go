@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package resume
+package stop
 
 import (
 	"context"
@@ -36,38 +36,43 @@ import (
 )
 
 const (
-	cqLong    = `Resumes the previously held ClusterQueue.`
-	cqExample = `  # Resume the clusterqueue
-  kueuectl resume clusterqueue my-clusterqueue`
+	lqLong    = `Puts the given LocalQueue on hold.`
+	lqExample = `  # Stop the localqueue
+  kueuectl stop localqueue my-localqueue`
 )
 
-type ClusterQueueOptions struct {
-	ClusterQueueName string
-	Client           kueuev1beta1.KueueV1beta1Interface
-	PrintFlags       *genericclioptions.PrintFlags
-	PrintObj         printers.ResourcePrinterFunc
+type LocalQueueOptions struct {
+	PrintFlags *genericclioptions.PrintFlags
+	PrintObj   printers.ResourcePrinterFunc
+
+	LocalQueueName     string
+	Namespace          string
+	KeepAlreadyRunning bool
+
+	Client kueuev1beta1.KueueV1beta1Interface
+
 	genericiooptions.IOStreams
 }
 
-func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOptions {
-	return &ClusterQueueOptions{
+func NewLocalQueueOptions(streams genericiooptions.IOStreams) *LocalQueueOptions {
+	return &LocalQueueOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
 	}
 }
 
-func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
-	o := NewClusterQueueOptions(streams)
+func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+	o := NewLocalQueueOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "clusterqueue NAME",
+		Use:                   "localqueue NAME [--keep-already-running]",
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"cq"},
-		Short:                 "Resume the ClusterQueue",
-		Long:                  cqLong,
-		Example:               cqExample,
+		Aliases:               []string{"lq"},
+		Short:                 "Stop the LocalQueue",
+		Long:                  lqLong,
+		Example:               lqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgsFunction:     completion.ClusterQueueNameFunc(clientGetter, ptr.To(false)),
+		ValidArgsFunction:     completion.LocalQueueNameFunc(clientGetter, ptr.To(true)),
 		Run: func(cmd *cobra.Command, args []string) {
 			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
 			cobra.CheckErr(o.Run(cmd.Context()))
@@ -76,12 +81,21 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 
 	o.PrintFlags.AddFlags(cmd)
 
+	addKeepAlreadyRunningFlagVar(cmd, &o.KeepAlreadyRunning)
+
 	return cmd
 }
 
 // Complete completes all the required options
-func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
-	o.ClusterQueueName = args[0]
+func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+	o.LocalQueueName = args[0]
+
+	namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+	if err != nil {
+		return err
+	}
+
+	o.Namespace = namespace
 
 	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
@@ -101,26 +115,38 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 }
 
 // Run executes the command
-func (o *ClusterQueueOptions) Run(ctx context.Context) error {
-	cq, err := o.Client.ClusterQueues().Get(ctx, o.ClusterQueueName, metav1.GetOptions{})
+func (o *LocalQueueOptions) Run(ctx context.Context) error {
+	lq, err := o.Client.LocalQueues(o.Namespace).Get(ctx, o.LocalQueueName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
 
-	cqOriginal := cq.DeepCopy()
-	cq.Spec.StopPolicy = ptr.To(v1beta1.None)
+	if lq == nil {
+		return nil
+	}
+
+	lqOriginal := lq.DeepCopy()
+	o.stopLocalQueue(lq)
 
 	opts := metav1.PatchOptions{}
-	patch := client.MergeFrom(cqOriginal)
-	data, err := patch.Data(cq)
+	patch := client.MergeFrom(lqOriginal)
+	data, err := patch.Data(lq)
 	if err != nil {
 		return err
 	}
-	cq, err = o.Client.ClusterQueues().
-		Patch(ctx, o.ClusterQueueName, types.MergePatchType, data, opts)
+	lq, err = o.Client.LocalQueues(o.Namespace).
+		Patch(ctx, o.LocalQueueName, types.MergePatchType, data, opts)
 	if err != nil {
 		return err
 	}
 
-	return o.PrintObj(cq, o.Out)
+	return o.PrintObj(lq, o.Out)
+}
+
+func (o *LocalQueueOptions) stopLocalQueue(lq *v1beta1.LocalQueue) {
+	if o.KeepAlreadyRunning {
+		lq.Spec.StopPolicy = ptr.To(v1beta1.Hold)
+	} else {
+		lq.Spec.StopPolicy = ptr.To(v1beta1.HoldAndDrain)
+	}
 }

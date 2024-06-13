@@ -84,6 +84,53 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 		})
 	})
 
+	ginkgo.When("Stopping a LocalQueue", func() {
+		ginkgo.DescribeTable("Should stop a LocalQueue",
+			func(name string, stopCmdArgs []string, wantStopPolicy v1beta1.StopPolicy) {
+				lq := testing.MakeLocalQueue(name, ns.Name).Obj()
+
+				ginkgo.By("Create a LocalQueue", func() {
+					gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+				})
+
+				createdLocalQueue := &v1beta1.LocalQueue{}
+				ginkgo.By("Get created LocalQueue", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLocalQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(v1beta1.None))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Stop created LocalQueue", func() {
+					streams, _, output, _ := genericiooptions.NewTestIOStreams()
+					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+					kueuectl.SetArgs(append([]string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name}, stopCmdArgs...))
+					err := kueuectl.Execute()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				})
+
+				ginkgo.By("Check that the LocalQueue is successfully stopped", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(wantStopPolicy))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			},
+			ginkgo.Entry("Stop a LocalQueue and drain workloads",
+				"lq-1",
+				[]string{},
+				v1beta1.HoldAndDrain,
+			),
+			ginkgo.Entry("Stop a LocalQueue and let the admitted workloads finish",
+				"lq-2",
+				[]string{"--keep-already-running"},
+				v1beta1.Hold,
+			),
+		)
+	})
+
 	ginkgo.When("Stopping a ClusterQueue", func() {
 		ginkgo.DescribeTable("Should stop a ClusterQueue",
 			func(cq *v1beta1.ClusterQueue, stopCmdArgs []string, wantStopPolicy v1beta1.StopPolicy) {

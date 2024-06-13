@@ -36,38 +36,42 @@ import (
 )
 
 const (
-	cqLong    = `Resumes the previously held ClusterQueue.`
-	cqExample = `  # Resume the clusterqueue
-  kueuectl resume clusterqueue my-clusterqueue`
+	lqLong    = `Resumes the previously held LocalQueue.`
+	lqExample = `  # Resume the localqueue
+  kueuectl resume localqueue my-localqueue`
 )
 
-type ClusterQueueOptions struct {
-	ClusterQueueName string
-	Client           kueuev1beta1.KueueV1beta1Interface
-	PrintFlags       *genericclioptions.PrintFlags
-	PrintObj         printers.ResourcePrinterFunc
+type LocalQueueOptions struct {
+	PrintFlags *genericclioptions.PrintFlags
+	PrintObj   printers.ResourcePrinterFunc
+
+	LocalQueueName string
+	Namespace      string
+
+	Client kueuev1beta1.KueueV1beta1Interface
+
 	genericiooptions.IOStreams
 }
 
-func NewClusterQueueOptions(streams genericiooptions.IOStreams) *ClusterQueueOptions {
-	return &ClusterQueueOptions{
+func NewLocalQueueOptions(streams genericiooptions.IOStreams) *LocalQueueOptions {
+	return &LocalQueueOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
 	}
 }
 
-func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
-	o := NewClusterQueueOptions(streams)
+func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+	o := NewLocalQueueOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "clusterqueue NAME",
+		Use:                   "localqueue NAME",
 		DisableFlagsInUseLine: true,
-		Aliases:               []string{"cq"},
-		Short:                 "Resume the ClusterQueue",
-		Long:                  cqLong,
-		Example:               cqExample,
+		Aliases:               []string{"lq"},
+		Short:                 "Resume the LocalQueue",
+		Long:                  lqLong,
+		Example:               lqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgsFunction:     completion.ClusterQueueNameFunc(clientGetter, ptr.To(false)),
+		ValidArgsFunction:     completion.LocalQueueNameFunc(clientGetter, ptr.To(false)),
 		Run: func(cmd *cobra.Command, args []string) {
 			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
 			cobra.CheckErr(o.Run(cmd.Context()))
@@ -80,8 +84,15 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 }
 
 // Complete completes all the required options
-func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
-	o.ClusterQueueName = args[0]
+func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+	o.LocalQueueName = args[0]
+
+	namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+	if err != nil {
+		return err
+	}
+
+	o.Namespace = namespace
 
 	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
@@ -101,26 +112,26 @@ func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobr
 }
 
 // Run executes the command
-func (o *ClusterQueueOptions) Run(ctx context.Context) error {
-	cq, err := o.Client.ClusterQueues().Get(ctx, o.ClusterQueueName, metav1.GetOptions{})
+func (o *LocalQueueOptions) Run(ctx context.Context) error {
+	lq, err := o.Client.LocalQueues(o.Namespace).Get(ctx, o.LocalQueueName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
 
-	cqOriginal := cq.DeepCopy()
-	cq.Spec.StopPolicy = ptr.To(v1beta1.None)
+	lqOriginal := lq.DeepCopy()
+	lq.Spec.StopPolicy = ptr.To(v1beta1.None)
 
 	opts := metav1.PatchOptions{}
-	patch := client.MergeFrom(cqOriginal)
-	data, err := patch.Data(cq)
+	patch := client.MergeFrom(lqOriginal)
+	data, err := patch.Data(lq)
 	if err != nil {
 		return err
 	}
-	cq, err = o.Client.ClusterQueues().
-		Patch(ctx, o.ClusterQueueName, types.MergePatchType, data, opts)
+	lq, err = o.Client.LocalQueues(o.Namespace).
+		Patch(ctx, o.LocalQueueName, types.MergePatchType, data, opts)
 	if err != nil {
 		return err
 	}
 
-	return o.PrintObj(cq, o.Out)
+	return o.PrintObj(lq, o.Out)
 }

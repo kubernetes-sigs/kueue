@@ -176,7 +176,7 @@ func ClusterQueueNameFunc(clientGetter util.ClientGetter, activeStatus *bool) fu
 	}
 }
 
-func LocalQueueNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func LocalQueueNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) > 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -195,6 +195,19 @@ func LocalQueueNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []s
 		list, err := clientSet.KueueV1beta1().LocalQueues(namespace).List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		if activeStatus != nil {
+			filteredItems := make([]v1beta1.LocalQueue, 0, len(list.Items))
+			for _, lq := range list.Items {
+				stopPolicy := ptr.Deref(lq.Spec.StopPolicy, v1beta1.None)
+				if *activeStatus && stopPolicy == v1beta1.None {
+					filteredItems = append(filteredItems, lq)
+				} else if !*activeStatus && stopPolicy != v1beta1.None {
+					filteredItems = append(filteredItems, lq)
+				}
+			}
+			list.Items = filteredItems
 		}
 
 		validArgs := make([]string, len(list.Items))
