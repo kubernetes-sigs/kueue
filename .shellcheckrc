@@ -6,26 +6,3 @@
 # detect which files are failing
 external-sources=true
 
-# Currently disabled these errors will take care of them later
-
-# Not following: (error message here)
-# https://github.com/koalaman/shellcheck/wiki/SC1091
-disable=SC1091
-# Since you double quoted this, it will not word split, and the loop will only run once
-# https://github.com/koalaman/shellcheck/wiki/SC2066
-disable=SC2066
-# Double quote to prevent globbing and word splitting
-# https://github.com/koalaman/shellcheck/wiki/SC2086
-disable=SC2086
-# foo appears unused. Verify it or export it
-# https://github.com/koalaman/shellcheck/wiki/SC2034
-disable=SC2034
-# This {/} is literal. Check if ; is missing or quote the expression.
-# https://github.com/koalaman/shellcheck/wiki/SC1083
-disable=SC1083
-# Declare and assign separately to avoid masking return values
-# https://github.com/koalaman/shellcheck/wiki/SC2155
-disable=SC2155
-# Quote this to prevent word splitting
-# https://github.com/koalaman/shellcheck/wiki/SC2046
-disable=SC2046
