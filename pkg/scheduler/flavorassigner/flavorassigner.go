@@ -404,6 +404,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	assignedFlavorIdx := -1
 	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psID, resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
+		assignedFlavorIdx = idx
 		flvQuotas := resourceGroup.Flavors[idx]
 		flavor, exist := a.resourceFlavors[flvQuotas.Name]
 		if !exist {
@@ -426,8 +427,6 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			status.append(fmt.Sprintf("flavor %s doesn't match node affinity", flvQuotas.Name))
 			continue
 		}
-
-		assignedFlavorIdx = idx
 		needsBorrowing := false
 		assignments := make(ResourceAssignment, len(requests))
 		// Calculate representativeMode for this assignment as the worst mode among all requests.
