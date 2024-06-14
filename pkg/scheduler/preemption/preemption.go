@@ -164,6 +164,18 @@ func canBorrowWithinCohort(cq *cache.ClusterQueueSnapshot, wl *kueue.Workload) (
 	return true, &threshold
 }
 
+const (
+	// ClusterQueueOrigin indicates that preemption originated from cluster queue
+	ClusterQueueOrigin = "ClusterQueue"
+	// CohortOrigin indicates that preemption originated from cohort
+	CohortOrigin = "cohort"
+
+	InClusterQueueReason = "InClusterQueue"
+
+	InCohortReclamationReason = "InCohortReclamation"
+	InCohortFairSharingReason = "InCohortFairSharing"
+)
+
 // IssuePreemptions marks the target workloads as evicted.
 func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*workload.Info, cq *cache.ClusterQueueSnapshot) (int, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -174,11 +186,15 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
 		if !meta.IsStatusConditionTrue(target.Obj.Status.Conditions, kueue.WorkloadEvicted) {
-			origin := "ClusterQueue"
-			reason := "InClusterQueue"
+			origin := ClusterQueueOrigin
+			reason := InClusterQueueReason
 			if cq.Name != target.ClusterQueue {
-				origin = "cohort"
-				reason = "InCohort"
+				origin = CohortOrigin
+				if reclamation {
+					reason = InCohortReclamationReason
+				} else {
+					reason = InCohortFairSharingReason
+				}
 			}
 
 			message := fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", preemptor.Obj.UID, origin)

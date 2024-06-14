@@ -254,7 +254,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			if len(e.preemptionTargets) != 0 {
 				// If preemptions are issued, the next attempt should try all the flavors.
 				e.LastAssignment = nil
-				preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets, cq)
+				preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets, cq, !e.assignment.Borrowing)
 				if err != nil {
 					log.Error(err, "Failed to preempt workloads")
 				}

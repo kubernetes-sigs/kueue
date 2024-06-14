@@ -1456,7 +1456,7 @@ func TestPreemption(t *testing.T) {
 			wlInfo.ClusterQueue = tc.targetCQ
 			targetClusterQueue := snapshot.ClusterQueues[wlInfo.ClusterQueue]
 			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, &snapshot)
-			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, targetClusterQueue)
+			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, targetClusterQueue, true)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
 			}
