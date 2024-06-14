@@ -17,9 +17,30 @@ limitations under the License.
 package util
 
 import (
-	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
+
+	"github.com/spf13/cobra"
 )
+
+func AddFieldSelectorFlagVar(cmd *cobra.Command, p *string) {
+	cmd.Flags().StringVar(p, "field-selector", "",
+		"Selector (field query) to filter on, supports '=', '==', and '!='.(e.g. --field-selector key1=value1,key2=value2). The server only supports a limited number of field queries per type.")
+}
+
+func AddLabelSelectorFlagVar(cmd *cobra.Command, p *string) {
+	cmd.Flags().StringVarP(p, "selector", "l", "",
+		"Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2). Matching objects must satisfy all of the specified label constraints.")
+}
+
+func AddAllNamespacesFlagVar(cmd *cobra.Command, p *bool) {
+	cmd.Flags().BoolVarP(p, "all-namespaces", "A", false,
+		"If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.")
+}
+
+func AddProfileFlagVar(cmd *cobra.Command, p *string) {
+	cmd.Flags().StringVarP(p, "profile", "p", "",
+		"Filter by profile name which is associated with the resource.")
+}
 
 func FlagString(cmd *cobra.Command, flag string) string {
 	s, err := cmd.Flags().GetString(flag)
