@@ -17,21 +17,18 @@
 # allow overriding docker cli, which should work fine for this script
 DOCKER="${DOCKER:-docker}"
 
-
 SHELLCHECK_VERSION="0.9.0"
 SHELLCHECK_IMAGE="docker.io/koalaman/shellcheck-alpine:v0.9.0@sha256:e19ed93c22423970d56568e171b4512c9244fc75dd9114045016b4a0073ac4b7"
 
-scripts_to_check=("$@")
+# Initialize an empty array for scripts to check
+scripts_to_check=()
+
 if [[ "$#" == 0 ]]; then
-  # Find all shell scripts excluding:
-  # - Anything git-ignored - No need to lint untracked files.
-  # - ./_* - No need to lint output directories.
-  # - ./.git/* - Ignore anything in the git object store.
-  # - ./vendor* - Vendored code should be fixed upstream instead.
-  # - ./third_party/*, but re-include ./third_party/forked/*  - only code we
-  #    forked should be linted and fixed.
-  while IFS=$'\n' read -r script;
-    do git check-ignore -q "$script" || scripts_to_check+=("$script");
+  # Find all shell scripts excluding certain directories and patterns
+  while IFS=$'\n' read -r script; do
+    if ! git check-ignore -q "$script"; then
+      scripts_to_check+=("$script")
+    fi
   done < <(find . -name "*.sh" \
     -not \( \
       -path ./_\*      -o \
@@ -48,9 +45,13 @@ echo "Downloading ShellCheck Docker image..."
 # Run ShellCheck on all shell script files, excluding those in the 'vendor' directory.
 # Configuration loaded from the .shelcheckrc file.
 echo "Running ShellCheck..."
-"${DOCKER}" run \
-  --rm -v "$(pwd)" -w "$(pwd)" \
-    "${SHELLCHECK_IMAGE}" \
-  shellcheck "--color=${SHELLCHECK_COLORIZED_OUTPUT}" "${scripts_to_check[@]}" >&2 || res=$?
+if [ "${#scripts_to_check[@]}" -ne 0 ]; then
+  "${DOCKER}" run --rm -v "$(pwd)":/mnt -w /mnt "${SHELLCHECK_IMAGE}" shellcheck "${scripts_to_check[@]}" >&2 || res=$?
+else
+  echo "No scripts to check"
+  res=0
+fi
 
-echo "Shellcheck ran successfully"
+echo "Shellcheck ran successfully with exit code $res"
+
+exit $res
