@@ -63,7 +63,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	// TODO: how it should behave?
 	ginkgo.When("Creating a Job without a matching LocalQueue", func() {
 		ginkgo.It("Should stay in suspended", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())

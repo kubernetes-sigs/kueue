@@ -75,7 +75,8 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(jobSet.ObjectMeta.Namespace, localQueueName))
 		if err != nil {
-			return err
+			log.V(5).Info("Failed to get cluster queue name", "jobset", klog.KObj(jobSet), "error", err)
+			return nil
 		}
 		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
 			if admissionCheck.Controller == v1alpha1.MultiKueueControllerName {
