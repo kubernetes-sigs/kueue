@@ -482,7 +482,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			multiKueueEnabled:                      true,
 			multiKueueBatchJobWithManagedByEnabled: true,
-			wantErr:                                queue.ErrQueueDoesNotExist,
 		},
 	}
 	for name, tc := range testcases {

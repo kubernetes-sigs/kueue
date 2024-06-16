@@ -87,7 +87,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(job.ObjectMeta.Namespace, localQueueName))
 		if err != nil {
-			// Or return error, in case of error job will be rejected if there's no matching local queue
+			log.V(5).Info("Failed to get cluster queue name", "job", klog.KObj(job), "error", err)
 			return nil
 		}
 		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
