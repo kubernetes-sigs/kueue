@@ -9,8 +9,10 @@ external-sources=true
 # Currently disabled these errors will take care of them later
 
 # Not following: (error message here)
+# This variable is assigned to itself, so the assignment does nothing.
 # https://github.com/koalaman/shellcheck/wiki/SC2269
 disable=SC2269
+# Reasons include: file not found, no permissions, not included on the command line, not allowing shellcheck to follow files with -x, etc.
 # https://github.com/koalaman/shellcheck/wiki/SC1091
 disable=SC1091
 # Since you double quoted this, it will not word split, and the loop will only run once
