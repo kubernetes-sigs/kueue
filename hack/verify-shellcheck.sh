@@ -46,12 +46,10 @@ echo "Downloading ShellCheck Docker image..."
 # Configuration loaded from the .shelcheckrc file.
 echo "Running ShellCheck..."
 if [ "${#scripts_to_check[@]}" -ne 0 ]; then
-  "${DOCKER}" run --rm -v "$(pwd)":/mnt -w /mnt "${SHELLCHECK_IMAGE}" shellcheck "${scripts_to_check[@]}" >&2 || res=$?
+  "${DOCKER}" run --rm -v "$(pwd)":/mnt -w /mnt "${SHELLCHECK_IMAGE}" shellcheck "${scripts_to_check[@]}" >&2 
 else
   echo "No scripts to check"
-  res=0
 fi
 
-echo "Shellcheck ran successfully with exit code $res"
+echo "Shellcheck ran successfully"
 
-exit $res
