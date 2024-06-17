@@ -7,7 +7,8 @@ description: >
 ---
 
 AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload.
-Kueue runs all AdmissionChecks at the same time, after a Workload has reserved the quota.
+After Kueue has reserved quota for a Workload, Kueue runs all the admission checks configured
+in the ClusterQueue concurrently.
 All of the AdmissionChecks have to provide a positive signal to the Workload before it can be [Admitted](/docs/concepts#admission).
 
 ### API
@@ -79,7 +80,7 @@ spec:
 
 ### AdmissionCheckStates
 
-AdmissionCheckStates is representation of the AdmissionCheck's state for a specific Workload.
+An AdmissionCheckState is the representation of the AdmissionCheck's state for a specific Workload.
 AdmissionCheckStates are listed in the Workload's `.status.admissionCheckStates` field.
 
 AdmissionCheck can be in one of the following states:
@@ -115,7 +116,7 @@ Once a Workload has `QuotaReservation` condition set to `True`, and all of its A
 
 If any of the Workload's AdmissionCheck is in the `Retry` state:
   - If `Admitted` the Workload is evicted - Workload will have an `Evicted` condition in `workload.Status.Condition` with `AdmissionCheck` as a `Reason`
-  - If the Workload has `QuotaReservation` it will be release released.
+  - If the Workload has `QuotaReservation` it will be released.
   - Event `EvictedDueToAdmissionCheck` is emitted
 
 If any of the Workload's AdmissionCheck is in the `Rejected` state:

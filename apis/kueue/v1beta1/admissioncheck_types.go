@@ -53,8 +53,8 @@ type AdmissionCheckSpec struct {
 	ControllerName string `json:"controllerName"`
 
 	// RetryDelayMinutes specifies how long to keep the workload suspended after
-	// a failed check (after it transitioned to False). After that the check
-	// state goes to “Unknown”. The default is 15 min.
+	// a failed check (after it transitioned to False). When the delay period has passed, the check
+	// state goes to "Unknown". The default is 15 min.
 	// The default is 15 min.
 	// +optional
 	// +kubebuilder:default=15
