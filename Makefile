@@ -37,6 +37,7 @@ IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
+HELM_CHART_REPO := $(IMAGE_REGISTRY)/charts
 
 ifdef EXTRA_TAG
 IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
@@ -210,6 +211,10 @@ image-build:
 .PHONY: image-push
 image-push: PUSH=--push
 image-push: image-build
+
+.PHONY: helm-chart-push
+helm-chart-push: yq helm
+	EXTRA_TAG="$(EXTRA_TAG)" GIT_TAG="$(GIT_TAG)" HELM_CHART_REPO="$(HELM_CHART_REPO)" IMAGE_REPO="$(IMAGE_REPO)" HELM="$(HELM)" YQ="$(YQ)" ./hack/push-chart.sh
 
 # Build an amd64 image that can be used for Kind E2E tests.
 .PHONY: kind-image-build
