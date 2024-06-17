@@ -183,67 +183,67 @@ very-long-cluster-queue-name            0                   0                   
 				duration.HumanDuration(executeTime.Sub(cq2.CreationTimestamp.Time)),
 			)))
 		})
+	})
 
-		ginkgo.When("List Workloads", func() {
-			var (
-				wl1 *v1beta1.Workload
-				wl2 *v1beta1.Workload
-				wl3 *v1beta1.Workload
-			)
+	ginkgo.When("List Workloads", func() {
+		var (
+			wl1 *v1beta1.Workload
+			wl2 *v1beta1.Workload
+			wl3 *v1beta1.Workload
+		)
 
-			ginkgo.JustBeforeEach(func() {
-				wl1 = testing.MakeWorkload("wl1", ns.Name).Queue("lq1").Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+		ginkgo.JustBeforeEach(func() {
+			wl1 = testing.MakeWorkload("wl1", ns.Name).Queue("lq1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
 
-				wl2 = testing.MakeWorkload("wl2", ns.Name).Queue("very-long-local-queue-name").Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+			wl2 = testing.MakeWorkload("wl2", ns.Name).Queue("very-long-local-queue-name").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
 
-				wl3 = testing.MakeWorkload("very-long-workload-name", ns.Name).Queue("lq1").Obj()
-				gomega.Expect(k8sClient.Create(ctx, wl3)).To(gomega.Succeed())
-			})
+			wl3 = testing.MakeWorkload("very-long-workload-name", ns.Name).Queue("lq1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl3)).To(gomega.Succeed())
+		})
 
-			// Simple client set that are using on unit tests not allow to filter by field selector.
-			ginkgo.It("Should print workloads list filtered by field selector", func() {
-				streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				executeTime := time.Now()
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+		// Simple client set that are using on unit tests not allow to filter by field selector.
+		ginkgo.It("Should print workloads list filtered by field selector", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
-				kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
-					fmt.Sprintf("metadata.name=%s", wl1.Name), "--namespace", ns.Name})
-				err := kueuectl.Execute()
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				fmt.Sprintf("metadata.name=%s", wl1.Name), "--namespace", ns.Name})
+			err := kueuectl.Execute()
 
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-				gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
 wl1                          lq1                         PENDING                       %s
 `,
-					duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)))))
-			})
+				duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)))))
+		})
 
-			// Simple client set that are using on unit tests not allow paging.
-			ginkgo.It("Should print workloads list with paging", func() {
-				streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				executeTime := time.Now()
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should print workloads list with paging", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
-				os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
-				kueuectl.SetArgs([]string{"list", "workload", "--namespace", ns.Name})
-				err := kueuectl.Execute()
+			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			kueuectl.SetArgs([]string{"list", "workload", "--namespace", ns.Name})
+			err := kueuectl.Execute()
 
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-				gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                      JOB TYPE   JOB NAME   LOCALQUEUE                   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                      JOB TYPE   JOB NAME   LOCALQUEUE                   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
 very-long-workload-name                         lq1                                         PENDING                       %s
 wl1                                             lq1                                         PENDING                       %s
 wl2                                             very-long-local-queue-name                  PENDING                       %s
 `,
-					duration.HumanDuration(executeTime.Sub(wl3.CreationTimestamp.Time)),
-					duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)),
-					duration.HumanDuration(executeTime.Sub(wl2.CreationTimestamp.Time)),
-				)))
-			})
+				duration.HumanDuration(executeTime.Sub(wl3.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(wl2.CreationTimestamp.Time)),
+			)))
 		})
 	})
 })
