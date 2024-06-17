@@ -273,7 +273,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 2 CPU in total, this jobset can only be admitted in worker 1.
 			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 				Queue(managerLq.Name).
-				ManagedBy(kueuealpha.MultiKueueControllerName).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
