@@ -84,6 +84,51 @@ var _ = ginkgo.Describe("Kueuectl Resume", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 	})
 
+	ginkgo.When("Resuming a LocalQueue", func() {
+		ginkgo.DescribeTable("Should resume a LocalQueue",
+			func(name string, wantInitialStopPolicy v1beta1.StopPolicy) {
+				lq := testing.MakeLocalQueue(name, ns.Name).StopPolicy(wantInitialStopPolicy).Obj()
+
+				ginkgo.By("Create a LocalQueue", func() {
+					gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+				})
+
+				createdLocalQueue := &v1beta1.LocalQueue{}
+				ginkgo.By("Get created LocalQueue", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLocalQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(wantInitialStopPolicy))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Resume created LocalQueue", func() {
+					streams, _, output, _ := genericiooptions.NewTestIOStreams()
+					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+					kueuectl.SetArgs([]string{"resume", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name})
+					err := kueuectl.Execute()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				})
+
+				ginkgo.By("Check that the LocalQueue is successfully resumed", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, v1beta1.None)).Should(gomega.Equal(v1beta1.None))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			},
+			ginkgo.Entry("HoldAndDrain",
+				"lq-1",
+				v1beta1.HoldAndDrain,
+			),
+			ginkgo.Entry("Hold",
+				"lq-2",
+				v1beta1.Hold,
+			),
+		)
+	})
+
 	ginkgo.When("Resuming a ClusterQueue", func() {
 		ginkgo.DescribeTable("Should resume a ClusterQueue",
 			func(cq *v1beta1.ClusterQueue, wantInitialStopPolicy v1beta1.StopPolicy) {
