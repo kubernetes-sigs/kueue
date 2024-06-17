@@ -15,7 +15,7 @@ All of the AdmissionChecks have to provide a positive signal to the Workload bef
 AdmissionCheck is a non-namespaced API object used to define details about an admission check:
 
 - **controllerName** - identifies the controller that processes the AdmissionCheck, not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
-- **retryDelayMinutes (deprecated)** - Specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to “Unknown”. The default is 15 min.
+- **retryDelayMinutes (deprecated)** - specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to “Unknown”. The default is 15 min.
 - **parameters** - identifies a configuration with additional parameters for the check, e.g. [`ProvisioningRequestConfig`](/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration)
 
 An AdmissionCheck object looks like the following:
@@ -115,14 +115,14 @@ Once a Workload has `QuotaReservation` condition set to `True`, and all of its A
 
 If any of the Workload's AdmissionCheck is in the `Retry` state:
   - If `Admitted` the Workload is evicted - Workload will have an `Evicted` condition in `workload.Status.Condition` with `AdmissionCheck` as a `Reason`
-  - If the Workload has `QuotaReservation` it will be released.
-  - Event is emitted
+  - If the Workload has `QuotaReservation` it will be release released.
+  - Event `EvictedDueToAdmissionCheck` is emitted
 
 If any of the Workload's AdmissionCheck is in the `Rejected` state:
   - Workload is deactivated - `workload.Spec.Active` is set to `False`
   - If `Admitted` the Workload is evicted - Workload has an `Evicted` condition in `workload.Status.Condition` with `InactiveWorkload` as a `Reason`
   - If the Workload has `QuotaReservation` it will be released.
-  - Event is emitted
+  - Event `AdmissionCheckRejected` is emitted
 
 ## What's next?
 

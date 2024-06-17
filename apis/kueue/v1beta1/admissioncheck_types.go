@@ -46,22 +46,22 @@ const (
 
 // AdmissionCheckSpec defines the desired state of AdmissionCheck
 type AdmissionCheckSpec struct {
-	// controllerName is name of the controller which will actually perform
-	// the checks. This is the name with which controller identifies with,
-	// not necessarily a K8S Pod or Deployment name. Cannot be empty.
+	// controllerName identifies the controller that processes the AdmissionCheck,
+	// not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	ControllerName string `json:"controllerName"`
 
-	// RetryDelayMinutes specifies how long to keep the workload suspended
-	// after a failed check (after it transitioned to False).
-	// After that the check state goes to "Unknown".
+	// RetryDelayMinutes specifies how long to keep the workload suspended after
+	// a failed check (after it transitioned to False). After that the check
+	// state goes to “Unknown”. The default is 15 min.
 	// The default is 15 min.
 	// +optional
 	// +kubebuilder:default=15
 	RetryDelayMinutes *int64 `json:"retryDelayMinutes,omitempty"`
 
-	// Parameters identifies the resource providing additional check parameters.
+	// Parameters identifies a configuration with additional parameters for the
+	// check, e.g. [`ProvisioningRequestConfig`](https://kueue.sigs.k8s.io/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration)
 	// +optional
 	Parameters *AdmissionCheckParametersReference `json:"parameters,omitempty"`
 }
