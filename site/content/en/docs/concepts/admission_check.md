@@ -15,8 +15,8 @@ All of the AdmissionChecks have to provide a positive signal to the Workload bef
 AdmissionCheck is a non-namespaced API object used to define details about an admission check:
 
 - **controllerName** - identifies the controller that processes the AdmissionCheck, not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
-- **retryDelayMinutes (deprecated)g** - Specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to “Unknown”. The default is 15 min.
-- **parameters** - identifies additional resources providing additional parameters for the check, e.g. [`ProvisioningRequestConfig`](/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration)
+- **retryDelayMinutes (deprecated)** - Specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to “Unknown”. The default is 15 min.
+- **parameters** - identifies a configuration with additional parameters for the check, e.g. [`ProvisioningRequestConfig`](/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration)
 
 An AdmissionCheck object looks like the following:
 ```yaml
@@ -114,8 +114,8 @@ If a Workload is admitted, adding a new AdmissionCheck does not evict the Worklo
 Once a Workload has `QuotaReservation` condition set to `True`, and all of its AdmissionChecks are in `Ready` state the Workload will become `Admitted`.
 
 If any of the Workload's AdmissionCheck is in the `Retry` state:
-  - If `Admitted` th Workload is evicted - Workload will have an `Evicted` condition in `workload.Status.Condition` with `AdmissionCheck` as a `Reason`
-  - If the Workload has `QuotaReservation` it will be release released.
+  - If `Admitted` the Workload is evicted - Workload will have an `Evicted` condition in `workload.Status.Condition` with `AdmissionCheck` as a `Reason`
+  - If the Workload has `QuotaReservation` it will be released.
   - Event is emitted
 
 If any of the Workload's AdmissionCheck is in the `Rejected` state:
