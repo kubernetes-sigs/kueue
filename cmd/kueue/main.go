@@ -158,6 +158,9 @@ func main() {
 		cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
+	if cfg.FairSharing != nil {
+		cacheOptions = append(cacheOptions, cache.WithFairSharing(cfg.FairSharing.Enable))
+	}
 	cCache := cache.New(mgr.GetClient(), cacheOptions...)
 	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
