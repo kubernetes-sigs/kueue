@@ -580,14 +580,15 @@ func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
 	return cq.Snapshot()
 }
 
-// ClusterQueueFromLocalQueue returns ClusterQueue name, with a QueueKey(namespace/localQueueName) as the parameter
-func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey string) (string, error) {
+// ClusterQueueFromLocalQueue returns ClusterQueue name and whether it's found,
+// given a QueueKey(namespace/localQueueName) as the parameter
+func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey string) (string, bool) {
 	m.RLock()
 	defer m.RUnlock()
 	if lq, ok := m.localQueues[localQueueKey]; ok {
-		return lq.ClusterQueue, nil
+		return lq.ClusterQueue, true
 	}
-	return "", ErrQueueDoesNotExist
+	return "", false
 }
 
 func QueueKey(namespace, name string) string {
