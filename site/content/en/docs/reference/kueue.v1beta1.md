@@ -351,7 +351,7 @@ The default is 15 min.</p>
 </td>
 <td>
    <p>Parameters identifies a configuration with additional parameters for the
-check, e.g. <a href="https://kueue.sigs.k8s.io/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration"><code>ProvisioningRequestConfig</code></a></p>
+check.</p>
 </td>
 </tr>
 </tbody>

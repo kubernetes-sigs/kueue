@@ -61,7 +61,7 @@ type AdmissionCheckSpec struct {
 	RetryDelayMinutes *int64 `json:"retryDelayMinutes,omitempty"`
 
 	// Parameters identifies a configuration with additional parameters for the
-	// check, e.g. [`ProvisioningRequestConfig`](https://kueue.sigs.k8s.io/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration)
+	// check.
 	// +optional
 	Parameters *AdmissionCheckParametersReference `json:"parameters,omitempty"`
 }

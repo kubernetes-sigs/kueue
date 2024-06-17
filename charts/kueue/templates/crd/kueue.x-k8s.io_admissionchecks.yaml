@@ -65,7 +65,7 @@ spec:
               parameters:
                 description: |-
                   Parameters identifies a configuration with additional parameters for the
-                  check, e.g. [`ProvisioningRequestConfig`](https://kueue.sigs.k8s.io/docs/admission-check-controllers/provisioning/#provisioningrequest-configuration)
+                  check.
                 properties:
                   apiGroup:
                     description: ApiGroup is the group for the resource being referenced.
