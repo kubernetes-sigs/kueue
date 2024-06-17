@@ -35,6 +35,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -101,7 +102,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueConfig)).Should(gomega.Succeed())
 
 		multiKueueAc = utiltesting.MakeAdmissionCheck("ac1").
-			ControllerName(kueuealpha.MultiKueueControllerName).
+			ControllerName(multikueue.ControllerName).
 			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueAc)).Should(gomega.Succeed())
@@ -191,6 +192,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 2 CPU, this job can only be admitted in worker 1.
 			job := testingjob.MakeJob("job", managerNs.Name).
 				Queue(managerLq.Name).
+				ManagedBy(multikueue.ControllerName).
 				Request("cpu", "2").
 				Request("memory", "1G").
 				// Give it the time to be observed Active in the live status update step.
@@ -199,11 +201,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			ginkgo.By("Creating the job", func() {
 				gomega.Expect(k8sManagerClient.Create(ctx, job)).Should(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueuealpha.MultiKueueControllerName))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
@@ -273,7 +270,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 2 CPU in total, this jobset can only be admitted in worker 1.
 			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 				Queue(managerLq.Name).
-				ManagedBy(kueuealpha.MultiKueueControllerName).
+				ManagedBy(multikueue.ControllerName).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",

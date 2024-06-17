@@ -17,29 +17,22 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	fakeclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 
 	// without this only the job framework is registered
@@ -390,15 +383,9 @@ func TestValidateUpdate(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
-		job                                    *batchv1.Job
-		queues                                 []kueue.LocalQueue
-		clusterQueues                          []kueue.ClusterQueue
-		admissionCheck                         *kueue.AdmissionCheck
-		manageJobsWithoutQueueName             bool
-		multiKueueEnabled                      bool
-		multiKueueBatchJobWithManagedByEnabled bool
-		want                                   *batchv1.Job
-		wantErr                                error
+		job                        *batchv1.Job
+		manageJobsWithoutQueueName bool
+		want                       *batchv1.Job
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
@@ -409,120 +396,12 @@ func TestDefault(t *testing.T) {
 			manageJobsWithoutQueueName: true,
 			want:                       testingutil.MakeJob("job", "default").Obj(),
 		},
-		"no change in managed by: features.MultiKueueBatchJobWithManagedBy disabled": {
-			job:                                    testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			multiKueueBatchJobWithManagedByEnabled: false,
-			want:                                   testingutil.MakeJob("job", "default").Queue("queue").Obj(),
-		},
-		"no change in managed by: features.MultiKueue disabled": {
-			job:               testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			multiKueueEnabled: false,
-			want:              testingutil.MakeJob("job", "default").Queue("queue").Obj(),
-		},
-		"managed by is defaulted: queue label was set": {
-			job: testingutil.MakeJob("job", "default").
-				Queue("local-queue").
-				Suspend(false).
-				Obj(),
-			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
-					ClusterQueue("cluster-queue").
-					Obj(),
-			},
-			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
-					AdmissionChecks("admission-check").
-					Obj(),
-			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
-				Active(metav1.ConditionTrue).
-				Obj(),
-			want: testingutil.MakeJob("job", "default").
-				Queue("local-queue").
-				ManagedBy(v1alpha1.MultiKueueControllerName).
-				Obj(),
-			multiKueueEnabled:                      true,
-			multiKueueBatchJobWithManagedByEnabled: true,
-		},
-		"no change in managed by: user specified managed by": {
-			job: testingutil.MakeJob("job", "default").
-				Queue("local-queue").
-				ManagedBy("example.com/foo").
-				Suspend(false).
-				Obj(),
-			queues: []kueue.LocalQueue{
-				*utiltesting.MakeLocalQueue("local-queue", "default").
-					ClusterQueue("cluster-queue").
-					Obj(),
-			},
-			clusterQueues: []kueue.ClusterQueue{
-				*utiltesting.MakeClusterQueue("cluster-queue").
-					AdmissionChecks("admission-check").
-					Obj(),
-			},
-			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
-				Active(metav1.ConditionTrue).
-				Obj(),
-			want: testingutil.MakeJob("job", "default").
-				Queue("local-queue").
-				ManagedBy("example.com/foo").
-				Obj(),
-			multiKueueEnabled:                      true,
-			multiKueueBatchJobWithManagedByEnabled: true,
-		},
-		"invalid queue name": {
-			job: testingutil.MakeJob("job", "default").
-				Queue("invalid-local-queue").
-				Suspend(false).
-				Obj(),
-			want: testingutil.MakeJob("job", "default").
-				Queue("invalid-local-queue").
-				Obj(),
-			multiKueueEnabled:                      true,
-			multiKueueBatchJobWithManagedByEnabled: true,
-		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)()
-			defer features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, tc.multiKueueBatchJobWithManagedByEnabled)()
-
-			ctx, _ := utiltesting.ContextWithLog(t)
-
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithObjects(
-					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
-				)
-			cl := clientBuilder.Build()
-			cqCache := cache.New(cl)
-			queueManager := queue.NewManager(cl, cqCache)
-
-			for _, q := range tc.queues {
-				if err := queueManager.AddLocalQueue(ctx, &q); err != nil {
-					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
-				}
-			}
-			for _, cq := range tc.clusterQueues {
-				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-				}
-				if tc.admissionCheck != nil {
-					cqCache.AddOrUpdateAdmissionCheck(tc.admissionCheck)
-					if err := queueManager.AddClusterQueue(ctx, &cq); err != nil {
-						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-					}
-				}
-			}
-			w := &JobWebhook{
-				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				queues:                     queueManager,
-				cache:                      cqCache,
-			}
-			gotErr := w.Default(ctx, tc.job)
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Default() error mismatch (-want +got):\n%s", diff)
+			w := &JobWebhook{manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName}
+			if err := w.Default(context.Background(), tc.job); err != nil {
+				t.Errorf("set defaults to a batch/job by a Defaulter")
 			}
 			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)

@@ -31,12 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 )
 
@@ -48,8 +43,6 @@ var (
 type JobWebhook struct {
 	manageJobsWithoutQueueName bool
 	kubeServerVersion          *kubeversion.ServerVersionFetcher
-	queues                     *queue.Manager
-	cache                      *cache.Cache
 }
 
 // SetupWebhook configures the webhook for batchJob.
@@ -58,8 +51,6 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	wh := &JobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 		kubeServerVersion:          options.KubeServerVersion,
-		queues:                     options.Queues,
-		cache:                      options.Cache,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&batchv1.Job{}).
@@ -79,32 +70,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
 	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
-
-	if canDefaultManagedBy(job.Spec.ManagedBy) {
-		localQueueName, found := job.Labels[constants.QueueLabel]
-		if !found {
-			return nil
-		}
-		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(job.ObjectMeta.Namespace, localQueueName))
-		if err != nil {
-			log.V(5).Info("Failed to get cluster queue name", "job", klog.KObj(job), "error", err)
-			return nil
-		}
-		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
-			if admissionCheck.Controller == v1alpha1.MultiKueueControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "job", klog.KObj(job), "oldManagedBy", job.Spec.ManagedBy, "managedBy", v1alpha1.MultiKueueControllerName)
-				job.Spec.ManagedBy = ptr.To(v1alpha1.MultiKueueControllerName)
-				return nil
-			}
-		}
-	}
 	return nil
-}
-
-func canDefaultManagedBy(jobSpecManagedBy *string) bool {
-	return features.Enabled(features.MultiKueueBatchJobWithManagedBy) &&
-		features.Enabled(features.MultiKueue) &&
-		(jobSpecManagedBy == nil || *jobSpecManagedBy == batchv1.JobControllerName)
 }
 
 // +kubebuilder:webhook:path=/validate-batch-v1-job,mutating=false,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=create;update,versions=v1,name=vjob.kb.io,admissionReviewVersions=v1
