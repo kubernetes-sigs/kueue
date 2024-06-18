@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerMultiKueueConfig)).Should(gomega.Succeed())
 
 		multikueueAC = utiltesting.MakeAdmissionCheck("ac1").
-			ControllerName(multikueue.ControllerName).
+			ControllerName(kueuealpha.MultiKueueControllerName).
 			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, multikueueAC)).Should(gomega.Succeed())
@@ -189,7 +189,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	})
 	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by secret", func() {
 		ac := utiltesting.MakeAdmissionCheck("testing-ac").
-			ControllerName(multikueue.ControllerName).
+			ControllerName(kueuealpha.MultiKueueControllerName).
 			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "testing-config").
 			Obj()
 		ginkgo.By("creating the admission check with missing config, it's set inactive", func() {
@@ -333,7 +333,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by file", func() {
 		ac := utiltesting.MakeAdmissionCheck("testing-ac").
-			ControllerName(multikueue.ControllerName).
+			ControllerName(kueuealpha.MultiKueueControllerName).
 			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "testing-config").
 			Obj()
 		ginkgo.By("creating the admission check with missing config, it's set inactive", func() {
@@ -550,7 +550,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		}
 		ginkgo.DeferCleanup(features.SetFeatureGateDuringTest(featuregatesT, features.MultiKueueBatchJobWithManagedBy, true))
 		job := testingjob.MakeJob("job", managerNs.Name).
-			ManagedBy(multikueue.ControllerName).
+			ManagedBy(kueuealpha.MultiKueueControllerName).
 			Queue(managerLq.Name).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())
@@ -652,7 +652,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	ginkgo.It("Should run a jobSet on worker if admitted", func() {
 		jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 			Queue(managerLq.Name).
-			ManagedBy(multikueue.ControllerName).
+			ManagedBy(kueuealpha.MultiKueueControllerName).
 			ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",
@@ -935,7 +935,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	ginkgo.It("Should requeue the workload with a delay when the connection to the admitting worker is lost", func() {
 		jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 			Queue(managerLq.Name).
-			ManagedBy(multikueue.ControllerName).
+			ManagedBy(kueuealpha.MultiKueueControllerName).
 			ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",
@@ -1165,7 +1165,7 @@ var _ = ginkgo.Describe("Multikueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerMultiKueueConfig)).Should(gomega.Succeed())
 
 		multikueueAC = utiltesting.MakeAdmissionCheck("ac1").
-			ControllerName(multikueue.ControllerName).
+			ControllerName(kueuealpha.MultiKueueControllerName).
 			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, multikueueAC)).Should(gomega.Succeed())

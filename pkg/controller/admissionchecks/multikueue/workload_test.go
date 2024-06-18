@@ -57,7 +57,7 @@ func TestWlReconcile(t *testing.T) {
 
 	baseWorkloadBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
-	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(ControllerName)
+	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueuealpha.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		reconcileFor             string
@@ -997,7 +997,7 @@ func TestWlReconcile(t *testing.T) {
 			manageBuilder = manageBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
 			manageBuilder = manageBuilder.WithObjects(
 				utiltesting.MakeMultiKueueConfig("config1").Clusters(workerClusters...).Obj(),
-				utiltesting.MakeAdmissionCheck("ac1").ControllerName(ControllerName).
+				utiltesting.MakeAdmissionCheck("ac1").ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			)
