@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -136,7 +137,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		FlavorFungibility:             c.FlavorFungibility,
 		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
-		Usage:                         make(FlavorResourceQuantities, len(c.Usage)),
+		Usage:                         make(resources.FlavorResourceQuantities, len(c.Usage)),
 		Lendable:                      maps.Clone(c.Lendable),
 		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
@@ -157,7 +158,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 
 func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 	if cohort.RequestableResources == nil {
-		cohort.RequestableResources = make(FlavorResourceQuantities, len(c.ResourceGroups))
+		cohort.RequestableResources = make(resources.FlavorResourceQuantities, len(c.ResourceGroups))
 	}
 	for _, rg := range c.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
@@ -180,7 +181,7 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 		}
 	}
 	if cohort.Usage == nil {
-		cohort.Usage = make(FlavorResourceQuantities, len(c.Usage))
+		cohort.Usage = make(resources.FlavorResourceQuantities, len(c.Usage))
 	}
 	for fName, resUsages := range c.Usage {
 		used := cohort.Usage[fName]

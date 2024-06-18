@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -342,8 +343,8 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
 			//TODO: rename this to better distinguish between reserved and in use quantities
-			usage:         make(FlavorResourceQuantities),
-			admittedUsage: make(FlavorResourceQuantities),
+			usage:         make(resources.FlavorResourceQuantities),
+			admittedUsage: make(resources.FlavorResourceQuantities),
 		}
 		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage); err != nil {
 			return err
@@ -614,7 +615,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	return stats, nil
 }
 
-func getUsage(frq FlavorResourceQuantities, rgs []ResourceGroup, cohort *Cohort) []kueue.FlavorUsage {
+func getUsage(frq resources.FlavorResourceQuantities, rgs []ResourceGroup, cohort *Cohort) []kueue.FlavorUsage {
 	usage := make([]kueue.FlavorUsage, 0, len(frq))
 	for _, rg := range rgs {
 		for _, flvQuotas := range rg.Flavors {
@@ -676,7 +677,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	}, nil
 }
 
-func filterLocalQueueUsage(orig FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
+func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
 	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
 	for _, rg := range resourceGroups {
 		for _, flvQuotas := range rg.Flavors {

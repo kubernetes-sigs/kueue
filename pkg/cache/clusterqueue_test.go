@@ -30,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -94,19 +95,19 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 func TestFitInCohort(t *testing.T) {
 	cases := map[string]struct {
-		request            FlavorResourceQuantities
+		request            resources.FlavorResourceQuantities
 		wantFit            bool
 		cq                 *ClusterQueue
 		enableLendingLimit bool
 	}{
 		"full cohort, empty request": {
-			request: FlavorResourceQuantities{},
+			request: resources.FlavorResourceQuantities{},
 			wantFit: true,
 			cq: &ClusterQueue{
 				Name: "CQ",
 				Cohort: &Cohort{
 					Name: "C",
-					RequestableResources: FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    5,
 							corev1.ResourceMemory: 5,
@@ -116,7 +117,7 @@ func TestFitInCohort(t *testing.T) {
 							corev1.ResourceMemory: 5,
 						},
 					},
-					Usage: FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    5,
 							corev1.ResourceMemory: 5,
@@ -131,7 +132,7 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"can fit": {
-			request: FlavorResourceQuantities{
+			request: resources.FlavorResourceQuantities{
 				"f2": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
 					corev1.ResourceMemory: 1,
@@ -142,7 +143,7 @@ func TestFitInCohort(t *testing.T) {
 				Name: "CQ",
 				Cohort: &Cohort{
 					Name: "C",
-					RequestableResources: FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    5,
 							corev1.ResourceMemory: 5,
@@ -152,7 +153,7 @@ func TestFitInCohort(t *testing.T) {
 							corev1.ResourceMemory: 5,
 						},
 					},
-					Usage: FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    5,
 							corev1.ResourceMemory: 5,
@@ -167,7 +168,7 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"full cohort, none fit": {
-			request: FlavorResourceQuantities{
+			request: resources.FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
 					corev1.ResourceMemory: 1,
@@ -182,7 +183,7 @@ func TestFitInCohort(t *testing.T) {
 				Name: "CQ",
 				Cohort: &Cohort{
 					Name: "C",
-					RequestableResources: FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    5,
 							corev1.ResourceMemory: 5,
@@ -192,7 +193,7 @@ func TestFitInCohort(t *testing.T) {
 							corev1.ResourceMemory: 5,
 						},
 					},
-					Usage: FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    5,
 							corev1.ResourceMemory: 5,
@@ -207,7 +208,7 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"one cannot fit": {
-			request: FlavorResourceQuantities{
+			request: resources.FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
 					corev1.ResourceMemory: 1,
@@ -222,7 +223,7 @@ func TestFitInCohort(t *testing.T) {
 				Name: "CQ",
 				Cohort: &Cohort{
 					Name: "C",
-					RequestableResources: FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    5,
 							corev1.ResourceMemory: 5,
@@ -232,7 +233,7 @@ func TestFitInCohort(t *testing.T) {
 							corev1.ResourceMemory: 5,
 						},
 					},
-					Usage: FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    4,
 							corev1.ResourceMemory: 4,
@@ -247,7 +248,7 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"missing flavor": {
-			request: FlavorResourceQuantities{
+			request: resources.FlavorResourceQuantities{
 				"f2": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
 					corev1.ResourceMemory: 1,
@@ -258,13 +259,13 @@ func TestFitInCohort(t *testing.T) {
 				Name: "CQ",
 				Cohort: &Cohort{
 					Name: "C",
-					RequestableResources: FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    5,
 							corev1.ResourceMemory: 5,
 						},
 					},
-					Usage: FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    5,
 							corev1.ResourceMemory: 5,
@@ -275,7 +276,7 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"missing resource": {
-			request: FlavorResourceQuantities{
+			request: resources.FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
 					corev1.ResourceMemory: 1,
@@ -286,12 +287,12 @@ func TestFitInCohort(t *testing.T) {
 				Name: "CQ",
 				Cohort: &Cohort{
 					Name: "C",
-					RequestableResources: FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 5,
 						},
 					},
-					Usage: FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 3,
 						},
@@ -301,7 +302,7 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"lendingLimit enabled can't fit": {
-			request: FlavorResourceQuantities{
+			request: resources.FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 3,
 				},
@@ -311,20 +312,20 @@ func TestFitInCohort(t *testing.T) {
 				Name: "CQ-A",
 				Cohort: &Cohort{
 					Name: "C",
-					RequestableResources: FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							// CQ-A has 2 nominal cpu, CQ-B has 3 nominal cpu and 2 lendingLimit,
 							// so when lendingLimit enabled, the cohort's RequestableResources is 4 cpu.
 							corev1.ResourceCPU: 4,
 						},
 					},
-					Usage: FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 2,
 						},
 					},
 				},
-				GuaranteedQuota: FlavorResourceQuantities{
+				GuaranteedQuota: resources.FlavorResourceQuantities{
 					"f1": {
 						corev1.ResourceCPU: 0,
 					},
@@ -333,7 +334,7 @@ func TestFitInCohort(t *testing.T) {
 			enableLendingLimit: true,
 		},
 		"lendingLimit enabled can fit": {
-			request: FlavorResourceQuantities{
+			request: resources.FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 3,
 				},
@@ -343,14 +344,14 @@ func TestFitInCohort(t *testing.T) {
 				Name: "CQ-A",
 				Cohort: &Cohort{
 					Name: "C",
-					RequestableResources: FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							// CQ-A has 2 nominal cpu, CQ-B has 3 nominal cpu and 2 lendingLimit,
 							// so when lendingLimit enabled, the cohort's RequestableResources is 4 cpu.
 							corev1.ResourceCPU: 4,
 						},
 					},
-					Usage: FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"f1": map[corev1.ResourceName]int64{
 							// CQ-B has admitted a workload with 2 cpus, but with 1 GuaranteedQuota,
 							// so when lendingLimit enabled, Cohort.Usage should be 2 - 1 = 1.
@@ -358,7 +359,7 @@ func TestFitInCohort(t *testing.T) {
 						},
 					},
 				},
-				GuaranteedQuota: FlavorResourceQuantities{
+				GuaranteedQuota: resources.FlavorResourceQuantities{
 					"f1": {
 						corev1.ResourceCPU: 2,
 					},
@@ -782,14 +783,14 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 func TestDominantResourceShare(t *testing.T) {
 	cases := map[string]struct {
 		cq          ClusterQueue
-		flvResQ     FlavorResourceQuantities
+		flvResQ     resources.FlavorResourceQuantities
 		wantDRValue int
 		wantDRName  corev1.ResourceName
 	}{
 		"no cohort": {
 			cq: ClusterQueue{
 				FairWeight: oneQuantity,
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  2,
@@ -817,7 +818,7 @@ func TestDominantResourceShare(t *testing.T) {
 		"usage below nominal": {
 			cq: ClusterQueue{
 				FairWeight: oneQuantity,
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  2,
@@ -851,7 +852,7 @@ func TestDominantResourceShare(t *testing.T) {
 		"usage above nominal": {
 			cq: ClusterQueue{
 				FairWeight: oneQuantity,
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 3_000,
 						"example.com/gpu":  7,
@@ -887,7 +888,7 @@ func TestDominantResourceShare(t *testing.T) {
 		"one resource above nominal": {
 			cq: ClusterQueue{
 				FairWeight: oneQuantity,
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 3_000,
 						"example.com/gpu":  3,
@@ -923,7 +924,7 @@ func TestDominantResourceShare(t *testing.T) {
 		"usage with workload above nominal": {
 			cq: ClusterQueue{
 				FairWeight: oneQuantity,
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  2,
@@ -953,7 +954,7 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 			},
-			flvResQ: FlavorResourceQuantities{
+			flvResQ: resources.FlavorResourceQuantities{
 				"default": {
 					corev1.ResourceCPU: 4_000,
 					"example.com/gpu":  4,
@@ -965,7 +966,7 @@ func TestDominantResourceShare(t *testing.T) {
 		"A resource with zero lendable": {
 			cq: ClusterQueue{
 				FairWeight: oneQuantity,
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  1,
@@ -996,7 +997,7 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 			},
-			flvResQ: FlavorResourceQuantities{
+			flvResQ: resources.FlavorResourceQuantities{
 				"default": {
 					corev1.ResourceCPU: 4_000,
 					"example.com/gpu":  4,
@@ -1008,7 +1009,7 @@ func TestDominantResourceShare(t *testing.T) {
 		"multiple flavors": {
 			cq: ClusterQueue{
 				FairWeight: oneQuantity,
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"on-demand": {
 						corev1.ResourceCPU: 15_000,
 					},
@@ -1044,7 +1045,7 @@ func TestDominantResourceShare(t *testing.T) {
 					},
 				},
 			},
-			flvResQ: FlavorResourceQuantities{
+			flvResQ: resources.FlavorResourceQuantities{
 				"on-demand": {
 					corev1.ResourceCPU: 10_000,
 				},
@@ -1055,7 +1056,7 @@ func TestDominantResourceShare(t *testing.T) {
 		"above nominal with integer weight": {
 			cq: ClusterQueue{
 				FairWeight: resource.MustParse("2"),
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						"example.com/gpu": 7,
 					},
@@ -1086,7 +1087,7 @@ func TestDominantResourceShare(t *testing.T) {
 		"above nominal with decimal weight": {
 			cq: ClusterQueue{
 				FairWeight: resource.MustParse("0.5"),
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						"example.com/gpu": 7,
 					},
@@ -1116,7 +1117,7 @@ func TestDominantResourceShare(t *testing.T) {
 		},
 		"above nominal with zero weight": {
 			cq: ClusterQueue{
-				Usage: FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						"example.com/gpu": 7,
 					},

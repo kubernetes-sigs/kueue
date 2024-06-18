@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -45,7 +46,7 @@ type Assignment struct {
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned.
-	Usage cache.FlavorResourceQuantities
+	Usage resources.FlavorResourceQuantities
 
 	// representativeMode is the cached representative mode for this assignment.
 	representativeMode *FlavorAssignmentMode
@@ -105,8 +106,8 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 	return psFlavors
 }
 
-func (a *Assignment) TotalRequestsFor(wl *workload.Info) cache.FlavorResourceQuantities {
-	usage := make(cache.FlavorResourceQuantities)
+func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
+	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
 		for res, q := range ps.Requests {
 			flv := a.PodSets[i].Flavors[res].Name
@@ -300,7 +301,7 @@ func (a *FlavorAssigner) Assign(log logr.Logger, counts []int32) Assignment {
 func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodSetResources) Assignment {
 	assignment := Assignment{
 		PodSets: make([]PodSetAssignment, 0, len(requests)),
-		Usage:   make(cache.FlavorResourceQuantities),
+		Usage:   make(resources.FlavorResourceQuantities),
 		LastState: workload.AssignmentClusterQueueState{
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
 			CohortGeneration:       0,
@@ -383,7 +384,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	psID int,
 	requests workload.Requests,
 	resName corev1.ResourceName,
-	assignmentUsage cache.FlavorResourceQuantities,
+	assignmentUsage resources.FlavorResourceQuantities,
 ) (ResourceAssignment, *Status) {
 	resourceGroup, found := a.cq.RGByResource[resName]
 	if !found {

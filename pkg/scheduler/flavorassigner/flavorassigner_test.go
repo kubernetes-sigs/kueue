@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -101,7 +102,7 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					},
 				},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU:    1000,
 						corev1.ResourceMemory: 1 * 1024 * 1024,
@@ -144,7 +145,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"tainted": {
 						corev1.ResourceCPU: 1000,
 					},
@@ -167,7 +168,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {corev1.ResourceCPU: 3_000},
 				},
 			},
@@ -186,7 +187,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": {
 						corev1.ResourceCPU: 2000,
 					},
@@ -252,7 +253,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 3000,
 					},
@@ -290,7 +291,7 @@ func TestAssignFlavors(t *testing.T) {
 						}},
 					},
 				},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 1000},
 				},
 			},
@@ -308,7 +309,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{},
+				Usage: resources.FlavorResourceQuantities{},
 			},
 		},
 		"multiple resource groups with multiple resources, fits": {
@@ -375,7 +376,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU:    3000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
@@ -425,11 +426,11 @@ func TestAssignFlavors(t *testing.T) {
 						}},
 					},
 				},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": {corev1.ResourceMemory: 10 * utiltesting.Mi},
 				},
 				Cohort: &cache.Cohort{
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: utiltesting.Gi,
@@ -442,7 +443,7 @@ func TestAssignFlavors(t *testing.T) {
 							"example.com/gpu": 4,
 						},
 					},
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"two": {
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
 						},
@@ -475,7 +476,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU:    3000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
@@ -531,7 +532,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{},
+				Usage: resources.FlavorResourceQuantities{},
 			},
 		},
 		"multiple flavors, fits while skipping tainted flavor": {
@@ -573,7 +574,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 3000,
 					},
@@ -619,7 +620,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 3000,
 					},
@@ -697,7 +698,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
@@ -772,7 +773,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU:    1000,
 						corev1.ResourceMemory: 1 * 1024 * 1024,
@@ -855,7 +856,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
@@ -926,7 +927,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{},
+				Usage: resources.FlavorResourceQuantities{},
 			},
 		},
 		"multiple specs, fit different flavors": {
@@ -983,7 +984,7 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					},
 				},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 3000,
 					},
@@ -1016,7 +1017,7 @@ func TestAssignFlavors(t *testing.T) {
 					}},
 				}},
 				Cohort: &cache.Cohort{
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"default": {
 							corev1.ResourceCPU:    200_000,
 							corev1.ResourceMemory: 200 * utiltesting.Gi,
@@ -1053,7 +1054,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Borrowing: true,
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU:    10000,
 						corev1.ResourceMemory: 5 * 1024 * 1024 * 1024,
@@ -1078,10 +1079,10 @@ func TestAssignFlavors(t *testing.T) {
 					}},
 				}},
 				Cohort: &cache.Cohort{
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10_000},
 					},
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 9_000},
 					},
 				},
@@ -1097,7 +1098,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{},
+				Usage: resources.FlavorResourceQuantities{},
 			},
 		},
 		"past max, but can preempt in ClusterQueue": {
@@ -1116,14 +1117,14 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 9_000},
 				},
 				Cohort: &cache.Cohort{
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 100_000},
 					},
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 9_000},
 					},
 				},
@@ -1144,7 +1145,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2000,
 					},
@@ -1167,7 +1168,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 1_000},
 				},
 			},
@@ -1186,7 +1187,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2000,
 					},
@@ -1209,14 +1210,14 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 2_000},
 				},
 				Cohort: &cache.Cohort{
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10_000},
 					},
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10_000},
 					},
 				},
@@ -1236,7 +1237,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2000,
 					},
@@ -1276,7 +1277,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 3000},
 					"two": {corev1.ResourceCPU: 3000},
 				},
@@ -1299,7 +1300,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2000,
 					},
@@ -1339,7 +1340,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one":     {corev1.ResourceCPU: 3000},
 					"tainted": {corev1.ResourceCPU: 3000},
 				},
@@ -1380,7 +1381,7 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 10,
 					},
 				},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2000,
 					},
@@ -1418,7 +1419,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{},
+				Usage: resources.FlavorResourceQuantities{},
 			},
 		},
 		"flavor not found": {
@@ -1449,7 +1450,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{},
+				Usage: resources.FlavorResourceQuantities{},
 			},
 		},
 		"num pods fit": {
@@ -1484,7 +1485,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": map[corev1.ResourceName]int64{
 						corev1.ResourcePods: 3,
 						corev1.ResourceCPU:  3000,
@@ -1523,7 +1524,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: cache.FlavorResourceQuantities{},
+				Usage: resources.FlavorResourceQuantities{},
 			},
 		},
 		"with reclaimable pods": {
@@ -1564,7 +1565,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"default": map[corev1.ResourceName]int64{
 						corev1.ResourcePods: 3,
 						corev1.ResourceCPU:  3000,
@@ -1600,7 +1601,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 2000},
 				},
 			},
@@ -1621,7 +1622,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{"one": {"cpu": 9000, "pods": 1}},
+				Usage: resources.FlavorResourceQuantities{"one": {"cpu": 9000, "pods": 1}},
 			},
 		},
 		"preempt try next flavor": {
@@ -1648,7 +1649,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 2000},
 				},
 			},
@@ -1666,7 +1667,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{"two": {"cpu": 9000, "pods": 1}},
+				Usage: resources.FlavorResourceQuantities{"two": {"cpu": 9000, "pods": 1}},
 			},
 		},
 		"borrow try next flavor, found the first flavor": {
@@ -1677,10 +1678,10 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 2000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 11000, corev1.ResourcePods: 10},
 						"two": {corev1.ResourceCPU: 1000, corev1.ResourcePods: 10},
 					},
@@ -1705,7 +1706,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 2000},
 				},
 			},
@@ -1724,7 +1725,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 9000, corev1.ResourcePods: 1},
 				},
 			},
@@ -1737,10 +1738,10 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 2000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 11000, corev1.ResourcePods: 10},
 						"two": {corev1.ResourceCPU: 10000, corev1.ResourcePods: 10},
 					},
@@ -1765,7 +1766,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 2000},
 				},
 			},
@@ -1783,7 +1784,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": {corev1.ResourceCPU: 9000, corev1.ResourcePods: 1},
 				},
 			},
@@ -1796,10 +1797,10 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 2000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 11000, corev1.ResourcePods: 10},
 						"two": {corev1.ResourceCPU: 10000, corev1.ResourcePods: 10},
 					},
@@ -1821,7 +1822,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 2000},
 				},
 			},
@@ -1840,7 +1841,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{"one": {"cpu": 9000, "pods": 1}},
+				Usage: resources.FlavorResourceQuantities{"one": {"cpu": 9000, "pods": 1}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=Borrow": {
@@ -1857,10 +1858,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 12000},
 						"two": {corev1.ResourceCPU: 12000},
 					},
@@ -1900,7 +1901,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 12000},
 				},
 			},
@@ -1919,10 +1920,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 12000},
 						"two": {corev1.ResourceCPU: 12000},
 					},
@@ -1962,7 +1963,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 12000},
 				},
 			},
@@ -1981,10 +1982,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 12000},
 						"two": {corev1.ResourceCPU: 12000},
 					},
@@ -2020,7 +2021,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": {corev1.ResourceCPU: 12000},
 				},
 			},
@@ -2039,10 +2040,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						// below the borrowingLimit required to admit
 						"one": {corev1.ResourceCPU: 11000},
 					},
@@ -2059,7 +2060,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
-				Usage: cache.FlavorResourceQuantities{},
+				Usage: resources.FlavorResourceQuantities{},
 				PodSets: []PodSetAssignment{
 					{
 						Name: "main",
@@ -2082,10 +2083,10 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 2000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 11000, corev1.ResourcePods: 10},
 						"two": {corev1.ResourceCPU: 10000, corev1.ResourcePods: 10},
 					},
@@ -2110,10 +2111,10 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 2000},
 				},
-				GuaranteedQuota: cache.FlavorResourceQuantities{
+				GuaranteedQuota: resources.FlavorResourceQuantities{
 					"one": {
 						"cpu": 9,
 					},
@@ -2136,7 +2137,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": {corev1.ResourceCPU: 9000, corev1.ResourcePods: 1},
 				},
 			},
@@ -2150,10 +2151,10 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 2000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 11000, corev1.ResourcePods: 10},
 						"two": {corev1.ResourceCPU: 1000, corev1.ResourcePods: 10},
 					},
@@ -2178,10 +2179,10 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 2000},
 				},
-				GuaranteedQuota: cache.FlavorResourceQuantities{
+				GuaranteedQuota: resources.FlavorResourceQuantities{
 					"one": {
 						"cpu": 9,
 					},
@@ -2205,7 +2206,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: true,
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 9000, corev1.ResourcePods: 1},
 				},
 			},
@@ -2219,10 +2220,10 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 2000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10000, corev1.ResourcePods: 10},
 					},
 				},
@@ -2237,7 +2238,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					}},
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 2000},
 				},
 			},
@@ -2258,7 +2259,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 9000, corev1.ResourcePods: 1},
 				},
 			},
@@ -2276,10 +2277,10 @@ func TestAssignFlavors(t *testing.T) {
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 				},
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10_000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 12_000},
 						"two": {corev1.ResourceCPU: 12_000},
 					},
@@ -2319,7 +2320,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"one": {corev1.ResourceCPU: 12000},
 				},
 			},
@@ -2336,10 +2337,10 @@ func TestAssignFlavors(t *testing.T) {
 					ReclaimWithinCohort: kueue.PreemptionPolicyNever,
 				},
 				Cohort: &cache.Cohort{
-					Usage: cache.FlavorResourceQuantities{
+					Usage: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 10_000},
 					},
-					RequestableResources: cache.FlavorResourceQuantities{
+					RequestableResources: resources.FlavorResourceQuantities{
 						"one": {corev1.ResourceCPU: 12_000},
 						"two": {corev1.ResourceCPU: 12_000},
 					},
@@ -2375,7 +2376,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: cache.FlavorResourceQuantities{
+				Usage: resources.FlavorResourceQuantities{
 					"two": {corev1.ResourceCPU: 12_000},
 				},
 			},

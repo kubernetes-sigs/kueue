@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -2532,24 +2533,24 @@ func TestResourcesToReserve(t *testing.T) {
 		name            string
 		assignmentMode  flavorassigner.FlavorAssignmentMode
 		borrowing       bool
-		assignmentUsage cache.FlavorResourceQuantities
-		cqUsage         cache.FlavorResourceQuantities
-		wantReserved    cache.FlavorResourceQuantities
+		assignmentUsage resources.FlavorResourceQuantities
+		cqUsage         resources.FlavorResourceQuantities
+		wantReserved    resources.FlavorResourceQuantities
 	}{
 		{
 			name:           "Reserved memory and gpu less than assignment usage, assignment preempts",
 			assignmentMode: flavorassigner.Preempt,
-			assignmentUsage: cache.FlavorResourceQuantities{
+			assignmentUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 6},
 			},
-			cqUsage: cache.FlavorResourceQuantities{
+			cqUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
 				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 6},
 				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
 			},
-			wantReserved: cache.FlavorResourceQuantities{
+			wantReserved: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 40},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 4},
 			},
@@ -2557,17 +2558,17 @@ func TestResourcesToReserve(t *testing.T) {
 		{
 			name:           "Reserved memory equal assignment usage, assignment preempts",
 			assignmentMode: flavorassigner.Preempt,
-			assignmentUsage: cache.FlavorResourceQuantities{
+			assignmentUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 30},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
 			},
-			cqUsage: cache.FlavorResourceQuantities{
+			cqUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
 				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
 				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
 			},
-			wantReserved: cache.FlavorResourceQuantities{
+			wantReserved: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 30},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
 			},
@@ -2575,17 +2576,17 @@ func TestResourcesToReserve(t *testing.T) {
 		{
 			name:           "Reserved memory equal assignment usage, assignment fits",
 			assignmentMode: flavorassigner.Fit,
-			assignmentUsage: cache.FlavorResourceQuantities{
+			assignmentUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
 			},
-			cqUsage: cache.FlavorResourceQuantities{
+			cqUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
 				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
 				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
 			},
-			wantReserved: cache.FlavorResourceQuantities{
+			wantReserved: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
 			},
@@ -2593,17 +2594,17 @@ func TestResourcesToReserve(t *testing.T) {
 		{
 			name:           "Reserved memory is 0, CQ is borrowing, assignment preempts without borrowing",
 			assignmentMode: flavorassigner.Preempt,
-			assignmentUsage: cache.FlavorResourceQuantities{
+			assignmentUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-b"): {"gpu": 2},
 			},
-			cqUsage: cache.FlavorResourceQuantities{
+			cqUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
 				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 60},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
 				kueue.ResourceFlavorReference("model-b"):   {"gpu": 10},
 			},
-			wantReserved: cache.FlavorResourceQuantities{
+			wantReserved: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 0},
 				kueue.ResourceFlavorReference("model-b"): {"gpu": 0},
 			},
@@ -2612,17 +2613,17 @@ func TestResourcesToReserve(t *testing.T) {
 			name:           "Reserved memory cut by nominal+borrowing quota, assignment preempts and borrows",
 			assignmentMode: flavorassigner.Preempt,
 			borrowing:      true,
-			assignmentUsage: cache.FlavorResourceQuantities{
+			assignmentUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-b"): {"gpu": 2},
 			},
-			cqUsage: cache.FlavorResourceQuantities{
+			cqUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
 				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 60},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
 				kueue.ResourceFlavorReference("model-b"):   {"gpu": 10},
 			},
-			wantReserved: cache.FlavorResourceQuantities{
+			wantReserved: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 40},
 				kueue.ResourceFlavorReference("model-b"): {"gpu": 2},
 			},
@@ -2631,17 +2632,17 @@ func TestResourcesToReserve(t *testing.T) {
 			name:           "Reserved memory equal assignment usage, CQ borrowing limit is nil",
 			assignmentMode: flavorassigner.Preempt,
 			borrowing:      true,
-			assignmentUsage: cache.FlavorResourceQuantities{
+			assignmentUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
 			},
-			cqUsage: cache.FlavorResourceQuantities{
+			cqUsage: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
 				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 60},
 				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
 				kueue.ResourceFlavorReference("model-b"):   {"gpu": 10},
 			},
-			wantReserved: cache.FlavorResourceQuantities{
+			wantReserved: resources.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
 			},
