@@ -22,6 +22,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -82,11 +83,17 @@ func WithControllerName(controllerName string) SetupOption {
 	}
 }
 
-// WithAdapters - sets the controller name for which the multikueue
-// admission check match.
+// WithAdapters - sets all the MultiKueue adaptors.
 func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOption {
 	return func(o *SetupOptions) {
 		o.adapters = adapters
+	}
+}
+
+// WithAdapters - sets or updates the adadpter of the MultiKueue adaptors.
+func WithAdapter(adapter jobframework.MultiKueueAdapter) SetupOption {
+	return func(o *SetupOptions) {
+		o.adapters[adapter.GVK().String()] = adapter
 	}
 }
 
