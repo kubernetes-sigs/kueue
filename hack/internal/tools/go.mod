@@ -8,7 +8,7 @@ require (
 	github.com/mikefarah/yq/v4 v4.44.2
 	github.com/onsi/ginkgo/v2 v2.19.0
 	gotest.tools/gotestsum v1.12.0
-	helm.sh/helm/v3 v3.15.1
+	helm.sh/helm/v3 v3.15.2
 	k8s.io/code-generator v0.30.2
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240522175850-2e9781e9fc60
 	sigs.k8s.io/controller-tools v0.15.0
