@@ -94,6 +94,28 @@ func getAttemptRegex(workloadName, checkName string) *regexp.Regexp {
 	return regexp.MustCompile("^" + escapedPrefix + "([0-9]+)$")
 }
 
+func getRemainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32) time.Duration {
+	var lastFailureTime time.Time
+	if isFailed(pr) {
+		prFailed := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
+		lastFailureTime = prFailed.LastTransitionTime.Time
+	} else {
+		prBookingExpired := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired)
+		lastFailureTime = prBookingExpired.LastTransitionTime.Time
+	}
+	defaultBackoff := time.Duration(MinBackoffSeconds) * time.Second
+	backoffDuration := defaultBackoff
+	for i := 1; i < int(failuresCount); i++ {
+		backoffDuration *= 2
+		if backoffDuration >= MaxBackoffMinutes {
+			backoffDuration = MaxBackoffMinutes
+			break
+		}
+	}
+	timeElapsedSinceLastFailure := time.Since(lastFailureTime)
+	return backoffDuration - timeElapsedSinceLastFailure
+}
+
 func parametersKueueToProvisioning(in map[string]kueue.Parameter) map[string]autoscaling.Parameter {
 	if in == nil {
 		return nil
