@@ -2,6 +2,7 @@ title: MultiKueue
 kep-number: 693
 authors:
   - "@mwielgus"
+  - "@trasc"
 status: draft
 creation-date: 2023-09-20
 reviewers:
@@ -20,7 +21,7 @@ latest-milestone: "v0.6"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
-  beta: "v0.7"
+  beta: "v0.8"
 
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled
