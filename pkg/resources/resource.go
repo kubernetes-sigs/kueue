@@ -16,8 +16,16 @@ limitations under the License.
 package resources
 
 import (
+	corev1 "k8s.io/api/core/v1"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+type FlavorResource struct {
+	Flavor   kueue.ResourceFlavorReference
+	Resource corev1.ResourceName
+}
+
 type FlavorResourceQuantities map[kueue.ResourceFlavorReference]workload.Requests
+type FlavorResourceQuantitiesFlat map[FlavorResource]int64
