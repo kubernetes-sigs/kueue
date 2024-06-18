@@ -205,7 +205,7 @@ func TestMultikueueAdapter(t *testing.T) {
 		},
 		"missing job is not considered managed": {
 			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
-				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, kueuealpha.MultiKueueControllerName); isManged {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
 				return nil
@@ -216,7 +216,7 @@ func TestMultikueueAdapter(t *testing.T) {
 				*baseJobBuilder.Clone().Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
-				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, kueuealpha.MultiKueueControllerName); isManged {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); isManged {
 					return errors.New("expecting false")
 				}
 				return nil
@@ -231,7 +231,7 @@ func TestMultikueueAdapter(t *testing.T) {
 				*baseJobManagedByKueueBuilder.Clone().Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
-				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, kueuealpha.MultiKueueControllerName); !isManged {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); !isManged {
 					return errors.New("expecting true")
 				}
 				return nil
@@ -246,7 +246,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			},
 			withoutJobManagedBy: true,
 			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
-				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, kueuealpha.MultiKueueControllerName); !isManged {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}); !isManged {
 					return errors.New("expecting true")
 				}
 				return nil

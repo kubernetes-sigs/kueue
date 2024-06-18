@@ -212,12 +212,12 @@ func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
 	return nil
 }
 
-// GetMultiKueueAdapters returns the map containing the MultiKueue adaptors of the
-// registered integration.
+// GetMultiKueueAdapters returns the map containing the MultiKueue adapters for the
+// registered integrations.
 // An error is returned if more then one adapter is registers for one object type.
 func GetMultiKueueAdapters() (map[string]MultiKueueAdapter, error) {
 	ret := map[string]MultiKueueAdapter{}
-	err := manager.forEach(func(_ string, cb IntegrationCallbacks) error {
+	if err := manager.forEach(func(_ string, cb IntegrationCallbacks) error {
 		if cb.MultiKueueAdapter != nil {
 			gvk := cb.MultiKueueAdapter.GVK().String()
 			if _, found := ret[gvk]; found {
@@ -226,10 +226,8 @@ func GetMultiKueueAdapters() (map[string]MultiKueueAdapter, error) {
 			ret[gvk] = cb.MultiKueueAdapter
 		}
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
-
-	return ret, err
+	return ret, nil
 }

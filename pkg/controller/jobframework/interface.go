@@ -160,7 +160,7 @@ type MultiKueueAdapter interface {
 	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
 	// - a reason indicating why the job is not managed by Kueue
 	// - any API error encountered during the check
-	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName, controllerName string) (bool, string, error)
+	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
 	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
 	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
 	// suspended and not start the execution locally.

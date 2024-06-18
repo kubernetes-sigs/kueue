@@ -180,7 +180,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	// If the workload is deleted there is a chance that it's owner is also deleted. In that case
 	// we skip calling `IsJobManagedByKueue` as its output would not be reliable.
 	if !isDeleted {
-		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace}, kueuealpha.MultiKueueControllerName)
+		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
 		if err != nil {
 			return reconcile.Result{}, err
 		}

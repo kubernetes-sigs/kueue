@@ -88,15 +88,15 @@ func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName, controllerName string) (bool, string, error) {
+func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	js := jobset.JobSet{}
 	err := c.Get(ctx, key, &js)
 	if err != nil {
 		return false, "", err
 	}
 	jobsetControllerName := ptr.Deref(js.Spec.ManagedBy, "")
-	if jobsetControllerName != controllerName {
-		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", controllerName, jobsetControllerName), nil
+	if jobsetControllerName != kueuealpha.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueuealpha.MultiKueueControllerName, jobsetControllerName), nil
 	}
 	return true, "", nil
 }
