@@ -148,3 +148,35 @@ func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
 	name, found := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]
 	return name, found
 }
+
+// MultiKueueAdapter interface needed for MultiKueue job delegation.
+type MultiKueueAdapter interface {
+	// Creates the Job object in the worker cluster using remote client, if not already created.
+	// Copy the status from the remote job if already exists.
+	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
+	// Deletes the Job in the worker cluster.
+	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
+	// IsJobManagedByKueue returns:
+	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
+	// - a reason indicating why the job is not managed by Kueue
+	// - any API error encountered during the check
+	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
+	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
+	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
+	// suspended and not start the execution locally.
+	KeepAdmissionCheckPending() bool
+	// GVK returns GVK (Group Version Kind) for the job.
+	GVK() schema.GroupVersionKind
+}
+
+// MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter
+// to receive job related watch events from the worker cluster.
+// If not implemented, MultiKueue will only receive events related to the job's workload.
+type MultiKueueWatcher interface {
+	// returns an empty list of objects
+	GetEmptyList() client.ObjectList
+	// returns the key of the workload of interest
+	// - the object name for workloads
+	// - the prebuilt workload for job types
+	WorkloadKeyFor(runtime.Object) (types.NamespacedName, error)
+}

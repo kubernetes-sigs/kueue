@@ -16,6 +16,12 @@ limitations under the License.
 
 package api
 
+import (
+	"maps"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 const (
 	maxEventMsgSize     = 1024
 	maxConditionMsgSize = 32 * 1024
@@ -37,4 +43,15 @@ func truncateMessage(message string, limit int) string {
 	}
 	suffix := " ..."
 	return message[:limit-len(suffix)] + suffix
+}
+
+// CloneObjectMetaForCreation creates a copy of the provided ObjectMeta containing
+// only the name, namespace, labels and annotations
+func CloneObjectMetaForCreation(orig *metav1.ObjectMeta) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Name:        orig.Name,
+		Namespace:   orig.Namespace,
+		Labels:      maps.Clone(orig.Labels),
+		Annotations: maps.Clone(orig.Annotations),
+	}
 }

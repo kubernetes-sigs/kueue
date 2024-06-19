@@ -49,6 +49,7 @@ func init() {
 		JobType:                &jobsetapi.JobSet{},
 		AddToScheme:            jobsetapi.AddToScheme,
 		IsManagingObjectsOwner: isJobSet,
+		MultiKueueAdapter:      &multikueueAdapter{},
 	}))
 }
 

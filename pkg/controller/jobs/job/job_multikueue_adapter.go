@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package multikueue
+package job
 
 import (
 	"context"
@@ -23,6 +23,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -30,15 +31,16 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	kueuejob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
-type batchJobAdapter struct{}
+type multikueueAdapter struct{}
 
-var _ jobAdapter = (*batchJobAdapter)(nil)
+var _ jobframework.MultiKueueAdapter = (*multikueueAdapter)(nil)
 
-func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
@@ -73,7 +75,7 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 	}
 
 	remoteJob = batchv1.Job{
-		ObjectMeta: cleanObjectMeta(&localJob.ObjectMeta),
+		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
 
@@ -81,7 +83,7 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 	// drop the selector
 	remoteJob.Spec.Selector = nil
 	// drop the templates cleanup labels
-	for _, cl := range kueuejob.ManagedLabels {
+	for _, cl := range ManagedLabels {
 		delete(remoteJob.Spec.Template.Labels, cl)
 	}
 
@@ -100,7 +102,7 @@ func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := batchv1.Job{}
 	err := remoteClient.Get(ctx, key, &job)
 	if err != nil {
@@ -109,11 +111,11 @@ func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient c
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
-func (b *batchJobAdapter) KeepAdmissionCheckPending() bool {
+func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
 	return !features.Enabled(features.MultiKueueBatchJobWithManagedBy)
 }
 
-func (b *batchJobAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	if !features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
 		return true, "", nil
 	}
@@ -130,13 +132,17 @@ func (b *batchJobAdapter) IsJobManagedByKueue(ctx context.Context, c client.Clie
 	return true, "", nil
 }
 
-var _ multiKueueWatcher = (*batchJobAdapter)(nil)
+func (b *multikueueAdapter) GVK() schema.GroupVersionKind {
+	return gvk
+}
 
-func (*batchJobAdapter) GetEmptyList() client.ObjectList {
+var _ jobframework.MultiKueueWatcher = (*multikueueAdapter)(nil)
+
+func (*multikueueAdapter) GetEmptyList() client.ObjectList {
 	return &batchv1.JobList{}
 }
 
-func (*batchJobAdapter) GetWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	job, isJob := o.(*batchv1.Job)
 	if !isJob {
 		return types.NamespacedName{}, errors.New("not a job")
