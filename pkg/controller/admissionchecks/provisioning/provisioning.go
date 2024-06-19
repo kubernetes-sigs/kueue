@@ -94,14 +94,14 @@ func getAttemptRegex(workloadName, checkName string) *regexp.Regexp {
 	return regexp.MustCompile("^" + escapedPrefix + "([0-9]+)$")
 }
 
-func getRemainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32) time.Duration {
+func remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32) time.Duration {
 	var lastFailureTime time.Time
 	if isFailed(pr) {
-		prFailed := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
-		lastFailureTime = prFailed.LastTransitionTime.Time
+		failedCond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
+		lastFailureTime = failedCond.LastTransitionTime.Time
 	} else {
-		prBookingExpired := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired)
-		lastFailureTime = prBookingExpired.LastTransitionTime.Time
+		bookingExpiredCond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired)
+		lastFailureTime = bookingExpiredCond.LastTransitionTime.Time
 	}
 	defaultBackoff := time.Duration(MinBackoffSeconds) * time.Second
 	backoffDuration := defaultBackoff

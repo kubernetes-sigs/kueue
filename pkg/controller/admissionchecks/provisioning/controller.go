@@ -258,7 +258,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				}
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
 				if attempt <= MaxRetries {
-					remainingTime := getRemainingTimeToRetry(oldPr, attempt)
+					remainingTime := remainingTimeToRetry(oldPr, attempt)
 					if remainingTime <= 0 {
 						shouldCreatePr = true
 						attempt += 1
