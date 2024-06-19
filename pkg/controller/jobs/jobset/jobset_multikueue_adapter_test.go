@@ -232,7 +232,7 @@ func TestMultikueueAdapter(t *testing.T) {
 
 			gotWorkerJobSets := &jobsetapi.JobSetList{}
 			if err := workerClient.List(ctx, gotWorkerJobSets); err != nil {
-				t.Error("unexpected list worker's jobsets error")
+				t.Errorf("unexpected list worker's jobsets error %s", err)
 			} else {
 				if diff := cmp.Diff(tc.wantWorkerJobSets, gotWorkerJobSets.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected worker's jobsets (-want/+got):\n%s", diff)
