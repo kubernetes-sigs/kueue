@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -272,6 +271,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check1", "check2"))
 			})
 
+			ginkgo.By("reserving quota for a Workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &createdWl, testing.MakeAdmission(clusterQueue.Name).Obj())).To(gomega.Succeed())
+				}).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("setting the check conditions", func() {
 				gomega.Eventually(func() error {
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
@@ -284,18 +289,25 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("checking the finish condition", func() {
-				gomega.Eventually(func() *metav1.Condition {
-					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					return apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadFinished)
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
-					Type:    kueue.WorkloadFinished,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
-					Message: "Admission checks [check1] are rejected",
-				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+				updatedWl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+						Reason:  "AdmissionCheckRejected",
+						Type:    corev1.EventTypeWarning,
+						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(ok).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 0)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -346,68 +358,37 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, 1)
 			})
 
-			ginkgo.By("setting a rejected check conditions the workload should be evicted and admitted condition kept", func() {
-				gomega.Eventually(func() error {
-					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+			ginkgo.By("setting a rejected check condition", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
 					})
-					return k8sClient.Status().Update(ctx, &createdWl)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByAdmissionCheck, 1)
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					g.Expect(createdWl.Status.Conditions).To(gomega.ContainElements(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.WorkloadEvicted,
-							Status:  metav1.ConditionTrue,
-							Reason:  "AdmissionCheck",
-							Message: "At least one admission check is false",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.WorkloadAdmitted,
-							Status:  metav1.ConditionTrue,
-							Reason:  "Admitted",
-							Message: "The workload is admitted",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.WorkloadQuotaReserved,
-							Status:  metav1.ConditionTrue,
-							Reason:  "QuotaReserved",
-							Message: "Quota reserved in ClusterQueue cluster-queue",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-					))
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("finishing the eviction the finish condition should be set and admitted condition false", func() {
-				util.FinishEvictionForWorkloads(ctx, k8sClient, &createdWl)
+			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					g.Expect(createdWl.Status.Conditions).To(gomega.ContainElements(
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.WorkloadFinished,
-							Status:  metav1.ConditionTrue,
-							Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
-							Message: "Admission checks [check1] are rejected",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.WorkloadAdmitted,
-							Status:  metav1.ConditionFalse,
-							Reason:  "NoReservationUnsatisfiedChecks",
-							Message: "The workload has no reservation and not all checks ready",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.WorkloadQuotaReserved,
-							Status:  metav1.ConditionFalse,
-							Reason:  "Pending",
-							Message: "By test",
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-					))
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
+						Reason:  "AdmissionCheckRejected",
+						Type:    corev1.EventTypeWarning,
+						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: %s", "check1", "check rejected"),
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(ok).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+
+					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

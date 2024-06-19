@@ -39,7 +39,6 @@ import (
 )
 
 const (
-	ControllerName                = "kueue.x-k8s.io/multikueue"
 	SingleInstanceReason          = "MultiKueue"
 	SingleInstanceMessage         = "only one multikueue managed admission check can be used in one ClusterQueue"
 	FlavorIndependentCheckReason  = "MultiKueue"
@@ -65,7 +64,7 @@ var _ reconcile.Reconciler = (*ACReconciler)(nil)
 func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	ac := &kueue.AdmissionCheck{}
-	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != ControllerName {
+	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != kueuealpha.MultiKueueControllerName {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 

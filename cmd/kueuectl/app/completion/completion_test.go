@@ -174,18 +174,40 @@ func TestClusterQueueNameCompletionFunc(t *testing.T) {
 func TestLocalQueueNameCompletionFunc(t *testing.T) {
 	testCases := map[string]struct {
 		ns            string
+		status        *bool
 		toComplete    string
 		objs          []runtime.Object
 		args          []string
 		wantNames     []string
 		wantDirective cobra.ShellCompDirective
 	}{
-		"should return active local queue names": {
+		"should return local queue names": {
 			objs: []runtime.Object{
-				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).Obj(),
-				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).Obj(),
+				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(v1beta1.None).Obj(),
+				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(v1beta1.Hold).Obj(),
+				utiltesting.MakeLocalQueue("lq3", metav1.NamespaceDefault).StopPolicy(v1beta1.HoldAndDrain).Obj(),
 			},
-			wantNames:     []string{"lq1", "lq2"},
+			wantNames:     []string{"lq1", "lq2", "lq3"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		"should return active local queue names": {
+			status: ptr.To(true),
+			objs: []runtime.Object{
+				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(v1beta1.None).Obj(),
+				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(v1beta1.Hold).Obj(),
+				utiltesting.MakeLocalQueue("lq3", metav1.NamespaceDefault).StopPolicy(v1beta1.HoldAndDrain).Obj(),
+			},
+			wantNames:     []string{"lq1"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		"should return inactive local queue names": {
+			status: ptr.To(false),
+			objs: []runtime.Object{
+				utiltesting.MakeLocalQueue("lq1", metav1.NamespaceDefault).StopPolicy(v1beta1.None).Obj(),
+				utiltesting.MakeLocalQueue("lq2", metav1.NamespaceDefault).StopPolicy(v1beta1.Hold).Obj(),
+				utiltesting.MakeLocalQueue("lq3", metav1.NamespaceDefault).StopPolicy(v1beta1.HoldAndDrain).Obj(),
+			},
+			wantNames:     []string{"lq2", "lq3"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 		"shouldn't return local queue names because only one argument can be passed": {
@@ -207,7 +229,7 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 			clientset := fake.NewSimpleClientset(tc.objs...)
 			tf.KueueClientset = clientset
 
-			complFn := LocalQueueNameFunc(tf)
+			complFn := LocalQueueNameFunc(tf, tc.status)
 			names, directive := complFn(&cobra.Command{}, tc.args, tc.toComplete)
 			if diff := cmp.Diff(tc.wantNames, names); diff != "" {
 				t.Errorf("Unexpected names (-want/+got)\n%s", diff)

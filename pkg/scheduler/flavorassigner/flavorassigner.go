@@ -401,9 +401,10 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 
 	// We will only check against the flavors' labels for the resource.
 	selector := flavorSelector(podSpec, resourceGroup.LabelKeys)
-	assignedFlavorIdx := -1
+	attemptedFlavorIdx := -1
 	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psID, resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
+		attemptedFlavorIdx = idx
 		flvQuotas := resourceGroup.Flavors[idx]
 		flavor, exist := a.resourceFlavors[flvQuotas.Name]
 		if !exist {
@@ -426,8 +427,6 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			status.append(fmt.Sprintf("flavor %s doesn't match node affinity", flvQuotas.Name))
 			continue
 		}
-
-		assignedFlavorIdx = idx
 		needsBorrowing := false
 		assignments := make(ResourceAssignment, len(requests))
 		// Calculate representativeMode for this assignment as the worst mode among all requests.
@@ -477,11 +476,11 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 
 	if features.Enabled(features.FlavorFungibility) {
 		for _, assignment := range bestAssignment {
-			if assignedFlavorIdx == len(resourceGroup.Flavors)-1 {
+			if attemptedFlavorIdx == len(resourceGroup.Flavors)-1 {
 				// we have reach the last flavor, try from the first flavor next time
 				assignment.TriedFlavorIdx = -1
 			} else {
-				assignment.TriedFlavorIdx = assignedFlavorIdx
+				assignment.TriedFlavorIdx = attemptedFlavorIdx
 			}
 		}
 		if bestAssignmentMode == Fit {

@@ -344,7 +344,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 				createdJobSet1 := &jobsetapi.JobSet{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetLookupKey, createdJobSet1)).Should(gomega.Succeed())
-					g.Expect(ptr.Deref(createdJobSet1.Spec.Suspend, false)).To(gomega.BeTrue())
+					g.Expect(ptr.Deref(createdJobSet1.Spec.Suspend, false)).To(gomega.BeFalse())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
