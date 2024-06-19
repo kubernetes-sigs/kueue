@@ -2540,112 +2540,112 @@ func TestResourcesToReserve(t *testing.T) {
 		{
 			name:           "Reserved memory and gpu less than assignment usage, assignment preempts",
 			assignmentMode: flavorassigner.Preempt,
-			assignmentUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 6},
-			},
-			cqUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
-				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 6},
-				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
-			},
-			wantReserved: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 40},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 4},
-			},
+			assignmentUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 50,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   6,
+			}.Unflatten(),
+			cqUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 60,
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      50,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   6,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,
+			}.Unflatten(),
+			wantReserved: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 40,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   4,
+			}.Unflatten(),
 		},
 		{
 			name:           "Reserved memory equal assignment usage, assignment preempts",
 			assignmentMode: flavorassigner.Preempt,
-			assignmentUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 30},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
-			},
-			cqUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
-				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
-				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
-			},
-			wantReserved: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 30},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
-			},
+			assignmentUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 30,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
+			}.Unflatten(),
+			cqUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 60,
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      50,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,
+			}.Unflatten(),
+			wantReserved: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 30,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
+			}.Unflatten(),
 		},
 		{
 			name:           "Reserved memory equal assignment usage, assignment fits",
 			assignmentMode: flavorassigner.Fit,
-			assignmentUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
-			},
-			cqUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
-				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
-				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
-			},
-			wantReserved: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
-			},
+			assignmentUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 50,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
+			}.Unflatten(),
+			cqUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 60,
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      50,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,
+			}.Unflatten(),
+			wantReserved: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 50,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
+			}.Unflatten(),
 		},
 		{
 			name:           "Reserved memory is 0, CQ is borrowing, assignment preempts without borrowing",
 			assignmentMode: flavorassigner.Preempt,
-			assignmentUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-b"): {"gpu": 2},
-			},
-			cqUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
-				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 60},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
-				kueue.ResourceFlavorReference("model-b"):   {"gpu": 10},
-			},
-			wantReserved: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 0},
-				kueue.ResourceFlavorReference("model-b"): {"gpu": 0},
-			},
+			assignmentUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}: 50,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              2,
+			}.Unflatten(),
+			cqUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 60,
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      60,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   10,
+			}.Unflatten(),
+			wantReserved: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}: 0,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              0,
+			}.Unflatten(),
 		},
 		{
 			name:           "Reserved memory cut by nominal+borrowing quota, assignment preempts and borrows",
 			assignmentMode: flavorassigner.Preempt,
 			borrowing:      true,
-			assignmentUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-b"): {"gpu": 2},
-			},
-			cqUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
-				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 60},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
-				kueue.ResourceFlavorReference("model-b"):   {"gpu": 10},
-			},
-			wantReserved: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 40},
-				kueue.ResourceFlavorReference("model-b"): {"gpu": 2},
-			},
+			assignmentUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}: 50,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              2,
+			}.Unflatten(),
+			cqUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 60,
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      60,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   10,
+			}.Unflatten(),
+			wantReserved: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}: 40,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              2,
+			}.Unflatten(),
 		},
 		{
 			name:           "Reserved memory equal assignment usage, CQ borrowing limit is nil",
 			assignmentMode: flavorassigner.Preempt,
 			borrowing:      true,
-			assignmentUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
-			},
-			cqUsage: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 60},
-				kueue.ResourceFlavorReference("spot"):      {corev1.ResourceMemory: 60},
-				kueue.ResourceFlavorReference("model-a"):   {"gpu": 2},
-				kueue.ResourceFlavorReference("model-b"):   {"gpu": 10},
-			},
-			wantReserved: resources.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},
-				kueue.ResourceFlavorReference("model-b"):   {"gpu": 2},
-			},
+			assignmentUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 50,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,
+			}.Unflatten(),
+			cqUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 60,
+				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      60,
+				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   10,
+			}.Unflatten(),
+			wantReserved: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 50,
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,
+			}.Unflatten(),
 		},
 	}
 	for _, tc := range cases {

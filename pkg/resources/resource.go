@@ -29,3 +29,14 @@ type FlavorResource struct {
 
 type FlavorResourceQuantities map[kueue.ResourceFlavorReference]workload.Requests
 type FlavorResourceQuantitiesFlat map[FlavorResource]int64
+
+func (f FlavorResourceQuantitiesFlat) Unflatten() FlavorResourceQuantities {
+	out := make(FlavorResourceQuantities)
+	for flavorResource, value := range f {
+		if _, ok := out[flavorResource.Flavor]; !ok {
+			out[flavorResource.Flavor] = make(workload.Requests)
+		}
+		out[flavorResource.Flavor][flavorResource.Resource] = value
+	}
+	return out
+}
