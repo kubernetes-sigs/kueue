@@ -16,8 +16,8 @@ Kueue can only admit a Workload when all of the AdmissionChecks have provided a 
 AdmissionCheck is a non-namespaced API object used to define details about an admission check:
 
 - `controllerName` - identifies the controller that processes the AdmissionCheck, not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
-- **retryDelayMinutes (deprecated)** - specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to "Unknown". The default is 15 min.
-- **parameters** - identifies a configuration with additional parameters for the check.
+- `retryDelayMinutes` (deprecated) - specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to "Unknown". The default is 15 min.
+- `parameters` - identifies a configuration with additional parameters for the check.
 
 An AdmissionCheck object looks like the following:
 ```yaml
