@@ -130,7 +130,7 @@ fmt: ## Run go fmt against code.
 
 .PHONY: fmt-verify
 fmt-verify:
-	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go')`; \
+	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go' | grep -v /vendor/)`; \
 	if [ -n "$$out" ]; then \
 	    echo "$$out"; \
 	    exit 1; \
