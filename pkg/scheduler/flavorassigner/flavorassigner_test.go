@@ -91,8 +91,8 @@ func TestAssignFlavors(t *testing.T) {
 					{
 						Name: "main",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU:    {Name: "default", Mode: Fit},
-							corev1.ResourceMemory: {Name: "default", Mode: Fit},
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1000m"),
@@ -137,7 +137,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "tainted", Mode: Fit},
+						corev1.ResourceCPU: {Name: "tainted", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1000m"),
@@ -176,7 +176,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "default", Mode: Preempt},
+						corev1.ResourceCPU: {Name: "default", Mode: Preempt, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2000m"),
@@ -243,8 +243,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "two", Mode: Fit},
-						corev1.ResourceMemory: {Name: "b_one", Mode: Fit},
+						corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourceMemory: {Name: "b_one", Mode: Fit, TriedFlavorIdx: 0},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("3000m"),
@@ -364,9 +364,9 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "two", Mode: Fit},
-						corev1.ResourceMemory: {Name: "two", Mode: Fit},
-						"example.com/gpu":     {Name: "b_one", Mode: Fit},
+						corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourceMemory: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						"example.com/gpu":     {Name: "b_one", Mode: Fit, TriedFlavorIdx: 0},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("3000m"),
@@ -457,9 +457,9 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "two", Mode: Fit},
-						corev1.ResourceMemory: {Name: "two", Mode: Preempt},
-						"example.com/gpu":     {Name: "b_one", Mode: Preempt},
+						corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourceMemory: {Name: "two", Mode: Preempt, TriedFlavorIdx: -1},
+						"example.com/gpu":     {Name: "b_one", Mode: Preempt, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("3000m"),
@@ -566,7 +566,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: Fit},
+						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("3000m"),
@@ -612,7 +612,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: Fit},
+						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("3000m"),
@@ -690,7 +690,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: Fit},
+						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1000m"),
@@ -763,8 +763,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "two", Mode: Fit},
-						corev1.ResourceMemory: {Name: "two", Mode: Fit},
+						corev1.ResourceCPU:    {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourceMemory: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("1000m"),
@@ -848,7 +848,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Fit},
+						corev1.ResourceCPU: {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1000m"),
@@ -965,7 +965,7 @@ func TestAssignFlavors(t *testing.T) {
 					{
 						Name: "driver",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "two", Mode: Fit},
+							corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("5000m"),
@@ -975,7 +975,7 @@ func TestAssignFlavors(t *testing.T) {
 					{
 						Name: "worker",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "one", Mode: Fit},
+							corev1.ResourceCPU: {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("3000m"),
@@ -1030,8 +1030,8 @@ func TestAssignFlavors(t *testing.T) {
 					{
 						Name: "driver",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU:    {Name: "default", Mode: Fit},
-							corev1.ResourceMemory: {Name: "default", Mode: Fit},
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("4000m"),
@@ -1042,8 +1042,8 @@ func TestAssignFlavors(t *testing.T) {
 					{
 						Name: "worker",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU:    {Name: "default", Mode: Fit},
-							corev1.ResourceMemory: {Name: "default", Mode: Fit},
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("6000m"),
@@ -1133,7 +1133,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2000m"),
@@ -1176,7 +1176,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2000m"),
@@ -1226,7 +1226,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2000m"),
@@ -1286,7 +1286,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: Preempt},
+						corev1.ResourceCPU: {Name: "two", Mode: Preempt, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2000m"),
@@ -1350,7 +1350,7 @@ func TestAssignFlavors(t *testing.T) {
 					{
 						Name: "launcher",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "one", Mode: Preempt},
+							corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("2000m"),
@@ -1366,7 +1366,7 @@ func TestAssignFlavors(t *testing.T) {
 					{
 						Name: "workers",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "tainted", Mode: Preempt},
+							corev1.ResourceCPU: {Name: "tainted", Mode: Preempt, TriedFlavorIdx: -1},
 						},
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("10000m"),
@@ -1475,8 +1475,8 @@ func TestAssignFlavors(t *testing.T) {
 					Name: "main",
 					Flavors: ResourceAssignment{
 
-						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit},
-						corev1.ResourcePods: &FlavorAssignment{Name: "default", Mode: Fit},
+						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourcePods: &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3000m"),
@@ -1555,8 +1555,8 @@ func TestAssignFlavors(t *testing.T) {
 					Name: "main",
 					Flavors: ResourceAssignment{
 
-						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit},
-						corev1.ResourcePods: &FlavorAssignment{Name: "default", Mode: Fit},
+						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourcePods: &FlavorAssignment{Name: "default", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("3000m"),
@@ -1609,8 +1609,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "one", Mode: Preempt},
-						corev1.ResourcePods: {Name: "one", Mode: Fit},
+						corev1.ResourceCPU:  {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
+						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9000m"),
@@ -1657,8 +1657,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "two", Mode: Fit},
-						corev1.ResourcePods: {Name: "two", Mode: Fit},
+						corev1.ResourceCPU:  {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourcePods: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9000m"),
@@ -1715,8 +1715,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "one", Mode: Fit},
-						corev1.ResourcePods: {Name: "one", Mode: Fit},
+						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9000m"),
@@ -1774,8 +1774,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "two", Mode: Fit},
-						corev1.ResourcePods: {Name: "two", Mode: Fit},
+						corev1.ResourceCPU:  {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourcePods: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9000m"),
@@ -1831,8 +1831,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "one", Mode: Fit},
-						corev1.ResourcePods: {Name: "one", Mode: Fit},
+						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
+						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: 0},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9000m"),
@@ -1890,7 +1890,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 					},
 					Status: &Status{
 						reasons: []string{"insufficient unused quota in cohort for cpu in flavor one, 10 more needed"},
@@ -1952,7 +1952,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 					},
 					Status: &Status{
 						reasons: []string{"insufficient unused quota in cohort for cpu in flavor one, 10 more needed"},
@@ -2013,7 +2013,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: Fit},
+						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12000m"),
@@ -2127,8 +2127,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "two", Mode: Fit},
-						corev1.ResourcePods: {Name: "two", Mode: Fit},
+						corev1.ResourceCPU:  {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourcePods: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9000m"),
@@ -2195,8 +2195,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "one", Mode: Fit},
-						corev1.ResourcePods: {Name: "one", Mode: Fit},
+						corev1.ResourceCPU:  {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
+						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9000m"),
@@ -2246,8 +2246,8 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:  {Name: "one", Mode: Preempt},
-						corev1.ResourcePods: {Name: "one", Mode: Fit},
+						corev1.ResourceCPU:  {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+						corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:  resource.MustParse("9000m"),
@@ -2309,7 +2309,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: 0},
 					},
 					Status: &Status{
 						reasons: []string{"insufficient unused quota in cohort for cpu in flavor one, 10 more needed"},
@@ -2368,7 +2368,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: Fit},
+						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("12"),
@@ -2409,7 +2409,7 @@ func TestAssignFlavors(t *testing.T) {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 			}
 
-			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState"), cmpopts.IgnoreFields(FlavorAssignment{}, "TriedFlavorIdx")); diff != "" {
+			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState")); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 			}
 		})
