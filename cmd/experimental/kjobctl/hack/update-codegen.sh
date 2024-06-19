@@ -21,7 +21,7 @@ set -o pipefail
 GO_CMD=${1:-go}
 KJOBCTL_ROOT=$(realpath $(dirname ${BASH_SOURCE[0]})/..)
 KJOBCTL_PKG="sigs.k8s.io/kueue/cmd/experimental/kjobctl"
-CODEGEN_PKG=$($GO_CMD list -m -f "{{.Dir}}" k8s.io/code-generator)
+CODEGEN_PKG=$(cd $TOOLS_DIR && go mod download && $GO_CMD list -m -f "{{.Dir}}" k8s.io/code-generator)
 
 cd $(dirname ${BASH_SOURCE[0]})/..
 

@@ -11,6 +11,10 @@ endif
 GO_CMD ?= go
 GO_FMT ?= gofmt
 
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
+ARTIFACTS ?= $(PROJECT_DIR)/bin
+TOOLS_DIR ?= $(PROJECT_DIR)/hack/tools
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
@@ -42,7 +46,7 @@ manifests: controller-gen ## Generate ClusterRole and CustomResourceDefinition o
 .PHONY: generate
 generate: gomod-download controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
-	./hack/update-codegen.sh $(GO_CMD)
+	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
 
 .PHONY: verify
 verify: gomod-verify ci-lint fmt-verify manifests generate
@@ -120,18 +124,20 @@ LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
+## Tool Versions
+
+# Use go.mod go version as source.
+KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v5)
+CONTROLLER_GEN_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-tools)
+ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
+GOLANGCI_LINT_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint)
+
 ## Tool Binaries
 KUBECTL ?= kubectl
 KUSTOMIZE ?= $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
+CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_GEN_VERSION)
 ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
-
-## Tool Versions
-KUSTOMIZE_VERSION ?= v5.4.1
-CONTROLLER_TOOLS_VERSION ?= v0.15.0
-ENVTEST_VERSION ?= release-0.18
-GOLANGCI_LINT_VERSION ?= v1.57.2
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -141,7 +147,7 @@ $(KUSTOMIZE): $(LOCALBIN)
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
 $(CONTROLLER_GEN): $(LOCALBIN)
-	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_GEN_VERSION))
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
