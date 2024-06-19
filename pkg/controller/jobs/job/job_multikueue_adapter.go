@@ -75,7 +75,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	}
 
 	remoteJob = batchv1.Job{
-		ObjectMeta: api.ObjectMetaForCreation(&localJob.ObjectMeta),
+		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
 
@@ -142,7 +142,7 @@ func (*multikueueAdapter) GetEmptyList() client.ObjectList {
 	return &batchv1.JobList{}
 }
 
-func (*multikueueAdapter) GetWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	job, isJob := o.(*batchv1.Job)
 	if !isJob {
 		return types.NamespacedName{}, errors.New("not a job")

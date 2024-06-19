@@ -45,9 +45,9 @@ func truncateMessage(message string, limit int) string {
 	return message[:limit-len(suffix)] + suffix
 }
 
-// ObjectMetaForCreation creates a copy of the provided ObjectMeta containing
+// CloneObjectMetaForCreation creates a copy of the provided ObjectMeta containing
 // only the name, namespace, labels and annotations
-func ObjectMetaForCreation(orig *metav1.ObjectMeta) metav1.ObjectMeta {
+func CloneObjectMetaForCreation(orig *metav1.ObjectMeta) metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Name:        orig.Name,
 		Namespace:   orig.Namespace,

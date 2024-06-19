@@ -178,5 +178,5 @@ type MultiKueueWatcher interface {
 	// returns the key of the workload of interest
 	// - the object name for workloads
 	// - the prebuilt workload for job types
-	GetWorkloadKey(runtime.Object) (types.NamespacedName, error)
+	WorkloadKeyFor(runtime.Object) (types.NamespacedName, error)
 }

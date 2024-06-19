@@ -58,7 +58,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	}
 
 	remoteJob = jobset.JobSet{
-		ObjectMeta: api.ObjectMetaForCreation(&localJob.ObjectMeta),
+		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
 
@@ -111,7 +111,7 @@ func (*multikueueAdapter) GetEmptyList() client.ObjectList {
 	return &jobset.JobSetList{}
 }
 
-func (*multikueueAdapter) GetWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	jobSet, isJobSet := o.(*jobset.JobSet)
 	if !isJobSet {
 		return types.NamespacedName{}, errors.New("not a jobset")

@@ -470,7 +470,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl := &kueue.Workload{}
-	remoteWl.ObjectMeta = api.ObjectMetaForCreation(&orig.ObjectMeta)
+	remoteWl.ObjectMeta = api.CloneObjectMetaForCreation(&orig.ObjectMeta)
 	if remoteWl.Labels == nil {
 		remoteWl.Labels = make(map[string]string)
 	}

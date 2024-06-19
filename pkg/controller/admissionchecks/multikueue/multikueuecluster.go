@@ -121,7 +121,7 @@ func (*workloadKueueWatcher) GetEmptyList() client.ObjectList {
 	return &kueue.WorkloadList{}
 }
 
-func (*workloadKueueWatcher) GetWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+func (*workloadKueueWatcher) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	wl, isWl := o.(*kueue.Workload)
 	if !isWl {
 		return types.NamespacedName{}, errors.New("not a workload")
@@ -202,7 +202,7 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 					log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
 				}
 			default:
-				wlKey, err := w.GetWorkloadKey(r.Object)
+				wlKey, err := w.WorkloadKeyFor(r.Object)
 				if err != nil {
 					log.Error(err, "Cannot get workload key", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
 				} else {
