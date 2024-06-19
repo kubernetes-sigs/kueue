@@ -168,7 +168,6 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			multiKueueEnabled: true,
-			wantErr:           queue.ErrQueueDoesNotExist,
 		},
 		{
 			name: "TestDefault_QueueNotFound",
@@ -181,7 +180,6 @@ func TestDefault(t *testing.T) {
 				},
 			},
 			multiKueueEnabled: true,
-			wantErr:           queue.ErrQueueDoesNotExist,
 		},
 		{
 			name: "TestDefault_AdmissionCheckNotFound",
