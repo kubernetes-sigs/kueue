@@ -332,18 +332,17 @@ when this workloadPriorityClass should be used.</p>
 <code>string</code>
 </td>
 <td>
-   <p>controllerName is name of the controller which will actually perform
-the checks. This is the name with which controller identifies with,
-not necessarily a K8S Pod or Deployment name. Cannot be empty.</p>
+   <p>controllerName identifies the controller that processes the AdmissionCheck,
+not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.</p>
 </td>
 </tr>
 <tr><td><code>retryDelayMinutes</code><br/>
 <code>int64</code>
 </td>
 <td>
-   <p>RetryDelayMinutes specifies how long to keep the workload suspended
-after a failed check (after it transitioned to False).
-After that the check state goes to &quot;Unknown&quot;.
+   <p>RetryDelayMinutes <strong>deprecated</strong> specifies how long to keep the workload suspended after
+a failed check (after it transitioned to False). When the delay period has passed, the check
+state goes to &quot;Unknown&quot;. The default is 15 min.
 The default is 15 min.</p>
 </td>
 </tr>
@@ -351,7 +350,8 @@ The default is 15 min.</p>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference"><code>AdmissionCheckParametersReference</code></a>
 </td>
 <td>
-   <p>Parameters identifies the resource providing additional check parameters.</p>
+   <p>Parameters identifies a configuration with additional parameters for the
+check.</p>
 </td>
 </tr>
 </tbody>

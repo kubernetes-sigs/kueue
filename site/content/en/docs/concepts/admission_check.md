@@ -1,23 +1,23 @@
 ---
 title: "Admission Check"
-date: 2023-10-05
+date: 2024-13-06
 weight: 6
 description: >
-  A mechanism allowing internal or external components to influence the timing of
-  workloads admission.
+  Mechanism allowing internal or external components to influence the workload's admission.
 ---
 
 AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload.
-When a ClusterQueue has AdmissionChecks configured, each of the checks has to provide a
-positive signal to the Workload before it can be [Admitted](https://kueue.sigs.k8s.io/docs/concepts#admission).
+After Kueue has reserved quota for a Workload, Kueue runs all the admission checks configured
+in the ClusterQueue concurrently.
+Kueue can only admit a Workload when all of the AdmissionChecks have provided a positive signal for the Workload.
 
-### AdmissionCheck
+### API
 
-AdmissionCheck is a non-namespaced API object used to define details about an admission check like:
+AdmissionCheck is a non-namespaced API object used to define details about an admission check:
 
-- **controllerName** - It's an identifier for the controller that processes this AdmissionCheck, not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
-- **retryDelayMinutes** - Specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to "Unknown". The default is 15 min.
-- **parameters** - Identifies an additional resource providing additional parameters for the check.
+- `controllerName` - identifies the controller that processes the AdmissionCheck, not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.
+- `retryDelayMinutes` (deprecated) - specifies how long to keep the workload suspended after a failed check (after it transitioned to False). After that the check state goes to "Unknown". The default is 15 min.
+- `parameters` - identifies a configuration with additional parameters for the check.
 
 An AdmissionCheck object looks like the following:
 ```yaml
@@ -27,7 +27,6 @@ metadata:
   name: prov-test
 spec:
   controllerName: kueue.x-k8s.io/provisioning-request
-  retryDelayMinutes: 15
   parameters:
     apiGroup: kueue.x-k8s.io
     kind: ProvisioningRequestConfig
@@ -47,9 +46,9 @@ with a specific ResourceFlavor. To specify ResourceFlavors that an AdmissionChec
 
 Only one of the above-mentioned fields can be specified at the time.
 
-See examples below:
+#### Examples
 
-Using `.spec.admissionChecks`
+##### Using `.spec.admissionChecks`
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -62,7 +61,7 @@ spec:
   - sample-prov
 ```
 
-Using `.spec.admissionCheckStrategy`
+##### Using `.spec.admissionCheckStrategy`
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -79,13 +78,18 @@ spec:
 ```
 
 
-### AdmissionCheckState
+### AdmissionCheckStates
 
-AdmissionCheckState is the way the state of an AdmissionCheck for a specific Workload is tracked.
-
+An AdmissionCheckState is the representation of the AdmissionCheck's state for a specific Workload.
 AdmissionCheckStates are listed in the Workload's `.status.admissionCheckStates` field.
 
-The status of a Workload that has pending AdmissionChecks looks like the following:
+AdmissionCheck can be in one of the following states:
+- `Pending` - the check still hasn't been performed/hasn't finished
+- `Ready` - the check has passed
+- `Retry` - the check cannot pass at the moment, it will back off (possibly allowing other to try, unblock quota) and retry.
+- `Rejected` - the check will not pass in the near future. It is not worth to retry.
+
+The status of a Workload that has `Pending` AdmissionChecks is similar to the following:
 ```yaml
 status:
   admission:
@@ -98,27 +102,28 @@ status:
     - annotations:
         cluster-autoscaler.kubernetes.io/consume-provisioning-request: job-prov-job-9815b-sample-prov
       name: main
-    state: Ready
+    state: Pending
   <...>
 ```
 
-A list of states being maintained in the Status of all the monitored Workloads.
+Kueue ensures that the list of the Workload's AdmissionCheckStates is in sync with the list of the Workload's ClusterQueue.
+When a user adds a new AdmissionCheck, Kueue adds it to the Workload's AdmissionCheckStates with the `Pending` state.
+If a Workload is admitted, adding a new AdmissionCheck does not evict the Workload.
 
-Kueue ensures that the list of the Workloads AdmissionCheckStates is in sync with the list of its associated ClusterQueue, Kueue adds new checks with the `Pending` state.
+### Admitting Workload with AdmissionChecks
 
-- Once a workload has QuotaReservation and all its AdmissionChecks are in "Ready" state it will become Admitted.
-- If at least one of the Workloads AdmissionCheck is in the `Retry` state.
-  - If `Admitted` the workload is evicted.
-  - If the workload has `QuotaReservation` it will be release released.
-- If at least one of the Workloads AdmissionCheck is in the `Rejected`:
-  - If `Admitted` the workload is evicted.
-  - If the workload has `QuotaReservation` it will be release released.
-  - The workload is marked as 'Finished' with a relevant failure message.
+Once a Workload has `QuotaReservation` condition set to `True`, and all of its AdmissionChecks are in `Ready` state the Workload will become `Admitted`.
 
-### Admission Check Controller
+If any of the Workload's AdmissionCheck is in the `Retry` state:
+  - If `Admitted` the Workload is evicted - Workload will have an `Evicted` condition in `workload.Status.Condition` with `AdmissionCheck` as a `Reason`
+  - If the Workload has `QuotaReservation` it will be released.
+  - Event `EvictedDueToAdmissionCheck` is emitted
 
-Is a component that monitors Workloads maintaining the content of its specific `admissionCheckStates` and the `Active` condition of the AdmissionChecks it's  controlling.
-The logic for how an AdmissionCheck changes states is not part of Kueue.
+If any of the Workload's AdmissionCheck is in the `Rejected` state:
+  - Workload is deactivated - [`workload.Spec.Active`](docs/concepts/workload/#active) is set to `False`
+  - If `Admitted` the Workload is evicted - Workload has an `Evicted` condition in `workload.Status.Condition` with `InactiveWorkload` as a `Reason`
+  - If the Workload has `QuotaReservation` it will be released.
+  - Event `AdmissionCheckRejected` is emitted
 
 ## What's next?
 
