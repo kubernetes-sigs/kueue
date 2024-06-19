@@ -7,9 +7,6 @@ ARG CGO_ENABLED
 ARG TARGETARCH
 
 WORKDIR /workspace
-# Copy the Go Modules manifests
-COPY go.mod go.mod
-COPY go.sum go.sum
 
 # Copy the go source
 COPY . .
