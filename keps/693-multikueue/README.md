@@ -19,6 +19,7 @@
   - [Jobs abstraction](#jobs-abstraction)
     - [MultiKueueAdapter](#multikueueadapter)
     - [MultiKueueWatcher](#multikueuewatcher)
+  - [Configuration](#configuration)
   - [Follow ups ideas](#follow-ups-ideas)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -293,6 +294,27 @@ type MultiKueueWatcher interface {
 Used by the [MultiKueueCluster Controller](#multikueuecluster-controller) to start watching job updates in the remote clusters and convert their
 remote events into local workload reconcile events. It is an optional interface, if not implemented, MultiKueue will work based in workload events
 only and remote jobs events that don't have an impact on its workload will not be observed in the management cluster.
+
+### Configuration
+
+The MultiKueue ACC will be configured by a new section in the Kueue's configuration API `MultiKueue` with the following content:
+
+```go
+type MultiKueue struct {
+	GCInterval *metav1.Duration `json:"gcInterval"`
+	Origin *string `json:"origin,omitempty"`
+	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
+}
+```
+
+Where:
+
+- `GCInterval` - defines the time interval between two consecutive [garbage collector](#garbage-collector) runs.
+- `Origin` - defines a label value used to track the creator of workloads in the worker clusters.
+This is used by multikueue in components like its [garbage collector](#garbage-collector) to identify remote objects 
+that ware created by this multikueue manager cluster and delete them if their local counterpart no longer exists.
+- `WorkerLostTimeout` - defines the time a local workload's multikueue admission check state is kept Ready
+if the connection with its reserving worker cluster is lost.
 
 ### Follow ups ideas
 
