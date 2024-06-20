@@ -22,11 +22,13 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
@@ -134,9 +136,18 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 	})
 
 	ginkgo.When("Creating a ClusterQueue", func() {
-		ginkgo.It("Should create a cluster queue with default values", func() {
-			cqName := "cluster-queue-1"
+		const cqName = "cluster-queue"
 
+		ginkgo.AfterEach(func() {
+			var createdQueue v1beta1.ClusterQueue
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)
+			gomega.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
+			if !apierrors.IsNotFound(err) {
+				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &createdQueue, true)
+			}
+		})
+
+		ginkgo.It("Should create a cluster queue with default values", func() {
 			ginkgo.By("Create a cluster queue with default values", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
@@ -166,8 +177,6 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.It("Should create a cluster queue with nominal quota and a single resource flavor", func() {
-			cqName := "cluster-queue-2"
-
 			ginkgo.By("Create a cluster queue with default values", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
@@ -217,8 +226,6 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.It("Should create a cluster queue with nominal quota, a single resource group and multiple flavors", func() {
-			cqName := "cluster-queue-3"
-
 			ginkgo.By("Create a cluster queue with default values", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
@@ -260,8 +267,6 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.It("Should create a cluster queue with nominal quota, multiple resource groups and multiple flavors", func() {
-			cqName := "cluster-queue-4"
-
 			ginkgo.By("Create a cluster queue with default values", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
@@ -311,8 +316,6 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.It("Should create a cluster queue with all options, a single resource group and a single flavor", func() {
-			cqName := "cluster-queue-5"
-
 			ginkgo.By("Create a cluster queue with default values", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
@@ -357,8 +360,6 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.It("Should create a cluster queue with all options, multiple resource groups and multiple flavors", func() {
-			cqName := "cluster-queue-6"
-
 			ginkgo.By("Create a cluster queue with default values", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
