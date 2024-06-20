@@ -3,6 +3,8 @@
 # It should be run by config/default
 resources:
 - bases/kjobctl.x-k8s.io_volumebundles.yaml
+- bases/kjobctl.x-k8s.io_jobtemplates.yaml
+- bases/kjobctl.x-k8s.io_applicationprofiles.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches: []

@@ -27,6 +27,14 @@ type FakeKjobctlV1alpha1 struct {
 	*testing.Fake
 }
 
+func (c *FakeKjobctlV1alpha1) ApplicationProfiles(namespace string) v1alpha1.ApplicationProfileInterface {
+	return &FakeApplicationProfiles{c, namespace}
+}
+
+func (c *FakeKjobctlV1alpha1) JobTemplates(namespace string) v1alpha1.JobTemplateInterface {
+	return &FakeJobTemplates{c, namespace}
+}
+
 func (c *FakeKjobctlV1alpha1) VolumeBundles(namespace string) v1alpha1.VolumeBundleInterface {
 	return &FakeVolumeBundles{c, namespace}
 }

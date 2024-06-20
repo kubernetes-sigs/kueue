@@ -27,12 +27,22 @@ import (
 
 type KjobctlV1alpha1Interface interface {
 	RESTClient() rest.Interface
+	ApplicationProfilesGetter
+	JobTemplatesGetter
 	VolumeBundlesGetter
 }
 
 // KjobctlV1alpha1Client is used to interact with features provided by the kjobctl.x-k8s.io group.
 type KjobctlV1alpha1Client struct {
 	restClient rest.Interface
+}
+
+func (c *KjobctlV1alpha1Client) ApplicationProfiles(namespace string) ApplicationProfileInterface {
+	return newApplicationProfiles(c, namespace)
+}
+
+func (c *KjobctlV1alpha1Client) JobTemplates(namespace string) JobTemplateInterface {
+	return newJobTemplates(c, namespace)
 }
 
 func (c *KjobctlV1alpha1Client) VolumeBundles(namespace string) VolumeBundleInterface {
