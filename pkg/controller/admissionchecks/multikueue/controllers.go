@@ -83,14 +83,14 @@ func WithControllerName(controllerName string) SetupOption {
 	}
 }
 
-// WithAdapters - sets all the MultiKueue adaptors.
+// WithAdapters - sets all the MultiKueue adapters.
 func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOption {
 	return func(o *SetupOptions) {
 		o.adapters = adapters
 	}
 }
 
-// WithAdapters - sets or updates the adadpter of the MultiKueue adaptors.
+// WithAdapter - sets or updates the adapter of the MultiKueue adapters.
 func WithAdapter(adapter jobframework.MultiKueueAdapter) SetupOption {
 	return func(o *SetupOptions) {
 		o.adapters[adapter.GVK().String()] = adapter
