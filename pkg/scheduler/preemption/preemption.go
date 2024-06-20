@@ -168,7 +168,7 @@ const (
 	// ClusterQueueOrigin indicates that preemption originated from cluster queue
 	ClusterQueueOrigin = "ClusterQueue"
 	// CohortOrigin indicates that preemption originated from cohort
-	CohortOrigin = "cohort"
+	CohortOrigin = "Cohort"
 
 	InClusterQueueReason = "InClusterQueue"
 
@@ -186,16 +186,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
 		if !meta.IsStatusConditionTrue(target.Obj.Status.Conditions, kueue.WorkloadEvicted) {
-			origin := ClusterQueueOrigin
-			reason := InClusterQueueReason
-			if cq.Name != target.ClusterQueue {
-				origin = CohortOrigin
-				if reclamation {
-					reason = InCohortReclamationReason
-				} else {
-					reason = InCohortFairSharingReason
-				}
-			}
+			origin, reason := p.getPreemptionReason(cq.Name == target.ClusterQueue, borrowing)
 
 			message := fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", preemptor.Obj.UID, origin)
 			err := p.applyPreemption(ctx, target.Obj, reason, message)
@@ -213,6 +204,20 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 		atomic.AddInt64(&successfullyPreempted, 1)
 	})
 	return int(successfullyPreempted), errCh.ReceiveError()
+}
+
+func (p *Preemptor) getPreemptionReason(sameCq, borrowing bool) (string, string) {
+	origin := ClusterQueueOrigin
+	reason := InClusterQueueReason
+	if !sameCq {
+		origin = CohortOrigin
+		if borrowing {
+			reason = InCohortFairSharingReason
+		} else {
+			reason = InCohortReclamationReason
+		}
+	}
+	return origin, reason
 }
 
 func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
