@@ -17,11 +17,31 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // VolumeBundleSpec defines the desired state of VolumeBundle
-type VolumeBundleSpec struct{}
+// +kubebuilder:validation:XValidation:rule="self.mountPoints.map(x, x.name in self.volumes.map(y, y.name))", message="mountPoint name must match a volume name"
+type VolumeBundleSpec struct {
+	// volumes is a set of volumes that will be added to all pods of the job.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
+	Volumes []corev1.Volume `json:"volumes"`
+
+	// containerVolumeMounts is a list of locations in each container of a pod where the volumes will be mounted.
+	// +listType=map
+	// +listMapKey=mountPath
+	// +kubebuilder:validation:MinItems=1
+	ContainerVolumeMounts []corev1.VolumeMount `json:"containerVolumeMounts"`
+
+	// envVars are environment variables that refer to absolute paths in the container filesystem.
+	// These key/value pairs will be available in containers as environment variables.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self.all(x, x.name.matches('^[A-Za-z_][A-Za-z0-9_]*$') )", message="invalid environment variable name"
+	EnvVars []corev1.EnvVar `json:"envVars,omitempty"`
+}
 
 // +genclient
 // +kubebuilder:object:root=true
