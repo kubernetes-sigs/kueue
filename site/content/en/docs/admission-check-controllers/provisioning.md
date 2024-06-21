@@ -12,6 +12,8 @@ The controller is part of Kueue. It is enabled by default. You can disable it by
 
 The Provisioning Admission Check Controller is supported on [Kubernetes cluster-autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) versions 1.29 and later. However, some cloud-providers may not have an implementation for it.
 
+Check the list of supported Provisioning Classes and prerequisite for them in [ClusterAutoscaler documentation](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md#supported-provisioningclasses).
+
 ## Usage
 
 To use the Provisioning AdmissionCheck, create an [AdmissionCheck](/docs/concepts/admission_check)
@@ -38,13 +40,13 @@ kind: ProvisioningRequestConfig
 metadata:
   name: prov-test-config
 spec:
-  provisioningClassName: queued-provisioning.gke.io
+  provisioningClassName: check-capacity.autoscaling.x-k8s.io
   managedResources:
   - nvidia.com/gpu
 ```
 
 Where:
-- **provisioningClassName** - describes the different modes of provisioning the resources. Check `autoscaling.x-k8s.io` `ProvisioningRequestSpec.provisioningClassName` for details.
+- **provisioningClassName** - describes the different modes of provisioning the resources. Supported ProvisioningClasses are listed in [ClusterAutoscaler documentation](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md#supported-provisioningclasses), also check your cloud provider's documentation for other ProvisioningRequest classes they support.
 - **managedResources** -  contains the list of resources managed by the autoscaling.
 
 Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta1/provisioningrequestconfig_types.go) for more details.
