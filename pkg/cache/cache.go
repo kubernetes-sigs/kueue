@@ -23,6 +23,8 @@ import (
 	"sort"
 	"sync"
 
+	apierr "k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,9 +34,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -699,6 +703,41 @@ func filterLocalQueueUsage(orig FlavorResourceQuantities, resourceGroups []Resou
 		}
 	}
 	return qFlvUsages
+}
+
+func workloadOrderingFunc(a, b *workload.Info) bool {
+	p1 := utilpriority.Priority(a.Obj)
+	p2 := utilpriority.Priority(b.Obj)
+
+	if p1 != p2 {
+		return p1 > p2
+	}
+
+	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
+}
+
+func (c *Cache) RunningWorkload(name string) ([]*workload.Info, error) {
+	c.RLock()
+	defer c.RUnlock()
+	cq, ok := c.clusterQueues[name]
+	if !ok {
+		return []*workload.Info{}, apierr.NewNotFound(v1alpha1.Resource("clusterqueue"), name)
+	}
+
+	count := 0
+	wkls := make([]*workload.Info, 0, len(cq.Workloads))
+	for _, wkl := range cq.Workloads {
+		if !workload.IsAdmitted(wkl.Obj) || workload.IsFinished(wkl.Obj) {
+			continue
+		}
+		wkls = append(wkls, wkl)
+		count++
+	}
+	wkls = wkls[:count]
+	sort.Slice(wkls, func(i, j int) bool {
+		return workloadOrderingFunc(wkls[i], wkls[j])
+	})
+	return wkls, nil
 }
 
 func (c *Cache) cleanupAssumedState(w *kueue.Workload) {

@@ -63,8 +63,8 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 		clusterQueues []*kueue.ClusterQueue
 		queues        []*kueue.LocalQueue
 		workloads     []*kueue.Workload
-		req           *req
-		wantResp      *resp
+		req           *pendingReq
+		wantResp      *pendingResp
 		wantErrMatch  func(error) bool
 	}{
 		"single ClusterQueue and single LocalQueue setup with two workloads and default query parameters": {
@@ -78,12 +78,12 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
 				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
 			},
-			req: &req{
+			req: &pendingReq{
 				nsName:      nsNameA,
 				queueName:   lqNameA,
 				queryParams: defaultQueryParams,
 			},
-			wantResp: &resp{
+			wantResp: &pendingResp{
 				wantPendingWorkloads: []visibility.PendingWorkload{
 					{
 						ObjectMeta: v1.ObjectMeta{
@@ -123,12 +123,12 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("lqB-high-prio", nsNameA).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("lqB-low-prio", nsNameA).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
-			req: &req{
+			req: &pendingReq{
 				nsName:      nsNameA,
 				queueName:   lqNameA,
 				queryParams: defaultQueryParams,
 			},
-			wantResp: &resp{
+			wantResp: &pendingResp{
 				wantPendingWorkloads: []visibility.PendingWorkload{
 					{
 						ObjectMeta: v1.ObjectMeta{
@@ -168,12 +168,12 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("lqB-high-prio", nsNameA).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("lqB-low-prio", nsNameA).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
-			req: &req{
+			req: &pendingReq{
 				nsName:      nsNameA,
 				queueName:   lqNameB,
 				queryParams: defaultQueryParams,
 			},
-			wantResp: &resp{
+			wantResp: &pendingResp{
 				wantPendingWorkloads: []visibility.PendingWorkload{
 					{
 						ObjectMeta: v1.ObjectMeta{
@@ -215,12 +215,12 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("lqB-high-prio", nsNameB).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("lqB-low-prio", nsNameB).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
-			req: &req{
+			req: &pendingReq{
 				nsName:      nsNameA,
 				queueName:   lqNameA,
 				queryParams: defaultQueryParams,
 			},
-			wantResp: &resp{
+			wantResp: &pendingResp{
 				wantPendingWorkloads: []visibility.PendingWorkload{
 					{
 						ObjectMeta: v1.ObjectMeta{
@@ -262,12 +262,12 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("lqB-high-prio", nsNameB).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("lqB-low-prio", nsNameB).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
-			req: &req{
+			req: &pendingReq{
 				nsName:      nsNameB,
 				queueName:   lqNameB,
 				queryParams: defaultQueryParams,
 			},
-			wantResp: &resp{
+			wantResp: &pendingResp{
 				wantPendingWorkloads: []visibility.PendingWorkload{
 					{
 						ObjectMeta: v1.ObjectMeta{
@@ -306,14 +306,14 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
 			},
-			req: &req{
+			req: &pendingReq{
 				nsName:    nsNameA,
 				queueName: lqNameA,
 				queryParams: &visibility.PendingWorkloadOptions{
 					Limit: 2,
 				},
 			},
-			wantResp: &resp{
+			wantResp: &pendingResp{
 				wantPendingWorkloads: []visibility.PendingWorkload{
 					{
 						ObjectMeta: v1.ObjectMeta{
@@ -352,7 +352,7 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
 			},
-			req: &req{
+			req: &pendingReq{
 				nsName:    nsNameA,
 				queueName: lqNameA,
 				queryParams: &visibility.PendingWorkloadOptions{
@@ -360,7 +360,7 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 					Limit:  constants.DefaultPendingWorkloadsLimit,
 				},
 			},
-			wantResp: &resp{
+			wantResp: &pendingResp{
 				wantPendingWorkloads: []visibility.PendingWorkload{
 					{
 						ObjectMeta: v1.ObjectMeta{
@@ -399,7 +399,7 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
 			},
-			req: &req{
+			req: &pendingReq{
 				nsName:    nsNameA,
 				queueName: lqNameA,
 				queryParams: &visibility.PendingWorkloadOptions{
@@ -407,7 +407,7 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 					Limit:  1,
 				},
 			},
-			wantResp: &resp{
+			wantResp: &pendingResp{
 				wantPendingWorkloads: []visibility.PendingWorkload{
 					{
 						ObjectMeta: v1.ObjectMeta{
@@ -424,11 +424,11 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 			},
 		},
 		"nonexistent queue name": {
-			req: &req{
+			req: &pendingReq{
 				queueName:   "nonexistent-queue",
 				queryParams: defaultQueryParams,
 			},
-			wantResp: &resp{
+			wantResp: &pendingResp{
 				wantErr: errors.NewNotFound(visibility.Resource("localqueue"), "invalid-name"),
 			},
 			wantErrMatch: errors.IsNotFound,

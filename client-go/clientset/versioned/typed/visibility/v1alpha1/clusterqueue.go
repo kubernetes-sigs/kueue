@@ -50,6 +50,7 @@ type ClusterQueueInterface interface {
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.ClusterQueue, err error)
 	Apply(ctx context.Context, clusterQueue *visibilityv1alpha1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1alpha1.ClusterQueue, err error)
 	GetPendingWorkloadsSummary(ctx context.Context, clusterQueueName string, options v1.GetOptions) (*v1alpha1.PendingWorkloadsSummary, error)
+	GetRunningWorkloadsSummary(ctx context.Context, clusterQueueName string, options v1.GetOptions) (*v1alpha1.RunningWorkloadsSummary, error)
 
 	ClusterQueueExpansion
 }
@@ -204,6 +205,19 @@ func (c *clusterQueues) GetPendingWorkloadsSummary(ctx context.Context, clusterQ
 		Resource("clusterqueues").
 		Name(clusterQueueName).
 		SubResource("pendingworkloads").
+		VersionedParams(&options, scheme.ParameterCodec).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// GetRunningWorkloadsSummary takes name of the clusterQueue, and returns the corresponding v1alpha1.RunningWorkloadsSummary object, and an error if there is any.
+func (c *clusterQueues) GetRunningWorkloadsSummary(ctx context.Context, clusterQueueName string, options v1.GetOptions) (result *v1alpha1.RunningWorkloadsSummary, err error) {
+	result = &v1alpha1.RunningWorkloadsSummary{}
+	err = c.client.Get().
+		Resource("clusterqueues").
+		Name(clusterQueueName).
+		SubResource("runningWorkloads").
 		VersionedParams(&options, scheme.ParameterCodec).
 		Do(ctx).
 		Into(result)

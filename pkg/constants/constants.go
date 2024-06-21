@@ -40,6 +40,7 @@ const (
 	PodPriorityClassSource      = "scheduling.k8s.io/priorityclass"
 
 	DefaultPendingWorkloadsLimit = 1000
+	DefaultRunningWorkloadsLimit = 1000
 
 	IsNegativeErrorMsg string = `must be greater than or equal to 0`
 )

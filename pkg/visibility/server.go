@@ -22,6 +22,7 @@ import (
 
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/v1alpha1/openapi"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/visibility/api"
 
@@ -46,7 +47,7 @@ type server struct {
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(kueueMgr *queue.Manager, ctx context.Context) {
+func CreateAndStartVisibilityServer(kueueMgr *queue.Manager, cCache *cache.Cache, ctx context.Context) {
 	config := newVisibilityServerConfig()
 	if err := applyVisibilityServerOptions(config); err != nil {
 		setupLog.Error(err, "Unable to apply VisibilityServerOptions")
@@ -57,7 +58,7 @@ func CreateAndStartVisibilityServer(kueueMgr *queue.Manager, ctx context.Context
 		setupLog.Error(err, "Unable to create visibility server")
 	}
 
-	if err := api.Install(visibilityServer, kueueMgr); err != nil {
+	if err := api.Install(visibilityServer, kueueMgr, cCache); err != nil {
 		setupLog.Error(err, "Unable to install visibility.kueue.x-k8s.io/v1alpha1 API")
 	}
 
