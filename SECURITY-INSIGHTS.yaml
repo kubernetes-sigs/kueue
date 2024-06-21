@@ -61,3 +61,6 @@ dependencies:
   third-party-packages: true
   dependencies-lists:
     - 'https://github.com/kubernetes-sigs/kueue/blob/main/go.mod'
+  sbom:
+    - sbom-file: https://github.com/kubernetes-sigs/kueue/releases/download/v0.7.0/kueue-v0.7.0.spdx.json
+      sbom-format: SPDX
