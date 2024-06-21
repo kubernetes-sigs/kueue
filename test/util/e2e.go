@@ -73,19 +73,22 @@ func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, k
 	pods := &corev1.PodList{}
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) error {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
-		g.Expect(deployment.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
-			appsv1.DeploymentCondition{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
-			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
-		))
 		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(key.Namespace), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 		for _, pod := range pods.Items {
 			for _, cs := range pod.Status.ContainerStatuses {
-				g.Expect(cs.Ready).To(gomega.BeTrue())
+				// To make sure that we don't have restarts of controller-manager.
+				// If we have that's mean that something went wrong, and there is
+				// no needs to continue trying check availability.
 				if cs.RestartCount > 0 {
 					return gomega.StopTrying(fmt.Sprintf("%q in %q has restarted %d times", cs.Name, pod.Name, cs.RestartCount))
 				}
 			}
 		}
+		// To verify that webhooks are ready, checking is deployment have condition Available=True.
+		g.Expect(deployment.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+			appsv1.DeploymentCondition{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
+		))
 		return nil
 	}, StartUpTimeout, Interval).Should(gomega.Succeed())
 }
