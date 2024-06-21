@@ -49,18 +49,23 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		cqStatus           kueue.ClusterQueueStatus
-		newConditionStatus metav1.ConditionStatus
-		newReason          string
-		newMessage         string
-		newWl              *kueue.Workload
-		wantCqStatus       kueue.ClusterQueueStatus
+		insertCqIntoCache   bool
+		insertCqIntoManager bool
+		cqStatus            kueue.ClusterQueueStatus
+		newConditionStatus  metav1.ConditionStatus
+		newReason           string
+		newMessage          string
+		newWl               *kueue.Workload
+		wantCqStatus        kueue.ClusterQueueStatus
+		wantError           error
 	}{
 		"empty ClusterQueueStatus": {
-			cqStatus:           kueue.ClusterQueueStatus{},
-			newConditionStatus: metav1.ConditionFalse,
-			newReason:          "FlavorNotFound",
-			newMessage:         "Can't admit new workloads; some flavors are not found",
+			insertCqIntoCache:   true,
+			insertCqIntoManager: true,
+			cqStatus:            kueue.ClusterQueueStatus{},
+			newConditionStatus:  metav1.ConditionFalse,
+			newReason:           "FlavorNotFound",
+			newMessage:          "Can't admit new workloads; some flavors are not found",
 			wantCqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
@@ -73,6 +78,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			},
 		},
 		"same condition status": {
+			insertCqIntoCache:   true,
+			insertCqIntoManager: true,
 			cqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
@@ -97,6 +104,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			},
 		},
 		"same condition status with different reason and message": {
+			insertCqIntoCache:   true,
+			insertCqIntoManager: true,
 			cqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
@@ -121,6 +130,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			},
 		},
 		"different condition status": {
+			insertCqIntoCache:   true,
+			insertCqIntoManager: true,
 			cqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
@@ -145,6 +156,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			},
 		},
 		"different pendingWorkloads with same condition status": {
+			insertCqIntoCache:   true,
+			insertCqIntoManager: true,
 			cqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
@@ -169,6 +182,13 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				}},
 			},
 		},
+		"cluster queue does not exist on manager": {
+			wantError: queue.ErrClusterQueueDoesNotExist,
+		},
+		"cluster queue does not exist on cache": {
+			insertCqIntoManager: true,
+			wantError:           cache.ErrCqNotFound,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -186,11 +206,15 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				Build()
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
-			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-				t.Fatalf("Inserting clusterQueue in cache: %v", err)
+			if tc.insertCqIntoCache {
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue in cache: %v", err)
+				}
 			}
-			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
-				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			if tc.insertCqIntoManager {
+				if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue in manager: %v", err)
+				}
 			}
 			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
 				t.Fatalf("Inserting localQueue in manager: %v", err)
@@ -207,9 +231,9 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			if tc.newWl != nil {
 				r.qManager.AddOrUpdateWorkload(tc.newWl)
 			}
-			err := r.updateCqStatusIfChanged(ctx, cq, tc.newConditionStatus, tc.newReason, tc.newMessage)
-			if err != nil {
-				t.Errorf("Updating ClusterQueueStatus: %v", err)
+			gotError := r.updateCqStatusIfChanged(ctx, cq, tc.newConditionStatus, tc.newReason, tc.newMessage)
+			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
 			}
 			configCmpOpts := []cmp.Option{
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),

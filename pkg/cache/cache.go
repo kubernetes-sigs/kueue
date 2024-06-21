@@ -39,7 +39,7 @@ import (
 )
 
 var (
-	errCqNotFound          = errors.New("cluster queue not found")
+	ErrCqNotFound          = errors.New("cluster queue not found")
 	errQNotFound           = errors.New("queue not found")
 	errWorkloadNotAdmitted = errors.New("workload not admitted by a ClusterQueue")
 )
@@ -369,7 +369,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	defer c.Unlock()
 	cqImpl, ok := c.clusterQueues[cq.Name]
 	if !ok {
-		return errCqNotFound
+		return ErrCqNotFound
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors, c.admissionChecks); err != nil {
 		return err
@@ -503,7 +503,7 @@ func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 
 	cq := c.clusterQueueForWorkload(w)
 	if cq == nil {
-		return errCqNotFound
+		return ErrCqNotFound
 	}
 
 	c.cleanupAssumedState(w)
@@ -547,7 +547,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 
 	cq, ok := c.clusterQueues[string(w.Status.Admission.ClusterQueue)]
 	if !ok {
-		return errCqNotFound
+		return ErrCqNotFound
 	}
 
 	if err := cq.addWorkload(w); err != nil {
@@ -572,7 +572,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 
 	cq, ok := c.clusterQueues[string(w.Status.Admission.ClusterQueue)]
 	if !ok {
-		return errCqNotFound
+		return ErrCqNotFound
 	}
 	cq.deleteWorkload(w)
 	if c.podsReadyTracking {
@@ -596,7 +596,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 
 	cq := c.clusterQueues[cqObj.Name]
 	if cq == nil {
-		return nil, errCqNotFound
+		return nil, ErrCqNotFound
 	}
 
 	stats := &ClusterQueueUsageStats{
