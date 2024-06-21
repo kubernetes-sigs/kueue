@@ -96,13 +96,13 @@ func getAttemptRegex(workloadName, checkName string) *regexp.Regexp {
 
 func remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32) time.Duration {
 	var lastFailureTime time.Time
+    var cond *v1.Condition
 	if isFailed(pr) {
-		failedCond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
-		lastFailureTime = failedCond.LastTransitionTime.Time
+		cond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
 	} else {
-		bookingExpiredCond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired)
-		lastFailureTime = bookingExpiredCond.LastTransitionTime.Time
+		cond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired)
 	}
+	lastFailureTime = cond.LastTransitionTime.Time
 	defaultBackoff := time.Duration(MinBackoffSeconds) * time.Second
 	backoffDuration := defaultBackoff
 	for i := 1; i < int(failuresCount); i++ {
