@@ -15,9 +15,11 @@ package raycluster
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -85,6 +87,10 @@ func (j *RayCluster) Suspend() {
 
 func (j *RayCluster) GVK() schema.GroupVersionKind {
 	return gvk
+}
+
+func (j *RayCluster) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Labels[rayutils.RayClusterLabelKey])
 }
 
 func (j *RayCluster) PodSets() []kueue.PodSet {

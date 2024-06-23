@@ -208,6 +208,10 @@ func (j *Job) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *Job) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Labels[batchv1.JobNameLabel])
+}
+
 func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	if parallelism == 1 || j.Status.Succeeded == 0 {
