@@ -18,9 +18,11 @@ package rayjob
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -86,6 +88,10 @@ func (j *RayJob) Suspend() {
 
 func (j *RayJob) GVK() schema.GroupVersionKind {
 	return gvk
+}
+
+func (j *RayJob) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Labels[rayutils.RayClusterLabelKey])
 }
 
 func (j *RayJob) PodSets() []kueue.PodSet {

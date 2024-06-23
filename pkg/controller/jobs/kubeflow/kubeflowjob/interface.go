@@ -35,4 +35,6 @@ type KFJobControl interface {
 	JobStatus() *kftraining.JobStatus
 	// OrderedReplicaTypes returns the ordered list of ReplicaTypes for the KFJob.
 	OrderedReplicaTypes() []kftraining.ReplicaType
+	// PodLabelSelector returns the label selector used by pods for the job.
+	PodLabelSelector() string
 }

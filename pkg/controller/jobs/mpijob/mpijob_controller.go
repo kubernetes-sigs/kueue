@@ -18,6 +18,7 @@ package mpijob
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -101,6 +102,10 @@ func (j *MPIJob) Suspend() {
 
 func (j *MPIJob) GVK() schema.GroupVersionKind {
 	return gvk
+}
+
+func (j *MPIJob) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s", kubeflow.JobNameLabel, j.Labels[kubeflow.JobNameLabel])
 }
 
 func (j *MPIJob) PodSets() []kueue.PodSet {

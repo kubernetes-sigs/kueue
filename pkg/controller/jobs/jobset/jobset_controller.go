@@ -18,6 +18,7 @@ package jobset
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -102,6 +103,10 @@ func (j *JobSet) Suspend() {
 
 func (j *JobSet) GVK() schema.GroupVersionKind {
 	return gvk
+}
+
+func (j *JobSet) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, j.Labels[jobsetapi.JobSetNameKey])
 }
 
 func (j *JobSet) PodSets() []kueue.PodSet {
