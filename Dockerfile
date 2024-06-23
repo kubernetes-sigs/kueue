@@ -1,7 +1,7 @@
 ARG BUILDER_IMAGE
 ARG BASE_IMAGE
 # Build the manager binary
-FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} as builder
+FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
 
 ARG CGO_ENABLED
 ARG TARGETARCH
