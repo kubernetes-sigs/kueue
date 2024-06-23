@@ -17,7 +17,6 @@ package provisioning
 
 import (
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -47,23 +46,22 @@ const (
 
 var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		defaultMaxRetries                            = provisioning.MaxRetries
-		defaultMinBackoffSeconds                     = provisioning.MinBackoffSeconds
-		resourceGPU              corev1.ResourceName = "example.com/gpu"
-		flavorOnDemand                               = "on-demand"
+		maxRetries        int32
+		minBackoffSeconds int32
+		resourceGPU       corev1.ResourceName = "example.com/gpu"
+		flavorOnDemand                        = "on-demand"
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			CRDPath:     filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases"),
-			DepCRDPaths: []string{filepath.Join("..", "..", "..", "..", "..", "dep-crds", "cluster-autoscaler")},
-			WebhookPath: filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook"),
-		}
+	ginkgo.JustBeforeEach(func() {
+		fwk = &framework.Framework{CRDPath: crdPath, DepCRDPaths: depCRDPaths, WebhookPath: webhookPath}
 		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+			provisioning.WithMaxRetries(maxRetries),
+			provisioning.WithMinBackoffSeconds(minBackoffSeconds),
+		))
 	})
 
-	ginkgo.AfterAll(func() {
+	ginkgo.AfterEach(func() {
 		fwk.Teardown()
 	})
 
@@ -82,9 +80,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			createdRequest autoscaling.ProvisioningRequest
 			updatedWl      kueue.Workload
 		)
-		ginkgo.BeforeEach(func() {
-			provisioning.MaxRetries = 0
 
+		ginkgo.BeforeEach(func() {
+			maxRetries = 0
+		})
+
+		ginkgo.JustBeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "provisioning-",
@@ -190,8 +191,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.AfterEach(func() {
-			provisioning.MaxRetries = defaultMaxRetries
-			provisioning.MinBackoffSeconds = defaultMinBackoffSeconds
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf, true)
@@ -913,9 +912,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			updatedWl      kueue.Workload
 		)
 		ginkgo.BeforeEach(func() {
-			provisioning.MaxRetries = 1
-			provisioning.MinBackoffSeconds = 1
+			maxRetries = 1
+			minBackoffSeconds = 1
+		})
 
+		ginkgo.JustBeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "provisioning-",
@@ -1000,8 +1001,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.AfterEach(func() {
-			provisioning.MaxRetries = defaultMaxRetries
-			provisioning.MinBackoffSeconds = defaultMinBackoffSeconds
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf, true)

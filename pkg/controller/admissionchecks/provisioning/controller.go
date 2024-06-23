@@ -50,7 +50,10 @@ import (
 )
 
 const (
-	objNameHashLength = 5
+	defaultMaxRetries        = 3
+	defaultMinBackoffSeconds = 60   // 1 min
+	defaultMaxBackoffSeconds = 1800 // 30 min
+	objNameHashLength        = 5
 	// 253 is the maximal length for a CRD name. We need to subtract one for '-', and the hash length.
 	objNameMaxPrefixLength = 252 - objNameHashLength
 	podTemplatesPrefix     = "ppt"
@@ -60,11 +63,6 @@ var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
 )
 
-var (
-	MaxRetries        int32 = 3
-	MinBackoffSeconds int32 = 60
-)
-
 type provisioningConfigHelper = admissioncheck.ConfigHelper[*kueue.ProvisioningRequestConfig, kueue.ProvisioningRequestConfig]
 
 func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, error) {
@@ -72,12 +70,34 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 }
 
 type Controller struct {
-	client client.Client
-	helper *provisioningConfigHelper
-	record record.EventRecorder
+	client            client.Client
+	record            record.EventRecorder
+	helper            *provisioningConfigHelper
+	maxRetries        int32
+	minBackoffSeconds int32
+	maxBackoffSeconds int32
 }
 
 var _ reconcile.Reconciler = (*Controller)(nil)
+
+type options struct {
+	maxRetries        int32
+	minBackoffSeconds int32
+}
+
+// Option configures the provisioning controller.
+type Option func(*options)
+
+func WithMaxRetries(maxRetries int32) Option {
+	return func(o *options) {
+		o.maxRetries = maxRetries
+	}
+}
+func WithMinBackoffSeconds(minBackoffSeconds int32) Option {
+	return func(o *options) {
+		o.minBackoffSeconds = minBackoffSeconds
+	}
+}
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 // +kubebuilder:rbac:groups="",resources=podtemplates,verbs=get;list;watch;create;delete;update
@@ -88,15 +108,27 @@ var _ reconcile.Reconciler = (*Controller)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
 
-func NewController(client client.Client, record record.EventRecorder) (*Controller, error) {
+func NewController(client client.Client, record record.EventRecorder, opts ...Option) (*Controller, error) {
 	helper, err := newProvisioningConfigHelper(client)
 	if err != nil {
 		return nil, err
 	}
+
+	options := options{
+		maxRetries:        defaultMaxRetries,
+		minBackoffSeconds: defaultMinBackoffSeconds,
+	}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	return &Controller{
-		client: client,
-		record: record,
-		helper: helper,
+		client:            client,
+		record:            record,
+		helper:            helper,
+		maxRetries:        options.maxRetries,
+		minBackoffSeconds: options.minBackoffSeconds,
+		maxBackoffSeconds: defaultMaxBackoffSeconds,
 	}, nil
 }
 
@@ -215,9 +247,9 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		if exists {
 			if isFailed(oldPr) {
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
-				if attempt <= MaxRetries {
+				if attempt <= c.maxRetries {
 					prFailed := apimeta.FindStatusCondition(oldPr.Status.Conditions, autoscaling.Failed)
-					remainingTime := remainingTime(prc, attempt, prFailed.LastTransitionTime.Time)
+					remainingTime := c.remainingTime(attempt, prFailed.LastTransitionTime.Time)
 					if remainingTime <= 0 {
 						shouldCreatePr = true
 						attempt += 1
@@ -276,6 +308,20 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		}
 	}
 	return requeAfter, nil
+}
+
+func (c *Controller) remainingTime(failuresCount int32, lastFailureTime time.Time) time.Duration {
+	backoffDuration := time.Duration(c.minBackoffSeconds) * time.Second
+	maxBackoffDuration := time.Duration(c.maxBackoffSeconds) * time.Second
+	for i := 1; i < int(failuresCount); i++ {
+		backoffDuration *= 2
+		if backoffDuration >= maxBackoffDuration {
+			backoffDuration = maxBackoffDuration
+			break
+		}
+	}
+	timeElapsedSinceLastFailure := time.Since(lastFailureTime)
+	return backoffDuration - timeElapsedSinceLastFailure
 }
 
 func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, prName string, prc *kueue.ProvisioningRequestConfig) error {
@@ -457,7 +503,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			switch {
 			case isFailed(pr):
 				if checkState.State != kueue.CheckStateRejected {
-					if attempt := getAttempt(log, pr, wl.Name, check); attempt <= MaxRetries {
+					if attempt := getAttempt(log, pr, wl.Name, check); attempt <= c.maxRetries {
 						// it is going to be retried
 						message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
