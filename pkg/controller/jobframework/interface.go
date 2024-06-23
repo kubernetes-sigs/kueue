@@ -57,6 +57,8 @@ type GenericJob interface {
 	PodsReady() bool
 	// GVK returns GVK (Group Version Kind) for the job.
 	GVK() schema.GroupVersionKind
+	// PodLabelSelector returns the label selector used by pods for the job.
+	PodLabelSelector() string
 }
 
 // Optional interfaces, are meant to implemented by jobs to enable additional

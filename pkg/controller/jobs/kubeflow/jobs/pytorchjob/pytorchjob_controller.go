@@ -18,6 +18,7 @@ package pytorchjob
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
@@ -82,6 +83,10 @@ func fromObject(o runtime.Object) *kubeflowjob.KubeflowJob {
 
 func (j *JobControl) GVK() schema.GroupVersionKind {
 	return gvk
+}
+
+func (j *JobControl) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s,%s=%s", kftraining.OperatorNameLabel, j.Labels[kftraining.OperatorNameLabel], kftraining.JobNameLabel, j.Labels[kftraining.JobNameLabel])
 }
 
 func (j *JobControl) RunPolicy() *kftraining.RunPolicy {
