@@ -342,7 +342,7 @@ var _ reconcile.Reconciler = (*clustersReconciler)(nil)
 
 func (c *clustersReconciler) Start(ctx context.Context) error {
 	c.rootContext = ctx
-	go c.runGC(ctx)
+	go c.start(ctx)
 	return nil
 }
 
@@ -478,7 +478,7 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealp
 	return c.localClient.Status().Update(ctx, cluster)
 }
 
-func (c *clustersReconciler) runGC(ctx context.Context) {
+func (c *clustersReconciler) start(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx).WithName("MultiKueueGC")
 	if c.gcInterval == 0 {
 		log.V(2).Info("Garbage Collection is disabled")
@@ -491,11 +491,18 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 			log.V(2).Info("Garbage Collector Stopped")
 			return
 		case <-time.After(c.gcInterval):
-			log.V(4).Info("Run Garbage Collection for Lost Remote Workloads")
-			for clusterName, rc := range c.remoteClients {
-				rc.runGC(ctrl.LoggerInto(ctx, log.WithValues("multiKueueCluster", clusterName)))
-			}
+			c.runGC(ctx)
 		}
+	}
+}
+
+func (c *clustersReconciler) runGC(ctx context.Context) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	log := ctrl.LoggerFrom(ctx).WithName("MultiKueueGC")
+	log.V(4).Info("Run Garbage Collection for Lost Remote Workloads")
+	for clusterName, rc := range c.remoteClients {
+		rc.runGC(ctrl.LoggerInto(ctx, log.WithValues("multiKueueCluster", clusterName)))
 	}
 }
 
