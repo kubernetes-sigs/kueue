@@ -23,13 +23,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/diff"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	. "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/visibility/api"
 )
 
 func TestPendingWorkloadsOptions(t *testing.T) {
-	codec := runtime.NewParameterCodec(api.Scheme)
+	Scheme := runtime.NewScheme()
+	utilruntime.Must(AddToScheme(Scheme))
+	codec := runtime.NewParameterCodec(Scheme)
 
 	cases := map[string]struct {
 		inputQueryParams           url.Values
