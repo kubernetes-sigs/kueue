@@ -18,6 +18,7 @@ package provisioning
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -39,10 +40,13 @@ import (
 )
 
 var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
+	cfg         *rest.Config
+	k8sClient   client.Client
+	ctx         context.Context
+	fwk         *framework.Framework
+	crdPath     = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
+	depCRDPaths = []string{filepath.Join("..", "..", "..", "..", "..", "dep-crds", "cluster-autoscaler")}
+	webhookPath = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
 )
 
 func TestProvisioning(t *testing.T) {
@@ -53,33 +57,39 @@ func TestProvisioning(t *testing.T) {
 	)
 }
 
-func managerSetup(mgr manager.Manager, ctx context.Context) {
-	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+func managerSetup(opts ...provisioning.Option) framework.ManagerSetup {
+	return func(mgr manager.Manager, ctx context.Context) {
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	failedWebhook, err := webhooks.Setup(mgr)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+		failedWebhook, err := webhooks.Setup(mgr)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-	controllersCfg := &config.Configuration{}
-	mgr.GetScheme().Default(controllersCfg)
+		controllersCfg := &config.Configuration{}
+		mgr.GetScheme().Default(controllersCfg)
 
-	controllersCfg.Metrics.EnableClusterQueueResources = true
+		controllersCfg.Metrics.EnableClusterQueueResources = true
 
-	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+		cCache := cache.New(mgr.GetClient())
+		queues := queue.NewManager(mgr.GetClient(), cCache)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-	err = autoscaling.AddToScheme(mgr.GetScheme())
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = autoscaling.AddToScheme(mgr.GetScheme())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	reconciler, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		reconciler, err := provisioning.NewController(
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"),
+			opts...,
+		)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = reconciler.SetupWithManager(mgr)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = reconciler.SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }

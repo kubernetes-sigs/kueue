@@ -22,7 +22,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -93,21 +92,6 @@ func getAttemptRegex(workloadName, checkName string) *regexp.Regexp {
 	prefix := getProvisioningRequestNamePrefix(workloadName, checkName)
 	escapedPrefix := regexp.QuoteMeta(prefix)
 	return regexp.MustCompile("^" + escapedPrefix + "([0-9]+)$")
-}
-
-func remainingTime(prc *kueue.ProvisioningRequestConfig, failuresCount int32, lastFailureTime time.Time) time.Duration {
-	defaultBackoff := time.Duration(MinBackoffSeconds) * time.Second
-	maxBackoff := 30 * time.Minute
-	backoffDuration := defaultBackoff
-	for i := 1; i < int(failuresCount); i++ {
-		backoffDuration *= 2
-		if backoffDuration >= maxBackoff {
-			backoffDuration = maxBackoff
-			break
-		}
-	}
-	timeElapsedSinceLastFailure := time.Since(lastFailureTime)
-	return backoffDuration - timeElapsedSinceLastFailure
 }
 
 func parametersKueueToProvisioning(in map[string]kueue.Parameter) map[string]autoscaling.Parameter {
