@@ -49,8 +49,8 @@ integrations:
 #  - "pod"
 #  - "deployment" # requires enabling pod integration
 #  - "statefulset" # requires enabling pod integration
-#  externalFrameworks:
-#  - "Foo.v1.example.com"
+  externalFrameworks:
+  - "AppWrapper.v1beta2.workload.codeflare.dev"
 #  podOptions:
 #    namespaceSelector:
 #      matchExpressions:
