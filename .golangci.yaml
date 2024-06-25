@@ -46,6 +46,7 @@ issues:
   # Which dirs to exclude: issues from them won't be reported
   exclude-dirs:
     - bin
+    - vendor
   # Excluding configuration per-path, per-linter, per-text and per-source
   exclude-rules:
     - linters:

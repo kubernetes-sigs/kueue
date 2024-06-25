@@ -1,0 +1,291 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "description": "Python SDK for MPI-Operator",
+    "title": "mpijob",
+    "version": "v2beta1"
+  },
+  "paths": {},
+  "definitions": {
+    "v2beta1.JobCondition": {
+      "description": "JobCondition describes the state of the job at a certain point.",
+      "type": "object",
+      "required": [
+        "type",
+        "status"
+      ],
+      "properties": {
+        "lastTransitionTime": {
+          "description": "Last time the condition transitioned from one status to another.",
+          "$ref": "#/definitions/v1.Time"
+        },
+        "lastUpdateTime": {
+          "description": "The last time this condition was updated.",
+          "$ref": "#/definitions/v1.Time"
+        },
+        "message": {
+          "description": "A human-readable message indicating details about the transition.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "The reason for the condition's last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "status of the condition, one of True, False, Unknown.",
+          "type": "string",
+          "default": ""
+        },
+        "type": {
+          "description": "type of job condition.",
+          "type": "string",
+          "default": ""
+        }
+      }
+    },
+    "v2beta1.JobStatus": {
+      "description": "JobStatus represents the current observed state of the training Job.",
+      "type": "object",
+      "properties": {
+        "completionTime": {
+          "description": "Represents time when the job was completed. It is not guaranteed to be set in happens-before order across separate operations. It is represented in RFC3339 form and is in UTC.",
+          "$ref": "#/definitions/v1.Time"
+        },
+        "conditions": {
+          "description": "conditions is a list of current observed job conditions.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v2beta1.JobCondition"
+          },
+          "x-kubernetes-list-map-keys": [
+            "type"
+          ],
+          "x-kubernetes-list-type": "map"
+        },
+        "lastReconcileTime": {
+          "description": "Represents last time when the job was reconciled. It is not guaranteed to be set in happens-before order across separate operations. It is represented in RFC3339 form and is in UTC.",
+          "$ref": "#/definitions/v1.Time"
+        },
+        "replicaStatuses": {
+          "description": "replicaStatuses is map of ReplicaType and ReplicaStatus, specifies the status of each replica.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/v2beta1.ReplicaStatus"
+          }
+        },
+        "startTime": {
+          "description": "Represents time when the job was acknowledged by the job controller. It is not guaranteed to be set in happens-before order across separate operations. It is represented in RFC3339 form and is in UTC.",
+          "$ref": "#/definitions/v1.Time"
+        }
+      }
+    },
+    "v2beta1.MPIJob": {
+      "type": "object",
+      "properties": {
+        "apiVersion": {
+          "description": "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+          "type": "string"
+        },
+        "metadata": {
+          "default": {},
+          "$ref": "#/definitions/v1.ObjectMeta"
+        },
+        "spec": {
+          "default": {},
+          "$ref": "#/definitions/v2beta1.MPIJobSpec"
+        },
+        "status": {
+          "default": {},
+          "$ref": "#/definitions/v2beta1.JobStatus"
+        }
+      }
+    },
+    "v2beta1.MPIJobList": {
+      "type": "object",
+      "required": [
+        "metadata",
+        "items"
+      ],
+      "properties": {
+        "apiVersion": {
+          "description": "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v2beta1.MPIJob"
+          }
+        },
+        "kind": {
+          "description": "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+          "type": "string"
+        },
+        "metadata": {
+          "default": {},
+          "$ref": "#/definitions/v1.ListMeta"
+        }
+      }
+    },
+    "v2beta1.MPIJobSpec": {
+      "type": "object",
+      "required": [
+        "mpiReplicaSpecs"
+      ],
+      "properties": {
+        "launcherCreationPolicy": {
+          "description": "launcherCreationPolicy if WaitForWorkersReady, the launcher is created only after all workers are in Ready state. Defaults to AtStartup.",
+          "type": "string"
+        },
+        "mpiImplementation": {
+          "description": "MPIImplementation is the MPI implementation. Options are \"OpenMPI\" (default), \"Intel\" and \"MPICH\".",
+          "type": "string"
+        },
+        "mpiReplicaSpecs": {
+          "description": "MPIReplicaSpecs contains maps from `MPIReplicaType` to `ReplicaSpec` that specify the MPI replicas to run.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/v2beta1.ReplicaSpec"
+          }
+        },
+        "runLauncherAsWorker": {
+          "description": "RunLauncherAsWorker indicates whether to run worker process in launcher Defaults to false.",
+          "type": "boolean"
+        },
+        "runPolicy": {
+          "description": "RunPolicy encapsulates various runtime policies of the job.",
+          "default": {},
+          "$ref": "#/definitions/v2beta1.RunPolicy"
+        },
+        "slotsPerWorker": {
+          "description": "Specifies the number of slots per worker used in hostfile. Defaults to 1.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "sshAuthMountPath": {
+          "description": "SSHAuthMountPath is the directory where SSH keys are mounted. Defaults to \"/root/.ssh\".",
+          "type": "string"
+        }
+      }
+    },
+    "v2beta1.ReplicaSpec": {
+      "description": "ReplicaSpec is a description of the replica",
+      "type": "object",
+      "properties": {
+        "replicas": {
+          "description": "Replicas is the desired number of replicas of the given template. If unspecified, defaults to 1.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "restartPolicy": {
+          "description": "Restart policy for all replicas within the job. One of Always, OnFailure, Never and ExitCode. Default to Never.",
+          "type": "string"
+        },
+        "template": {
+          "description": "Template is the object that describes the pod that will be created for this replica. RestartPolicy in PodTemplateSpec will be overide by RestartPolicy in ReplicaSpec",
+          "default": {},
+          "$ref": "#/definitions/v1.PodTemplateSpec"
+        }
+      }
+    },
+    "v2beta1.ReplicaStatus": {
+      "description": "ReplicaStatus represents the current observed state of the replica.",
+      "type": "object",
+      "properties": {
+        "active": {
+          "description": "The number of actively running pods.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "failed": {
+          "description": "The number of pods which reached phase failed.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "labelSelector": {
+          "description": "Deprecated: Use selector instead",
+          "$ref": "#/definitions/v1.LabelSelector"
+        },
+        "selector": {
+          "description": "A selector is a label query over a set of resources. The result of matchLabels and matchExpressions are ANDed. An empty selector matches all objects. A null selector matches no objects.",
+          "type": "string"
+        },
+        "succeeded": {
+          "description": "The number of pods which reached phase succeeded.",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v2beta1.RunPolicy": {
+      "description": "RunPolicy encapsulates various runtime policies of the distributed training job, for example how to clean up resources and how long the job can stay active.",
+      "type": "object",
+      "properties": {
+        "activeDeadlineSeconds": {
+          "description": "Specifies the duration in seconds relative to the startTime that the job may be active before the system tries to terminate it; value must be positive integer.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "backoffLimit": {
+          "description": "Optional number of retries before marking this job failed.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "cleanPodPolicy": {
+          "description": "CleanPodPolicy defines the policy to kill pods after the job completes. Default to Running.",
+          "type": "string"
+        },
+        "schedulingPolicy": {
+          "description": "SchedulingPolicy defines the policy related to scheduling, e.g. gang-scheduling",
+          "$ref": "#/definitions/v2beta1.SchedulingPolicy"
+        },
+        "suspend": {
+          "description": "suspend specifies whether the MPIJob controller should create Pods or not. If a MPIJob is created with suspend set to true, no Pods are created by the MPIJob controller. If a MPIJob is suspended after creation (i.e. the flag goes from false to true), the MPIJob controller will delete all active Pods and PodGroups associated with this MPIJob. Also, it will suspend the Launcher Job. Users must design their workload to gracefully handle this. Suspending a Job will reset the StartTime field of the MPIJob.\n\nDefaults to false.",
+          "type": "boolean"
+        },
+        "ttlSecondsAfterFinished": {
+          "description": "TTLSecondsAfterFinished is the TTL to clean up jobs. It may take extra ReconcilePeriod seconds for the cleanup, since reconcile gets called periodically. Default to infinite.",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v2beta1.SchedulingPolicy": {
+      "description": "SchedulingPolicy encapsulates various scheduling policies of the distributed training job, for example `minAvailable` for gang-scheduling. Now, it supports only for volcano and scheduler-plugins.",
+      "type": "object",
+      "properties": {
+        "minAvailable": {
+          "description": "MinAvailable defines the minimal number of member to run the PodGroup. If the gang-scheduling isn't empty, input is passed to `.spec.minMember` in PodGroup. Note that, when using this field, you need to make sure the application supports resizing (e.g., Elastic Horovod).\n\nIf not set, it defaults to the number of workers.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "minResources": {
+          "description": "MinResources defines the minimal resources of members to run the PodGroup. If the gang-scheduling isn't empty, input is passed to `.spec.minResources` in PodGroup for scheduler-plugins.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/resource.Quantity"
+          }
+        },
+        "priorityClass": {
+          "description": "PriorityClass defines the PodGroup's PriorityClass. If the gang-scheduling is set to the volcano, input is passed to `.spec.priorityClassName` in PodGroup for volcano, and if it is set to the scheduler-plugins, input isn't passed to PodGroup for scheduler-plugins.",
+          "type": "string"
+        },
+        "queue": {
+          "description": "Queue defines the queue name to allocate resource for PodGroup. If the gang-scheduling is set to the volcano, input is passed to `.spec.queue` in PodGroup for the volcano, and if it is set to the scheduler-plugins, input isn't passed to PodGroup.",
+          "type": "string"
+        },
+        "scheduleTimeoutSeconds": {
+          "description": "SchedulerTimeoutSeconds defines the maximal time of members to wait before run the PodGroup. If the gang-scheduling is set to the scheduler-plugins, input is passed to `.spec.scheduleTimeoutSeconds` in PodGroup for the scheduler-plugins, and if it is set to the volcano, input isn't passed to PodGroup.",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    }
+  }
+}

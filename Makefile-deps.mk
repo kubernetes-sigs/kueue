@@ -96,31 +96,31 @@ hugo: ## Download hugo locally if necessary.
 
 ##@ External CRDs
 
-MPI_ROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
+MPI_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
 mpi-operator-crd: ## Copy the CRDs from the mpi-operator to the dep-crds directory.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/mpi-operator/
 	cp -f $(MPI_ROOT)/manifests/base/* $(EXTERNAL_CRDS_DIR)/mpi-operator/
 
-KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/training-operator)
+KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/training-operator)
 .PHONY: kf-training-operator-crd
 kf-training-operator-crd: ## Copy the CRDs from the training-operator to the dep-crds directory.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator/
 	cp -f $(KF_TRAINING_ROOT)/manifests/base/crds/* $(EXTERNAL_CRDS_DIR)/training-operator/
 
-RAY_ROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
+RAY_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 .PHONY: ray-operator-crd
 ray-operator-crd: ## Copy the CRDs from the ray-operator to the dep-crds directory.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/ray-operator/
 	cp -f $(RAY_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/ray-operator/
 
-JOBSET_ROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" sigs.k8s.io/jobset)
+JOBSET_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" sigs.k8s.io/jobset)
 .PHONY: jobset-operator-crd
 jobset-operator-crd: ## Copy the CRDs from the jobset-operator to the dep-crds directory.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/jobset-operator/
 	cp -f $(JOBSET_ROOT)/config/components/crd/bases/* $(EXTERNAL_CRDS_DIR)/jobset-operator/
 
-CLUSTER_AUTOSCALER_ROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler/apis)
+CLUSTER_AUTOSCALER_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler/apis)
 .PHONY: cluster-autoscaler-crd
 cluster-autoscaler-crd: ## Copy the CRDs from the cluster-autoscaler to the dep-crds directory.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
