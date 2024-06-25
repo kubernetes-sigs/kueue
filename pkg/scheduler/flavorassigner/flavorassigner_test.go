@@ -2359,7 +2359,6 @@ func TestAssignFlavors(t *testing.T) {
 				tc.clusterQueue.FlavorFungibility.WhenCanPreempt = kueue.TryNextFlavor
 			}
 			tc.clusterQueue.UpdateWithFlavors(resourceFlavors)
-			tc.clusterQueue.UpdateRGByResource()
 			flvAssigner := New(wlInfo, &tc.clusterQueue, resourceFlavors, tc.enableFairSharing)
 			assignment := flvAssigner.Assign(log, nil)
 			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {

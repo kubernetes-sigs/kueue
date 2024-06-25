@@ -133,7 +133,6 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 	cc := &ClusterQueue{
 		Name:                          c.Name,
 		ResourceGroups:                c.ResourceGroups, // Shallow copy is enough.
-		RGByResource:                  c.RGByResource,   // Shallow copy is enough.
 		FlavorFungibility:             c.FlavorFungibility,
 		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,

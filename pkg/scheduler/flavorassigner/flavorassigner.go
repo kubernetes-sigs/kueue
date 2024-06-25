@@ -313,7 +313,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodS
 	}
 
 	for i, podSet := range requests {
-		if _, found := a.cq.RGByResource[corev1.ResourcePods]; found {
+		if a.cq.RGByResource(corev1.ResourcePods) != nil {
 			podSet.Requests[corev1.ResourcePods] = int64(podSet.Count)
 		}
 
@@ -386,8 +386,8 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
 ) (ResourceAssignment, *Status) {
-	resourceGroup, found := a.cq.RGByResource[resName]
-	if !found {
+	resourceGroup := a.cq.RGByResource(resName)
+	if resourceGroup == nil {
 		return nil, &Status{
 			reasons: []string{fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)},
 		}

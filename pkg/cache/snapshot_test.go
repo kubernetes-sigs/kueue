@@ -39,7 +39,7 @@ import (
 var snapCmpOpts = []cmp.Option{
 	cmpopts.EquateEmpty(),
 	cmpopts.IgnoreUnexported(ClusterQueue{}),
-	cmpopts.IgnoreFields(ClusterQueue{}, "RGByResource"),
+	cmpopts.IgnoreFields(ClusterQueue{}),
 	cmpopts.IgnoreFields(Cohort{}, "Members"), // avoid recursion.
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }
@@ -633,7 +633,7 @@ func TestSnapshot(t *testing.T) {
 				for i := range cq.ResourceGroups {
 					rg := &cq.ResourceGroups[i]
 					for rName := range rg.CoveredResources {
-						if cq.RGByResource[rName] != rg {
+						if cq.RGByResource(rName) != rg {
 							t.Errorf("RGByResource[%s] does not point to its resource group", rName)
 						}
 					}

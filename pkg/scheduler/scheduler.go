@@ -380,7 +380,7 @@ func resourcesToReserve(e *entry, cq *cache.ClusterQueue) resources.FlavorResour
 	for flavor, resourceUsage := range e.assignment.Usage {
 		reservedUsage[flavor] = make(map[corev1.ResourceName]int64)
 		for resource, usage := range resourceUsage {
-			rg := cq.RGByResource[resource]
+			rg := cq.RGByResource(resource)
 			cqQuota := cache.ResourceQuota{}
 			for _, cqFlavor := range rg.Flavors {
 				if cqFlavor.Name == flavor {

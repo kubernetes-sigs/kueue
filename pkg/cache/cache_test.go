@@ -1251,7 +1251,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.clusterQueues,
-				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "RGByResource", "ResourceGroups"),
+				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "ResourceGroups"),
 				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment"),
 				cmpopts.IgnoreUnexported(ClusterQueue{}),
 				cmpopts.EquateEmpty()); diff != "" {
@@ -1261,7 +1261,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				for i := range cq.ResourceGroups {
 					rg := &cq.ResourceGroups[i]
 					for rName := range rg.CoveredResources {
-						if cq.RGByResource[rName] != rg {
+						if cq.RGByResource(rName) != rg {
 							t.Errorf("RGByResource[%s] does not point to its resource group", rName)
 						}
 					}

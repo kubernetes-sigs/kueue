@@ -49,7 +49,6 @@ type ClusterQueue struct {
 	Name              string
 	Cohort            *Cohort
 	ResourceGroups    []ResourceGroup
-	RGByResource      map[corev1.ResourceName]*ResourceGroup
 	Usage             resources.FlavorResourceQuantities
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
@@ -313,17 +312,15 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 	if c.AllocatableResourceGeneration == 0 || !equality.Semantic.DeepEqual(oldRG, c.ResourceGroups) {
 		c.AllocatableResourceGeneration++
 	}
-	c.UpdateRGByResource()
 }
 
-func (c *ClusterQueue) UpdateRGByResource() {
-	c.RGByResource = make(map[corev1.ResourceName]*ResourceGroup)
+func (c *ClusterQueue) RGByResource(r corev1.ResourceName) *ResourceGroup {
 	for i := range c.ResourceGroups {
-		rg := &c.ResourceGroups[i]
-		for rName := range rg.CoveredResources {
-			c.RGByResource[rName] = rg
+		if c.ResourceGroups[i].CoveredResources.Has(r) {
+			return &c.ResourceGroups[i]
 		}
 	}
+	return nil
 }
 
 func (c *ClusterQueue) updateQueueStatus() {
