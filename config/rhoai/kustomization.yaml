@@ -49,6 +49,10 @@ patches:
 # through a ComponentConfig type
 - path: manager_config_patch.yaml
 - path: manager_webhook_patch.yaml
+- path: manager_role_patch.yaml
+  target:
+    kind: ClusterRole
+    name: manager-role
 - path: manager_metrics_patch.yaml
 - path: auth_proxy_service_patch.yaml
 - path: mutating_webhook_patch.yaml

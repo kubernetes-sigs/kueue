@@ -1,0 +1,11 @@
+- op: add
+  path: /rules/-
+  value:
+    apiGroups:
+    - workload.codeflare.dev
+    resources:
+    - appwrappers
+    verbs:
+    - get
+    - list
+    - watch
