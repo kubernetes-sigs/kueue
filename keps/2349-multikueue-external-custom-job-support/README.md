@@ -22,9 +22,9 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
+  - [User Stories](#user-stories)
     - [Story 1](#story-1)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+  - [Constraints](#constraints)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Test Plan](#test-plan)
@@ -76,7 +76,7 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 
 ### Goals
 
-Allow specifying a controller and adapter for an external custom Job processed by Kueue.
+Give a possibility for external controllers to manage private CustomResources in a MultiKueue environment.
 
 <!--
 List the specific goals of the KEP. What is it trying to achieve? How will we
@@ -101,11 +101,11 @@ The "Design Details" section below is for the real
 nitty-gritty.
 -->
 
-Make Multikueue admission check controller to run simultaneously with another set of Multkiueue adapters in one cluster.
+Make multiple instances of Multikueue admission check controller able to run simultaneously with different set of Multkiueue adapters in one cluster at the same time.
 Provide a custom admission check controller name and adapters for Multikueue.
-Specified controller is used by workload, cluster and admission check reconcilers.
+Specified controller is used by workload, cluster and admission check MultiKueue reconcilers.
 
-### User Stories (Optional)
+### User Stories
 
 <!--
 Detail the things that people will be able to do if this KEP is implemented.
@@ -118,7 +118,7 @@ bogged down.
 
 I would like to support the extension mechanism so that we can implement the MultiKueue controller for the custom / in-house Jobs.
 
-### Notes/Constraints/Caveats (Optional)
+### Constraints
 
 <!--
 What are the caveats to the proposal?
@@ -126,6 +126,11 @@ What are some important details that didn't come across above?
 Go in to as much detail as necessary here.
 This might be a good place to talk about core concepts and how they relate.
 -->
+Internally the MultiKueue uses a set of controller-runtime client, one for each MultiKueueCluster, the clients are used both by the MultiKueue internals and passed to the job adapters for the custom jobs synchronization.
+
+The clients cannot be share with an external controller and assuming the external controller can get the same connectivity to the worker clusters might be wrong, especially when we are taking about FS mounted kubeconfigs.
+
+Designing additional APIs to communicate between the internal and external controller will bring extra complexity and latency at runtime. 
 
 ### Risks and Mitigations
 
