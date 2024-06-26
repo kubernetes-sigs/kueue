@@ -610,7 +610,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"deactivate workload when reaching backoffLimitCount": {
+		"trigger deactivation of workload when reaching backoffLimitCount": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                    3 * time.Second,
@@ -635,12 +635,17 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				Active(false).
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
@@ -915,8 +920,8 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"[backoffLimitCount: 0] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
-			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition": {
+		"should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
@@ -935,6 +940,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  "PodsReady",
 					Message: "Not all pods are ready or succeeded",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(false).
@@ -949,21 +960,28 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToInactiveWorkload",
+					Reason:    "EvictedDueToInactiveWorkloadRequeuingLimitExceeded",
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
 		},
 		"[backoffLimitCount: 100] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
-			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition, and the requeueState.count equals to backoffLimitCount": {
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
@@ -982,6 +1000,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  "PodsReady",
 					Message: "Not all pods are ready or succeeded",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
 				RequeueState(ptr.To[int32](100), nil).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
@@ -997,8 +1021,15 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  "RequeuingLimitExceeded",
+					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
 				RequeueState(ptr.To[int32](100), nil).
@@ -1007,7 +1038,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToInactiveWorkload",
+					Reason:    "EvictedDueToInactiveWorkloadRequeuingLimitExceeded",
 					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				},
 			},
