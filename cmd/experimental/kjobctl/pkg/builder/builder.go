@@ -197,8 +197,11 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 
 	var bImpl builder
 
-	if b.modeName == v1alpha1.JobMode {
+	switch b.modeName {
+	case v1alpha1.JobMode:
 		bImpl = newJobBuilder(b)
+	case v1alpha1.InteractiveMode:
+		bImpl = newInteractiveBuilder(b)
 	}
 
 	if bImpl == nil {
