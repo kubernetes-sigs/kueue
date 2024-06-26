@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1_test
+package v1alpha1
 
 import (
 	"net/url"
@@ -23,15 +23,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/diff"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-
-	. "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 )
 
 func TestPendingWorkloadsOptions(t *testing.T) {
 	scheme := runtime.NewScheme()
-	utilruntime.Must(AddToScheme(Scheme))
-	codec := runtime.NewParameterCodec(Scheme)
+	err := AddToScheme(scheme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec := runtime.NewParameterCodec(scheme)
 
 	cases := map[string]struct {
 		inputQueryParams           url.Values
