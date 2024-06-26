@@ -95,3 +95,55 @@ func UsersFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, st
 		return validArgs, cobra.ShellCompDirectiveNoFileComp
 	}
 }
+
+func ApplicationProfileNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clientSet, err := clientGetter.KjobctlClientset()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		list, err := clientSet.KjobctlV1alpha1().ApplicationProfiles(namespace).List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		validArgs := make([]string, len(list.Items))
+		for i, wl := range list.Items {
+			validArgs[i] = wl.Name
+		}
+
+		return validArgs, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func LocalQueueNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clientSet, err := clientGetter.KueueClientset()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		list, err := clientSet.KueueV1beta1().LocalQueues(namespace).List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		validArgs := make([]string, len(list.Items))
+		for i, wl := range list.Items {
+			validArgs[i] = wl.Name
+		}
+
+		return validArgs, cobra.ShellCompDirectiveNoFileComp
+	}
+}

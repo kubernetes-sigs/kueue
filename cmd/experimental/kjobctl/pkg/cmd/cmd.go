@@ -24,6 +24,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/create"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 )
 
@@ -65,6 +66,8 @@ func NewKjobctlCmd(o KjobctlOptions) *cobra.Command {
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("context", completion.ContextsFunc(clientGetter)))
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("cluster", completion.ClustersFunc(clientGetter)))
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("user", completion.UsersFunc(clientGetter)))
+
+	cmd.AddCommand(create.NewCreateCmd(clientGetter, o.IOStreams))
 
 	return cmd
 }

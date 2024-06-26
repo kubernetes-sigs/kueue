@@ -236,9 +236,9 @@ spec:
                   - name
                   type: object
                 type: array
-                x-kubernetes-validations:
-                - message: invalid environment variable name
-                  rule: self.all(x, x.name.matches('^[A-Za-z_][A-Za-z0-9_]*$') )
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               volumes:
                 description: volumes is a set of volumes that will be added to all
                   pods of the job.
@@ -2004,9 +2004,6 @@ spec:
             - containerVolumeMounts
             - volumes
             type: object
-            x-kubernetes-validations:
-            - message: mountPoint name must match a volume name
-              rule: self.mountPoints.map(x, x.name in self.volumes.map(y, y.name))
         type: object
     served: true
     storage: true

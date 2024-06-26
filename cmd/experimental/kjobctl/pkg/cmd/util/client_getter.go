@@ -18,16 +18,20 @@ package util
 
 import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
 
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
+	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
+	kjobctlversioned "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
 )
 
 type ClientGetter interface {
 	genericclioptions.RESTClientGetter
 
 	K8sClientset() (k8s.Interface, error)
-	KjobctlClientset() (versioned.Interface, error)
+	KueueClientset() (kueueversioned.Interface, error)
+	KjobctlClientset() (kjobctlversioned.Interface, error)
+	DynamicClient() (dynamic.Interface, error)
 }
 
 type clientGetterImpl struct {
@@ -56,16 +60,44 @@ func (cg *clientGetterImpl) K8sClientset() (k8s.Interface, error) {
 	return clientset, nil
 }
 
-func (cg *clientGetterImpl) KjobctlClientset() (versioned.Interface, error) {
+func (cg *clientGetterImpl) KueueClientset() (kueueversioned.Interface, error) {
 	config, err := cg.ToRESTConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	clientset, err := versioned.NewForConfig(config)
+	clientset, err := kueueversioned.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
 
 	return clientset, nil
+}
+
+func (cg *clientGetterImpl) KjobctlClientset() (kjobctlversioned.Interface, error) {
+	config, err := cg.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := kjobctlversioned.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset, nil
+}
+
+func (cg *clientGetterImpl) DynamicClient() (dynamic.Interface, error) {
+	config, err := cg.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return dynamicClient, nil
 }
