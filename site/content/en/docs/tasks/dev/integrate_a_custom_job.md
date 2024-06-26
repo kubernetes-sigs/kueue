@@ -97,11 +97,13 @@ https://kueue.sigs.k8s.io/docs/installation/#install-a-custom-configured-release
 
 Kueue will need permission to get, list, and watch instances of your CRD.
 
-If you are building a custom Kueue deployment, simply add a `kubebuilder:rbac` annotation to the source code
-(for example in integrationmanager.go) and regenerate the manifests.
+If you are building a custom Kueue deployment, simply add a `kubebuilder:rbac` annotation to a source code file
+(for example in [integrationmanager.go](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/integrationmanager.go)) and regenerate the manifests.
 
-If you are deploying a Kueue release, modify either charts/kueue/templates/rbac/role.yaml or
-config/components/rbac/role.yaml to add the needed permissions.
+If you are deploying a Kueue release, modify either
+[charts/kueue/templates/rbac/role.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/templates/rbac/role.yaml)
+or [config/components/rbac/role.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/components/rbac/role.yaml)
+to add the needed permissions.
 
 ### Job Framework
 
