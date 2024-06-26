@@ -29,7 +29,7 @@ import (
 )
 
 func TestPendingWorkloadsOptions(t *testing.T) {
-	Scheme := runtime.NewScheme()
+	scheme := runtime.NewScheme()
 	utilruntime.Must(AddToScheme(Scheme))
 	codec := runtime.NewParameterCodec(Scheme)
 
