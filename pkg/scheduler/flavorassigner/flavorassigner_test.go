@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -26,8 +27,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -37,11 +36,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+type cohortResources struct {
+	requestableResources resources.FlavorResourceQuantitiesFlat
+	usage                resources.FlavorResourceQuantitiesFlat
+}
+
 func TestAssignFlavors(t *testing.T) {
-	defaultFlavorFungibility := kueue.FlavorFungibility{
-		WhenCanBorrow:  kueue.Borrow,
-		WhenCanPreempt: kueue.TryNextFlavor,
-	}
 	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 		"default": {
 			ObjectMeta: metav1.ObjectMeta{Name: "default"},
@@ -61,7 +61,9 @@ func TestAssignFlavors(t *testing.T) {
 	cases := map[string]struct {
 		wlPods             []kueue.PodSet
 		wlReclaimablePods  []kueue.ReclaimablePod
-		clusterQueue       cache.ClusterQueue
+		clusterQueue       kueue.ClusterQueue
+		clusterQueueUsage  resources.FlavorResourceQuantitiesFlat
+		cohortResources    *cohortResources
 		wantRepMode        FlavorAssignmentMode
 		wantAssignment     Assignment
 		enableLendingLimit bool
@@ -74,18 +76,13 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceMemory, "1Mi").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourceMemory),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "default",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU:    {Nominal: 1000},
-							corev1.ResourceMemory: {Nominal: 2 * utiltesting.Mi},
-						},
-					}},
-				}},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1000m").
+						Resource(corev1.ResourceMemory, "2Mi").
+						FlavorQuotas,
+				).ClusterQueue,
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{
@@ -120,17 +117,13 @@ func TestAssignFlavors(t *testing.T) {
 					}).
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "tainted",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 4000},
-						},
-					}},
-				}},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tainted").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+				).ClusterQueue,
+
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -154,19 +147,14 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "default",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 4000},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
-				}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+				).ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -195,44 +183,24 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceMemory, "10Mi").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 2000},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-						},
-					},
-					{
-						CoveredResources: sets.New(corev1.ResourceMemory),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "b_one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceMemory: {Nominal: utiltesting.Gi},
-								},
-							},
-							{
-								Name: "b_two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceMemory: {Nominal: 5 * utiltesting.Gi},
-								},
-							},
-						},
-					},
-				},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "2000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+				).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("b_one").
+						Resource(corev1.ResourceMemory, "1Gi").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("b_two").
+						Resource(corev1.ResourceMemory, "5Gi").
+						FlavorQuotas,
+				).
+				ClusterQueue,
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -260,31 +228,21 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceMemory, "10Mi").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []cache.FlavorQuotas{{
-							Name: "one",
-							Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-								corev1.ResourceCPU: {Nominal: 3000},
-							},
-						}},
-					},
-					{
-						CoveredResources: sets.New(corev1.ResourceMemory),
-						Flavors: []cache.FlavorQuotas{{
-							Name: "b_one",
-							Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-								corev1.ResourceMemory: {Nominal: utiltesting.Mi},
-							},
-						}},
-					},
-				},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 1000,
-				}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "3000m").
+						FlavorQuotas,
+				).ResourceGroup(
+				utiltesting.MakeFlavorQuotas("b_one").
+					Resource(corev1.ResourceMemory, "1Mi").
+					FlavorQuotas,
+			).ClusterQueue,
+
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 1000,
 			},
+
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
@@ -310,46 +268,25 @@ func TestAssignFlavors(t *testing.T) {
 					Request("example.com/gpu", "3").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourceMemory),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU:    {Nominal: 2000},
-									corev1.ResourceMemory: {Nominal: utiltesting.Gi},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU:    {Nominal: 4000},
-									corev1.ResourceMemory: {Nominal: 15 * utiltesting.Mi},
-								},
-							},
-						},
-					},
-					{
-						CoveredResources: sets.New[corev1.ResourceName]("example.com/gpu"),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "b_one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									"example.com/gpu": {Nominal: 4},
-								},
-							},
-							{
-								Name: "b_two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									"example.com/gpu": {Nominal: 2},
-								},
-							},
-						},
-					},
-				},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "2000m").
+						Resource(corev1.ResourceMemory, "1Gi").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						Resource(corev1.ResourceMemory, "15Mi").
+						FlavorQuotas,
+				).ResourceGroup(
+				utiltesting.MakeFlavorQuotas("b_one").
+					Resource("example.com/gpu", "4").
+					FlavorQuotas,
+				utiltesting.MakeFlavorQuotas("b_two").
+					Resource("example.com/gpu", "2").
+					FlavorQuotas,
+			).ClusterQueue,
+
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -381,52 +318,36 @@ func TestAssignFlavors(t *testing.T) {
 					Request("example.com/gpu", "3").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourceMemory),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU:    {Nominal: 2000},
-									corev1.ResourceMemory: {Nominal: utiltesting.Gi},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU:    {Nominal: 4000},
-									corev1.ResourceMemory: {Nominal: 15 * utiltesting.Mi},
-								},
-							},
-						},
-					},
-					{
-						CoveredResources: sets.New[corev1.ResourceName]("example.com/gpu"),
-						Flavors: []cache.FlavorQuotas{{
-							Name: "b_one",
-							Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-								"example.com/gpu": {Nominal: 4},
-							},
-						}},
-					},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "2000m").
+						Resource(corev1.ResourceMemory, "1Gi").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						Resource(corev1.ResourceMemory, "15Mi").
+						FlavorQuotas,
+				).ResourceGroup(
+				utiltesting.MakeFlavorQuotas("b_one").
+					Resource("example.com/gpu", "4").
+					FlavorQuotas,
+			).Cohort("test-cohort").
+				ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
+			},
+			cohortResources: &cohortResources{
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}:    2000,
+					{Flavor: "one", Resource: corev1.ResourceMemory}: utiltesting.Gi,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:    4000,
+					{Flavor: "two", Resource: corev1.ResourceMemory}: 15 * utiltesting.Mi,
+					{Flavor: "b_one", Resource: "example.com/gpu"}:   4,
 				},
-				Usage: resources.FlavorResourceQuantitiesFlat{
+				usage: resources.FlavorResourceQuantitiesFlat{
 					{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
-				}.Unflatten(),
-				Cohort: &cache.Cohort{
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}:    2000,
-						{Flavor: "one", Resource: corev1.ResourceMemory}: utiltesting.Gi,
-						{Flavor: "two", Resource: corev1.ResourceCPU}:    4000,
-						{Flavor: "two", Resource: corev1.ResourceMemory}: 15 * utiltesting.Mi,
-						{Flavor: "b_one", Resource: "example.com/gpu"}:   4,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "two", Resource: corev1.ResourceMemory}: 10 * utiltesting.Mi,
-						{Flavor: "b_one", Resource: "example.com/gpu"}:   2,
-					}.Unflatten(),
+					{Flavor: "b_one", Resource: "example.com/gpu"}:   2,
 				},
 			},
 			wantRepMode: Preempt,
@@ -466,29 +387,17 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceMemory, "10Mi").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourceMemory),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU:    {Nominal: 2000},
-									corev1.ResourceMemory: {Nominal: utiltesting.Gi},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU:    {Nominal: 4000},
-									corev1.ResourceMemory: {Nominal: 5 * utiltesting.Mi},
-								},
-							},
-						},
-					},
-				},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "2000m").
+						Resource(corev1.ResourceMemory, "1Gi").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						Resource(corev1.ResourceMemory, "5Mi").
+						FlavorQuotas,
+				).ClusterQueue,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
@@ -513,71 +422,15 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "3").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "tainted",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantRepMode: Fit,
-			wantAssignment: Assignment{
-				PodSets: []PodSetAssignment{{
-					Name: "main",
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
-					},
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("3000m"),
-					},
-					Count: 1,
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 3000,
-				}.Unflatten(),
-			},
-		},
-		"multiple flavors, skip missing ResourceFlavor": {
-			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "3").
-					Obj(),
-			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "nonexistent-flavor",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-						},
-					},
-				},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("tainted").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+				).ClusterQueue,
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -627,33 +480,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "non-existent",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-							{
-								Name: "one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-						},
-					},
-				},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+				).ClusterQueue,
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -702,29 +537,18 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourceMemory),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU:    {Nominal: 4000},
-									corev1.ResourceMemory: {Nominal: utiltesting.Gi},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU:    {Nominal: 4000},
-									corev1.ResourceMemory: {Nominal: utiltesting.Gi},
-								},
-							},
-						},
-					},
-				},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4000m").
+						Resource(corev1.ResourceMemory, "1Gi").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						Resource(corev1.ResourceMemory, "1Gi").
+						FlavorQuotas,
+				).ClusterQueue,
+
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -787,27 +611,16 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-						},
-					},
-				},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+				).ClusterQueue,
+
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -854,27 +667,16 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-						},
-					},
-				},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+				).ClusterQueue,
+
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
@@ -901,27 +703,16 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "3").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []cache.FlavorQuotas{
-							{
-								Name: "one",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 4000},
-								},
-							},
-							{
-								Name: "two",
-								Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-									corev1.ResourceCPU: {Nominal: 10_000},
-								},
-							},
-						},
-					},
-				},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+				).ClusterQueue,
+
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{
@@ -963,22 +754,19 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceMemory, "4Gi").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourceMemory),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "default",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU:    {Nominal: 2000, BorrowingLimit: ptr.To[int64](98_000)},
-							corev1.ResourceMemory: {Nominal: 2 * utiltesting.Gi},
-						},
-					}},
-				}},
-				Cohort: &cache.Cohort{
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}:    200_000,
-						{Flavor: "default", Resource: corev1.ResourceMemory}: 200 * utiltesting.Gi,
-					}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("2000m").BorrowingLimit("98000m").Append().
+						Resource(corev1.ResourceMemory, "2Gi").
+						FlavorQuotas,
+				).Cohort("test-cohort").
+				ClusterQueue,
+
+			cohortResources: &cohortResources{
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "default", Resource: corev1.ResourceCPU}:    200_000,
+					{Flavor: "default", Resource: corev1.ResourceMemory}: 200 * utiltesting.Gi,
 				},
 			},
 			wantRepMode: Fit,
@@ -1022,23 +810,19 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 1000},
-						},
-					}},
-				}},
-				Cohort: &cache.Cohort{
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 9_000,
-					}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "1000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").ClusterQueue,
+
+			cohortResources: &cohortResources{
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				},
+				usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 9_000,
 				},
 			},
 			wantAssignment: Assignment{
@@ -1061,26 +845,22 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 2000, BorrowingLimit: ptr.To[int64](8_000)},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("2000m").BorrowingLimit("8000m").Append().
+						FlavorQuotas,
+				).Cohort("test-cohort").
+				ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 9_000,
+			},
+			cohortResources: &cohortResources{
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 100_000,
+				},
+				usage: resources.FlavorResourceQuantitiesFlat{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 9_000,
-				}.Unflatten(),
-				Cohort: &cache.Cohort{
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 100_000,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 9_000,
-					}.Unflatten(),
 				},
 			},
 			wantRepMode: Preempt,
@@ -1110,19 +890,14 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 2000},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 1_000,
-				}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "2000m").
+						FlavorQuotas,
+				).ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 1_000,
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1150,26 +925,21 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 3000},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
-				}.Unflatten(),
-				Cohort: &cache.Cohort{
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-					}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "3000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 2_000,
+			},
+			cohortResources: &cohortResources{
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
+				},
+				usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
 				},
 			},
 			wantRepMode: Preempt,
@@ -1207,28 +977,18 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{
-						{
-							Name: "one",
-							Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-								corev1.ResourceCPU: {Nominal: 4000},
-							},
-						},
-						{
-							Name: "two",
-							Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-								corev1.ResourceCPU: {Nominal: 4000},
-							},
-						},
-					},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 3000,
-					{Flavor: "two", Resource: corev1.ResourceCPU}: 3000,
-				}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+				).ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 3000,
+				{Flavor: "two", Resource: corev1.ResourceCPU}: 3000,
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1268,28 +1028,18 @@ func TestAssignFlavors(t *testing.T) {
 					}).
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{
-						{
-							Name: "one",
-							Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-								corev1.ResourceCPU: {Nominal: 4000},
-							},
-						},
-						{
-							Name: "tainted",
-							Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-								corev1.ResourceCPU: {Nominal: 10_000},
-							},
-						},
-					},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: corev1.ResourceCPU}:     3000,
-					{Flavor: "tainted", Resource: corev1.ResourceCPU}: 3000,
-				}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("tainted").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+				).ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}:     3000,
+				{Flavor: "tainted", Resource: corev1.ResourceCPU}: 3000,
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1339,17 +1089,12 @@ func TestAssignFlavors(t *testing.T) {
 					Request("example.com/gpu", "2").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 4000},
-						},
-					}},
-				}},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4000m").
+						FlavorQuotas,
+				).ClusterQueue,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
@@ -1364,55 +1109,20 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: resources.FlavorResourceQuantities{},
 			},
 		},
-		"flavor not found": {
-			wlPods: []kueue.PodSet{
-				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "1").
-					Obj(),
-			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "nonexistent-flavor",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 1000},
-						},
-					}},
-				}},
-			},
-			wantAssignment: Assignment{
-				PodSets: []PodSetAssignment{{
-					Name: "main",
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1000m"),
-					},
-					Status: &Status{
-						reasons: []string{"flavor nonexistent-flavor not found"},
-					},
-					Count: 1,
-				}},
-				Usage: resources.FlavorResourceQuantities{},
-			},
-		},
 		"num pods fit": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 3).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "default",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 3},
-							corev1.ResourceCPU:  {Nominal: 10000},
-						},
-					}},
-				}},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourcePods, "3").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+				).ClusterQueue,
+
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
@@ -1440,18 +1150,14 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "default",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 2},
-							corev1.ResourceCPU:  {Nominal: 10000},
-						},
-					}},
-				}},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourcePods, "2").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+				).ClusterQueue,
+
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
@@ -1479,18 +1185,13 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 2,
 				},
 			},
-			clusterQueue: cache.ClusterQueue{
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "default",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 3},
-							corev1.ResourceCPU:  {Nominal: 10000},
-						},
-					}},
-				}},
-			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourcePods, "3").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+				).ClusterQueue,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
@@ -1518,30 +1219,20 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
-					WhenCanPreempt: kueue.Preempt,
-				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-				}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.Preempt}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourcePods, "10").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourcePods, "10").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+				).ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1572,27 +1263,19 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				FlavorFungibility: defaultFlavorFungibility,
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-				}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourcePods, "10").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourcePods, "10").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+				).ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -1620,41 +1303,32 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
-						{Flavor: "one", Resource: corev1.ResourcePods}: 10,
-						{Flavor: "two", Resource: corev1.ResourceCPU}:  1000,
-						{Flavor: "two", Resource: corev1.ResourcePods}: 10,
-					}.Unflatten(),
-				},
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.TryNextFlavor,
-					WhenCanPreempt: kueue.TryNextFlavor,
-				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To[int64](1000)},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 1000},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourcePods, "10").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("10000m").BorrowingLimit("1000m").Append().
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourcePods, "10").
+						Resource(corev1.ResourceCPU, "1000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").
+				ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
+			},
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-				}.Unflatten(),
+				},
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
+					{Flavor: "one", Resource: corev1.ResourcePods}: 10,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:  1000,
+					{Flavor: "two", Resource: corev1.ResourcePods}: 10,
+				},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -1683,41 +1357,33 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
-						{Flavor: "one", Resource: corev1.ResourcePods}: 10,
-						{Flavor: "two", Resource: corev1.ResourceCPU}:  10000,
-						{Flavor: "two", Resource: corev1.ResourcePods}: 10,
-					}.Unflatten(),
-				},
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.TryNextFlavor,
-					WhenCanPreempt: kueue.TryNextFlavor,
-				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To[int64](1000)},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourcePods, "10").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("10000m").BorrowingLimit("1000m").Append().
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourcePods, "10").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").
+				ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
+			},
+
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-				}.Unflatten(),
+				},
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
+					{Flavor: "one", Resource: corev1.ResourcePods}: 10,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:  10000,
+					{Flavor: "two", Resource: corev1.ResourcePods}: 10,
+				},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -1745,38 +1411,32 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
-						{Flavor: "one", Resource: corev1.ResourcePods}: 10,
-						{Flavor: "two", Resource: corev1.ResourceCPU}:  10000,
-						{Flavor: "two", Resource: corev1.ResourcePods}: 10,
-					}.Unflatten(),
-				},
-				FlavorFungibility: defaultFlavorFungibility,
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To[int64](1000)},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourcePods, "10").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("10000m").BorrowingLimit("1000m").Append().
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourcePods, "10").
+						Resource(corev1.ResourceCPU, "10000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").
+				ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
+			},
+
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-				}.Unflatten(),
+				},
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
+					{Flavor: "one", Resource: corev1.ResourcePods}: 10,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:  10000,
+					{Flavor: "two", Resource: corev1.ResourcePods}: 10,
+				},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -1805,40 +1465,34 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Preemption: kueue.ClusterQueuePreemption{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &kueue.BorrowWithinCohort{
 						Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
 					},
-				},
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 10000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 12000,
-						{Flavor: "two", Resource: corev1.ResourceCPU}: 12000,
-					}.Unflatten(),
-				},
-				FlavorFungibility: kueue.FlavorFungibility{
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.Borrow,
 					WhenCanPreempt: kueue.Preempt,
+				}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("12000m").Append().
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "12000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").ClusterQueue,
+
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10000,
 				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 0, BorrowingLimit: ptr.To[int64](12000)},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 12000},
-						},
-					}},
-				}},
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 12000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: 12000,
+				},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1867,40 +1521,33 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Preemption: kueue.ClusterQueuePreemption{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &kueue.BorrowWithinCohort{
 						Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
 					},
-				},
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 10000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 12000,
-						{Flavor: "two", Resource: corev1.ResourceCPU}: 12000,
-					}.Unflatten(),
-				},
-				FlavorFungibility: kueue.FlavorFungibility{
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.Borrow,
 					WhenCanPreempt: kueue.Preempt,
+				}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "0").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "12000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").ClusterQueue,
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10000,
 				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 0},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 12000},
-						},
-					}},
-				}},
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 12000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: 12000,
+				},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1929,40 +1576,34 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Preemption: kueue.ClusterQueuePreemption{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &kueue.BorrowWithinCohort{
 						Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
 					},
-				},
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 10000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 12000,
-						{Flavor: "two", Resource: corev1.ResourceCPU}: 12000,
-					}.Unflatten(),
-				},
-				FlavorFungibility: kueue.FlavorFungibility{
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,
 					WhenCanPreempt: kueue.Preempt,
+				}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("12000m").Append().
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "12000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").
+				ClusterQueue,
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10000,
 				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 0, BorrowingLimit: ptr.To[int64](12000)},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 12000},
-						},
-					}},
-				}},
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 12000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: 12000,
+				},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -1987,32 +1628,27 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Preemption: kueue.ClusterQueuePreemption{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 					BorrowWithinCohort: &kueue.BorrowWithinCohort{
 						Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
 					},
+				}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("12000m").Append().
+						FlavorQuotas,
+				).Cohort("test-cohort").ClusterQueue,
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10000,
 				},
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 10000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{
-							// below the borrowingLimit required to admit
-							Flavor: "one", Resource: corev1.ResourceCPU}: 11000,
-					}.Unflatten(),
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{
+						// below the borrowingLimit required to admit
+						Flavor: "one", Resource: corev1.ResourceCPU}: 11000,
 				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 0, BorrowingLimit: ptr.To[int64](12000)},
-						},
-					}},
-				}},
 			},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
@@ -2037,45 +1673,32 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
-						{Flavor: "one", Resource: corev1.ResourcePods}: 10,
-						{Flavor: "two", Resource: corev1.ResourceCPU}:  10000,
-						{Flavor: "two", Resource: corev1.ResourcePods}: 10,
-					}.Unflatten(),
-				},
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.TryNextFlavor,
-					WhenCanPreempt: kueue.TryNextFlavor,
-				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10_000, LendingLimit: ptr.To[int64](1000)},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10_000, LendingLimit: ptr.To[int64](0)},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourcePods, "10").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("10000m").LendingLimit("1000m").Append().
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourcePods, "10").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("10000m").LendingLimit("0").Append().
+						FlavorQuotas,
+				).Cohort("test-cohort").
+				ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
+			},
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-				}.Unflatten(),
-				GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: "cpu"}: 9,
-					{Flavor: "two", Resource: "cpu"}: 10,
-				}.Unflatten(),
+				},
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
+					{Flavor: "one", Resource: corev1.ResourcePods}: 10,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:  10000,
+					{Flavor: "two", Resource: corev1.ResourcePods}: 10,
+				},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -2104,45 +1727,32 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
-						{Flavor: "one", Resource: corev1.ResourcePods}: 10,
-						{Flavor: "two", Resource: corev1.ResourceCPU}:  1000,
-						{Flavor: "two", Resource: corev1.ResourcePods}: 10,
-					}.Unflatten(),
-				},
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.TryNextFlavor,
-					WhenCanPreempt: kueue.TryNextFlavor,
-				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10_000, LendingLimit: ptr.To[int64](1000)},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 1_000, LendingLimit: ptr.To[int64](0)},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor, WhenCanPreempt: kueue.TryNextFlavor}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourcePods, "10").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("10000m").LendingLimit("1000m").Append().
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourcePods, "10").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("1000m").LendingLimit("0").Append().
+						FlavorQuotas,
+				).Cohort("test-cohort").
+				ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
+			},
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-				}.Unflatten(),
-				GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: "cpu"}: 9,
-					{Flavor: "two", Resource: "cpu"}: 1,
-				}.Unflatten(),
+				},
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}:  11000,
+					{Flavor: "one", Resource: corev1.ResourcePods}: 10,
+					{Flavor: "two", Resource: corev1.ResourceCPU}:  1000,
+					{Flavor: "two", Resource: corev1.ResourcePods}: 10,
+				},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -2166,36 +1776,30 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			enableLendingLimit: true,
 		},
-		"lendingLimit exceeded, but can preempt in cohort and ClusterQueue": {
+		"quota exhausted, but can preempt in cohort and ClusterQueue": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "9").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}:  10000,
-						{Flavor: "one", Resource: corev1.ResourcePods}: 10,
-					}.Unflatten(),
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourcePods, "10").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("10000m").LendingLimit("0").Append().
+						FlavorQuotas,
+				).Cohort("test-cohort").ClusterQueue,
+			clusterQueueUsage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
+			},
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10000,
 				},
-				FlavorFungibility: defaultFlavorFungibility,
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10_000, LendingLimit: ptr.To[int64](0)},
-						},
-					}},
-				}},
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "one", Resource: corev1.ResourceCPU}: 2000,
-				}.Unflatten(),
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}:  10000,
+					{Flavor: "one", Resource: corev1.ResourcePods}: 10,
+				},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -2228,37 +1832,25 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Preemption: kueue.ClusterQueuePreemption{
-					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				Preemption(kueue.ClusterQueuePreemption{ReclaimWithinCohort: kueue.PreemptionPolicyAny}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.Preempt}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "0").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "12000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").ClusterQueue,
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
 				},
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
-						{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
-					}.Unflatten(),
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
 				},
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
-					WhenCanPreempt: kueue.Preempt,
-				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 0},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 12000},
-						},
-					}},
-				}},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -2288,37 +1880,25 @@ func TestAssignFlavors(t *testing.T) {
 					Request(corev1.ResourceCPU, "12").
 					Obj(),
 			},
-			clusterQueue: cache.ClusterQueue{
-				Preemption: kueue.ClusterQueuePreemption{
-					ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				Preemption(kueue.ClusterQueuePreemption{ReclaimWithinCohort: kueue.PreemptionPolicyNever}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.Preempt}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "0").
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "12000m").
+						FlavorQuotas,
+				).Cohort("test-cohort").ClusterQueue,
+			cohortResources: &cohortResources{
+				usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
 				},
-				Cohort: &cache.Cohort{
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 10_000,
-					}.Unflatten(),
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
-						{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
-					}.Unflatten(),
+				requestableResources: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: 12_000,
+					{Flavor: "two", Resource: corev1.ResourceCPU}: 12_000,
 				},
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
-					WhenCanPreempt: kueue.Preempt,
-				},
-				ResourceGroups: []cache.ResourceGroup{{
-					CoveredResources: sets.New(corev1.ResourceCPU),
-					Flavors: []cache.FlavorQuotas{{
-						Name: "one",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 0},
-						},
-					}, {
-						Name: "two",
-						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 12_000},
-						},
-					}},
-				}},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -2352,15 +1932,31 @@ func TestAssignFlavors(t *testing.T) {
 					ReclaimablePods: tc.wlReclaimablePods,
 				},
 			})
-			if tc.clusterQueue.FlavorFungibility.WhenCanBorrow == "" {
-				tc.clusterQueue.FlavorFungibility.WhenCanBorrow = kueue.Borrow
+
+			cache := cache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(context.Background(), &tc.clusterQueue); err != nil {
+				t.Fatalf("Failed to add CQ to cache")
 			}
-			if tc.clusterQueue.FlavorFungibility.WhenCanPreempt == "" {
-				tc.clusterQueue.FlavorFungibility.WhenCanPreempt = kueue.TryNextFlavor
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(rf)
 			}
-			tc.clusterQueue.UpdateWithFlavors(resourceFlavors)
-			tc.clusterQueue.UpdateRGByResource()
-			flvAssigner := New(wlInfo, &tc.clusterQueue, resourceFlavors, tc.enableFairSharing)
+
+			clusterQueue := cache.Snapshot().ClusterQueues[tc.clusterQueue.Name]
+
+			if clusterQueue == nil {
+				t.Fatalf("Failed to create CQ snapshot")
+			}
+
+			if tc.cohortResources != nil {
+				if clusterQueue.Cohort == nil {
+					t.Fatalf("Test case has cohort resources, but cluster queue doesn't have cohort")
+				}
+				clusterQueue.Cohort.Usage = tc.cohortResources.usage.Unflatten()
+				clusterQueue.Cohort.RequestableResources = tc.cohortResources.requestableResources.Unflatten()
+			}
+			clusterQueue.Usage = tc.clusterQueueUsage.Unflatten()
+
+			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing)
 			assignment := flvAssigner.Assign(log, nil)
 			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
