@@ -26,7 +26,7 @@ import (
 type ClientGetter interface {
 	genericclioptions.RESTClientGetter
 
-	K8sClientSet() (k8s.Interface, error)
+	K8sClientset() (k8s.Interface, error)
 	KjobctlClientset() (versioned.Interface, error)
 }
 
@@ -42,7 +42,7 @@ func NewClientGetter(clientGetter genericclioptions.RESTClientGetter) ClientGett
 	}
 }
 
-func (cg *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
+func (cg *clientGetterImpl) K8sClientset() (k8s.Interface, error) {
 	config, err := cg.ToRESTConfig()
 	if err != nil {
 		return nil, err

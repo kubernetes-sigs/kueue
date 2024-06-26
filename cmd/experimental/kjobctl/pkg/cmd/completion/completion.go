@@ -29,7 +29,7 @@ const completionLimit = 100
 
 func NamespaceNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		clientSet, err := clientGetter.K8sClientSet()
+		clientSet, err := clientGetter.K8sClientset()
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveError
 		}
