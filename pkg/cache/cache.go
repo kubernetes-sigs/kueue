@@ -608,7 +608,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	if c.fairSharingEnabled {
-		weightedShare, _ := cq.DominantResourceShare()
+		weightedShare, _ := dominantResourceShare(cq, nil, 0)
 		stats.WeightedShare = int64(weightedShare)
 	}
 
