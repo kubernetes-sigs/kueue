@@ -318,20 +318,6 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 	return requeAfter, nil
 }
 
-func (c *Controller) remainingTime(failuresCount int32, lastFailureTime time.Time) time.Duration {
-	backoffDuration := time.Duration(c.minBackoffSeconds) * time.Second
-	maxBackoffDuration := time.Duration(c.maxBackoffSeconds) * time.Second
-	for i := 1; i < int(failuresCount); i++ {
-		backoffDuration *= 2
-		if backoffDuration >= maxBackoffDuration {
-			backoffDuration = maxBackoffDuration
-			break
-		}
-	}
-	timeElapsedSinceLastFailure := time.Since(lastFailureTime)
-	return backoffDuration - timeElapsedSinceLastFailure
-}
-
 func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, prName string, prc *kueue.ProvisioningRequestConfig) error {
 	request := &autoscaling.ProvisioningRequest{}
 	requestKey := types.NamespacedName{
