@@ -57,23 +57,7 @@ func (b *jobBuilder) build(ctx context.Context) (runtime.Object, error) {
 		job.Labels[constants.ProfileLabel] = b.profile.Name
 	}
 
-	mergedBundle := mergeBundles(b.volumeBundles)
-	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, mergedBundle.Spec.Volumes...)
-
-	for i := range job.Spec.Template.Spec.Containers {
-		container := &job.Spec.Template.Spec.Containers[i]
-
-		if len(b.command) > 0 {
-			container.Command = b.command
-		}
-
-		if len(b.requests) > 0 {
-			container.Resources.Requests = b.requests
-		}
-
-		container.VolumeMounts = append(container.VolumeMounts, mergedBundle.Spec.ContainerVolumeMounts...)
-		container.Env = append(container.Env, mergedBundle.Spec.EnvVars...)
-	}
+	job.Spec.Template.Spec = b.buildPodSpec(job.Spec.Template.Spec)
 
 	if b.parallelism != nil {
 		job.Spec.Parallelism = b.parallelism

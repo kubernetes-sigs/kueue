@@ -56,23 +56,7 @@ func (b *interactiveBuilder) build(ctx context.Context) (runtime.Object, error) 
 		pod.Labels[constants.ProfileLabel] = b.profile.Name
 	}
 
-	mergedBundle := mergeBundles(b.volumeBundles)
-	pod.Spec.Volumes = append(pod.Spec.Volumes, mergedBundle.Spec.Volumes...)
-
-	for i := range pod.Spec.Containers {
-		container := &pod.Spec.Containers[i]
-
-		if len(b.command) > 0 {
-			container.Command = b.command
-		}
-
-		if len(b.requests) > 0 {
-			container.Resources.Requests = b.requests
-		}
-
-		container.VolumeMounts = append(container.VolumeMounts, mergedBundle.Spec.ContainerVolumeMounts...)
-		container.Env = append(container.Env, mergedBundle.Spec.EnvVars...)
-	}
+	pod.Spec = b.buildPodSpec(pod.Spec)
 
 	if len(b.localQueue) > 0 {
 		pod.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue

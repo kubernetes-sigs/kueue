@@ -218,3 +218,36 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 
 	return bImpl.build(ctx)
 }
+
+func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
+	bundle := mergeBundles(b.volumeBundles)
+
+	templateSpec.Volumes = append(templateSpec.Volumes, bundle.Spec.Volumes...)
+	for i := range templateSpec.Containers {
+		container := &templateSpec.Containers[i]
+
+		if len(b.command) > 0 {
+			container.Command = b.command
+		}
+
+		if len(b.requests) > 0 {
+			container.Resources.Requests = b.requests
+		}
+
+		container.VolumeMounts = append(container.VolumeMounts, bundle.Spec.ContainerVolumeMounts...)
+		container.Env = append(container.Env, bundle.Spec.EnvVars...)
+	}
+
+	return templateSpec
+}
+
+func mergeBundles(bundles []v1alpha1.VolumeBundle) v1alpha1.VolumeBundle {
+	var volumeBundle v1alpha1.VolumeBundle
+	for _, b := range bundles {
+		volumeBundle.Spec.Volumes = append(volumeBundle.Spec.Volumes, b.Spec.Volumes...)
+		volumeBundle.Spec.ContainerVolumeMounts = append(volumeBundle.Spec.ContainerVolumeMounts, b.Spec.ContainerVolumeMounts...)
+		volumeBundle.Spec.EnvVars = append(volumeBundle.Spec.EnvVars, b.Spec.EnvVars...)
+	}
+
+	return volumeBundle
+}
