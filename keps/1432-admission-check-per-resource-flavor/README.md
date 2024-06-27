@@ -1,4 +1,4 @@
-# KEP-1432: AdmissionChecks per ResouceFlavor
+# KEP-1432: AdmissionChecks per ResourceFlavor
 
 <!-- toc -->
 - [Summary](#summary)

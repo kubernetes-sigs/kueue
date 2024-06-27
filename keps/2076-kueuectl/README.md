@@ -52,9 +52,9 @@ tedious without writing a custom mini script or complex pipe processing.
 
     * Create ClusterQueues and LocalQueues.
     * Listing Queues and Workloads that meet certain criteria.
-    * Stopping and resuming execution in ClusteQueues and LocalQueues.
+    * Stopping and resuming execution in ClusterQueues and LocalQueues.
     * Stopping and resuming individual Workloads.
-    * (In the future) Migrating workloads between LocalQueues and other avanced operations
+    * (In the future) Migrating workloads between LocalQueues and other advanced operations
     
 * Build it on top of kubectl (as a [kubectl plugin](https://kubernetes.io/docs/tasks/extend-kubectl/kubectl-plugins/)) to reuse all of
 the authentication/cluster selection methods.
