@@ -31,6 +31,7 @@ linters:
     - copyloopvar
     - dupword
     - durationcheck
+    - fatcontext
     - ginkgolinter
     - gocritic
     - goimports
