@@ -83,6 +83,7 @@ func SetupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 				if err = cb.SetupWebhook(mgr, opts...); err != nil {
 					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
 				}
+				EnableIntegration(name)
 				logger.Info("Set up controller and webhook for job framework")
 				return nil
 			}

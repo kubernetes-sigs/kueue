@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -64,6 +65,7 @@ func TestDefault(t *testing.T) {
 		manageJobsWithoutQueueName bool
 		namespaceSelector          *metav1.LabelSelector
 		podSelector                *metav1.LabelSelector
+		enableIntegrations         []string
 		want                       *corev1.Pod
 	}{
 		"pod with queue nil ns selector": {
@@ -102,6 +104,22 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
+		"pod with owner managed by kueue (Job) while not enabled": {
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Label("kueue.x-k8s.io/managed", "true").
+				KueueSchedulingGate().
+				KueueFinalizer().
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+		},
 		"pod with owner managed by kueue (Job)": {
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
@@ -110,6 +128,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
+			enableIntegrations: []string{"batch/job"},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
@@ -123,6 +142,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				OwnerReference("parent-ray-cluster", rayv1.GroupVersion.WithKind("RayCluster")).
 				Obj(),
+			enableIntegrations: []string{"ray.io/raycluster"},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference("parent-ray-cluster", rayv1.GroupVersion.WithKind("RayCluster")).
@@ -139,6 +159,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v2beta1", Kind: "MPIJob"},
 				).
 				Obj(),
+			enableIntegrations: []string{"kubeflow.org/mpijob"},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(
@@ -158,6 +179,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"},
 				).
 				Obj(),
+			enableIntegrations: []string{"kubeflow.org/pytorchjob"},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(
@@ -177,6 +199,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "TFJob"},
 				).
 				Obj(),
+			enableIntegrations: []string{"kubeflow.org/tfjob"},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(
@@ -196,6 +219,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "XGBoostJob"},
 				).
 				Obj(),
+			enableIntegrations: []string{"kubeflow.org/xgboostjob"},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(
@@ -215,6 +239,7 @@ func TestDefault(t *testing.T) {
 					schema.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PaddleJob"},
 				).
 				Obj(),
+			enableIntegrations: []string{"kubeflow.org/paddlejob"},
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				OwnerReference(
@@ -261,6 +286,7 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			defer jobframework.EnableIntegrationsForTest(tc.enableIntegrations...)()
 			builder := utiltesting.NewClientBuilder()
 			builder = builder.WithObjects(tc.initObjects...)
 			cli := builder.Build()
@@ -374,6 +400,7 @@ func TestGetRoleHash(t *testing.T) {
 }
 
 func TestValidateCreate(t *testing.T) {
+	defer jobframework.EnableIntegrationsForTest("batch/job")()
 	testCases := map[string]struct {
 		pod       *corev1.Pod
 		wantErr   error
@@ -476,6 +503,7 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
+	defer jobframework.EnableIntegrationsForTest("batch/job")()
 	testCases := map[string]struct {
 		oldPod    *corev1.Pod
 		newPod    *corev1.Pod

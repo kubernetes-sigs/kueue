@@ -73,6 +73,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		jobframework.EnableIntegration(job.FrameworkName)
 	}
 }
 
@@ -99,6 +100,7 @@ func managerAndControllersSetup(enableScheduler bool, configuration *config.Conf
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		jobframework.EnableIntegration(job.FrameworkName)
 
 		if enableScheduler {
 			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))

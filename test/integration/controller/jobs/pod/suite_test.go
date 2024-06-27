@@ -92,6 +92,7 @@ func managerSetup(configuration *config.Configuration, opts ...jobframework.Opti
 			opts...)
 		err = jobReconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		jobframework.EnableIntegration(job.FrameworkName)
 
 		cCache := cache.New(mgr.GetClient())
 		queues := queue.NewManager(mgr.GetClient(), cCache)
