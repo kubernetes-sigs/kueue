@@ -45,7 +45,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-type ManagerSetup func(manager.Manager, context.Context)
+type ManagerSetup func(context.Context, manager.Manager)
 
 type Framework struct {
 	CRDPath               string
@@ -133,7 +133,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 	mgr, err := ctrl.NewManager(cfg, mgrOpts)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-	managerSetup(mgr, ctx)
+	managerSetup(ctx, mgr)
 
 	go func() {
 		defer ginkgo.GinkgoRecover()

@@ -291,7 +291,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
 		if e.status != assumed {
-			s.requeueAndUpdate(log, ctx, e)
+			s.requeueAndUpdate(ctx, e)
 		} else {
 			result = metrics.AdmissionResultSuccess
 		}
@@ -552,7 +552,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueue)
 		}
 
 		log.Error(err, errCouldNotAdmitWL)
-		s.requeueAndUpdate(log, ctx, *e)
+		s.requeueAndUpdate(ctx, *e)
 	})
 
 	return nil
@@ -611,7 +611,8 @@ func (e entryOrdering) Less(i, j int) bool {
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
 }
 
-func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e entry) {
+func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
+	log := ctrl.LoggerFrom(ctx)
 	if e.status != notNominated && e.requeueReason == queue.RequeueReasonGeneric {
 		// Failed after nomination is the only reason why a workload would be requeued downstream.
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination
