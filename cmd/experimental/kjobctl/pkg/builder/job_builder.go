@@ -18,10 +18,8 @@ package builder
 
 import (
 	"context"
-	"slices"
 
 	batchv1 "k8s.io/api/batch/v1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -59,18 +57,8 @@ func (b *jobBuilder) build(ctx context.Context) (runtime.Object, error) {
 		job.Labels[constants.ProfileLabel] = b.profile.Name
 	}
 
-	for _, vb := range b.volumeBundles {
-		for _, volume := range vb.Spec.Volumes {
-			index := slices.IndexFunc(job.Spec.Template.Spec.Volumes, func(v v1.Volume) bool {
-				return v.Name == volume.Name
-			})
-			if index != -1 {
-				job.Spec.Template.Spec.Volumes[index] = volume
-			} else {
-				job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, volume)
-			}
-		}
-	}
+	mergedBundle := mergeBundles(b.volumeBundles)
+	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, mergedBundle.Spec.Volumes...)
 
 	for i := range job.Spec.Template.Spec.Containers {
 		container := &job.Spec.Template.Spec.Containers[i]
@@ -83,29 +71,8 @@ func (b *jobBuilder) build(ctx context.Context) (runtime.Object, error) {
 			container.Resources.Requests = b.requests
 		}
 
-		for _, vb := range b.volumeBundles {
-			for _, volumeMount := range vb.Spec.ContainerVolumeMounts {
-				index := slices.IndexFunc(container.VolumeMounts, func(vm v1.VolumeMount) bool {
-					return vm.Name == volumeMount.Name
-				})
-				if index != -1 {
-					container.VolumeMounts[index] = volumeMount
-				} else {
-					container.VolumeMounts = append(container.VolumeMounts, volumeMount)
-				}
-			}
-
-			for _, envVar := range vb.Spec.EnvVars {
-				index := slices.IndexFunc(container.Env, func(ev v1.EnvVar) bool {
-					return ev.Name == envVar.Name
-				})
-				if index != -1 {
-					container.Env[index] = envVar
-				} else {
-					container.Env = append(container.Env, envVar)
-				}
-			}
-		}
+		container.VolumeMounts = append(container.VolumeMounts, mergedBundle.Spec.ContainerVolumeMounts...)
+		container.Env = append(container.Env, mergedBundle.Spec.EnvVars...)
 	}
 
 	if b.parallelism != nil {

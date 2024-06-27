@@ -18,7 +18,6 @@ package builder
 
 import (
 	"context"
-	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,19 +56,8 @@ func (b *interactiveBuilder) build(ctx context.Context) (runtime.Object, error) 
 		pod.Labels[constants.ProfileLabel] = b.profile.Name
 	}
 
-	// TODO: Move to common function to generate a Pod Spec
-	for _, vb := range b.volumeBundles {
-		for _, volume := range vb.Spec.Volumes {
-			index := slices.IndexFunc(pod.Spec.Volumes, func(v corev1.Volume) bool {
-				return v.Name == volume.Name
-			})
-			if index != -1 {
-				pod.Spec.Volumes[index] = volume
-			} else {
-				pod.Spec.Volumes = append(pod.Spec.Volumes, volume)
-			}
-		}
-	}
+	mergedBundle := mergeBundles(b.volumeBundles)
+	pod.Spec.Volumes = append(pod.Spec.Volumes, mergedBundle.Spec.Volumes...)
 
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
@@ -82,29 +70,8 @@ func (b *interactiveBuilder) build(ctx context.Context) (runtime.Object, error) 
 			container.Resources.Requests = b.requests
 		}
 
-		for _, vb := range b.volumeBundles {
-			for _, volumeMount := range vb.Spec.ContainerVolumeMounts {
-				index := slices.IndexFunc(container.VolumeMounts, func(vm corev1.VolumeMount) bool {
-					return vm.Name == volumeMount.Name
-				})
-				if index != -1 {
-					container.VolumeMounts[index] = volumeMount
-				} else {
-					container.VolumeMounts = append(container.VolumeMounts, volumeMount)
-				}
-			}
-
-			for _, envVar := range vb.Spec.EnvVars {
-				index := slices.IndexFunc(container.Env, func(ev corev1.EnvVar) bool {
-					return ev.Name == envVar.Name
-				})
-				if index != -1 {
-					container.Env[index] = envVar
-				} else {
-					container.Env = append(container.Env, envVar)
-				}
-			}
-		}
+		container.VolumeMounts = append(container.VolumeMounts, mergedBundle.Spec.ContainerVolumeMounts...)
+		container.Env = append(container.Env, mergedBundle.Spec.EnvVars...)
 	}
 
 	if len(b.localQueue) > 0 {
