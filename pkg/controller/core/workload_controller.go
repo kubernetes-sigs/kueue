@@ -853,7 +853,7 @@ func (w *workloadCqHandler) queueReconcileForWorkloads(ctx context.Context, cqNa
 	}
 	for _, lq := range lst.Items {
 		log := log.WithValues("localQueue", klog.KObj(&lq))
-		ctx = ctrl.LoggerInto(ctx, log)
+		ctx := ctrl.LoggerInto(ctx, log)
 		w.queueReconcileForWorkloadsOfLocalQueue(ctx, lq.Namespace, lq.Name, wq)
 	}
 }
