@@ -251,8 +251,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		attempt := int32(1)
 		shouldCreatePr := false
 		if exists {
-			switch {
-			case isFailed(oldPr) || isBookingExpired(oldPr):
+			if isFailed(oldPr) || isBookingExpired(oldPr) {
 				if isBookingExpired(oldPr) && workload.IsAdmitted(wl) {
 					break
 				}
