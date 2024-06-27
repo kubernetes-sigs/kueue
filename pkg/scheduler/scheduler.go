@@ -377,7 +377,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
-func resourcesToReserve(e *entry, cq *cache.ClusterQueue) resources.FlavorResourceQuantities {
+func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
 		return e.assignment.Usage
 	}
@@ -385,7 +385,7 @@ func resourcesToReserve(e *entry, cq *cache.ClusterQueue) resources.FlavorResour
 	for flavor, resourceUsage := range e.assignment.Usage {
 		reservedUsage[flavor] = make(map[corev1.ResourceName]int64)
 		for resource, usage := range resourceUsage {
-			rg := cq.RGByResource[resource]
+			rg := cq.RGByResource(resource)
 			cqQuota := cache.ResourceQuota{}
 			for _, cqFlavor := range rg.Flavors {
 				if cqFlavor.Name == flavor {
@@ -513,7 +513,7 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueue) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueSnapshot) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{

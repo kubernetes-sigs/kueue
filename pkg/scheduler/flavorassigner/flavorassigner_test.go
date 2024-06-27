@@ -2094,7 +2094,7 @@ func TestDeletedFlavors(t *testing.T) {
 func TestLastAssignmentOutdated(t *testing.T) {
 	type args struct {
 		wl *workload.Info
-		cq *cache.ClusterQueue
+		cq *cache.ClusterQueueSnapshot
 	}
 	tests := []struct {
 		name string
@@ -2109,7 +2109,7 @@ func TestLastAssignmentOutdated(t *testing.T) {
 						ClusterQueueGeneration: 0,
 					},
 				},
-				cq: &cache.ClusterQueue{
+				cq: &cache.ClusterQueueSnapshot{
 					Cohort:                        nil,
 					AllocatableResourceGeneration: 1,
 				},
@@ -2125,8 +2125,8 @@ func TestLastAssignmentOutdated(t *testing.T) {
 						CohortGeneration:       0,
 					},
 				},
-				cq: &cache.ClusterQueue{
-					Cohort: &cache.Cohort{
+				cq: &cache.ClusterQueueSnapshot{
+					Cohort: &cache.CohortSnapshot{
 						AllocatableResourceGeneration: 1,
 					},
 					AllocatableResourceGeneration: 0,
@@ -2143,8 +2143,8 @@ func TestLastAssignmentOutdated(t *testing.T) {
 						CohortGeneration:       0,
 					},
 				},
-				cq: &cache.ClusterQueue{
-					Cohort: &cache.Cohort{
+				cq: &cache.ClusterQueueSnapshot{
+					Cohort: &cache.CohortSnapshot{
 						AllocatableResourceGeneration: 0,
 					},
 					AllocatableResourceGeneration: 0,
