@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -285,7 +286,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionTrue,
-						Reason:  "InClusterQueue",
+						Reason:  preemption.InClusterQueueReason,
 						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the ClusterQueue", alphaMidWl.UID),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -295,8 +296,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 					g.Expect(apimeta.FindStatusCondition(betaMidWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionTrue,
-						Reason:  "InCohort",
-						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the cohort", alphaMidWl.UID),
+						Reason:  preemption.InCohortReclamationReason,
+						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the Cohort", alphaMidWl.UID),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -322,7 +323,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the cohort", alphaMidWl.UID),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the Cohort", alphaMidWl.UID),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
