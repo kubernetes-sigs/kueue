@@ -16,9 +16,12 @@ limitations under the License.
 
 package tools
 
-// Keep a reference to the code generators so they are not removed by go mod tidy
+// Keep a reference to the code generators, so they are not removed by go mod tidy
 import (
 	_ "github.com/golangci/golangci-lint/pkg/exitcodes"
+	_ "github.com/onsi/ginkgo/v2/ginkgo/command"
+	_ "github.com/onsi/ginkgo/v2/ginkgo/run"
+	_ "gotest.tools/gotestsum/cmd"
 	_ "k8s.io/code-generator"
 	_ "sigs.k8s.io/controller-runtime/tools/setup-envtest/env"
 	// since verify will error when referencing a cmd package

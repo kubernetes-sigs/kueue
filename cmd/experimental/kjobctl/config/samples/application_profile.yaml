@@ -48,3 +48,4 @@ template:
               requests:
                 cpu: "1"
                 memory: "200Mi"
+        restartPolicy: OnFailure

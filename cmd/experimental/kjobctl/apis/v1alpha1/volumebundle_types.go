@@ -22,7 +22,6 @@ import (
 )
 
 // VolumeBundleSpec defines the desired state of VolumeBundle
-// +kubebuilder:validation:XValidation:rule="self.mountPoints.map(x, x.name in self.volumes.map(y, y.name))", message="mountPoint name must match a volume name"
 type VolumeBundleSpec struct {
 	// volumes is a set of volumes that will be added to all pods of the job.
 	// +listType=map
@@ -39,7 +38,8 @@ type VolumeBundleSpec struct {
 	// envVars are environment variables that refer to absolute paths in the container filesystem.
 	// These key/value pairs will be available in containers as environment variables.
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="self.all(x, x.name.matches('^[A-Za-z_][A-Za-z0-9_]*$') )", message="invalid environment variable name"
+	// +listType=map
+	// +listMapKey=name
 	EnvVars []corev1.EnvVar `json:"envVars,omitempty"`
 }
 
