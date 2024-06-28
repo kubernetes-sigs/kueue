@@ -21,6 +21,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
@@ -34,8 +35,9 @@ func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
 		"status", e.status,
 		"reason", e.inadmissibleMsg,
 	}
-	if log.V(6).Enabled() {
+	if log.V(4).Enabled() {
 		args = append(args, "nominatedAssignment", e.assignment)
+		args = append(args, "preempted", workload.References(e.preemptionTargets))
 	}
 	logV.Info("Workload evaluated for admission", args...)
 }
