@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -147,27 +149,72 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context, gcInter
 	}
 	gomega.Expect(mgr.GetClient().Create(ctx, managersConfigNamespace)).To(gomega.Succeed())
 
-	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+	var err error
+	err = multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	adapters, err := jobframework.GetMultiKueueAdapters()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 		multikueue.WithGCInterval(gcInterval),
 		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
 		multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+		multikueue.WithAdapters(adapters),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func multiclusterSetup(gcInterval time.Duration) {
+type controllerNameToAdapter map[string]jobframework.MultiKueueAdapter
+
+func managerAndMultiKueueSetupWithAdapters(mgr manager.Manager, ctx context.Context, adapters controllerNameToAdapter) {
+	managerSetup(mgr, ctx)
+
+	managersConfigNamespace = &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kueue-system",
+		},
+	}
+	gomega.Expect(mgr.GetClient().Create(ctx, managersConfigNamespace)).To(gomega.Succeed())
+
+	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for cn, a := range adapters {
+		// create origin as controllerName without the domain
+		origin := strings.Split(cn, "/")[1]
+		err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+			multikueue.WithGCInterval(2*time.Second),
+			multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
+			multikueue.WithEventsBatchPeriod(100*time.Millisecond),
+			multikueue.WithControllerName(cn),
+			multikueue.WithOrigin(origin),
+			multikueue.WithAdapter(a),
+		)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+func MultiKueueWithGCInterval(gcInterval time.Duration) func(mgr manager.Manager, ctx context.Context) {
+	return func(mgr manager.Manager, ctx context.Context) {
+		managerAndMultiKueueSetup(mgr, ctx, gcInterval)
+	}
+}
+
+func MultiKueueWithCustomAdapters(adapters controllerNameToAdapter) func(mgr manager.Manager, ctx context.Context) {
+	return func(mgr manager.Manager, ctx context.Context) {
+		managerAndMultiKueueSetupWithAdapters(mgr, ctx, adapters)
+	}
+}
+
+func multiclusterSetup(multiKueueSetup func(mgr manager.Manager, ctx context.Context)) {
 	var managerFeatureGates []string
 	version, err := versionutil.ParseGeneric(os.Getenv("ENVTEST_K8S_VERSION"))
 	if err != nil || !version.LessThan(versionutil.MustParseSemantic("1.30.0")) {
 		managerFeatureGates = []string{"JobManagedBy=true"}
 	}
 
-	managerTestCluster = createCluster(func(mgr manager.Manager, ctx context.Context) {
-		managerAndMultiKueueSetup(mgr, ctx, gcInterval)
-	}, managerFeatureGates...)
+	managerTestCluster = createCluster(multiKueueSetup, managerFeatureGates...)
 	worker1TestCluster = createCluster(managerSetup)
 	worker2TestCluster = createCluster(managerSetup)
 

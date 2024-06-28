@@ -115,7 +115,7 @@ func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
 	return !features.Enabled(features.MultiKueueBatchJobWithManagedBy)
 }
 
-func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName, controllerName string) (bool, string, error) {
 	if !features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
 		return true, "", nil
 	}
@@ -126,7 +126,7 @@ func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Cl
 		return false, "", err
 	}
 	jobControllerName := ptr.Deref(job.Spec.ManagedBy, "")
-	if jobControllerName != kueuealpha.MultiKueueControllerName {
+	if jobControllerName != controllerName {
 		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueuealpha.MultiKueueControllerName, jobControllerName), nil
 	}
 	return true, "", nil

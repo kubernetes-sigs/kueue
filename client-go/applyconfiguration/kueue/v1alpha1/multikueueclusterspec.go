@@ -20,13 +20,22 @@ package v1alpha1
 // MultiKueueClusterSpecApplyConfiguration represents an declarative configuration of the MultiKueueClusterSpec type for use
 // with apply.
 type MultiKueueClusterSpecApplyConfiguration struct {
-	KubeConfig *KubeConfigApplyConfiguration `json:"kubeConfig,omitempty"`
+	ControllerName *string                       `json:"controllerName,omitempty"`
+	KubeConfig     *KubeConfigApplyConfiguration `json:"kubeConfig,omitempty"`
 }
 
 // MultiKueueClusterSpecApplyConfiguration constructs an declarative configuration of the MultiKueueClusterSpec type for use with
 // apply.
 func MultiKueueClusterSpec() *MultiKueueClusterSpecApplyConfiguration {
 	return &MultiKueueClusterSpecApplyConfiguration{}
+}
+
+// WithControllerName sets the ControllerName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ControllerName field is set to the value of the last call.
+func (b *MultiKueueClusterSpecApplyConfiguration) WithControllerName(value string) *MultiKueueClusterSpecApplyConfiguration {
+	b.ControllerName = &value
+	return b
 }
 
 // WithKubeConfig sets the KubeConfig field in the declarative configuration to the given value

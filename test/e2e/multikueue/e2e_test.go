@@ -91,10 +91,14 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		}
 		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Ns)).To(gomega.Succeed())
 
-		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueuealpha.SecretLocationType, "multikueue1").Obj()
+		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").
+			ControllerName(kueuealpha.MultiKueueControllerName).
+			KubeConfig(kueuealpha.SecretLocationType, "multikueue1").Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster1)).To(gomega.Succeed())
 
-		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig(kueuealpha.SecretLocationType, "multikueue2").Obj()
+		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").
+			ControllerName(kueuealpha.MultiKueueControllerName).
+			KubeConfig(kueuealpha.SecretLocationType, "multikueue2").Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster2)).To(gomega.Succeed())
 
 		multiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters("worker1", "worker2").Obj()

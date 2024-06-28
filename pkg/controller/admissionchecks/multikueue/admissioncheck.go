@@ -52,11 +52,12 @@ func newMultiKueueStoreHelper(c client.Client) (*multiKueueStoreHelper, error) {
 }
 
 // ACReconciler implements the reconciler for all the admission checks controlled by multikueue.
-// Its main task being to maintain the active state of the admission checks based on the heath
+// Its main task being to maintain the active state of the admission checks based on the health
 // of its referenced MultiKueueClusters.
 type ACReconciler struct {
-	client client.Client
-	helper *multiKueueStoreHelper
+	controllerName string
+	client         client.Client
+	helper         *multiKueueStoreHelper
 }
 
 var _ reconcile.Reconciler = (*ACReconciler)(nil)
@@ -64,7 +65,7 @@ var _ reconcile.Reconciler = (*ACReconciler)(nil)
 func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	ac := &kueue.AdmissionCheck{}
-	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != kueuealpha.MultiKueueControllerName {
+	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != a.controllerName {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -96,7 +97,8 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 			if err != nil {
 				missingClusters = append(missingClusters, clusterName)
-			} else if !apimeta.IsStatusConditionTrue(cluster.Status.Conditions, kueuealpha.MultiKueueClusterActive) {
+			} else if !apimeta.IsStatusConditionTrue(cluster.Status.Conditions, kueuealpha.MultiKueueClusterActive) ||
+				ac.Spec.ControllerName != cluster.Spec.ControllerName {
 				inactiveClusters = append(inactiveClusters, clusterName)
 			}
 		}
@@ -166,10 +168,11 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueconfigs,verbs=get;list;watch
 
-func newACReconciler(c client.Client, helper *multiKueueStoreHelper) *ACReconciler {
+func newACReconciler(c client.Client, helper *multiKueueStoreHelper, so SetupOptions) *ACReconciler {
 	return &ACReconciler{
-		client: c,
-		helper: helper,
+		controllerName: so.controllerName,
+		client:         c,
+		helper:         helper,
 	}
 }
 

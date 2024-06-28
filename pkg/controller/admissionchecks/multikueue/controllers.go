@@ -21,6 +21,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
@@ -32,10 +33,12 @@ const (
 )
 
 type SetupOptions struct {
+	controllerName    string
 	gcInterval        time.Duration
 	origin            string
 	workerLostTimeout time.Duration
 	eventsBatchPeriod time.Duration
+	adapters          map[string]jobframework.MultiKueueAdapter
 }
 
 type SetupOption func(o *SetupOptions)
@@ -72,13 +75,41 @@ func WithEventsBatchPeriod(d time.Duration) SetupOption {
 	}
 }
 
-func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
-	options := &SetupOptions{
+// WithControllerName - sets the controller name for which the multikueue
+// admission check match.
+func WithControllerName(controllerName string) SetupOption {
+	return func(o *SetupOptions) {
+		o.controllerName = controllerName
+	}
+}
+
+// WithAdapters - sets all the MultiKueue adapters.
+func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOption {
+	return func(o *SetupOptions) {
+		o.adapters = adapters
+	}
+}
+
+// WithAdapter - sets or updates the adapter of the MultiKueue adapters.
+func WithAdapter(adapter jobframework.MultiKueueAdapter) SetupOption {
+	return func(o *SetupOptions) {
+		o.adapters[adapter.GVK().String()] = adapter
+	}
+}
+
+func NewSetupOptions() *SetupOptions {
+	return &SetupOptions{
 		gcInterval:        defaultGCInterval,
 		origin:            defaultOrigin,
 		workerLostTimeout: defaultWorkerLostTimeout,
 		eventsBatchPeriod: constants.UpdatesBatchPeriod,
+		controllerName:    kueuealpha.MultiKueueControllerName,
+		adapters:          make(map[string]jobframework.MultiKueueAdapter),
 	}
+}
+
+func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
+	options := NewSetupOptions()
 
 	for _, o := range opts {
 		o(options)
@@ -95,23 +126,18 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	adapters, err := jobframework.GetMultiKueueAdapters()
-	if err != nil {
-		return err
-	}
-
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, adapters)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, *options, fsWatcher)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
 
-	acRec := newACReconciler(mgr.GetClient(), helper)
+	acRec := newACReconciler(mgr.GetClient(), helper, *options)
 	err = acRec.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, options.workerLostTimeout, options.eventsBatchPeriod, adapters)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, *options)
 	return wlRec.setupWithManager(mgr)
 }

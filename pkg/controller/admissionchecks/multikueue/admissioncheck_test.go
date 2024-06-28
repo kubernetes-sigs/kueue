@@ -17,6 +17,7 @@ limitations under the License.
 package multikueue
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -123,6 +124,7 @@ func TestReconcile(t *testing.T) {
 			},
 			clusters: []kueuealpha.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
 					Obj(),
 			},
@@ -156,9 +158,11 @@ func TestReconcile(t *testing.T) {
 			},
 			clusters: []kueuealpha.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
 					Obj(),
 				*utiltesting.MakeMultiKueueCluster("worker2").
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
 					Obj(),
 			},
@@ -192,9 +196,11 @@ func TestReconcile(t *testing.T) {
 			},
 			clusters: []kueuealpha.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Active(metav1.ConditionFalse, "ByTest", "by test", 1).
 					Obj(),
 				*utiltesting.MakeMultiKueueCluster("worker2").
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
 					Obj(),
 			},
@@ -228,6 +234,7 @@ func TestReconcile(t *testing.T) {
 			},
 			clusters: []kueuealpha.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
 					Obj(),
 			},
@@ -247,10 +254,49 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"non default controller name": {
+			reconcileFor: "ac1",
+			checks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(kueuealpha.MultiKueueControllerName).
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Generation(1).
+					Obj(),
+			},
+			configs: []kueuealpha.MultiKueueConfig{
+				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj(),
+			},
+			clusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					ControllerName("mkc1").
+					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
+					Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker2").
+					ControllerName("mkc1").
+					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
+					Obj(),
+			},
+			wantChecks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(kueuealpha.MultiKueueControllerName).
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
+					Condition(metav1.Condition{
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoUsableClusters",
+						Message:            "Inactive clusters: [worker1 worker2]",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			fmt.Println(name)
 			builder, ctx := getClientBuilder()
 
 			builder = builder.WithLists(
@@ -266,7 +312,8 @@ func TestReconcile(t *testing.T) {
 			c := builder.Build()
 
 			helper, _ := newMultiKueueStoreHelper(c)
-			reconciler := newACReconciler(c, helper)
+			setupOptions := NewSetupOptions()
+			reconciler := newACReconciler(c, helper, *setupOptions)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
 			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
