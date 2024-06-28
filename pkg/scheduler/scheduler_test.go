@@ -2470,7 +2470,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
 			updates := 0
@@ -2504,7 +2504,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				t.Fatalf("Failed getting heads in cluster queue")
 			}
 			tc.e.Info = wInfos[0]
-			scheduler.requeueAndUpdate(log, ctx, tc.e)
+			scheduler.requeueAndUpdate(ctx, tc.e)
 
 			qDump := qManager.Dump()
 			if diff := cmp.Diff(tc.wantWorkloads, qDump, cmpDump...); diff != "" {
@@ -2524,7 +2524,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 			}
 			// Make sure a second call doesn't make unnecessary updates.
-			scheduler.requeueAndUpdate(log, ctx, tc.e)
+			scheduler.requeueAndUpdate(ctx, tc.e)
 			if updates != tc.wantStatusUpdates {
 				t.Errorf("Observed %d status updates, want %d", updates, tc.wantStatusUpdates)
 			}

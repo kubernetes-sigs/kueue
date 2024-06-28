@@ -46,7 +46,7 @@ type server struct {
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
 
 // CreateAndStartVisibilityServer creates visibility server injecting KueueManager and starts it
-func CreateAndStartVisibilityServer(kueueMgr *queue.Manager, ctx context.Context) {
+func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager) {
 	config := newVisibilityServerConfig()
 	if err := applyVisibilityServerOptions(config); err != nil {
 		setupLog.Error(err, "Unable to apply VisibilityServerOptions")

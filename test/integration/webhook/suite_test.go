@@ -57,7 +57,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
 	}
 	cfg = fwk.Init()
-	ctx, k8sClient = fwk.RunManager(cfg, func(mgr manager.Manager, ctx context.Context) {
+	ctx, k8sClient = fwk.RunManager(cfg, func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
