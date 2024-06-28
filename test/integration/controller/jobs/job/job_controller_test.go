@@ -627,6 +627,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				Queue(localQueue.Name).
 				Request(corev1.ResourceCPU, "5").
 				PodAnnotation("old-ann-key", "old-ann-value").
+				Toleration(corev1.Toleration{
+					Key:      "selector0",
+					Value:    "selector-value1",
+					Operator: corev1.TolerationOpEqual,
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
 				PodLabel("old-label-key", "old-label-value").
 				Obj()
 
@@ -669,6 +675,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 								},
 								Tolerations: []corev1.Toleration{
 									{
+										Key:      "selector0",
+										Value:    "selector-value1",
+										Operator: corev1.TolerationOpEqual,
+										Effect:   corev1.TaintEffectNoSchedule,
+									},
+									{
 										Key:      "selector1",
 										Value:    "selector-value1",
 										Operator: corev1.TolerationOpEqual,
@@ -708,6 +720,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector).Should(gomega.HaveKeyWithValue("selector1", "selector-value1"))
 				gomega.Expect(createdJob.Spec.Template.Spec.Tolerations).Should(gomega.BeComparableTo(
 					[]corev1.Toleration{
+						{
+							Key:      "selector0",
+							Value:    "selector-value1",
+							Operator: corev1.TolerationOpEqual,
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
 						{
 							Key:      "selector1",
 							Value:    "selector-value1",
