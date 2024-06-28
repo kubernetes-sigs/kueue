@@ -1969,6 +1969,128 @@ func TestAssignFlavors(t *testing.T) {
 	}
 }
 
+// Tests the case where the Cache's flavors and CQs flavors
+// fall out of sync, so that the CQ has flavors which no-longer exist.
+func TestDeletedFlavors(t *testing.T) {
+	cases := map[string]struct {
+		wlPods            []kueue.PodSet
+		wlReclaimablePods []kueue.ReclaimablePod
+		clusterQueue      kueue.ClusterQueue
+		wantRepMode       FlavorAssignmentMode
+		wantAssignment    Assignment
+	}{
+		"multiple flavors, skip missing ResourceFlavor": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("deleted-flavor").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("4000m").Append().
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("flavor").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("4000m").Append().
+						FlavorQuotas,
+				).ClusterQueue,
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "flavor", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("3000m"),
+					},
+					Count: 1,
+				}},
+				Usage: resources.FlavorResourceQuantitiesFlat{
+					{Flavor: "flavor", Resource: corev1.ResourceCPU}: 3000,
+				}.Unflatten(),
+			},
+		},
+		"flavor not found": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			clusterQueue: utiltesting.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("deleted-flavor").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("4000m").Append().
+						FlavorQuotas,
+				).ClusterQueue,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1000m"),
+					},
+					Status: &Status{
+						reasons: []string{"flavor deleted-flavor not found"},
+					},
+					Count: 1,
+				}},
+				Usage: resources.FlavorResourceQuantities{},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			log := testr.NewWithOptions(t, testr.Options{
+				Verbosity: 2,
+			})
+			wlInfo := workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: tc.wlPods,
+				},
+				Status: kueue.WorkloadStatus{
+					ReclaimablePods: tc.wlReclaimablePods,
+				},
+			})
+
+			cache := cache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(context.Background(), &tc.clusterQueue); err != nil {
+				t.Fatalf("Failed to add CQ to cache")
+			}
+
+			flavorMap := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+				"flavor":         utiltesting.MakeResourceFlavor("flavor").Obj(),
+				"deleted-flavor": utiltesting.MakeResourceFlavor("deleted-flavor").Obj(),
+			}
+
+			// we have to add the deleted flavor to the cache before snapshot,
+			// or else snapshot will fail
+			for _, flavor := range flavorMap {
+				cache.AddOrUpdateResourceFlavor(flavor)
+			}
+			clusterQueue := cache.Snapshot().ClusterQueues[tc.clusterQueue.Name]
+			if clusterQueue == nil {
+				t.Fatalf("Failed to create CQ snapshot")
+			}
+
+			// and we delete it
+			cache.DeleteResourceFlavor(flavorMap["deleted-flavor"])
+			delete(flavorMap, "deleted-flavor")
+
+			flvAssigner := New(wlInfo, clusterQueue, flavorMap, false)
+
+			assignment := flvAssigner.Assign(log, nil)
+			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
+				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
+			}
+
+			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState")); diff != "" {
+				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestLastAssignmentOutdated(t *testing.T) {
 	type args struct {
 		wl *workload.Info
