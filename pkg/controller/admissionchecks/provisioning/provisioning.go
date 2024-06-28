@@ -22,11 +22,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -94,26 +92,6 @@ func getAttemptRegex(workloadName, checkName string) *regexp.Regexp {
 	prefix := getProvisioningRequestNamePrefix(workloadName, checkName)
 	escapedPrefix := regexp.QuoteMeta(prefix)
 	return regexp.MustCompile("^" + escapedPrefix + "([0-9]+)$")
-}
-
-func remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32) time.Duration {
-	var cond *metav1.Condition
-	if isFailed(pr) {
-		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
-	} else {
-		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired)
-	}
-	defaultBackoff := time.Duration(MinBackoffSeconds) * time.Second
-	backoffDuration := defaultBackoff
-	for i := 1; i < int(failuresCount); i++ {
-		backoffDuration *= 2
-		if backoffDuration >= MaxBackoffMinutes {
-			backoffDuration = MaxBackoffMinutes
-			break
-		}
-	}
-	timeElapsedSinceLastFailure := time.Since(cond.LastTransitionTime.Time)
-	return backoffDuration - timeElapsedSinceLastFailure
 }
 
 func parametersKueueToProvisioning(in map[string]kueue.Parameter) map[string]autoscaling.Parameter {

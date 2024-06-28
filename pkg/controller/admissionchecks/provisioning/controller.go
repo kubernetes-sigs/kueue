@@ -63,12 +63,6 @@ var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
 )
 
-var (
-	MaxRetries        int32         = 3
-	MinBackoffSeconds int32         = 60
-	MaxBackoffMinutes time.Duration = 30 * time.Minute
-)
-
 type provisioningConfigHelper = admissioncheck.ConfigHelper[*kueue.ProvisioningRequestConfig, kueue.ProvisioningRequestConfig]
 
 func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, error) {
@@ -256,8 +250,8 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 					break
 				}
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
-				if attempt <= MaxRetries {
-					remainingTime := remainingTimeToRetry(oldPr, attempt)
+				if attempt <= c.maxRetries {
+					remainingTime := c.remainingTimeToRetry(oldPr, attempt)
 					if remainingTime <= 0 {
 						shouldCreatePr = true
 						attempt += 1
@@ -316,6 +310,26 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		}
 	}
 	return requeAfter, nil
+}
+
+func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32) time.Duration {
+	backoffDuration := time.Duration(c.minBackoffSeconds) * time.Second
+	maxBackoffDuration := time.Duration(c.maxBackoffSeconds) * time.Second
+	var cond *metav1.Condition
+	if isFailed(pr) {
+		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
+	} else {
+		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired)
+	}
+	for i := 1; i < int(failuresCount); i++ {
+		backoffDuration *= 2
+		if backoffDuration >= maxBackoffDuration {
+			backoffDuration = maxBackoffDuration
+			break
+		}
+	}
+	timeElapsedSinceLastFailure := time.Since(cond.LastTransitionTime.Time)
+	return backoffDuration - timeElapsedSinceLastFailure
 }
 
 func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, prName string, prc *kueue.ProvisioningRequestConfig) error {
@@ -519,7 +533,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			case isBookingExpired(pr):
 				if !workload.IsAdmitted(wl) {
 					attempt := getAttempt(log, pr, wl.Name, check)
-					if attempt <= MaxRetries {
+					if attempt <= c.maxRetries {
 						// it is going to be retried
 						message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
