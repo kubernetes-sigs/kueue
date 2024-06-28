@@ -108,7 +108,13 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 	podSetInfo.Annotations = utilmaps.MergeKeepFirst(podSetInfo.Annotations, o.Annotations)
 	podSetInfo.Labels = utilmaps.MergeKeepFirst(podSetInfo.Labels, o.Labels)
 	podSetInfo.NodeSelector = utilmaps.MergeKeepFirst(podSetInfo.NodeSelector, o.NodeSelector)
-	podSetInfo.Tolerations = append(podSetInfo.Tolerations, o.Tolerations...)
+
+	// make sure we don't duplicate tolerations
+	for _, t := range o.Tolerations {
+		if slices.Index(podSetInfo.Tolerations, t) == -1 {
+			podSetInfo.Tolerations = append(podSetInfo.Tolerations, t)
+		}
+	}
 	return nil
 }
 
