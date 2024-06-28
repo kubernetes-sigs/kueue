@@ -42,6 +42,7 @@ an integration.
 your CRD:
    - You will need to implement Kueue's `GenericJob` interface for your CRD
    - You will need to instantiate a `ReconcilerFactory` and register it with the controller runtime.
+   - You will need to add a `+kubebuilder:rbac` directive for your CRD so Kueue will be permitted to manage it.
    - You will need to register webhooks that set the initial value of the `suspend` field in instances
      of your CRD and validate Kueue invariants on creation and update operations.
    - You will need to instantiate a `Workload` indexer for your CRD.
@@ -91,6 +92,18 @@ Here are completed external integrations you can learn from:
 
 Add your framework's GroupVersionKind to `.integrations.externalFrameworks` in [controller_manager_config.yaml](
 https://kueue.sigs.k8s.io/docs/installation/#install-a-custom-configured-released-version).
+
+### RBAC Augmentation
+
+Kueue will need permission to get, list, and watch instances of your CRD.
+
+If you are building a custom Kueue deployment, simply add a `kubebuilder:rbac` annotation to a source code file
+(for example in [integrationmanager.go](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/integrationmanager.go)) and regenerate the manifests.
+
+If you are deploying a Kueue release, modify either
+[charts/kueue/templates/rbac/role.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/templates/rbac/role.yaml)
+or [config/components/rbac/role.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/components/rbac/role.yaml)
+to add the needed permissions.
 
 ### Job Framework
 
