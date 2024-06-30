@@ -18,8 +18,6 @@ package v1alpha1
 
 import (
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 func init() {
@@ -32,7 +30,8 @@ func addDefaultingFuncs(scheme *runtime.Scheme) error {
 
 //nolint:revive // format required by generated code for defaulting
 func SetDefaults_PendingWorkloadOptions(obj *PendingWorkloadOptions) {
+	defaultPendingWorkloadsLimit := int64(1000)
 	if obj.Limit == 0 {
-		obj.Limit = constants.DefaultPendingWorkloadsLimit
+		obj.Limit = defaultPendingWorkloadsLimit
 	}
 }

@@ -27,6 +27,20 @@ type LocalQueueSpec struct {
 	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
 	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"`
+
+	// stopPolicy - if set to a value different from None, the LocalQueue is considered Inactive,
+	// no new reservation being made.
+	//
+	// Depending on its value, its associated workloads will:
+	//
+	// - None - Workloads are admitted
+	// - HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
+	// - Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
+	//
+	// +optional
+	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
+	// +kubebuilder:default="None"
+	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
 }
 
 // ClusterQueueReference is the name of the ClusterQueue.

@@ -627,6 +627,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				Queue(localQueue.Name).
 				Request(corev1.ResourceCPU, "5").
 				PodAnnotation("old-ann-key", "old-ann-value").
+				Toleration(corev1.Toleration{
+					Key:      "selector0",
+					Value:    "selector-value1",
+					Operator: corev1.TolerationOpEqual,
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
 				PodLabel("old-label-key", "old-label-value").
 				Obj()
 
@@ -669,6 +675,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 								},
 								Tolerations: []corev1.Toleration{
 									{
+										Key:      "selector0",
+										Value:    "selector-value1",
+										Operator: corev1.TolerationOpEqual,
+										Effect:   corev1.TaintEffectNoSchedule,
+									},
+									{
 										Key:      "selector1",
 										Value:    "selector-value1",
 										Operator: corev1.TolerationOpEqual,
@@ -708,6 +720,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector).Should(gomega.HaveKeyWithValue("selector1", "selector-value1"))
 				gomega.Expect(createdJob.Spec.Template.Spec.Tolerations).Should(gomega.BeComparableTo(
 					[]corev1.Toleration{
+						{
+							Key:      "selector0",
+							Value:    "selector-value1",
+							Operator: corev1.TolerationOpEqual,
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
 						{
 							Key:      "selector1",
 							Value:    "selector-value1",
@@ -2093,7 +2111,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadEvictedByDeactivation,
+						Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2105,10 +2123,11 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadEvictedByDeactivation,
+						Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
+				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)).Should(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

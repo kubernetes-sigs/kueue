@@ -55,3 +55,21 @@ echo 'alias kueuectl="kubectl kueue"' >> ~/.bashrc
 # Or if you are using ZSH
 echo 'alias kueuectl="kubectl kueue"' >> ~/.zshrc
 ```
+
+## Autocompletion
+
+```bash
+echo '[[ $commands[kubectl-kueue] ]] && source <(kubectl-kueue completion bash)' >> ~/.bashrc
+# Or if you are using ZSH
+echo '[[ $commands[kubectl-kueue] ]] && source <(kubectl-kueue completion zsh)' >> ~/.zshrc
+
+cat <<EOF >kubectl_complete-kueue
+#!/usr/bin/env sh
+
+# Call the __complete command passing it all arguments
+kubectl kueue __complete "\$@"
+EOF
+
+chmod u+x kubectl_complete-kueue
+sudo mv kubectl_complete-kueue /usr/local/bin/kubectl_complete-kueue
+```

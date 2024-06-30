@@ -37,7 +37,7 @@ import (
 
 var (
 	ErrQueueDoesNotExist         = errors.New("queue doesn't exist")
-	errClusterQueueDoesNotExist  = errors.New("clusterQueue doesn't exist")
+	ErrClusterQueueDoesNotExist  = errors.New("clusterQueue doesn't exist")
 	errClusterQueueAlreadyExists = errors.New("clusterQueue already exists")
 )
 
@@ -158,7 +158,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	defer m.Unlock()
 	cqImpl, ok := m.clusterQueues[cq.Name]
 	if !ok {
-		return errClusterQueueDoesNotExist
+		return ErrClusterQueueDoesNotExist
 	}
 
 	oldCohort := cqImpl.Cohort()
@@ -273,10 +273,16 @@ func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
 	return int32(len(qImpl.items)), nil
 }
 
-func (m *Manager) Pending(cq *kueue.ClusterQueue) int {
+func (m *Manager) Pending(cq *kueue.ClusterQueue) (int, error) {
 	m.RLock()
 	defer m.RUnlock()
-	return m.clusterQueues[cq.Name].Pending()
+
+	cqImpl, ok := m.clusterQueues[cq.Name]
+	if !ok {
+		return 0, ErrClusterQueueDoesNotExist
+	}
+
+	return cqImpl.Pending(), nil
 }
 
 func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
@@ -580,14 +586,15 @@ func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
 	return cq.Snapshot()
 }
 
-// ClusterQueueFromLocalQueue returns ClusterQueue name, with a QueueKey(namespace/localQueueName) as the parameter
-func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey string) (string, error) {
+// ClusterQueueFromLocalQueue returns ClusterQueue name and whether it's found,
+// given a QueueKey(namespace/localQueueName) as the parameter
+func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey string) (string, bool) {
 	m.RLock()
 	defer m.RUnlock()
 	if lq, ok := m.localQueues[localQueueKey]; ok {
-		return lq.ClusterQueue, nil
+		return lq.ClusterQueue, true
 	}
-	return "", ErrQueueDoesNotExist
+	return "", false
 }
 
 func QueueKey(namespace, name string) string {

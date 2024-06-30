@@ -78,7 +78,7 @@ When the `blockAdmission` is set to `true`, admitted Workload with not ready pod
 {{< feature-state state="stable" for_version="v0.6.0+" >}}
 
 {{% alert title="Note" color="primary" %}}
-The `backoffBaseSeconds` and `backodMaxSeconds` are available in Kueue v0.7.0 and later
+The `backoffBaseSeconds` and `backoffMaxSeconds` are available in Kueue v0.7.0 and later
 {{% /alert %}}
 
 The `requeuingStrategy` (`waitForPodsReady.requeuingStrategy`) contains optional parameters: 

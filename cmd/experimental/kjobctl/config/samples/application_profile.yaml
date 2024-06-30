@@ -1,0 +1,51 @@
+---
+apiVersion: kjobctl.x-k8s.io/v1alpha1
+kind: ApplicationProfile
+metadata:
+  name: sample-profile
+  namespace: default
+spec:
+  supportedModes:
+    - name: Interactive
+      template: sample-pod-template
+      requiredFlags: ["cmd"]
+    - name: Job
+      template: sample-job-template
+      requiredFlags: ["cmd"]
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: sample-pod-template
+  namespace: default
+template:
+  spec:
+    containers:
+      - name: sample-container
+        image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
+        args: [ "30s" ]
+        resources:
+          requests:
+            cpu: "1"
+            memory: "200Mi"
+---
+apiVersion: kjobctl.x-k8s.io/v1alpha1
+kind: JobTemplate
+metadata:
+  name: sample-job-template
+  namespace: default
+template:
+  spec:
+    parallelism: 3
+    completions: 3
+    template:
+      spec:
+        containers:
+          - name: sample-container
+            image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
+            args: [ "30s" ]
+            resources:
+              requests:
+                cpu: "1"
+                memory: "200Mi"
+        restartPolicy: OnFailure

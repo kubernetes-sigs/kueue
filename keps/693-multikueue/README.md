@@ -11,7 +11,16 @@
     - [Story 2](#story-2)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-    - [Follow ups ideas](#follow-ups-ideas)
+  - [Subcomponents](#subcomponents)
+    - [MultiKueueCluster Controller](#multikueuecluster-controller)
+    - [AdmissionCheck Controller](#admissioncheck-controller)
+    - [Workload Controller](#workload-controller)
+    - [Garbage Collector](#garbage-collector)
+  - [Jobs abstraction](#jobs-abstraction)
+    - [MultiKueueAdapter](#multikueueadapter)
+    - [MultiKueueWatcher](#multikueuewatcher)
+  - [Configuration](#configuration)
+  - [Follow ups ideas](#follow-ups-ideas)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -189,15 +198,6 @@ type MultiKueueClusterStatus {
 }
 ```
 
-MultiKueue controller will monitor all cluster definitions and maintain 
-the Kube clients for all of them. Any connectivity problems will be reported both in
-MultiKueueCluster status as well as AdmissionCheckStatus and Events. MultiKueue controller 
-will make sure that whenever the kubeconfig is refreshed, the appropriate 
-clients will also be recreated.
-
-Creation of kubeconfig files is outside of the MultiKueue scope, and is cloud
-provider/environment dependant.
-
 MultiKueue controller, when pushing workloads to the worker clusters, will use the same 
 namespace and local queue names as were used in the management cluster. It is user's 
 responsibility to set up the appropriate namespaces and local queues.
@@ -205,7 +205,33 @@ Worker ClusterQueue definitions may be different than in the management cluster.
 quota settings may be specific to the given location. And/or cluster queue may have different
 admission checks, use ProvisioningRequest, etc.
 
-When distributing the workloads across clusters MultiKueue controller will first create
+### Subcomponents
+
+#### MultiKueueCluster Controller
+
+Will monitor all cluster definitions and maintain 
+the Kube clients for all of them. Any connectivity problems will be reported both in
+MultiKueueCluster status and Events. MultiKueue controller 
+will make sure that whenever the kubeconfig is refreshed, the appropriate 
+clients will also be recreated and attempt to reconnect when the connection to the
+target cluster is lost.
+
+Creation of kubeconfig files is outside of the MultiKueue scope, and is cloud
+provider/environment dependant.
+
+#### AdmissionCheck Controller
+
+Will monitor the AdmissionChecks associated with MultiKueue (by ControllerName) and maintain
+their `Active` status condition based on the validity of their MultiKueueConfig and `Active`
+state of the MultiKueueClusters in use. An AdmissionCheck being considered `Active` when it 
+has a valid configuration and at least one of its MultiKueueClusters is `Active`.
+
+#### Workload Controller
+
+Will monitor the workloads in the management cluster and manage their MultiKueue specific
+AdmissionCheckStates.
+
+When distributing the workloads across clusters MultiKueue Workloads controller will first create
 the Kueue's internal Workload object. Only after the workload is admitted and other clusters
 are cleaned-up the real job will be created, to match the Workload. That gives the guarantee
 that the workload will not start in more than one cluster. The workload will
@@ -223,7 +249,74 @@ If there is enough of global quota, the unknown admitted workloads would be re-a
 the management cluster. If not, some workloads will be preempted to meet the global quota.
 In case of duplicates, all but one of them will be removed.
 
-#### Follow ups ideas
+#### Garbage Collector
+
+Will monitor the Workloads in the remote clusters to detect and remove
+those that were created by MultiKueue but were not deleted by the Workload Controller 
+in the normal flow, due to a temporary connectivity outage to the remote cluster.
+
+The garbage collector will run periodically with a configurable time interval.
+
+### Jobs abstraction
+
+In order to work with different types of jobs the MultiKueue Controller will use two abstraction
+interfaces:
+
+#### MultiKueueAdapter
+
+```go
+type MultiKueueAdapter interface {
+	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
+	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
+	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
+    ...
+}
+```
+Used by the [Workload Controller](#workload-controller) to interact with the owner of the reconciled workloads.
+
+`SyncJob` will:
+- Create the Job object in the worker cluster, if not already created.
+- If the remote job exists, get its status and update the status of the local job accordingly.
+
+`DeleteRemoteObject` - will delete the job from a remote cluster.
+
+`IsJobManagedByKueue` - will check if a specific job is managed by kueue making it a candidate for remote execution.
+
+#### MultiKueueWatcher
+
+```
+type MultiKueueWatcher interface {
+	GetEmptyList() client.ObjectList
+	WorkloadKeyFor(runtime.Object) (types.NamespacedName, error)
+}
+```
+
+Used by the [MultiKueueCluster Controller](#multikueuecluster-controller) to start watching job updates in the remote clusters and convert their
+remote events into local workload reconcile events. It is an optional interface, if not implemented, MultiKueue will work based in workload events
+only and remote jobs events that don't have an impact on its workload will not be observed in the management cluster.
+
+### Configuration
+
+The MultiKueue ACC will be configured by a new section in the Kueue's configuration API `MultiKueue` with the following content:
+
+```go
+type MultiKueue struct {
+	GCInterval *metav1.Duration `json:"gcInterval"`
+	Origin *string `json:"origin,omitempty"`
+	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
+}
+```
+
+Where:
+
+- `GCInterval` - defines the time interval between two consecutive [garbage collector](#garbage-collector) runs.
+- `Origin` - defines a label value used to track the creator of workloads in the worker clusters.
+This is used by multikueue in components like its [garbage collector](#garbage-collector) to identify remote objects 
+that ware created by this multikueue manager cluster and delete them if their local counterpart no longer exists.
+- `WorkerLostTimeout` - defines the time a local workload's multikueue admission check state is kept Ready
+if the connection with its reserving worker cluster is lost.
+
+### Follow ups ideas
 
 * Handle large number of clusters via selectors.
 * Provide plugin mechanism to control how the workloads are distributed across worker clusters.

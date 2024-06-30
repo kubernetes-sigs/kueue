@@ -76,6 +76,10 @@ func Test_PushOrUpdate(t *testing.T) {
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
 					Status: metav1.ConditionTrue,
+				}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadRequeued,
+					Status: metav1.ConditionFalse,
 				}),
 			wantInAdmissibleWorkloads: map[string]*workload.Info{
 				"default/workload-1": workload.NewInfo(wlBase.Clone().
@@ -86,8 +90,62 @@ func Test_PushOrUpdate(t *testing.T) {
 						Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
 						Status: metav1.ConditionTrue,
 					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadRequeued,
+						Status: metav1.ConditionFalse,
+					}).
 					Obj()),
 			},
+		},
+		"should wait for Requeued=true after backoff waiting time before push to heap": {
+			workload: wlBase.Clone().
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					Status: metav1.ConditionTrue,
+				}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadRequeued,
+					Status: metav1.ConditionFalse,
+				}),
+			wantInAdmissibleWorkloads: map[string]*workload.Info{
+				"default/workload-1": workload.NewInfo(wlBase.Clone().
+					ResourceVersion("1").
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+						Status: metav1.ConditionTrue,
+					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadRequeued,
+						Status: metav1.ConditionFalse,
+					}).
+					Obj()),
+			},
+		},
+		"should push workload to heap after Requeued=true": {
+			workload: wlBase.Clone().
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					Status: metav1.ConditionTrue,
+				}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadRequeued,
+					Status: metav1.ConditionTrue,
+				}),
+			wantWorkload: workload.NewInfo(wlBase.Clone().
+				ResourceVersion("1").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					Status: metav1.ConditionTrue,
+				}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadRequeued,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj()),
 		},
 	}
 	for name, tc := range cases {
@@ -452,6 +510,13 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 		workloadInfo *workload.Info
 		want         bool
 	}{
+		"workload still have Requeued=false": {
+			workloadInfo: workload.NewInfo(utiltesting.MakeWorkload("wl", "ns").Condition(metav1.Condition{
+				Type:   kueue.WorkloadRequeued,
+				Status: metav1.ConditionFalse,
+			}).Obj()),
+			want: false,
+		},
 		"workload doesn't have requeueState": {
 			workloadInfo: workload.NewInfo(utiltesting.MakeWorkload("wl", "ns").Obj()),
 			want:         true,

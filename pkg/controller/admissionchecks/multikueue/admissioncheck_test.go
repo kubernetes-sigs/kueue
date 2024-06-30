@@ -47,14 +47,14 @@ func TestReconcile(t *testing.T) {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
 					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
@@ -85,7 +85,7 @@ func TestReconcile(t *testing.T) {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
@@ -95,7 +95,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
 					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
@@ -113,7 +113,7 @@ func TestReconcile(t *testing.T) {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
@@ -128,7 +128,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
 					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
@@ -146,7 +146,7 @@ func TestReconcile(t *testing.T) {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
@@ -164,7 +164,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
 					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
@@ -182,7 +182,7 @@ func TestReconcile(t *testing.T) {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
@@ -200,7 +200,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
 					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
@@ -218,7 +218,7 @@ func TestReconcile(t *testing.T) {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
@@ -233,7 +233,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
+					ControllerName(kueuealpha.MultiKueueControllerName).
 					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
 					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).

@@ -25,12 +25,18 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/client-go/discovery"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
+	managerK8SVersion  *versionutil.Version
 	managerClusterName string
 	worker1ClusterName string
 	worker2ClusterName string
@@ -53,6 +59,8 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
+	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+
 	managerClusterName = os.Getenv("MANAGER_KIND_CLUSTER_NAME")
 	gomega.Expect(managerClusterName).NotTo(gomega.BeEmpty(), "MANAGER_KIND_CLUSTER_NAME should not be empty")
 
@@ -69,8 +77,21 @@ var _ = ginkgo.BeforeSuite(func() {
 	ctx = context.Background()
 
 	waitForAvailableStart := time.Now()
+
 	util.WaitForKueueAvailability(ctx, k8sManagerClient)
 	util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
-	ginkgo.GinkgoLogr.Info("Kueue is Available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
+
+	util.WaitForJobSetAvailability(ctx, k8sManagerClient)
+	util.WaitForJobSetAvailability(ctx, k8sWorker1Client)
+	util.WaitForJobSetAvailability(ctx, k8sWorker2Client)
+
+	ginkgo.GinkgoLogr.Info("Kueue and JobSet operators are available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
+
+	cfg, err := config.GetConfigWithContext("kind-" + managerClusterName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })

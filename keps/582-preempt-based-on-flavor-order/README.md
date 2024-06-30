@@ -88,7 +88,7 @@ know that this has succeeded?
 ### Non-Goals
 
 - change the behavior to judge whether a podset can get enough resource in certain resource flavor. 
-- change the preemption and admission precess.
+- change the preemption and admission process.
 <!--
 What is out of scope for this KEP? Listing non-goals helps to focus discussion
 and make progress.

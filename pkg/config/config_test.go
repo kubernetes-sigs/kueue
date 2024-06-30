@@ -279,6 +279,25 @@ multiKueue:
 		t.Fatal(err)
 	}
 
+	invalidConfig := filepath.Join(tmpDir, "invalid-config.yaml")
+	if err := os.WriteFile(invalidConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+namespaces: kueue-system
+invalidField: invalidValue
+health:
+  healthProbeBindAddress: :8081
+metrics:
+  bindAddress: :8080
+leaderElection:
+  leaderElect: true
+  resourceName: c1f6bfd2.kueue.x-k8s.io
+webhook:
+  port: 9443
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 		Metrics: metricsserver.Options{
@@ -822,6 +841,14 @@ multiKueue:
 				},
 			},
 			wantOptions: defaultControlOptions,
+		},
+		{
+			name:       "invalid config",
+			configFile: invalidConfig,
+			wantError: runtime.NewStrictDecodingError([]error{
+				errors.New("unknown field \"invalidField\""),
+				errors.New("unknown field \"namespaces\""),
+			}),
 		},
 	}
 

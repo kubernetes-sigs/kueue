@@ -18,6 +18,8 @@ kubectl kueue resume [TYPE]
 ```bash
 # Resume the workload 
 kubectl kueue resume workload my-workload
+# Resume the localqueue
+kubectl kueue resume localqueue my-localqueue
 # Resume the ClusterQueue 
 kubectl kueue resume clusterqueue my-clusterqueue
 ```
@@ -29,4 +31,5 @@ The following table includes a list of all the supported resource types and thei
 | Name     | Short | API version            | Namespaced | Kind     |
 |----------|-------|------------------------|------------|----------|
 | workload | wl    | kueue.x-k8s.io/v1beta1 | true       | Workload |
+| localqueue | lq    | kueue.x-k8s.io/v1beta1 | true       | LocalQueue |
 | clusterqueue | cq    | kueue.x-k8s.io/v1beta1 | false       | ClusterQueue |

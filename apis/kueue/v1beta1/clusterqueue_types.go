@@ -158,14 +158,6 @@ const (
 	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"
 )
 
-type StopPolicy string
-
-const (
-	None         StopPolicy = "None"
-	HoldAndDrain StopPolicy = "HoldAndDrain"
-	Hold         StopPolicy = "Hold"
-)
-
 // +kubebuilder:validation:XValidation:rule="self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"
 type ResourceGroup struct {
 	// coveredResources is the list of resources covered by the flavors in this

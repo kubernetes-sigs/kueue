@@ -21,6 +21,7 @@ package maps
 import (
 	"fmt"
 	"maps"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -118,4 +119,41 @@ func DeepCopySets[T comparable](src map[string]sets.Set[T]) map[string]sets.Set[
 		copy[key] = set.Clone()
 	}
 	return copy
+}
+
+// SyncMap - generic RWMutex protected map.
+type SyncMap[K comparable, V any] struct {
+	lock sync.RWMutex
+	m    map[K]V
+}
+
+func NewSyncMap[K comparable, V any](size int) *SyncMap[K, V] {
+	return &SyncMap[K, V]{
+		m: make(map[K]V, size),
+	}
+}
+
+func (dwc *SyncMap[K, V]) Add(k K, v V) {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	dwc.m[k] = v
+}
+
+func (dwc *SyncMap[K, V]) Get(k K) (V, bool) {
+	dwc.lock.RLock()
+	defer dwc.lock.RUnlock()
+	v, found := dwc.m[k]
+	return v, found
+}
+
+func (dwc *SyncMap[K, V]) Len() int {
+	dwc.lock.RLock()
+	defer dwc.lock.RUnlock()
+	return len(dwc.m)
+}
+
+func (dwc *SyncMap[K, V]) Delete(k K) {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	delete(dwc.m, k)
 }

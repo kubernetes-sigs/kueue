@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	testingclock "k8s.io/utils/clock/testing"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
@@ -76,18 +77,18 @@ ns2         lq2    cq2            2                   2                    120m
 			objs: []runtime.Object{
 				utiltesting.MakeClusterQueue("cq1").
 					Condition(v1beta1.ClusterQueueActive, metav1.ConditionTrue, "", "").
-					Cohort("cohort").
+					Cohort("cohort1").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Obj(),
 				utiltesting.MakeClusterQueue("cq2").
 					Condition(v1beta1.ClusterQueueActive, metav1.ConditionFalse, "", "").
-					Cohort("cohort").
+					Cohort("cohort2").
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
-cq1    cohort   0                   0                    true     60m
-cq2    cohort   0                   0                    false    120m
+			wantOut: `NAME   COHORT    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq1    cohort1   0                   0                    true     60m
+cq2    cohort2   0                   0                    false    120m
 `,
 		},
 		"should print workload list with all namespaces": {
@@ -146,9 +147,10 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 				tf.WithNamespace(tc.ns)
 			}
 
-			tf.ClientSet = fake.NewSimpleClientset(tc.objs...)
+			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
+			fc := testingclock.NewFakeClock(testStartTime)
 
-			cmd := NewListCmd(tf, streams)
+			cmd := NewListCmd(tf, streams, fc)
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

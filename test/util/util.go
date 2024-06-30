@@ -19,11 +19,15 @@ package util
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	zaplog "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -38,6 +42,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -212,7 +217,7 @@ func DeleteRuntimeClass(ctx context.Context, c client.Client, runtimeClass *node
 	return nil
 }
 
-func UnholdQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
+func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var cqCopy kueue.ClusterQueue
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
@@ -221,6 +226,18 @@ func UnholdQueue(ctx context.Context, k8sClient client.Client, cq *kueue.Cluster
 		}
 		cqCopy.Spec.StopPolicy = ptr.To(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var lqCopy kueue.LocalQueue
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &lqCopy)).To(gomega.Succeed())
+		if ptr.Deref(lqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
+			return
+		}
+		lqCopy.Spec.StopPolicy = ptr.To(kueue.None)
+		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -769,4 +786,16 @@ readCh:
 		}
 	}
 	gomega.ExpectWithOffset(1, gotObjs).To(gomega.Equal(objs))
+}
+
+func NewTestingLogger(writer io.Writer, level int) logr.Logger {
+	opts := func(o *zap.Options) {
+		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
+		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
+	}
+	return zap.New(
+		zap.WriteTo(writer),
+		zap.UseDevMode(true),
+		zap.Level(zapcore.Level(level)),
+		opts)
 }

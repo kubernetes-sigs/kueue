@@ -105,7 +105,7 @@ Fair sharing will be a global switch (at least initially).
 
 Introduce a concept of fair share as the amount of resources lent to a CQ, 
 on top of the given nominal quota, that doesn't justify "complains" against
-any other similar CQ about excesive extra resources that CQ was given. Basically
+any other similar CQ about excessive extra resources that CQ was given. Basically
 the sharing of unused resources is fair, if no CQ can say it is grossly unfair.
 
 Introduce a global fair sharing mechanism that is based on preemptions. As long

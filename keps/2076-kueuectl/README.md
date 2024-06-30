@@ -52,9 +52,9 @@ tedious without writing a custom mini script or complex pipe processing.
 
     * Create ClusterQueues and LocalQueues.
     * Listing Queues and Workloads that meet certain criteria.
-    * Stopping and resuming execution in ClusteQueues and LocalQueues.
+    * Stopping and resuming execution in ClusterQueues and LocalQueues.
     * Stopping and resuming individual Workloads.
-    * (In the future) Migrating workloads between LocalQueues and other avanced operations
+    * (In the future) Migrating workloads between LocalQueues and other advanced operations
     
 * Build it on top of kubectl (as a [kubectl plugin](https://kubernetes.io/docs/tasks/extend-kubectl/kubectl-plugins/)) to reuse all of
 the authentication/cluster selection methods.
@@ -119,9 +119,9 @@ kueuectl create cq|clusterqueue cqname
 --reclaim-within-cohort=policy             # defaults to Never
 --preemption-within-cluster-queue = policy # defaults to Never
 
-–-nominal-quota=rfname1:resource1=value,resource2=value,resource3=value
-–-borrowing-limit=rfname1:resource1=value,resource2=value,resource3=value
-–-lending-limit=rfname1:resource1=value,resource2=value,resource3=value
+–-nominal-quota=rfname1:resource1=value;resource2=value;resource3=value,rfname2:resource3=value;resource4=value
+–-borrowing-limit=rfname1:resource1=value;resource2=value;resource3=value,rfname2:resource3=value;resource4=value
+–-lending-limit=rfname1:resource1=value;resource2=value;resource3=value,rfname2:resource3=value;resource4=value
 ```
 
 It is possible to create a ClusterQueue with multiple resource flavors/FlavorQuotas inside

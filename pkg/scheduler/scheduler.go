@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -140,12 +141,12 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
-type cohortsUsage map[string]cache.FlavorResourceQuantities
+type cohortsUsage map[string]resources.FlavorResourceQuantities
 
-func (cu *cohortsUsage) add(cohort string, assignment cache.FlavorResourceQuantities) {
+func (cu *cohortsUsage) add(cohort string, assignment resources.FlavorResourceQuantities) {
 	cohortUsage := (*cu)[cohort]
 	if cohortUsage == nil {
-		cohortUsage = make(cache.FlavorResourceQuantities, len(assignment))
+		cohortUsage = make(resources.FlavorResourceQuantities, len(assignment))
 	}
 
 	for flavor, resources := range assignment {
@@ -158,13 +159,13 @@ func (cu *cohortsUsage) add(cohort string, assignment cache.FlavorResourceQuanti
 	(*cu)[cohort] = cohortUsage
 }
 
-func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
+func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
 	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b workload.Requests) workload.Requests {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
 
-func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assignment cache.FlavorResourceQuantities) bool {
+func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) bool {
 	cohortUsage, cohortFound := (*cu)[cohort]
 	if !cohortFound {
 		return false
@@ -290,7 +291,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
 		if e.status != assumed {
-			s.requeueAndUpdate(log, ctx, e)
+			s.requeueAndUpdate(ctx, e)
 		} else {
 			result = metrics.AdmissionResultSuccess
 		}
@@ -342,7 +343,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		if s.cache.IsAssumedOrAdmittedWorkload(w) {
 			log.Info("Workload skipped from admission because it's already assumed or admitted", "workload", klog.KObj(w.Obj))
 			continue
-		} else if workload.HasRetryOrRejectedChecks(w.Obj) {
+		} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
 			e.inadmissibleMsg = "The workload has failed admission checks"
 		} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
 			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
@@ -361,7 +362,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
-			if s.fairSharing.Enable {
+			if s.fairSharing.Enable && e.assignment.RepresentativeMode() != flavorassigner.NoFit {
 				e.dominantResourceShare, e.dominantResourceName = cq.DominantResourceShareWith(e.assignment.TotalRequestsFor(&w))
 			}
 		}
@@ -371,11 +372,11 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
-func resourcesToReserve(e *entry, cq *cache.ClusterQueue) cache.FlavorResourceQuantities {
+func resourcesToReserve(e *entry, cq *cache.ClusterQueue) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
 		return e.assignment.Usage
 	}
-	reservedUsage := make(cache.FlavorResourceQuantities)
+	reservedUsage := make(resources.FlavorResourceQuantities)
 	for flavor, resourceUsage := range e.assignment.Usage {
 		reservedUsage[flavor] = make(map[corev1.ResourceName]int64)
 		for resource, usage := range resourceUsage {
@@ -551,7 +552,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueue)
 		}
 
 		log.Error(err, errCouldNotAdmitWL)
-		s.requeueAndUpdate(log, ctx, *e)
+		s.requeueAndUpdate(ctx, *e)
 	})
 
 	return nil
@@ -610,7 +611,8 @@ func (e entryOrdering) Less(i, j int) bool {
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
 }
 
-func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e entry) {
+func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
+	log := ctrl.LoggerFrom(ctx)
 	if e.status != notNominated && e.requeueReason == queue.RequeueReasonGeneric {
 		// Failed after nomination is the only reason why a workload would be requeued downstream.
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination

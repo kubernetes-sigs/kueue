@@ -381,6 +381,7 @@ func Register() {
 		admissionWaitTime,
 		admissionChecksWaitTime,
 		ClusterQueueResourceUsage,
+		ClusterQueueByStatus,
 		ClusterQueueResourceReservations,
 		ClusterQueueResourceNominalQuota,
 		ClusterQueueResourceBorrowingLimit,

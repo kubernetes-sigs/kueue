@@ -27,14 +27,14 @@ import (
 )
 
 const (
-	ControllerName    = "kueue-podtaintstolerations"
-	AdmissionTaintKey = "kueue.x-k8s.io/kueue-admission"
-	FrameworkName     = "core/pod"
+	ControllerName = "kueue-podtaintstolerations"
+	FrameworkName  = "core/pod"
 )
 
 var (
-	GVK           = corev1.SchemeGroupVersion.WithKind("Pod")
-	NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &Pod{} }, nil)
+	AdmissionTaintKey = "kueue.x-k8s.io/kueue-admission"
+	GVK               = corev1.SchemeGroupVersion.WithKind("Pod")
+	NewReconciler     = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &Pod{} }, nil)
 )
 
 var (

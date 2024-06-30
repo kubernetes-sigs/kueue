@@ -644,7 +644,11 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	reason, msg string,
 ) error {
 	oldStatus := cq.Status.DeepCopy()
-	pendingWorkloads := r.qManager.Pending(cq)
+	pendingWorkloads, err := r.qManager.Pending(cq)
+	if err != nil {
+		r.log.Error(err, "Failed getting pending workloads from queue manager")
+		return err
+	}
 	stats, err := r.cache.Usage(cq)
 	if err != nil {
 		r.log.Error(err, "Failed getting usage from cache")

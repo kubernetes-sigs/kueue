@@ -31,11 +31,12 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 const (
-	cqLong    = `Puts the given ClusterQueue on hold.`
+	cqLong    = `Resumes the previously held ClusterQueue.`
 	cqExample = `  # Resume the clusterqueue
   kueuectl resume clusterqueue my-clusterqueue`
 )
@@ -66,6 +67,7 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 		Long:                  cqLong,
 		Example:               cqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		ValidArgsFunction:     completion.ClusterQueueNameFunc(clientGetter, ptr.To(false)),
 		Run: func(cmd *cobra.Command, args []string) {
 			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
 			cobra.CheckErr(o.Run(cmd.Context()))

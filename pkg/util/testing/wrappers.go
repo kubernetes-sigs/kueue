@@ -548,6 +548,12 @@ func (q *LocalQueueWrapper) ClusterQueue(c string) *LocalQueueWrapper {
 	return q
 }
 
+// StopPolicy sets the stop policy.
+func (q *LocalQueueWrapper) StopPolicy(p kueue.StopPolicy) *LocalQueueWrapper {
+	q.Spec.StopPolicy = &p
+	return q
+}
+
 // PendingWorkloads updates the pendingWorkloads in status.
 func (q *LocalQueueWrapper) PendingWorkloads(n int32) *LocalQueueWrapper {
 	q.Status.PendingWorkloads = n
@@ -677,6 +683,12 @@ func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *Clus
 // StopPolicy sets the stop policy.
 func (c *ClusterQueueWrapper) StopPolicy(p kueue.StopPolicy) *ClusterQueueWrapper {
 	c.Spec.StopPolicy = &p
+	return c
+}
+
+// DeletionTimestamp sets a deletion timestamp for the cluster queue.
+func (c *ClusterQueueWrapper) DeletionTimestamp(t time.Time) *ClusterQueueWrapper {
+	c.ClusterQueue.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
 	return c
 }
 

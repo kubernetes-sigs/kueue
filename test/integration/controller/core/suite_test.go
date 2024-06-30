@@ -54,7 +54,7 @@ func TestAPIs(t *testing.T) {
 	)
 }
 
-func managerSetup(mgr manager.Manager, ctx context.Context) {
+func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

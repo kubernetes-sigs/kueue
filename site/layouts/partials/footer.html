@@ -24,6 +24,12 @@
 	{{ end }}
       </div>
     </div>
+    <div class="row">
+      <div class="text-center py-2 order-sm-2">
+        {{ with .Site.Params.trademark_link }}<small class="text-white">&copy; The Linux Foundation has registered trademarks and uses trademarks. For a list of trademarks of The Linux Foundation,
+        please see our <a href="{{ . }}">Trademark Usage page</a>.</small>{{ end }}
+      </div>
+    </div>
   </div>
 </footer>
 {{ define "footer-links-block" }}

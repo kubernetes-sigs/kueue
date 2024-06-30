@@ -154,7 +154,9 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
 			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
-				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) {
+				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) &&
+			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
+				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) {
 			c.inadmissibleWorkloads[key] = wInfo
 			return
 		}
@@ -168,8 +170,12 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	c.heap.PushOrUpdate(wInfo)
 }
 
-// backoffWaitingTimeExpired returns true if the current time is after the requeueAt.
+// backoffWaitingTimeExpired returns true if the current time is after the requeueAt
+// and Requeued condition not present or equal True.
 func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
+	if apimeta.IsStatusConditionFalse(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued) {
+		return false
+	}
 	if wInfo.Obj.Status.RequeueState == nil || wInfo.Obj.Status.RequeueState.RequeueAt == nil {
 		return true
 	}
@@ -184,6 +190,13 @@ func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 
 // Delete removes the workload from ClusterQueue.
 func (c *ClusterQueue) Delete(w *kueue.Workload) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
+	c.delete(w)
+}
+
+// delete removes the workload from ClusterQueue without lock.
+func (c *ClusterQueue) delete(w *kueue.Workload) {
 	key := workload.Key(w)
 	delete(c.inadmissibleWorkloads, key)
 	c.heap.Delete(key)
@@ -202,7 +215,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(q *LocalQueue) {
 		}
 	}
 	for _, w := range q.items {
-		c.Delete(w.Obj)
+		c.delete(w.Obj)
 	}
 }
 

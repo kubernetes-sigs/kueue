@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	testingclock "k8s.io/utils/clock/testing"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
@@ -206,9 +207,9 @@ lq1    cq1            1                   1                    60m
 				tf.WithNamespace(tc.ns)
 			}
 
-			tf.ClientSet = fake.NewSimpleClientset(tc.objs...)
+			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
 
-			cmd := NewLocalQueueCmd(tf, streams)
+			cmd := NewLocalQueueCmd(tf, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

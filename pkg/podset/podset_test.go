@@ -248,6 +248,40 @@ func TestMergeRestore(t *testing.T) {
 				Obj(),
 			wantRestoreChanges: true,
 		},
+		"don't duplicate tolerations": {
+			podSet: basePodSet.DeepCopy(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					"a1": "a1v",
+				},
+				Labels: map[string]string{
+					"l1": "l1v",
+				},
+				NodeSelector: map[string]string{
+					"ns1": "ns1v",
+				},
+				Tolerations: []corev1.Toleration{
+					{
+						Key:      "t0",
+						Operator: corev1.TolerationOpEqual,
+						Value:    "t0v",
+						Effect:   corev1.TaintEffectNoSchedule,
+					},
+				},
+			},
+			wantPodSet: utiltesting.MakePodSet("", 1).
+				NodeSelector(map[string]string{"ns0": "ns0v", "ns1": "ns1v"}).
+				Labels(map[string]string{"l0": "l0v", "l1": "l1v"}).
+				Annotations(map[string]string{"a0": "a0v", "a1": "a1v"}).
+				Toleration(corev1.Toleration{
+					Key:      "t0",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "t0v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Obj(),
+			wantRestoreChanges: true,
+		},
 		"conflicting label": {
 			podSet: basePodSet.DeepCopy(),
 			info: PodSetInfo{
