@@ -1,0 +1,24 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: sample-validating-admission-policy
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:   ["batch"]
+      apiVersions: ["v1"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["jobs"]
+  validations:
+    - expression: "object.metadata.labels.exists_one(key, key == 'kueue.x-k8s.io/queue-name') && object.metadata.labels['kueue.x-k8s.io/queue-name'] != ''"
+      message: "The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set in the Job."
+
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: sample-validating-admission-policy-binding
+spec:
+  policyName: sample-validating-admission-policy
+  validationActions: [Deny]
