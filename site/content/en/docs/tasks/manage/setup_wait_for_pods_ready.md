@@ -75,9 +75,8 @@ situations as demonstrated in the example below.
 
 ### Requeuing Strategy
 
-{{% alert title="Warning" color="warning" %}}
-Available in Kueue v0.6.0 and later
-{{% /alert %}}
+{{< feature-state state="stable" for_version="v0.6.0+" >}}
+
 {{% alert title="Note" color="primary" %}}
 The `backoffBaseSeconds` and `backoffMaxSeconds` are available in Kueue v0.7.0 and later
 {{% /alert %}}

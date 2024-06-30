@@ -1,15 +1,13 @@
-
 {{ $valid_states := "alpha, beta, deprecated, stable" }}
 {{ $project := .Get "project" | default "Kueue" }}
 {{ $state := .Get "state" }}
-{{ $for_kueue_version := .Get "for_kueue_version" | default (.Page.Param "version")}}
+{{ $for_version := .Get "for_version" | default (.Page.Param "version")}}
 {{ $is_valid := strings.Contains $valid_states $state }}
 
 {{ if not $is_valid }}
-  {{ errorf "%q is not a valid feature-state, use one of %q" $state $valid_states }}
+{{ errorf "%q is not a valid feature-state, use one of %q" $state $valid_states }}
 {{ else }}
-  <div class="feature-state-notice feature-{{ $state }}">
-  <span class="feature-state-name">FEATURE STATE</span> <code>{{ $project }} {{ $for_kueue_version }} [{{ $state }}]</code>
-  </div>
+<div class="feature-state-notice feature-{{ $state }}">
+  <span class="feature-state-name">FEATURE STATE</span> <code>{{ $project }} {{ $for_version }} [{{ $state }}]</code>
+</div>
 {{ end }}
-
