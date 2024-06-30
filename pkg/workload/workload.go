@@ -547,11 +547,11 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
-// admissionPatch creates a new object based on the input workload that contains
+// AdmissionStatusPatch creates a new object based on the input workload that contains
 // the admission and related conditions. The object can be used in Server-Side-Apply.
-func admissionPatch(w *kueue.Workload) *kueue.Workload {
+// If strict is true, resourceVersion will be part of the patch.
+func AdmissionStatusPatch(w *kueue.Workload, strict bool) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
-
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
 	for _, conditionName := range admissionManagedConditions {
@@ -559,17 +559,22 @@ func admissionPatch(w *kueue.Workload) *kueue.Workload {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
 		}
 	}
+	if strict {
+		wlCopy.ResourceVersion = w.ResourceVersion
+	}
 	return wlCopy
 }
 
 // ApplyAdmissionStatus updated all the admission related status fields of a workload with SSA.
-// if strict is true, resourceVersion will be part of the patch, make this call fail if Workload
+// If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
 // was changed.
 func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool) error {
-	patch := admissionPatch(w)
-	if strict {
-		patch.ResourceVersion = w.ResourceVersion
-	}
+	patch := AdmissionStatusPatch(w, strict)
+	return ApplyAdmissionStatusPatch(ctx, c, patch)
+}
+
+// ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
+func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueue.Workload) error {
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
 }
 
