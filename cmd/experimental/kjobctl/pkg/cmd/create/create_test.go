@@ -248,7 +248,7 @@ func TestCreateCmd(t *testing.T) {
 						Parallelism(1).
 						Completions(1).
 						WithContainer(*wrappers.MakeContainer("c1", "sleep").Command("sleep", "15s").Obj()).
-						WithContainer(*wrappers.MakeContainer("c2", "sleep").Command("sleep", "15s").Obj()).
+						WithContainer(*wrappers.MakeContainer("c2", "sleep").Obj()).
 						Obj(),
 				},
 			},
@@ -285,8 +285,6 @@ func TestCreateCmd(t *testing.T) {
 						).
 						WithContainer(
 							*wrappers.MakeContainer("c2", "sleep").
-								WithRequest("cpu", resource.MustParse("100m")).
-								WithRequest("ram", resource.MustParse("3Gi")).
 								Obj(),
 						).
 						Obj(),
