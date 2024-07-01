@@ -226,16 +226,23 @@ func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
 	for i := range templateSpec.Containers {
 		container := &templateSpec.Containers[i]
 
-		if len(b.command) > 0 {
+		if i == 0 && len(b.command) > 0 {
 			container.Command = b.command
 		}
 
-		if len(b.requests) > 0 {
+		if i == 0 && len(b.requests) > 0 {
 			container.Resources.Requests = b.requests
 		}
 
 		container.VolumeMounts = append(container.VolumeMounts, bundle.Spec.ContainerVolumeMounts...)
 		container.Env = append(container.Env, bundle.Spec.EnvVars...)
+	}
+
+	for i := range templateSpec.InitContainers {
+		initContainer := &templateSpec.InitContainers[i]
+
+		initContainer.VolumeMounts = append(initContainer.VolumeMounts, bundle.Spec.ContainerVolumeMounts...)
+		initContainer.Env = append(initContainer.Env, bundle.Spec.EnvVars...)
 	}
 
 	return templateSpec

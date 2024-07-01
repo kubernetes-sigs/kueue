@@ -69,6 +69,8 @@ type SupportedMode struct {
 	// requiredFlags point which cli flags are required to be passed in order to fill the gaps in the templates.
 	// Possible values are cmd, parallelism, completions, request, localqueue.
 	//
+	// cmd and requests values are going to be added only to the first primary container.
+	//
 	// +optional
 	// +listType=set
 	RequiredFlags []Flag `json:"requiredFlags,omitempty"`

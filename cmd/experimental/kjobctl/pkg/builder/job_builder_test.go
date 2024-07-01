@@ -52,6 +52,19 @@ func TestJobBuilder(t *testing.T) {
 				Completions: ptr.To[int32](1),
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic1",
+								Command:   []string{""},
+								Resources: corev1.ResourceRequirements{},
+								Env: []corev1.EnvVar{
+									{Name: "e0", Value: "default-value0"},
+								},
+								VolumeMounts: []corev1.VolumeMount{
+									{Name: "vm0", MountPath: "/etc/default-config0"},
+								},
+							},
+						},
 						Containers: []corev1.Container{
 							{
 								Name:    "c1",
@@ -261,6 +274,21 @@ func TestJobBuilder(t *testing.T) {
 					Completions: ptr.To[int32](3),
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
+							InitContainers: []corev1.Container{
+								{
+									Name:      "ic1",
+									Command:   []string{""},
+									Resources: corev1.ResourceRequirements{},
+									Env: []corev1.EnvVar{
+										{Name: "e0", Value: "default-value0"},
+										{Name: "e3", Value: "value3"},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: "vm0", MountPath: "/etc/default-config0"},
+										{Name: "vm3", MountPath: "/etc/config3"},
+									},
+								},
+							},
 							Containers: []corev1.Container{
 								{
 									Name:    "c1",
@@ -283,10 +311,10 @@ func TestJobBuilder(t *testing.T) {
 								},
 								{
 									Name:    "c2",
-									Command: []string{"sleep"},
+									Command: []string{""},
 									Resources: corev1.ResourceRequirements{
 										Requests: corev1.ResourceList{
-											corev1.ResourceCPU: resource.MustParse("3"),
+											corev1.ResourceCPU: resource.MustParse("2"),
 										},
 									},
 									Env: []corev1.EnvVar{
