@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -95,7 +96,7 @@ func candidatesFromCQOrUnderThreshold(candidates []*workload.Info, clusterQueue 
 }
 
 // GetTargets returns the list of workloads that should be evicted in order to make room for wl.
-func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*workload.Info {
+func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*workload.Info {
 	resPerFlv := resourcesRequiringPreemption(assignment)
 	cq := snapshot.ClusterQueues[wl.ClusterQueue]
 
@@ -116,12 +117,12 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	if len(sameQueueCandidates) == len(candidates) {
 		// There is no possible preemption of workloads from other queues,
 		// so we'll try borrowing.
-		return minimalPreemptions(wlReq, cq, snapshot, resPerFlv, candidates, true, nil)
+		return minimalPreemptions(log, wlReq, cq, snapshot, resPerFlv, candidates, true, nil)
 	}
 
 	borrowWithinCohort, thresholdPrio := canBorrowWithinCohort(cq, wl.Obj)
 	if p.enableFairSharing {
-		return p.fairPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, thresholdPrio)
+		return p.fairPreemptions(log, &wl, assignment, snapshot, resPerFlv, candidates, thresholdPrio)
 	}
 	// There is a potential of preemption of workloads from the other queue in the
 	// cohort. We proceed with borrowing only if the dedicated policy
@@ -133,20 +134,20 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 			// It can only preempt workloads from another CQ if they are strictly under allowBorrowingBelowPriority.
 			candidates = candidatesFromCQOrUnderThreshold(candidates, wl.ClusterQueue, *thresholdPrio)
 		}
-		return minimalPreemptions(wlReq, cq, snapshot, resPerFlv, candidates, true, thresholdPrio)
+		return minimalPreemptions(log, wlReq, cq, snapshot, resPerFlv, candidates, true, thresholdPrio)
 	}
 
 	// Only try preemptions in the cohort, without borrowing, if the target clusterqueue is still
 	// under nominal quota for all resources.
 	if queueUnderNominalInAllRequestedResources(wlReq, cq) {
-		if targets := minimalPreemptions(wlReq, cq, snapshot, resPerFlv, candidates, false, nil); len(targets) > 0 {
+		if targets := minimalPreemptions(log, wlReq, cq, snapshot, resPerFlv, candidates, false, nil); len(targets) > 0 {
 			return targets
 		}
 	}
 
 	// Final attempt. This time only candidates from the same queue, but
 	// with borrowing.
-	return minimalPreemptions(wlReq, cq, snapshot, resPerFlv, sameQueueCandidates, true, nil)
+	return minimalPreemptions(log, wlReq, cq, snapshot, resPerFlv, sameQueueCandidates, true, nil)
 }
 
 // canBorrowWithinCohort returns whether the behavior is enabled for the ClusterQueue and the threshold priority to use.
@@ -212,7 +213,10 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-func minimalPreemptions(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
+func minimalPreemptions(log logr.Logger, wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
+	if logV := log.V(5); logV.Enabled() {
+		logV.Info("Simulating preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", resPerFlv, "allowBorrowing", allowBorrowing, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
+	}
 	// Simulate removing all candidates from the ClusterQueue and cohort.
 	var targets []*workload.Info
 	fits := false
@@ -304,7 +308,10 @@ func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
 	return strategies
 }
 
-func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*workload.Info {
+func (p *Preemptor) fairPreemptions(log logr.Logger, wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*workload.Info {
+	if logV := log.V(5); logV.Enabled() {
+		logV.Info("Simulating fair preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", resPerFlv, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
+	}
 	cqHeap := cqHeapFromCandidates(candidates, false, snapshot)
 	nominatedCQ := snapshot.ClusterQueues[wl.ClusterQueue]
 	wlReq := assignment.TotalRequestsFor(wl)

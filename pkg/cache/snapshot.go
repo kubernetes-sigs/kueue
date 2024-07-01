@@ -68,8 +68,8 @@ func (s *Snapshot) Log(log logr.Logger) {
 	for name, cq := range s.ClusterQueues {
 		cohortName := "<none>"
 		if cq.Cohort != nil {
-			cohorts[cq.Name] = cq.Cohort
 			cohortName = cq.Cohort.Name
+			cohorts[cohortName] = cq.Cohort
 		}
 
 		log.Info("Found ClusterQueue",
