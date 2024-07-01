@@ -69,6 +69,9 @@ type Scheduler struct {
 	workloadOrdering        workload.Ordering
 	fairSharing             config.FairSharing
 
+	// attemptCount identifies the number of scheduling attempt in logs, from the last restart.
+	attemptCount int64
+
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
 }
@@ -183,7 +186,9 @@ func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assignment resou
 }
 
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
-	log := ctrl.LoggerFrom(ctx)
+	s.attemptCount++
+	log := ctrl.LoggerFrom(ctx).WithValues("attemptCount", s.attemptCount)
+	ctx = ctrl.LoggerInto(ctx, log)
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
@@ -419,7 +424,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	}
 
 	if arm == flavorassigner.Preempt {
-		faPreemtionTargets = s.preemptor.GetTargets(*wl, fullAssignment, snap)
+		faPreemtionTargets = s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
 	}
 
 	// if the feature gate is not enabled or we can preempt
@@ -433,7 +438,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 			if assignment.RepresentativeMode() == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
 			}
-			preemptionTargets := s.preemptor.GetTargets(*wl, assignment, snap)
+			preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
 			if len(preemptionTargets) > 0 {
 				return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
 			}
@@ -618,7 +623,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination
 	}
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added)
+	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
 		if workload.UnsetQuotaReservationWithCondition(e.Obj, "Pending", e.inadmissibleMsg) {
