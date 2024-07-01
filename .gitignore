@@ -29,3 +29,5 @@ testbin/*
 
 # Directory with CRDs for dependencies
 dep-crds
+
+kueue.yaml
