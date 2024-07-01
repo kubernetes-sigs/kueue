@@ -682,3 +682,14 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, admissionCh
 	}
 	return acNames
 }
+
+func References(wls []*Info) []klog.ObjectRef {
+	if len(wls) == 0 {
+		return nil
+	}
+	keys := make([]klog.ObjectRef, len(wls))
+	for i, wl := range wls {
+		keys[i] = klog.KObj(wl.Obj)
+	}
+	return keys
+}
