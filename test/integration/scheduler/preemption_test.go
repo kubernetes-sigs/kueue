@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -788,6 +789,162 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3,
 				testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "alpha", "4").Obj())
+		})
+	})
+
+	ginkgo.When("When using TryNextFlavor", func() {
+		var (
+			cqA        *kueue.ClusterQueue
+			lqA        *kueue.LocalQueue
+			cqB        *kueue.ClusterQueue
+			lqB        *kueue.LocalQueue
+			cqShared   *kueue.ClusterQueue
+			betaFlavor *kueue.ResourceFlavor
+		)
+		ginkgo.BeforeEach(func() {
+			betaFlavor = testing.MakeResourceFlavor("beta").Obj()
+			gomega.Expect(k8sClient.Create(ctx, betaFlavor)).To(gomega.Succeed())
+			cqA = testing.MakeClusterQueue("cq-a").
+				Cohort("cohort").
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanPreempt: kueue.TryNextFlavor,
+					WhenCanBorrow:  kueue.TryNextFlavor,
+				}).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("alpha").
+						Resource(corev1.ResourceCPU, "0", "60").Obj(),
+					*testing.MakeFlavorQuotas("beta").
+						Resource(corev1.ResourceCPU, "30", "30").Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cqA)).To(gomega.Succeed())
+			lqA = testing.MakeLocalQueue("a", ns.Name).ClusterQueue("cq-a").Obj()
+			gomega.Expect(k8sClient.Create(ctx, lqA)).To(gomega.Succeed())
+
+			cqB = testing.MakeClusterQueue("cq-b").
+				Cohort("cohort").
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanPreempt: kueue.TryNextFlavor,
+					WhenCanBorrow:  kueue.TryNextFlavor,
+				}).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("alpha").
+						Resource(corev1.ResourceCPU, "30", "30").Obj(),
+					*testing.MakeFlavorQuotas("beta").
+						Resource(corev1.ResourceCPU, "30", "30").Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cqB)).To(gomega.Succeed())
+			lqB = testing.MakeLocalQueue("b", ns.Name).ClusterQueue("cq-b").Obj()
+			gomega.Expect(k8sClient.Create(ctx, lqB)).To(gomega.Succeed())
+
+			cqShared = testing.MakeClusterQueue("cq-shared").
+				Cohort("cohort").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("alpha").
+						Resource(corev1.ResourceCPU, "30", "0").Obj(),
+					*testing.MakeFlavorQuotas("beta").
+						Resource(corev1.ResourceCPU, "0", "0").Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cqShared)).To(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cqA, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cqB, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cqShared, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, betaFlavor, true)
+		})
+		ginkgo.FIt("Should try next flavor before preempting or borrowing", func() {
+			aWorkloads := make([]*kueue.Workload, 3)
+			for i := range aWorkloads {
+				ginkgo.By(fmt.Sprintf("Creating workload a-%d in cq-a", i))
+				aWorkloads[i] = testing.MakeWorkload(fmt.Sprintf("a-%d", i), ns.Name).
+					Queue("a").
+					Request(corev1.ResourceCPU, "22").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, aWorkloads[i])).To(gomega.Succeed())
+				time.Sleep(time.Second)
+			}
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, aWorkloads...)
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(updatedCQ.Status.FlavorsUsage).To(gomega.BeComparableTo([]kueue.FlavorUsage{
+					{
+						Name: "alpha",
+						Resources: []kueue.ResourceUsage{
+							{
+								Name:     "cpu",
+								Borrowed: resource.MustParse("44"),
+								Total:    resource.MustParse("44"),
+							},
+						},
+					},
+					{
+						Name: "beta",
+						Resources: []kueue.ResourceUsage{
+							{
+								Name:     "cpu",
+								Borrowed: resource.Quantity{},
+								Total:    resource.MustParse("22"),
+							},
+						},
+					},
+				}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating first workload in cq-b")
+			bWl0 := testing.MakeWorkload("b-0", ns.Name).
+				Queue("b").
+				Request(corev1.ResourceCPU, "22").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, bWl0)).To(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, bWl0)
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqB), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(updatedCQ.Status.FlavorsUsage).To(gomega.BeComparableTo([]kueue.FlavorUsage{
+					{
+						Name: "alpha",
+						Resources: []kueue.ResourceUsage{
+							{
+								Name:     "cpu",
+								Borrowed: resource.Quantity{},
+								Total:    resource.Quantity{},
+							},
+						},
+					},
+					{
+						Name: "beta",
+						Resources: []kueue.ResourceUsage{
+							{
+								Name:     "cpu",
+								Borrowed: resource.Quantity{},
+								Total:    resource.MustParse("22"),
+							},
+						},
+					},
+				}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating second workload in cq-b")
+			bWl1 := testing.MakeWorkload("b-1", ns.Name).
+				Queue("b").
+				Request(corev1.ResourceCPU, "22").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, bWl1)).To(gomega.Succeed())
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, aWorkloads[2])
+
+			ginkgo.By("Finalizing preemption of a-2")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, aWorkloads[2])
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, bWl1)
 		})
 	})
 })
