@@ -304,11 +304,11 @@ None.
 For completeness there will be 5 additional commands that will simply execute regular kubectl
 so that the users won't have to remember to switch the command to kubectl.
 
-* `get workload|clusterqueue|cq|localqueue|lq`
-* `describe workload|clusterqueue|cq|localqueue|lq`
-* `edit workload|clusterqueue|cq|localqueue|lq`
-* `patch workload|clusterqueue|cq|localqueue|lq`
-* `delete workload|clusterqueue|cq|localqueue|lq`
+* `get workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `describe workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `edit workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `patch workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `delete workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
 
 ### Test Plan
 
