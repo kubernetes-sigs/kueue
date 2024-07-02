@@ -617,21 +617,28 @@ func (e entryOrdering) Less(i, j int) bool {
 }
 
 func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
+	newWorkload := e.Obj.DeepCopy()
 	log := ctrl.LoggerFrom(ctx)
 	if e.status != notNominated && e.requeueReason == queue.RequeueReasonGeneric {
 		// Failed after nomination is the only reason why a workload would be requeued downstream.
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination
 	}
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
-
+	log.V(2).Info("Workload re-queued",
+		"workload", klog.KObj(newWorkload),
+		"clusterQueue", klog.KRef("", e.ClusterQueue),
+		"queue", klog.KRef(newWorkload.Namespace, newWorkload.Spec.QueueName),
+		"requeueReason", e.requeueReason,
+		"added", added,
+		"status", e.status,
+	)
 	if e.status == notNominated || e.status == skipped {
-		if workload.UnsetQuotaReservationWithCondition(e.Obj, "Pending", e.inadmissibleMsg) {
-			err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true)
+		if workload.UnsetQuotaReservationWithCondition(newWorkload, "Pending", e.inadmissibleMsg) {
+			err := workload.ApplyAdmissionStatus(ctx, s.client, newWorkload, true)
 			if err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 		}
-		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
+		s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
 	}
 }

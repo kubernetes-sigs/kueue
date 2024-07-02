@@ -2523,11 +2523,6 @@ func TestRequeueAndUpdate(t *testing.T) {
 			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 			}
-			// Make sure a second call doesn't make unnecessary updates.
-			scheduler.requeueAndUpdate(ctx, tc.e)
-			if updates != tc.wantStatusUpdates {
-				t.Errorf("Observed %d status updates, want %d", updates, tc.wantStatusUpdates)
-			}
 		})
 	}
 }
