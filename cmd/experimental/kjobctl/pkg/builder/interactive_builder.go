@@ -19,7 +19,7 @@ package builder
 import (
 	"context"
 
-	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -27,23 +27,22 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-type jobBuilder struct {
+type interactiveBuilder struct {
 	*Builder
 }
 
-var _ builder = (*jobBuilder)(nil)
+var _ builder = (*interactiveBuilder)(nil)
 
-func (b *jobBuilder) build(ctx context.Context) (runtime.Object, error) {
-	template, err := b.kjobctlClientset.KjobctlV1alpha1().JobTemplates(b.profile.Namespace).
-		Get(ctx, string(b.mode.Template), metav1.GetOptions{})
+func (b *interactiveBuilder) build(ctx context.Context) (runtime.Object, error) {
+	template, err := b.k8sClientset.CoreV1().PodTemplates(b.profile.Namespace).Get(ctx, string(b.mode.Template), metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	job := &batchv1.Job{
+	pod := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "Job",
-			APIVersion: "batch/v1",
+			Kind:       "Pod",
+			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:    b.profile.Namespace,
@@ -54,26 +53,18 @@ func (b *jobBuilder) build(ctx context.Context) (runtime.Object, error) {
 	}
 
 	if b.profile != nil {
-		job.Labels[constants.ProfileLabel] = b.profile.Name
+		pod.Labels[constants.ProfileLabel] = b.profile.Name
 	}
 
-	job.Spec.Template.Spec = b.buildPodSpec(job.Spec.Template.Spec)
-
-	if b.parallelism != nil {
-		job.Spec.Parallelism = b.parallelism
-	}
-
-	if b.completions != nil {
-		job.Spec.Completions = b.completions
-	}
+	pod.Spec = b.buildPodSpec(pod.Spec)
 
 	if len(b.localQueue) > 0 {
-		job.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
+		pod.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
 	}
 
-	return job, nil
+	return pod, nil
 }
 
-func newJobBuilder(b *Builder) *jobBuilder {
-	return &jobBuilder{Builder: b}
+func newInteractiveBuilder(b *Builder) *interactiveBuilder {
+	return &interactiveBuilder{Builder: b}
 }
