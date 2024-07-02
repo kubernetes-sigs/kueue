@@ -13,6 +13,7 @@
 - [Design Details](#design-details)
   - [Create ClusterQueue](#create-clusterqueue)
   - [Create LocalQueue](#create-localqueue)
+  - [Create ResourceFlavor](#create-resourceflavor)
   - [List ClusterQueue](#list-clusterqueue)
   - [List LocalQueue](#list-localqueue)
   - [List Workloads](#list-workloads)
@@ -152,6 +153,19 @@ kueuectl create lq|localqueue lqname
 
 Output:  
 A simple confirmation `localqueue.kueue.x-k8s.io/xxxxx created`
+
+### Create ResourceFlavor
+
+Creates a ResourceFlavor with the given name.
+
+Format:
+
+```
+kueuectl create rf|resourceflavor rfname
+```
+
+Output:  
+A simple confirmation `resourceflavor.kueue.x-k8s.io/xxxxx created`
 
 ### List ClusterQueue
 

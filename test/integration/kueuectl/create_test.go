@@ -17,6 +17,7 @@ limitations under the License.
 package kueuectl
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -421,6 +422,46 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 							},
 						},
 					}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Creating a ResourceFlavor", func() {
+		const rfName = "resource-flavor"
+
+		ginkgo.AfterEach(func() {
+			var resourceFlavor v1beta1.ResourceFlavor
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: rfName}, &resourceFlavor)
+			gomega.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
+			if !apierrors.IsNotFound(err) {
+				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, &resourceFlavor, true)
+			}
+		})
+
+		ginkgo.It("Should create a resource flavor", func() {
+			ginkgo.By("Create a resource flavor", func() {
+				streams, _, out, outErr := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(out)
+				kueuectl.SetErr(outErr)
+
+				kueuectl.SetArgs([]string{"create", "resourceflavor", rfName})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s %s", err, out, outErr)
+				gomega.Expect(out.String()).Should(gomega.Equal(fmt.Sprintf("resourceflavor.kueue.x-k8s.io/%s created\n", rfName)))
+				gomega.Expect(outErr.String()).Should(gomega.BeEmpty())
+			})
+
+			ginkgo.By("Check that the resource flavor successfully created", func() {
+				var resourceFlavor v1beta1.ResourceFlavor
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rfName, Namespace: ns.Name}, &resourceFlavor)).To(gomega.Succeed())
+					g.Expect(resourceFlavor.Name).Should(gomega.Equal(rfName))
+					g.Expect(resourceFlavor.Spec.NodeLabels).Should(gomega.BeNil())
+					g.Expect(resourceFlavor.Spec.NodeTaints).Should(gomega.BeNil())
+					g.Expect(resourceFlavor.Spec.Tolerations).Should(gomega.BeNil())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

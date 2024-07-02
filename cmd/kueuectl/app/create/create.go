@@ -39,6 +39,7 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 
 	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams))
 	cmd.AddCommand(NewClusterQueueCmd(clientGetter, streams))
+	cmd.AddCommand(NewResourceFlavorCmd(clientGetter, streams))
 
 	return cmd
 }
