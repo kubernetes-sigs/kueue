@@ -26,7 +26,10 @@ BUILD_DIR=${BUILD_DIR}
 BUILD_NAME=${BUILD_NAME:-kueuectl}
 PLATFORMS=${PLATFORMS:-linux/amd64}
 
-mkdir -p BUILD_DIR
+ROOT_PATH=$(realpath $(dirname ${BASH_SOURCE[0]})/..)
+BUILD_PATH=${ROOT_PATH}/${BUILD_DIR}
+
+mkdir -p ${BUILD_PATH}
 
 IFS=","
 for PLATFORM in ${PLATFORMS} ; do
@@ -39,5 +42,12 @@ for PLATFORM in ${PLATFORMS} ; do
   fi
 
   echo "Building for $PLATFORM platform"
-  ${GO_BUILD_ENV} ${GO_CMD} build -ldflags="${LD_FLAGS}" -o ${BUILD_DIR}/${BUILD_NAME}-${GOOS}-${GOARCH}${EXTENSION} $1
+  FULL_NAME=${BUILD_NAME}-${GOOS}-${GOARCH}
+  ${GO_BUILD_ENV} ${GO_CMD} build -ldflags="${LD_FLAGS}" -o ${BUILD_PATH}/${FULL_NAME}${EXTENSION} $1
+
+  mkdir -p ${BUILD_PATH}/tmp/${FULL_NAME}
+  cp ${ROOT_PATH}/LICENSE ${BUILD_PATH}/tmp/${FULL_NAME}
+  cp ${BUILD_PATH}/${FULL_NAME}${EXTENSION} ${BUILD_PATH}/tmp/${FULL_NAME}/${BUILD_NAME}${EXTENSION}
+  (cd ${BUILD_PATH}/tmp && tar -czf ${BUILD_PATH}/${FULL_NAME}.tar.gz ${FULL_NAME})
+  rm -R ${BUILD_PATH}/tmp
 done
