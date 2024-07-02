@@ -60,6 +60,7 @@ var snapCmpOpts = []cmp.Option{
 }
 
 func TestPreemption(t *testing.T) {
+	now := time.Now()
 	flavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
 		utiltesting.MakeResourceFlavor("alpha").Obj(),
@@ -86,8 +87,8 @@ func TestPreemption(t *testing.T) {
 		utiltesting.MakeClusterQueue("c1").
 			Cohort("cohort").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "6", "12").
-				Resource(corev1.ResourceMemory, "3Gi", "6Gi").
+				Resource(corev1.ResourceCPU, "6", "6").
+				Resource(corev1.ResourceMemory, "3Gi", "3Gi").
 				Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -98,8 +99,8 @@ func TestPreemption(t *testing.T) {
 		utiltesting.MakeClusterQueue("c2").
 			Cohort("cohort").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "6", "12").
-				Resource(corev1.ResourceMemory, "3Gi", "6Gi").
+				Resource(corev1.ResourceCPU, "6", "6").
+				Resource(corev1.ResourceMemory, "3Gi", "3Gi").
 				Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -509,6 +510,42 @@ func TestPreemption(t *testing.T) {
 				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 					Name: "default",
 					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: sets.New("/c2-mid"),
+		},
+		"reclaim quota if workload requests 0 resources for a resource at nominal quota": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("c1-low", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "3").
+					Request(corev1.ResourceMemory, "3Gi").
+					SimpleReserveQuota("c1", "default", now).
+					Obj(),
+				*utiltesting.MakeWorkload("c2-mid", "").
+					Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("c2", "default", now).
+					Obj(),
+				*utiltesting.MakeWorkload("c2-high", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "6").
+					SimpleReserveQuota("c2", "default", now).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Priority(1).
+				Request(corev1.ResourceCPU, "3").
+				Request(corev1.ResourceMemory, "0").
+				Obj(),
+			targetCQ: "c1",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Fit,
 				},
 			}),
 			wantPreempted: sets.New("/c2-mid"),
