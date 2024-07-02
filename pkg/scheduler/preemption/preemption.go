@@ -74,31 +74,38 @@ func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload, strin
 	p.applyPreemption = f
 }
 
-func candidatesOnlyFromQueue(candidates []*workload.Info, clusterQueue string) []*workload.Info {
-	result := make([]*workload.Info, 0, len(candidates))
-	for _, wi := range candidates {
-		if wi.ClusterQueue == clusterQueue {
-			result = append(result, wi)
+func candidatesOnlyFromQueue(candidates []*Target, clusterQueue string) []*Target {
+	result := make([]*Target, 0, len(candidates))
+	for _, ci := range candidates {
+		if ci.wl.ClusterQueue == clusterQueue {
+			result = append(result, ci)
 		}
 	}
 	return result
 }
 
-func candidatesFromCQOrUnderThreshold(candidates []*workload.Info, clusterQueue string, threshold int32) []*workload.Info {
-	result := make([]*workload.Info, 0, len(candidates))
-	for _, wi := range candidates {
-		if wi.ClusterQueue == clusterQueue || priority.Priority(wi.Obj) < threshold {
-			result = append(result, wi)
+func candidatesFromCQOrUnderThreshold(candidates []*Target, clusterQueue string, threshold int32) []*Target {
+	result := make([]*Target, 0, len(candidates))
+	for _, ci := range candidates {
+		if ci.wl.ClusterQueue == clusterQueue || priority.Priority(ci.wl.Obj) < threshold {
+			result = append(result, ci)
 		}
 	}
 	return result
+}
+
+type Target struct {
+	wl     *workload.Info
+	Reason string
+	Scope  string // ClusterQueue/Cohort
 }
 
 // GetTargets returns the list of workloads that should be evicted in order to make room for wl.
-func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*workload.Info {
+func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*Target {
 	resPerFlv := resourcesRequiringPreemption(assignment)
 	cq := snapshot.ClusterQueues[wl.ClusterQueue]
 
+	// TODO: Try to revert
 	candidates := findCandidates(wl.Obj, p.workloadOrdering, cq, resPerFlv)
 	if len(candidates) == 0 {
 		return nil
@@ -170,12 +177,13 @@ const (
 
 	InClusterQueueReason = "InClusterQueue"
 
-	InCohortReclamationReason = "InCohortReclamation"
-	InCohortFairSharingReason = "InCohortFairSharing"
+	InCohortReclamationReason           = "InCohortReclamation"
+	InCohortFairSharingReason           = "InCohortFairSharing"
+	InCohortReclaimWhileBorrowingReason = "InCohortReclaimWhileBorrowing"
 )
 
 // IssuePreemptions marks the target workloads as evicted.
-func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*workload.Info, cq *cache.ClusterQueue, borrowing bool) (int, error) {
+func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target, cq *cache.ClusterQueue) (int, error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
@@ -183,40 +191,38 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
-		if !meta.IsStatusConditionTrue(target.Obj.Status.Conditions, kueue.WorkloadEvicted) {
-			origin, reason := p.getPreemptionReason(cq.Name == target.ClusterQueue, borrowing)
-
-			message := fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", preemptor.Obj.UID, origin)
-			err := p.applyPreemption(ctx, target.Obj, reason, message)
+		if !meta.IsStatusConditionTrue(target.wl.Obj.Status.Conditions, kueue.WorkloadEvicted) {
+			message := fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", preemptor.Obj.UID, target)
+			err := p.applyPreemption(ctx, target.wl.Obj, target.Reason, message)
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
 				return
 			}
 
-			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.Obj), "reason", reason, "message", message)
-			p.recorder.Eventf(target.Obj, corev1.EventTypeNormal, "Preempted", message)
-			metrics.ReportEvictedWorkloads(target.ClusterQueue, kueue.WorkloadEvictedByPreemption)
+			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.wl.Obj), "reason", target.Reason, "message", message)
+			p.recorder.Eventf(target.wl.Obj, corev1.EventTypeNormal, "Preempted", message)
+			metrics.ReportEvictedWorkloads(target.wl.ClusterQueue, kueue.WorkloadEvictedByPreemption)
 		} else {
-			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.Obj))
+			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.wl.Obj))
 		}
 		atomic.AddInt64(&successfullyPreempted, 1)
 	})
 	return int(successfullyPreempted), errCh.ReceiveError()
 }
 
-func (p *Preemptor) getPreemptionReason(sameCq, borrowing bool) (string, string) {
-	origin := ClusterQueueOrigin
-	reason := InClusterQueueReason
-	if !sameCq {
-		origin = CohortOrigin
-		if borrowing {
-			reason = InCohortFairSharingReason
-		} else {
-			reason = InCohortReclamationReason
-		}
-	}
-	return origin, reason
-}
+//func (p *Preemptor) getPreemptionReason(sameCq, borrowing bool) (string, string) {
+//	origin := ClusterQueueOrigin
+//	reason := InClusterQueueReason
+//	if !sameCq {
+//		origin = CohortOrigin
+//		if borrowing {
+//			reason = InCohortFairSharingReason
+//		} else {
+//			reason = InCohortReclamationReason
+//		}
+//	}
+//	return origin, reason
+//}
 
 func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
 	w = w.DeepCopy()
@@ -233,32 +239,48 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-func minimalPreemptions(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
+func minimalPreemptions(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*Target, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*Target {
 	// Simulate removing all candidates from the ClusterQueue and cohort.
-	var targets []*workload.Info
+	var targets []*Target
 	fits := false
-	for _, candWl := range candidates {
-		candCQ := snapshot.ClusterQueues[candWl.ClusterQueue]
+	for _, candT := range candidates {
+		candCQ := snapshot.ClusterQueues[candT.wl.ClusterQueue]
+		sameCq := cq != candCQ
+		scope := ClusterQueueOrigin
+		reason := InClusterQueueReason
+		// cq != candCQ -> origin = Cohort
 		if cq != candCQ && !cqIsBorrowing(candCQ, resPerFlv) {
 			continue
 		}
-		if cq != candCQ && allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) >= *allowBorrowingBelowPriority {
-			// We set allowBorrowing=false if there is a candidate with priority
-			// exceeding allowBorrowingBelowPriority added to targets.
-			//
-			// We need to be careful mutating allowBorrowing. We rely on the
-			// fact that once there is a candidate exceeding the priority added
-			// to targets, then at least one such candidate is present in the
-			// final set of targets (after the second phase of the function).
-			//
-			// This is true, because the candidates are ordered according
-			// to priorities (from lowest to highest, using candidatesOrdering),
-			// and the last added target is not removed in the second phase of
-			// the function.
-			allowBorrowing = false
+		if !sameCq {
+			if allowBorrowingBelowPriority != nil && priority.Priority(candT.wl.Obj) >= *allowBorrowingBelowPriority {
+				// We set allowBorrowing=false if there is a candidate with priority
+				// exceeding allowBorrowingBelowPriority added to targets.
+				//
+				// We need to be careful mutating allowBorrowing. We rely on the
+				// fact that once there is a candidate exceeding the priority added
+				// to targets, then at least one such candidate is present in the
+				// final set of targets (after the second phase of the function).
+				//
+				// This is true, because the candidates are ordered according
+				// to priorities (from lowest to highest, using candidatesOrdering),
+				// and the last added target is not removed in the second phase of
+				// the function.
+				allowBorrowing = false
+			} else {
+				reason = InCohortReclaimWhileBorrowingReason
+			}
 		}
-		snapshot.RemoveWorkload(candWl)
-		targets = append(targets, candWl)
+		snapshot.RemoveWorkload(candT.wl)
+		if !sameCq && !allowBorrowing {
+			scope = CohortOrigin
+			reason = InCohortReclamationReason
+		}
+		targets = append(targets, &Target{
+			wl:     candT.wl,
+			Reason: reason,
+			Scope:  scope,
+		})
 		if workloadFits(wlReq, cq, allowBorrowing) {
 			fits = true
 			break
@@ -273,24 +295,24 @@ func minimalPreemptions(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQ
 	return targets
 }
 
-func fillBackWorkloads(targets []*workload.Info, wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, snapshot *cache.Snapshot, allowBorrowing bool) []*workload.Info {
+func fillBackWorkloads(targets []*Target, wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, snapshot *cache.Snapshot, allowBorrowing bool) []*Target {
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
-		snapshot.AddWorkload(targets[i])
+		snapshot.AddWorkload(targets[i].wl)
 		if workloadFits(wlReq, cq, allowBorrowing) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
 		} else {
-			snapshot.RemoveWorkload(targets[i])
+			snapshot.RemoveWorkload(targets[i].wl)
 		}
 	}
 	return targets
 }
 
-func restoreSnapshot(snapshot *cache.Snapshot, targets []*workload.Info) {
+func restoreSnapshot(snapshot *cache.Snapshot, targets []*Target) {
 	for _, t := range targets {
-		snapshot.AddWorkload(t)
+		snapshot.AddWorkload(t.wl)
 	}
 }
 
@@ -325,21 +347,26 @@ func parseStrategies(s []config.PreemptionStrategy) []fsStrategy {
 	return strategies
 }
 
-func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowingBelowPriority *int32) []*workload.Info {
+func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*Target, allowBorrowingBelowPriority *int32) []*Target {
 	cqHeap := cqHeapFromCandidates(candidates, false, snapshot)
 	nominatedCQ := snapshot.ClusterQueues[wl.ClusterQueue]
 	wlReq := assignment.TotalRequestsFor(wl)
 	newNominatedShareValue, _ := nominatedCQ.DominantResourceShareWith(wlReq)
-	var targets []*workload.Info
+	var targets []*Target
 	fits := false
-	var retryCandidates []*workload.Info
+	var retryCandidates []*Target
 	for cqHeap.Len() > 0 && !fits {
 		candCQ := cqHeap.Pop()
 
+		// Add scope and reasons
 		if candCQ.cq == nominatedCQ {
-			candWl := candCQ.workloads[0]
-			snapshot.RemoveWorkload(candWl)
-			targets = append(targets, candWl)
+			candT := candCQ.workloads[0]
+			snapshot.RemoveWorkload(candT.wl)
+			targets = append(targets, &Target{
+				wl:     candT.wl,
+				Reason: InClusterQueueReason,
+				Scope:  ClusterQueueOrigin,
+			})
 			if workloadFits(wlReq, nominatedCQ, true) {
 				fits = true
 				break
@@ -353,12 +380,16 @@ func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner
 			continue
 		}
 
-		for i, candWl := range candCQ.workloads {
-			belowThreshold := allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) < *allowBorrowingBelowPriority
-			newCandShareVal, _ := candCQ.cq.DominantResourceShareWithout(candWl)
+		for i, candT := range candCQ.workloads {
+			belowThreshold := allowBorrowingBelowPriority != nil && priority.Priority(candT.wl.Obj) < *allowBorrowingBelowPriority
+			newCandShareVal, _ := candCQ.cq.DominantResourceShareWithout(candT.wl)
 			if belowThreshold || p.fsStrategies[0](newNominatedShareValue, candCQ.share, newCandShareVal) {
-				snapshot.RemoveWorkload(candWl)
-				targets = append(targets, candWl)
+				snapshot.RemoveWorkload(candT.wl)
+				targets = append(targets, &Target{
+					wl:     candT.wl,
+					Reason: InCohortFairSharingReason,
+					Scope:  CohortOrigin,
+				})
 				if workloadFits(wlReq, nominatedCQ, true) {
 					fits = true
 					break
@@ -371,7 +402,11 @@ func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner
 				// Might need to pick a different CQ due to changing values.
 				break
 			} else {
-				retryCandidates = append(retryCandidates, candCQ.workloads[i])
+				retryCandidates = append(retryCandidates, &Target{
+					wl:     candCQ.workloads[i].wl,
+					Reason: InCohortFairSharingReason,
+					Scope:  CohortOrigin,
+				})
 			}
 		}
 	}
@@ -385,9 +420,9 @@ func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner
 			// in which case the last parameter for the strategy function is irrelevant.
 			if p.fsStrategies[1](newNominatedShareValue, candCQ.share, 0) {
 				// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
-				candWl := candCQ.workloads[0]
-				snapshot.RemoveWorkload(candWl)
-				targets = append(targets, candWl)
+				candT := candCQ.workloads[0]
+				snapshot.RemoveWorkload(candT.wl)
+				targets = append(targets, candT)
 				if workloadFits(wlReq, nominatedCQ, true) {
 					fits = true
 				}
@@ -407,11 +442,11 @@ func (p *Preemptor) fairPreemptions(wl *workload.Info, assignment flavorassigner
 
 type candidateCQ struct {
 	cq        *cache.ClusterQueue
-	workloads []*workload.Info
+	workloads []*Target
 	share     int
 }
 
-func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot *cache.Snapshot) *heap.Heap[candidateCQ] {
+func cqHeapFromCandidates(candidates []*Target, firstOnly bool, snapshot *cache.Snapshot) *heap.Heap[candidateCQ] {
 	cqHeap := heap.New(
 		func(c *candidateCQ) string {
 			return c.cq.Name
@@ -420,19 +455,19 @@ func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot 
 			return c1.share > c2.share
 		},
 	)
-	for _, cand := range candidates {
-		candCQ := cqHeap.GetByKey(cand.ClusterQueue)
+	for _, candT := range candidates {
+		candCQ := cqHeap.GetByKey(candT.wl.ClusterQueue)
 		if candCQ == nil {
-			cq := snapshot.ClusterQueues[cand.ClusterQueue]
+			cq := snapshot.ClusterQueues[candT.wl.ClusterQueue]
 			share, _ := cq.DominantResourceShare()
 			candCQ = &candidateCQ{
 				cq:        cq,
 				share:     share,
-				workloads: []*workload.Info{cand},
+				workloads: []*Target{candT},
 			}
 			cqHeap.PushOrUpdate(candCQ)
 		} else if !firstOnly {
-			candCQ.workloads = append(candCQ.workloads, cand)
+			candCQ.workloads = append(candCQ.workloads, candT)
 		}
 	}
 	return cqHeap
@@ -461,8 +496,8 @@ func resourcesRequiringPreemption(assignment flavorassigner.Assignment) resource
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
-func findCandidates(wl *kueue.Workload, wo workload.Ordering, cq *cache.ClusterQueue, resPerFlv resourcesPerFlavor) []*workload.Info {
-	var candidates []*workload.Info
+func findCandidates(wl *kueue.Workload, wo workload.Ordering, cq *cache.ClusterQueue, resPerFlv resourcesPerFlavor) []*Target {
+	var candidates []*Target
 	wlPriority := priority.Priority(wl)
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
@@ -482,7 +517,11 @@ func findCandidates(wl *kueue.Workload, wo workload.Ordering, cq *cache.ClusterQ
 			if !workloadUsesResources(candidateWl, resPerFlv) {
 				continue
 			}
-			candidates = append(candidates, candidateWl)
+			candidates = append(candidates, &Target{
+				wl:     candidateWl,
+				Reason: InClusterQueueReason,
+				Scope:  ClusterQueueOrigin,
+			})
 		}
 	}
 
@@ -503,7 +542,11 @@ func findCandidates(wl *kueue.Workload, wo workload.Ordering, cq *cache.ClusterQ
 				if !workloadUsesResources(candidateWl, resPerFlv) {
 					continue
 				}
-				candidates = append(candidates, candidateWl)
+				candidates = append(candidates, &Target{
+					wl:     candidateWl,
+					Reason: InCohortReclamationReason,
+					Scope:  CohortOrigin,
+				})
 			}
 		}
 	}
@@ -605,10 +648,10 @@ func queueUnderNominalInAllRequestedResources(wlReq cache.FlavorResourceQuantiti
 // same ClusterQueue as the preemptor.
 // 2. Workloads with lower priority first.
 // 3. Workloads admitted more recently first.
-func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) func(int, int) bool {
+func candidatesOrdering(candidates []*Target, cq string, now time.Time) func(int, int) bool {
 	return func(i, j int) bool {
-		a := candidates[i]
-		b := candidates[j]
+		a := candidates[i].wl
+		b := candidates[j].wl
 		aEvicted := meta.IsStatusConditionTrue(a.Obj.Status.Conditions, kueue.WorkloadEvicted)
 		bEvicted := meta.IsStatusConditionTrue(b.Obj.Status.Conditions, kueue.WorkloadEvicted)
 		if aEvicted != bEvicted {
