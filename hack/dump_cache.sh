@@ -22,7 +22,7 @@ set -o pipefail
 
 NAMESPACE=${NAMESPACE:-kueue-system}
 LEASE_NAME=${LEASE_NAME:-c1f6bfd2.kueue.x-k8s.io}
-DEBUG_IMAGE=${DEBUG_IMAGE:-gcr.io/k8s-staging-kueue/debug:main}
+DEBUG_IMAGE=${DEBUG_IMAGE:-us-central1-docker.pkg.dev/k8s-staging-images/kueue/debug:main}
 
 leader=$(kubectl get lease -n ${NAMESPACE} ${LEASE_NAME} -o jsonpath='{.spec.holderIdentity}' | cut -d '_' -f 1)
 
