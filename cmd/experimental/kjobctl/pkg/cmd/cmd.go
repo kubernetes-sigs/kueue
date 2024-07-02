@@ -22,13 +22,16 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/create"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/list"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 )
 
 type KjobctlOptions struct {
+	Clock       clock.Clock
 	ConfigFlags *genericclioptions.ConfigFlags
 
 	genericiooptions.IOStreams
@@ -52,6 +55,10 @@ func NewKjobctlCmd(o KjobctlOptions) *cobra.Command {
 		Short: "ML/AI/Batch Jobs Made Easy",
 	}
 
+	if o.Clock == nil {
+		o.Clock = clock.RealClock{}
+	}
+
 	flags := cmd.PersistentFlags()
 
 	configFlags := o.ConfigFlags
@@ -68,6 +75,7 @@ func NewKjobctlCmd(o KjobctlOptions) *cobra.Command {
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("user", completion.UsersFunc(clientGetter)))
 
 	cmd.AddCommand(create.NewCreateCmd(clientGetter, o.IOStreams))
+	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
 
 	return cmd
 }

@@ -17,6 +17,8 @@ limitations under the License.
 package wrappers
 
 import (
+	"time"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -87,5 +89,35 @@ func (j *JobWrapper) Label(key, value string) *JobWrapper {
 // WithContainer add container on the pod template.
 func (j *JobWrapper) WithContainer(container corev1.Container) *JobWrapper {
 	j.Spec.Template.Spec.Containers = append(j.Spec.Template.Spec.Containers, container)
+	return j
+}
+
+// RestartPolicy updates the restartPolicy on the pod template.
+func (j *JobWrapper) RestartPolicy(restartPolicy corev1.RestartPolicy) *JobWrapper {
+	j.Spec.Template.Spec.RestartPolicy = restartPolicy
+	return j
+}
+
+// CreationTimestamp sets the .metadata.creationTimestamp
+func (j *JobWrapper) CreationTimestamp(t time.Time) *JobWrapper {
+	j.ObjectMeta.CreationTimestamp = metav1.NewTime(t)
+	return j
+}
+
+// StartTime sets the .status.startTime
+func (j *JobWrapper) StartTime(t time.Time) *JobWrapper {
+	j.Status.StartTime = &metav1.Time{Time: t}
+	return j
+}
+
+// CompletionTime sets the .status.completionTime
+func (j *JobWrapper) CompletionTime(t time.Time) *JobWrapper {
+	j.Status.CompletionTime = &metav1.Time{Time: t}
+	return j
+}
+
+// Succeeded sets the .status.succeeded
+func (j *JobWrapper) Succeeded(value int32) *JobWrapper {
+	j.Status.Succeeded = value
 	return j
 }
