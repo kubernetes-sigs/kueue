@@ -40,3 +40,11 @@ func (f FlavorResourceQuantitiesFlat) Unflatten() FlavorResourceQuantities {
 	}
 	return out
 }
+
+// SafeGet attempts to access nested value, returning 0 if absent.
+func (f FlavorResourceQuantities) SafeGet(fr FlavorResource) int64 {
+	if f == nil || f[fr.Flavor] == nil {
+		return 0
+	}
+	return f[fr.Flavor][fr.Resource]
+}
