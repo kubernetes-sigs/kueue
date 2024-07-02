@@ -719,15 +719,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Admitting the workload", func() {
+			ginkgo.By("Checking if the workload is Admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					apimeta.SetStatusCondition(&updatedWl.Status.Conditions, metav1.Condition{
-						Type:   kueue.WorkloadAdmitted,
-						Status: metav1.ConditionTrue,
-						Reason: "Admitted",
-					})
-					g.Expect(k8sClient.Status().Update(ctx, &updatedWl)).Should(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeTrue(), "The workload should be admitted")
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -747,9 +742,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).NotTo(gomega.BeNil())
-					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
-					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeTrue())
+					g.Expect(state.State).To(gomega.BeComparableTo(kueue.CheckStateReady))
+					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeTrue(), "The workload should be admitted")
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -785,17 +779,17 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if one admission check is ready, and the other is pending thus workload is not admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+
 					checkState := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(checkState).NotTo(gomega.BeNil())
-					g.Expect(checkState.State).To(gomega.Equal(kueue.CheckStateReady))
+					g.Expect(checkState.State).To(gomega.BeComparableTo(kueue.CheckStateReady))
+
 					pendingCheckState := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, pendingAC.Name)
-					g.Expect(pendingCheckState).NotTo(gomega.BeNil())
-					g.Expect(pendingCheckState.State).To(gomega.Equal(kueue.CheckStatePending))
+					g.Expect(pendingCheckState.State).To(gomega.BeComparableTo(kueue.CheckStatePending))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeFalse())
+					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeFalse(), "The Workload should be admitted")
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -816,9 +810,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
 					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).NotTo(gomega.BeNil())
-					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRejected))
-					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
+					g.Expect(state.State).To(gomega.BeComparableTo(kueue.CheckStateRejected))
+					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse(), "The workload should be deactivated")
 
 					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
 						Reason:  "AdmissionCheckRejected",
@@ -826,13 +819,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						Message: fmt.Sprintf("Deactivating workload because AdmissionCheck for %v was Rejected: ", ac.Name),
 					})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(ok).To(gomega.BeTrue())
+					g.Expect(ok).To(gomega.BeTrue(), "The event should have appeared")
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
-					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
+					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue(), "The workload should be evicted by deactivation")
 					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByDeactivation, 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1421,7 +1414,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeFalse())
+					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeFalse(), "The workload shouldn't be admitted")
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
