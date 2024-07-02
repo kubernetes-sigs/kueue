@@ -49,9 +49,12 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utileq "sigs.k8s.io/kueue/pkg/util/equality"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -275,6 +278,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 
+		if features.Enabled(features.ResizableJobs) {
+			if err := r.downSizePodSetAssigmentsIfNecessary(&wl, ctx); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
@@ -325,6 +333,50 @@ func isDisabledRequeuedByReason(w *kueue.Workload, reason string) bool {
 }
 
 // reconcileCheckBasedEviction returns true if Workload has been deactivated or evicted
+func (r *WorkloadReconciler) isScaledDown(wl *kueue.Workload) bool {
+	if !features.Enabled(features.ResizableJobs) {
+		return false
+	}
+
+	return utileq.IsResizedPodSetAssignment(wl.Status.Admission.PodSetAssignments[1:], wl.Spec.PodSets[1:])
+}
+
+func (r *WorkloadReconciler) downSizePodSetAssigmentsIfNecessary(wl *kueue.Workload, ctx context.Context) error {
+	updateStatus := false
+	podSetSize := len(wl.Spec.PodSets)
+	for i := 1; i < podSetSize; i++ {
+		if ptr.Deref(wl.Status.Admission.PodSetAssignments[i].Count, 0) <= wl.Spec.PodSets[i].Count {
+			continue
+		}
+		// Get Resource Requests and Usage values
+		originalResourceRequests := limitrange.TotalRequests(&wl.Spec.PodSets[i].Template.Spec)
+		currentAssignedResourceUsage := wl.Status.Admission.PodSetAssignments[i].ResourceUsage
+
+		diff := ptr.Deref(wl.Status.Admission.PodSetAssignments[i].Count, 0) - wl.Spec.PodSets[i].Count
+		for k := range currentAssignedResourceUsage {
+			resourceQuantity := originalResourceRequests[k]
+			resourceQuantity.Mul(int64(diff))
+
+			assignedResourceQuantity := currentAssignedResourceUsage[k]
+			assignedResourceQuantity.Sub(resourceQuantity)
+			currentAssignedResourceUsage[k] = assignedResourceQuantity
+		}
+
+		wl.Status.Admission.PodSetAssignments[i].Count = ptr.To(wl.Spec.PodSets[i].Count)
+		wl.Status.Admission.PodSetAssignments[i].ResourceUsage = currentAssignedResourceUsage
+
+		updateStatus = true
+	}
+	if updateStatus {
+		// Update Status
+		workload.SyncAdmittedCondition(wl)
+		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
 		return false, nil
@@ -624,6 +676,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 
 func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	oldWl, isWorkload := e.ObjectOld.(*kueue.Workload)
+
 	if !isWorkload {
 		// this event will be handled by the LimitRange/RuntimeClass handle
 		return true
@@ -721,7 +774,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 				}
 			})
 		}
-	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(oldWl.Status.ReclaimablePods, wl.Status.ReclaimablePods):
+	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(oldWl.Status.ReclaimablePods, wl.Status.ReclaimablePods) || r.isScaledDown(oldWl):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Update the workload from cache while holding the queues lock
