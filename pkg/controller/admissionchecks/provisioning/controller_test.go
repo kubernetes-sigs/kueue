@@ -18,6 +18,7 @@ package provisioning
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -949,6 +950,191 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload does nothing when admitted and receives the provisioning request's BookingExpired condition": {
+			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Admitted(true).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config1",
+					},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+					},
+				},
+			},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest,
+					[]metav1.Condition{
+						{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.Accepted,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.BookingExpired,
+							Status: metav1.ConditionTrue,
+						},
+					}),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					Admitted(true).
+					Obj(),
+			},
+		},
+		"workloads retries the admission check when is not admitted and receives the provisioning request's BookingExpired condition": {
+			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Admitted(false).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config1",
+					},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+					},
+				},
+			},
+			maxRetries: 1,
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest,
+					[]metav1.Condition{
+						{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.Accepted,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:               autoscaling.BookingExpired,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(time.Now().Add(time.Hour * (-1))),
+						},
+					}),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStatePending,
+						Message: "Retrying after booking expired: ",
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Admitted(false).
+					Obj(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				ProvisioningRequestName("wl", baseCheck.Name, 2): &autoscaling.ProvisioningRequest{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "wl-check1-2",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "wl",
+							},
+						},
+					},
+					Spec: autoscaling.ProvisioningRequestSpec{
+						PodSets: []autoscaling.PodSet{
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-2-ps1",
+								},
+								Count: 4,
+							},
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-2-ps2",
+								},
+								Count: 3,
+							},
+						},
+						ProvisioningClassName: "class1",
+					},
+				},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-2"`,
+				},
+			},
+		},
+		"workloads reject the admission check when is not admitted and receives the provisioning request's BookingExpired condition": {
+			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Admitted(false).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config1",
+					},
+					Spec: kueue.ProvisioningRequestConfigSpec{
+						ProvisioningClassName: "class1",
+					},
+				},
+			},
+			maxRetries: 0,
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest,
+					[]metav1.Condition{
+						{
+							Type:   autoscaling.Failed,
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.Accepted,
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   autoscaling.BookingExpired,
+							Status: metav1.ConditionTrue,
+						},
+					}),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateRejected,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Admitted(false).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -1003,7 +1189,7 @@ func TestReconcile(t *testing.T) {
 			for name, wantRequest := range tc.wantRequests {
 				gotRequest := &autoscaling.ProvisioningRequest{}
 				if err := k8sclient.Get(ctx, types.NamespacedName{Namespace: TestNamespace, Name: name}, gotRequest); err != nil {
-					t.Errorf("unexpected error getting request %q", name)
+					t.Errorf("unexpected error getting request %q: %s", name, err)
 				}
 
 				if diff := cmp.Diff(wantRequest, gotRequest, reqCmpOptions...); diff != "" {
