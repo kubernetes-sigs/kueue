@@ -1,7 +1,7 @@
 ---
 title: "kubectl kueue list"
 linkTitle: "List"
-date: 2024-05-13
+date: 2024-05-28
 weight: 10
 description: >
   List resource
@@ -24,6 +24,9 @@ kubectl kueue list localqueue
 
 # List workloads
 kubectl kueue list workload
+
+# List pods by job type
+kubectl kueue list pod --for job/job-name
 ```
 
 ## Resource types
@@ -35,3 +38,4 @@ The following table includes a list of all the supported resource types and thei
 | localqueue   | lq    | kueue.x-k8s.io/v1beta1 | true       | LocalQueue   |
 | clusterqueue | cq    | kueue.x-k8s.io/v1beta1 | false      | ClusterQueue |
 | workload     | wl    | kueue.x-k8s.io/v1beta1 | true       | WorkLoad     |
+| pod          | po    | v1                     | true       | Pod          |
