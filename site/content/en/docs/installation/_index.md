@@ -59,7 +59,8 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 
 ### Add metrics scraping for prometheus-operator
 
-> _Available in Kueue v0.2.1 and later_
+{{< feature-state state="stable" for_version="v0.2.1+" >}}
+
 
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:
@@ -76,7 +77,8 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 
 ### Add visibility API to monitor pending workloads
 
-> _Available in Kueue v0.6.0 and later_
+{{< feature-state state="stable" for_version="v0.6.0+" >}}
+
 
 To add the visibility API that enables monitoring pending workloads, change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`, and run the following command
 
@@ -195,7 +197,8 @@ IMAGE_REGISTRY=registry.example.com/my-user make image-local-push deploy
 
 ### Add metrics scraping for prometheus-operator
 
-> _Available in Kueue v0.2.0 and later_
+{{< feature-state state="stable" for_version="v0.2.0+" >}}
+
 
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:

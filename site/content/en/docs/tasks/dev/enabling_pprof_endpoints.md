@@ -20,7 +20,7 @@ Make sure the following conditions are met:
 
 ## Enabling pprof endpoints
 
-> _Available in Kueue v0.5.0 and later_
+{{< feature-state state="stable" for_version="v0.5.0+" >}}
 
 To enable pprof endpoints, you need to set a `pprofBindAddress` is set in the [manager's configuration](/docs/installation/#install-a-custom-configured-released-version).
 
