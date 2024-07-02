@@ -10,15 +10,13 @@ spec:
       apiVersions: ["v1"]
       operations:  ["CREATE", "UPDATE"]
       resources:   ["jobs"]
+    - apiGroups:   ["jobset.x-k8s.io"]
+      apiVersions: ["v1alpha2"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["jobsets"]
+  matchConditions:
+    - name: "namespace-scoped-policy"
+      expression: "object.metadata.namespace == 'my-namespace'"
   validations:
-    - expression: "object.metadata.labels.exists_one(key, key == 'kueue.x-k8s.io/queue-name') && object.metadata.labels['kueue.x-k8s.io/queue-name'] != ''"
-      message: "The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set in the Job."
-
----
-apiVersion: admissionregistration.k8s.io/v1
-kind: ValidatingAdmissionPolicyBinding
-metadata:
-  name: sample-validating-admission-policy-binding
-spec:
-  policyName: sample-validating-admission-policy
-  validationActions: [Deny]
+    - expression: "'kueue.x-k8s.io/queue-name' in object.metadata.labels && object.metadata.labels['kueue.x-k8s.io/queue-name'] != ''"
+      message: "The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set."
