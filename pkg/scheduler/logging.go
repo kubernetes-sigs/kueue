@@ -21,6 +21,8 @@ import (
 	"k8s.io/klog/v2"
 
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -37,7 +39,9 @@ func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
 	}
 	if log.V(4).Enabled() {
 		args = append(args, "nominatedAssignment", e.assignment)
-		args = append(args, "preempted", workload.References(e.preemptionTargets))
+		args = append(args, "preempted", workload.References(
+			slices.Map(e.preemptionTargets, func(p **preemption.Target) *workload.Info { return (*p).Wl }),
+		))
 	}
 	logV.Info("Workload evaluated for admission", args...)
 }

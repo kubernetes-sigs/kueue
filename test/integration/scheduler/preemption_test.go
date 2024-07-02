@@ -287,7 +287,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionTrue,
 						Reason:  preemption.InClusterQueueReason,
-						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the ClusterQueue", alphaMidWl.UID),
+						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", alphaMidWl.UID, preemption.ClusterQueueOrigin),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionTrue,
 						Reason:  preemption.InCohortReclamationReason,
-						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the Cohort", alphaMidWl.UID),
+						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", alphaMidWl.UID, preemption.CohortOrigin),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -313,7 +313,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the ClusterQueue", alphaMidWl.UID),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the %s", alphaMidWl.UID, preemption.ClusterQueueOrigin),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -323,7 +323,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the Cohort", alphaMidWl.UID),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the %s", alphaMidWl.UID, preemption.CohortOrigin),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -704,6 +704,17 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Request(corev1.ResourceCPU, "7").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, aStandardVeryHighWl)).To(gomega.Succeed())
+
+			conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aBestEffortLowWl), aBestEffortLowWl)).To(gomega.Succeed())
+				g.Expect(aBestEffortLowWl.Status.Conditions).To(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.WorkloadPreempted,
+					Status:  metav1.ConditionTrue,
+					Reason:  preemption.InCohortReclaimWhileBorrowingReason,
+					Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", aStandardVeryHighWl.UID, preemption.CohortOrigin),
+				}, conditionCmpOpts)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Finish eviction fo the a-best-effort-low workload")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, aBestEffortLowWl)

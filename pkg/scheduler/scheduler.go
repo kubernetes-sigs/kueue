@@ -254,7 +254,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			if len(e.preemptionTargets) != 0 {
 				// If preemptions are issued, the next attempt should try all the flavors.
 				e.LastAssignment = nil
-				preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets, cq, e.assignment.Borrowing)
+				preempted, err := s.preemptor.IssuePreemptions(ctx, &e.Info, e.preemptionTargets, cq)
 				if err != nil {
 					log.Error(err, "Failed to preempt workloads")
 				}
@@ -332,7 +332,7 @@ type entry struct {
 	status                entryStatus
 	inadmissibleMsg       string
 	requeueReason         queue.RequeueReason
-	preemptionTargets     []*workload.Info
+	preemptionTargets     []*preemption.Target
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -409,14 +409,14 @@ func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.Flav
 
 type partialAssignment struct {
 	assignment        flavorassigner.Assignment
-	preemptionTargets []*workload.Info
+	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
+func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueues[wl.ClusterQueue]
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable)
 	fullAssignment := flvAssigner.Assign(log, nil)
-	var faPreemtionTargets []*workload.Info
+	var faPreemtionTargets []*preemption.Target
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
