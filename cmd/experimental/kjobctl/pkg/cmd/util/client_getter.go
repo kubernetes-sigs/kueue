@@ -18,6 +18,7 @@ package util
 
 import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -33,6 +34,7 @@ type ClientGetter interface {
 	KueueClientset() (kueueversioned.Interface, error)
 	KjobctlClientset() (kjobctlversioned.Interface, error)
 	DynamicClient() (dynamic.Interface, error)
+	NewResourceBuilder() *resource.Builder
 }
 
 type clientGetterImpl struct {
@@ -101,4 +103,8 @@ func (cg *clientGetterImpl) DynamicClient() (dynamic.Interface, error) {
 	}
 
 	return dynamicClient, nil
+}
+
+func (cg *clientGetterImpl) NewResourceBuilder() *resource.Builder {
+	return resource.NewBuilder(cg.RESTClientGetter)
 }

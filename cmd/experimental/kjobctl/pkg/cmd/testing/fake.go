@@ -19,10 +19,13 @@ package testing
 import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 
 	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
@@ -38,6 +41,7 @@ type TestClientGetter struct {
 	kueueClientset   kueueversioned.Interface
 	kjobctlClientset kjobctlversioned.Interface
 	dynamicClient    dynamic.Interface
+	restClient       resource.RESTClient
 
 	configFlags *genericclioptions.TestConfigFlags
 }
@@ -85,6 +89,11 @@ func (cg *TestClientGetter) WithDynamicClient(dynamicClient dynamic.Interface) *
 	return cg
 }
 
+func (cg *TestClientGetter) WithRESTClient(restClient resource.RESTClient) *TestClientGetter {
+	cg.restClient = restClient
+	return cg
+}
+
 func (cg *TestClientGetter) K8sClientset() (k8s.Interface, error) {
 	return cg.k8sClientset, nil
 }
@@ -99,4 +108,16 @@ func (cg *TestClientGetter) KjobctlClientset() (kjobctlversioned.Interface, erro
 
 func (cg *TestClientGetter) DynamicClient() (dynamic.Interface, error) {
 	return cg.dynamicClient, nil
+}
+
+func (f *TestClientGetter) NewResourceBuilder() *resource.Builder {
+	return resource.NewFakeBuilder(
+		func(version schema.GroupVersion) (resource.RESTClient, error) {
+			return f.restClient, nil
+		},
+		f.ToRESTMapper,
+		func() (restmapper.CategoryExpander, error) {
+			return resource.FakeCategoryExpander, nil
+		},
+	)
 }
