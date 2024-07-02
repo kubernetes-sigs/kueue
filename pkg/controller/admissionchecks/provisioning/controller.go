@@ -247,6 +247,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		if exists {
 			if isFailed(oldPr) || isBookingExpired(oldPr) {
 				if isBookingExpired(oldPr) && workload.IsAdmitted(wl) {
+					// if the workload is Admitted we don't want to retry on BookingExpired
 					break
 				}
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
