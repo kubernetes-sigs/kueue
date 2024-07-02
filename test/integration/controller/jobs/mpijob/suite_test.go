@@ -73,6 +73,7 @@ func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.M
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = mpijob.SetupMPIJobWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		jobframework.EnableIntegration(mpijob.FrameworkName)
 
 		if setupJobManager {
 			jobReconciler := job.NewReconciler(

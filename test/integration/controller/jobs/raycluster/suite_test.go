@@ -70,6 +70,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = raycluster.SetupRayClusterWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		jobframework.EnableIntegration(rayjob.FrameworkName)
 	}
 }
 
@@ -123,6 +124,7 @@ func managerWithRayClusterAndRayJobControllersSetup(opts ...jobframework.Option)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = rayjob.SetupRayJobWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		jobframework.EnableIntegration(rayjob.FrameworkName)
 
 		failedWebhook, err := webhooks.Setup(mgr)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
