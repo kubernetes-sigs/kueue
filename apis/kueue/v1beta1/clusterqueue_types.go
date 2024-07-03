@@ -349,7 +349,7 @@ type FairSharingStatus struct {
 	// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 	// If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
 	// the maximum possible share value.
-	WeightedShare int64 `json:"weightedShare,omitempty"`
+	WeightedShare int64 `json:"weightedShare"`
 }
 
 const (

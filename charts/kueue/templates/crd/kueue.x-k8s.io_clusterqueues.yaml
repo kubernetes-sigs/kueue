@@ -613,6 +613,8 @@ spec:
                       the maximum possible share value.
                     format: int64
                     type: integer
+                required:
+                - weightedShare
                 type: object
               flavorsReservation:
                 description: |-
