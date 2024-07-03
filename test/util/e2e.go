@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -22,7 +23,7 @@ import (
 	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
 )
 
-func CreateClientUsingCluster(kContext string) client.WithWatch {
+func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
 	cfg, err := config.GetConfigWithContext(kContext)
 	if err != nil {
 		fmt.Printf("unable to get kubeconfig for context %q: %s", kContext, err)
@@ -44,7 +45,7 @@ func CreateClientUsingCluster(kContext string) client.WithWatch {
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-	return client
+	return client, cfg
 }
 
 func CreateVisibilityClient(user string) visibilityv1alpha1.VisibilityV1alpha1Interface {
