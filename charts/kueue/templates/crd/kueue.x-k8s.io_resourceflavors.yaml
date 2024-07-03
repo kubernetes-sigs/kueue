@@ -29,6 +29,7 @@ spec:
     shortNames:
     - flavor
     - flavors
+    - rf
     singular: resourceflavor
   scope: Cluster
   versions:

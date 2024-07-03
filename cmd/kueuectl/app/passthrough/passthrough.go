@@ -35,7 +35,8 @@ var (
 	passThroughTypes = []passThroughType{
 		{name: "workload", aliases: []string{"wl"}},
 		{name: "clusterqueue", aliases: []string{"cq"}},
-		{name: "localqueue", aliases: []string{"lq"}}}
+		{name: "localqueue", aliases: []string{"lq"}},
+		{name: "resourceflavor", aliases: []string{"rf"}}}
 )
 
 func NewCommands() ([]*cobra.Command, error) {
