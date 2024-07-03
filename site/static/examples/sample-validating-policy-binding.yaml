@@ -5,3 +5,9 @@ metadata:
 spec:
   policyName: sample-validating-admission-policy
   validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["admin-namespace"]
