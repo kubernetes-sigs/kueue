@@ -51,6 +51,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 const (
@@ -492,11 +493,17 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 			return
 		case <-time.After(c.gcInterval):
 			log.V(4).Info("Run Garbage Collection for Lost Remote Workloads")
-			for clusterName, rc := range c.remoteClients {
-				rc.runGC(ctrl.LoggerInto(ctx, log.WithValues("multiKueueCluster", clusterName)))
+			for _, rc := range c.getRemoteClients() {
+				rc.runGC(ctrl.LoggerInto(ctx, log.WithValues("multiKueueCluster", rc.clusterName)))
 			}
 		}
 	}
+}
+
+func (c *clustersReconciler) getRemoteClients() []*remoteClient {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return maps.Values(c.remoteClients)
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
