@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -64,21 +65,17 @@ func policyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
 	}
 }
 
+// kubeconfigForMultiKueueSA - returns the content of a kubeconfig that could be used by a multikueue manager to connect to a worker.
+//
+// In the target cluster it will create:
+// - one ClusterRole <prefix>-cr allowing all the multikueue related operations.
+// - one ServiceAccount <prefix>-sa, bound to <prefix>-cr, from which an authentication token is generated.
+//
+// The resulting kubeconfig is composed based on the provided restConfig with two notable changes:
+// - the authentication is done with a token generated for <prefix>-sa.
+// - the server URL is set to https://<clusterName>-control-plane:6443.
 func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig *rest.Config, ns string, prefix string, clusterName string) ([]byte, error) {
-	saName := prefix + "-sa"
 	roleName := prefix + "-role"
-
-	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: ns,
-			Name:      saName,
-		},
-	}
-	err := c.Create(ctx, sa)
-	if err != nil {
-		return nil, err
-	}
-
 	resourceVerbs := []string{"create", "delete", "get", "list", "watch"}
 	cr := &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: roleName},
@@ -91,7 +88,19 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(kueue.SchemeGroupVersion.Group, "workloads/status", "get", "patch", "update"),
 		},
 	}
-	err = c.Create(ctx, cr)
+	err := c.Create(ctx, cr)
+	if err != nil {
+		return nil, err
+	}
+
+	saName := prefix + "-sa"
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: ns,
+			Name:      saName,
+		},
+	}
+	err = c.Create(ctx, sa)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +126,13 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 	}
 
 	// get the token
-	token := &authenticationv1.TokenRequest{}
+	token := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{
+			// The 1h expiration duration is the default value.
+			// It is explicitly mentioned for documentation purposes.
+			ExpirationSeconds: ptr.To[int64](3600),
+		},
+	}
 	err = c.SubResource("token").Create(ctx, sa, token)
 	if err != nil {
 		return nil, err
