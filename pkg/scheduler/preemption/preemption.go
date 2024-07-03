@@ -131,7 +131,7 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 	// have lower priority, and so they will not preempt the preemptor when
 	// requeued.
 	if borrowWithinCohort {
-		if !queueUnderNominalInAllRequestedResources(wlReq, cq) {
+		if !queueUnderNominalInResourcesNeedingPreemption(resPerFlv, cq) {
 			// It can only preempt workloads from another CQ if they are strictly under allowBorrowingBelowPriority.
 			candidates = candidatesFromCQOrUnderThreshold(candidates, wl.ClusterQueue, *thresholdPrio)
 		}
@@ -140,7 +140,7 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 
 	// Only try preemptions in the cohort, without borrowing, if the target clusterqueue is still
 	// under nominal quota for all resources.
-	if queueUnderNominalInAllRequestedResources(wlReq, cq) {
+	if queueUnderNominalInResourcesNeedingPreemption(resPerFlv, cq) {
 		if targets := minimalPreemptions(log, wlReq, cq, snapshot, resPerFlv, candidates, false, nil); len(targets) > 0 {
 			return targets
 		}
@@ -567,10 +567,10 @@ func workloadFits(wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQue
 	return true
 }
 
-func queueUnderNominalInAllRequestedResources(wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueue) bool {
+func queueUnderNominalInResourcesNeedingPreemption(resPerFlv resourcesPerFlavor, cq *cache.ClusterQueue) bool {
 	for _, rg := range cq.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
-			flvReq, found := wlReq[flvQuotas.Name]
+			flvReq, found := resPerFlv[flvQuotas.Name]
 			if !found {
 				// Workload doesn't request this flavor.
 				continue
