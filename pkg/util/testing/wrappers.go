@@ -831,8 +831,17 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 	return &rf.ResourceFlavor
 }
 
-// Label add a label kueue and value pair to the ResourceFlavor.
+// Label sets the label on the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
+	if rf.ObjectMeta.Labels == nil {
+		rf.ObjectMeta.Labels = map[string]string{}
+	}
+	rf.ObjectMeta.Labels[k] = v
+	return rf
+}
+
+// NodeLabel add a label kueue and value pair to the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) NodeLabel(k, v string) *ResourceFlavorWrapper {
 	rf.Spec.NodeLabels[k] = v
 	return rf
 }
@@ -846,6 +855,12 @@ func (rf *ResourceFlavorWrapper) Taint(t corev1.Taint) *ResourceFlavorWrapper {
 // Toleration  adds a taint to the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Toleration(t corev1.Toleration) *ResourceFlavorWrapper {
 	rf.Spec.Tolerations = append(rf.Spec.Tolerations, t)
+	return rf
+}
+
+// Creation sets the creation timestamp of the LocalQueue.
+func (rf *ResourceFlavorWrapper) Creation(t time.Time) *ResourceFlavorWrapper {
+	rf.CreationTimestamp = metav1.NewTime(t)
 	return rf
 }
 

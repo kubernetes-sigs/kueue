@@ -60,10 +60,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		_ = features.SetEnable(features.FlavorFungibility, true)
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-		onDemandFlavor = testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
+		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 
 		spotTaintedFlavor = testing.MakeResourceFlavor("spot-tainted").
-			Label(instanceKey, "spot-tainted").
+			NodeLabel(instanceKey, "spot-tainted").
 			Taint(corev1.Taint{
 				Key:    instanceKey,
 				Value:  "spot-tainted",
@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			Effect:   corev1.TaintEffectNoSchedule,
 		}
 
-		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").Label(instanceKey, "spot-untainted").Obj()
+		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
 	})
 
 	ginkgo.When("Scheduling workloads on clusterQueues", func() {

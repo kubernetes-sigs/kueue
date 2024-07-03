@@ -46,10 +46,10 @@ func TestAssignFlavors(t *testing.T) {
 		"default": {
 			ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		},
-		"one":   utiltesting.MakeResourceFlavor("one").Label("type", "one").Obj(),
-		"two":   utiltesting.MakeResourceFlavor("two").Label("type", "two").Obj(),
-		"b_one": utiltesting.MakeResourceFlavor("b_one").Label("b_type", "one").Obj(),
-		"b_two": utiltesting.MakeResourceFlavor("b_two").Label("b_type", "two").Obj(),
+		"one":   utiltesting.MakeResourceFlavor("one").NodeLabel("type", "one").Obj(),
+		"two":   utiltesting.MakeResourceFlavor("two").NodeLabel("type", "two").Obj(),
+		"b_one": utiltesting.MakeResourceFlavor("b_one").NodeLabel("b_type", "one").Obj(),
+		"b_two": utiltesting.MakeResourceFlavor("b_two").NodeLabel("b_type", "two").Obj(),
 		"tainted": utiltesting.MakeResourceFlavor("tainted").
 			Taint(corev1.Taint{
 				Key:    "instance",

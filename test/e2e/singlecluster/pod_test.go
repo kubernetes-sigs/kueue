@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		onDemandRF = testing.MakeResourceFlavor("on-demand").Label("instance-type", "on-demand").Obj()
+		onDemandRF = testing.MakeResourceFlavor("on-demand").NodeLabel("instance-type", "on-demand").Obj()
 		gomega.Expect(k8sClient.Create(ctx, onDemandRF)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {

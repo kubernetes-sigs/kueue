@@ -121,9 +121,9 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 	ginkgo.By("checking the job is unsuspended when workload is assigned")
-	onDemandFlavor := testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
+	onDemandFlavor := testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 	gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
-	spotFlavor := testing.MakeResourceFlavor("spot").Label(instanceKey, "spot").Obj()
+	spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 	gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
 	clusterQueue := testing.MakeClusterQueue("cluster-queue").
 		ResourceGroup(

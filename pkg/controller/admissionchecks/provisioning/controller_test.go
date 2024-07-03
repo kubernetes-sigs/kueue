@@ -131,7 +131,7 @@ func TestReconcile(t *testing.T) {
 		State: kueue.CheckStateReady,
 	})
 
-	baseFlavor1 := utiltesting.MakeResourceFlavor("flv1").Label("f1l1", "v1").
+	baseFlavor1 := utiltesting.MakeResourceFlavor("flv1").NodeLabel("f1l1", "v1").
 		Toleration(corev1.Toleration{
 			Key:      "f1t1k",
 			Value:    "f1t1v",
@@ -139,7 +139,7 @@ func TestReconcile(t *testing.T) {
 			Effect:   corev1.TaintEffectNoSchedule,
 		}).
 		Obj()
-	baseFlavor2 := utiltesting.MakeResourceFlavor("flv2").Label("f2l1", "v1").Obj()
+	baseFlavor2 := utiltesting.MakeResourceFlavor("flv2").NodeLabel("f2l1", "v1").Obj()
 
 	baseRequest := &autoscaling.ProvisioningRequest{
 		ObjectMeta: metav1.ObjectMeta{

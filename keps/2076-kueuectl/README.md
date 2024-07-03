@@ -16,6 +16,7 @@
   - [List ClusterQueue](#list-clusterqueue)
   - [List LocalQueue](#list-localqueue)
   - [List Workloads](#list-workloads)
+  - [List ResourceFlavors](#list-resourceflavors)
   - [Stop ClusterQueue](#stop-clusterqueue)
   - [Resume ClusterQueue](#resume-clusterqueue)
   - [Stop LocalQueue](#stop-localqueue)
@@ -225,6 +226,18 @@ Output:
 * Position in Queue (if Pending)
 * Age
 
+### List ResourceFlavors
+
+Lists ResourceFlavors. Format:
+
+```
+kueuectl list resourceflavors 
+```
+
+Output:
+
+* Name
+* Age
 
 ### Stop ClusterQueue
 

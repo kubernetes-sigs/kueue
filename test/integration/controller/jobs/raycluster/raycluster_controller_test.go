@@ -152,9 +152,9 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
-		onDemandFlavor := testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
+		onDemandFlavor := testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
-		spotFlavor := testing.MakeResourceFlavor("spot").Label(instanceKey, "spot").Obj()
+		spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
 		clusterQueue := testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
@@ -335,7 +335,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		wantCondition   *metav1.Condition
 	}
 
-	var defaultFlavor = testing.MakeResourceFlavor("default").Label(instanceKey, "default").Obj()
+	var defaultFlavor = testing.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
@@ -542,10 +542,10 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-		onDemandFlavor = testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
+		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 
-		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").Label(instanceKey, "spot-untainted").Obj()
+		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).Should(gomega.Succeed())
 
 		clusterQueue = testing.MakeClusterQueue("dev-clusterqueue").
@@ -656,7 +656,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-		onDemandFlavor = testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
+		onDemandFlavor = testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 
 		clusterQueue = testing.MakeClusterQueue("clusterqueue").

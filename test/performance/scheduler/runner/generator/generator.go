@@ -202,7 +202,7 @@ func Generate(ctx context.Context, c client.Client, cSets []CohortSet) error {
 	log := ctrl.LoggerFrom(ctx).WithName("generate cohort sets").WithValues("numSets", len(cSets))
 	log.Info("Start generation")
 	defer log.Info("End generation")
-	rf := utiltesting.MakeResourceFlavor(resourceFlavorName).Label(CleanupLabel, "true").Obj()
+	rf := utiltesting.MakeResourceFlavor(resourceFlavorName).NodeLabel(CleanupLabel, "true").Obj()
 	err := c.Create(ctx, rf)
 	if err != nil {
 		return err
