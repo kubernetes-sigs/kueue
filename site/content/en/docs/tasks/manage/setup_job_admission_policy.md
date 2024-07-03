@@ -6,7 +6,7 @@ description: >
   Implementing Validating Admission Policy to prevent job creation without queue name.
 ---
 
-This page shows you how to set up a [Validating Admission Policy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy) to prevent the creation of jobs without a queue name within a namespace.
+This page shows how you can set up for Kueue a Job Admission Policy using the Kubernetes [Validating Admission Policy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy), based on the [Common Expression Language (CEL)](https://github.com/google/cel-spec).
 
 ## Before you begin
 
@@ -15,15 +15,17 @@ Ensure the following conditions are met:
 - A Kubernetes cluster is running.
 - The kubectl command-line tool can communicate with your cluster.
 
-## Creating a Validating Admission Policy
+## Example
 
-To verify a job contains a queue name, check that the `kueue.x-k8s.io/queue-name` label exists and has a value set using the [Common Expression Language (CEL)](https://github.com/google/cel-spec).
+The example below shows you how to set up the Job Admission Policy to reject early all Job or JobSets
+without the queue-name if sent to the user namespaces. At the same time, it allows you to create and
+execute all Jobs in the namespace dedicated to administrative tasks.
 
-Here is an example of a ValidatingAdmissionPolicy that rejects `Job` and `JobSet`  creation without a queue name:
+In this example we assume that `manageJobsWithoutQueueName` is disabled, letting the admin
+to execute Jobs in the `admin-namespace`. Jobs sent to this namespace aren't rejected, or managed
+by Kueue.
 
 {{< include "examples/sample-validating-policy.yaml" "yaml" >}}
-
-Notice this policy applies a match condition to evaluate resources only in the `my-namespace` namespace.
 
 To create the policy, download the above file and run the following command:
 
@@ -31,9 +33,7 @@ To create the policy, download the above file and run the following command:
 kubectl create -f sample-validating-policy.yaml
 ```
 
-## Setting up the policy in a Cluster
-
-Apply the validating admission policy to the namespace by creating a `ValidatingAdmissionPolicyBinding`. The policy binding links the namespace to the defined admission policy and it instructs Kubernetes how to respond to the validation outcome.
+Then, apply the validating admission policy to the namespace by creating a `ValidatingAdmissionPolicyBinding`. The policy binding links the namespaces to the defined admission policy and it instructs Kubernetes how to respond to the validation outcome.
 
 The following is an example of a policy binding:
 
@@ -45,7 +45,7 @@ To create the binding, download the above file and run the following command:
 kubectl create -f sample-validating-policy-binding.yaml
 ```
 
-Now, when you try to create a `Job` or a `JobSet` without the `kueue.x-k8s.io/queue-name` label or value, an error message will return:
+Now, when you try to create a `Job` or a `JobSet` without the `kueue.x-k8s.io/queue-name` label or value in any namespace other than `admin-namespace`, an error message will return:
 
 ```
 ValidatingAdmissionPolicy 'sample-validating-admission-policy' with binding 'sample-validating-admission-policy-binding' denied request: The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set.
