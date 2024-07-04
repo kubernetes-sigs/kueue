@@ -28,6 +28,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/cli-runtime/pkg/resource"
 	k8s "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -158,24 +159,7 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 		return fmt.Errorf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", o.UserSpecifiedForObject)
 	}
 
-	r := clientGetter.NewResourceBuilder().
-		Unstructured().
-		NamespaceParam(o.Namespace).
-		DefaultNamespace().
-		AllNamespaces(o.AllNamespaces).
-		FieldSelectorParam(fmt.Sprintf("metadata.name=%s", o.ForName)).
-		ResourceTypeOrNameArgs(true, o.ForGVK.Kind).
-		ContinueOnError().
-		Latest().
-		Flatten().
-		Do()
-	if r == nil {
-		return fmt.Errorf("Error building client for: %s/%s", o.ForGVK.Kind, o.ForName)
-	}
-	if err := r.Err(); err != nil {
-		return err
-	}
-	infos, err := r.Infos()
+	infos, err := o.fetchDynamicResourceInfos(clientGetter)
 	if err != nil {
 		return err
 	}
@@ -189,14 +173,49 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 		return nil
 	}
 
+	o.ForObject = o.getForObject(infos)
+
+	return nil
+}
+
+// fetchDynamicResourceInfos builds and executes a dynamic client query for a resource specified in --for
+func (o *PodOptions) fetchDynamicResourceInfos(clientGetter util.ClientGetter) ([]*resource.Info, error) {
+	r := clientGetter.NewResourceBuilder().
+		Unstructured().
+		NamespaceParam(o.Namespace).
+		DefaultNamespace().
+		AllNamespaces(o.AllNamespaces).
+		FieldSelectorParam(fmt.Sprintf("metadata.name=%s", o.ForName)).
+		ResourceTypeOrNameArgs(true, o.ForGVK.Kind).
+		ContinueOnError().
+		Latest().
+		Flatten().
+		Do()
+
+	if r == nil {
+		return nil, fmt.Errorf("Error building client for: %s/%s", o.ForGVK.Kind, o.ForName)
+	}
+
+	if err := r.Err(); err != nil {
+		return nil, err
+	}
+
+	infos, err := r.Infos()
+	if err != nil {
+		return nil, err
+	}
+
+	return infos, nil
+}
+
+func (o *PodOptions) getForObject(infos []*resource.Info) *unstructured.Unstructured {
 	job, ok := infos[0].Object.(*unstructured.Unstructured)
 	if !ok {
 		fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
 		return nil
 	}
-	o.ForObject = job
 
-	return nil
+	return job
 }
 
 func (o *PodOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, error) {
