@@ -71,13 +71,13 @@ type wlGroup struct {
 	controllerKey types.NamespacedName
 }
 
-// the local wl is finished
+// IsFinished returns true if the local workload is finished.
 func (g *wlGroup) IsFinished() bool {
 	return apimeta.IsStatusConditionTrue(g.local.Status.Conditions, kueue.WorkloadFinished)
 }
 
-// returns true if there is a wl reserving quota
-// the string identifies the remote, ("" - local)
+// FirstReserving returns true if there is a workload reserving quota,
+// the string identifies the remote cluster.
 func (g *wlGroup) FirstReserving() (bool, string) {
 	found := false
 	bestMatch := ""

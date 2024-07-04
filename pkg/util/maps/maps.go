@@ -14,8 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// replacing this with `https://pkg.go.dev/golang.org/x/exp/maps` should be considered
-// when `x/exp/maps` graduates to stable.
 package maps
 
 import (

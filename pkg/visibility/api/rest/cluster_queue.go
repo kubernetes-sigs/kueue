@@ -21,7 +21,7 @@ import (
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 )
 
-// This type is used only to install clusterqueues/ resource so we can install clusterqueues/pending_workloads subresource.
+// CqREST type is used only to install clusterqueues/ resource, so we can install clusterqueues/pending_workloads subresource.
 // It implements the necessary interfaces for genericapiserver but does not provide any actual functionalities.
 type CqREST struct{}
 

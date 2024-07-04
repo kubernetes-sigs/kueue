@@ -107,13 +107,13 @@ type ComposableJob interface {
 	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r record.EventRecorder, msg string) error
 	// ConstructComposableWorkload returns a new Workload that's assembled out of all members of the ComposableJob.
 	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error)
-	// ListChildWorkloads returns all workloads related to the composable job
+	// ListChildWorkloads returns all workloads related to the composable job.
 	ListChildWorkloads(ctx context.Context, c client.Client, parent types.NamespacedName) (*kueue.WorkloadList, error)
 	// FindMatchingWorkloads returns all related workloads, workload that matches the ComposableJob and duplicates that has to be deleted.
 	FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (match *kueue.Workload, toDelete []*kueue.Workload, err error)
-	// Stop implements the custom stop procedure for ComposableJob
+	// Stop implements the custom stop procedure for ComposableJob.
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) ([]client.Object, error)
-	// Calls f on each member of the ComposableJob
+	// ForEach calls f on each member of the ComposableJob.
 	ForEach(f func(obj runtime.Object))
 }
 
@@ -151,10 +151,10 @@ func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
 
 // MultiKueueAdapter interface needed for MultiKueue job delegation.
 type MultiKueueAdapter interface {
-	// Creates the Job object in the worker cluster using remote client, if not already created.
+	// SyncJob creates the Job object in the worker cluster using remote client, if not already created.
 	// Copy the status from the remote job if already exists.
 	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
-	// Deletes the Job in the worker cluster.
+	// DeleteRemoteObject deletes the Job in the worker cluster.
 	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
 	// IsJobManagedByKueue returns:
 	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
@@ -173,9 +173,9 @@ type MultiKueueAdapter interface {
 // to receive job related watch events from the worker cluster.
 // If not implemented, MultiKueue will only receive events related to the job's workload.
 type MultiKueueWatcher interface {
-	// returns an empty list of objects
+	// GetEmptyList returns an empty list of objects
 	GetEmptyList() client.ObjectList
-	// returns the key of the workload of interest
+	// WorkloadKeyFor returns the key of the workload of interest
 	// - the object name for workloads
 	// - the prebuilt workload for job types
 	WorkloadKeyFor(runtime.Object) (types.NamespacedName, error)

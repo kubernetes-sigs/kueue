@@ -203,7 +203,7 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 	return CanBePartiallyAdmitted(i.Obj)
 }
 
-// ResourceUsage returns the total resource usage for the workload,
+// FlavorResourceUsage returns the total resource usage for the workload,
 // per flavor (if assigned, otherwise flavor shows as empty string), per resource.
 func (i *Info) FlavorResourceUsage() map[kueue.ResourceFlavorReference]Requests {
 	if i == nil || len(i.TotalRequests) == 0 {
