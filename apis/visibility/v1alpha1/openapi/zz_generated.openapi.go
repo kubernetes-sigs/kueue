@@ -2824,7 +2824,7 @@ func schema_kueue_apis_visibility_v1alpha1_PendingWorkload(ref common.ReferenceC
 					},
 					"priority": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Priority indicates the workload's priority asaaaa",
+							Description: "Priority indicates the workload's priority",
 							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int32",
@@ -2910,7 +2910,7 @@ func schema_kueue_apis_visibility_v1alpha1_PendingWorkloadsSummary(ref common.Re
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "PendingWorkloadsSummary contains a list of pending workloads in the context of the query (within LocalQueue or ClusterQueue). api 定義はここでしている",
+				Description: "PendingWorkloadsSummary contains a list of pending workloads in the context of the query (within LocalQueue or ClusterQueue).",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
