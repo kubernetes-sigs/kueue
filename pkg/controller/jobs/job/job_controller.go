@@ -209,7 +209,7 @@ func (j *Job) GVK() schema.GroupVersionKind {
 }
 
 func (j *Job) PodLabelSelector() string {
-	return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Labels[batchv1.JobNameLabel])
+	return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Name)
 }
 
 func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {

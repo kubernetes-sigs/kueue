@@ -90,7 +90,7 @@ func (j *RayCluster) GVK() schema.GroupVersionKind {
 }
 
 func (j *RayCluster) PodLabelSelector() string {
-	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Labels[rayutils.RayClusterLabelKey])
+	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Name)
 }
 
 func (j *RayCluster) PodSets() []kueue.PodSet {
