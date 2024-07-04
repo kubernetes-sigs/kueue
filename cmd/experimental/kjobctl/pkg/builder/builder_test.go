@@ -40,12 +40,13 @@ func TestBuilder(t *testing.T) {
 	testStartTime := time.Now()
 
 	testCases := map[string]struct {
-		namespace   string
-		profile     string
-		mode        v1alpha1.ApplicationProfileMode
-		kjobctlObjs []runtime.Object
-		wantObj     runtime.Object
-		wantErr     error
+		namespace     string
+		profile       string
+		mode          v1alpha1.ApplicationProfileMode
+		providedFlags []v1alpha1.Flag
+		kjobctlObjs   []runtime.Object
+		wantObj       runtime.Object
+		wantErr       error
 	}{
 		"shouldn't build job because no namespace specified": {
 			wantErr: noNamespaceSpecifiedErr,
@@ -92,10 +93,25 @@ func TestBuilder(t *testing.T) {
 			},
 			wantErr: invalidApplicationProfileModeErr,
 		},
-		"shouldn't build job because command not specified with required flags": {
+		"shouldn't build job because required flags are missing": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.CmdFlag, v1alpha1.ParallelismFlag},
+					}).
+					Obj(),
+			},
+			wantErr: missingFlagsErr,
+		},
+		"shouldn't build job because extra flags are provided": {
+			namespace:     metav1.NamespaceDefault,
+			profile:       "profile",
+			mode:          v1alpha1.JobMode,
+			providedFlags: []v1alpha1.Flag{v1alpha1.ParallelismFlag, v1alpha1.CmdFlag},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(v1alpha1.SupportedMode{
@@ -104,63 +120,7 @@ func TestBuilder(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantErr: noCommandSpecifiedErr,
-		},
-		"shouldn't build job because parallelism not specified with required flags": {
-			namespace: metav1.NamespaceDefault,
-			profile:   "profile",
-			mode:      v1alpha1.JobMode,
-			kjobctlObjs: []runtime.Object{
-				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(v1alpha1.SupportedMode{
-						Name:          v1alpha1.JobMode,
-						RequiredFlags: []v1alpha1.Flag{v1alpha1.ParallelismFlag},
-					}).
-					Obj(),
-			},
-			wantErr: noParallelismSpecifiedErr,
-		},
-		"shouldn't build job because completions not specified with required flags": {
-			namespace: metav1.NamespaceDefault,
-			profile:   "profile",
-			mode:      v1alpha1.JobMode,
-			kjobctlObjs: []runtime.Object{
-				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(v1alpha1.SupportedMode{
-						Name:          v1alpha1.JobMode,
-						RequiredFlags: []v1alpha1.Flag{v1alpha1.CompletionsFlag},
-					}).
-					Obj(),
-			},
-			wantErr: noCompletionsSpecifiedErr,
-		},
-		"shouldn't build job because request not specified with required flags": {
-			namespace: metav1.NamespaceDefault,
-			profile:   "profile",
-			mode:      v1alpha1.JobMode,
-			kjobctlObjs: []runtime.Object{
-				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(v1alpha1.SupportedMode{
-						Name:          v1alpha1.JobMode,
-						RequiredFlags: []v1alpha1.Flag{v1alpha1.RequestFlag},
-					}).
-					Obj(),
-			},
-			wantErr: noRequestsSpecifiedErr,
-		},
-		"shouldn't build job because local queue not specified with required flags": {
-			namespace: metav1.NamespaceDefault,
-			profile:   "profile",
-			mode:      v1alpha1.JobMode,
-			kjobctlObjs: []runtime.Object{
-				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(v1alpha1.SupportedMode{
-						Name:          v1alpha1.JobMode,
-						RequiredFlags: []v1alpha1.Flag{v1alpha1.LocalQueueFlag},
-					}).
-					Obj(),
-			},
-			wantErr: noLocalQueueSpecifiedErr,
+			wantErr: extraFlagsErr,
 		},
 		"should build job": {
 			namespace: metav1.NamespaceDefault,
@@ -191,6 +151,7 @@ func TestBuilder(t *testing.T) {
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
+				WithProvidedFlags(tc.providedFlags).
 				Do(ctx)
 
 			var opts []cmp.Option

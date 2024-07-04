@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
 	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +40,7 @@ import (
 	"k8s.io/kubectl/pkg/cmd/exec"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+	"k8s.io/utils/set"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/builder"
@@ -71,6 +73,8 @@ const (
 
 var (
 	podRunningTimeoutDefault = 1 * time.Minute
+
+	profileFlags = set.New(commandFlagName, parallelismFlagName, completionsFlagName, requestFlagName, localQueueFlagName)
 )
 
 type CreateOptions struct {
@@ -103,6 +107,8 @@ type CreateOptions struct {
 	PrintObj printers.ResourcePrinterFunc
 
 	genericiooptions.IOStreams
+
+	providedFlags []v1alpha1.Flag
 }
 
 func NewCreateOptions(streams genericiooptions.IOStreams) *CreateOptions {
@@ -210,6 +216,12 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 
 	var err error
 
+	cmd.Flags().Visit(func(f *pflag.Flag) {
+		if profileFlags.Has(f.Name) {
+			o.providedFlags = append(o.providedFlags, v1alpha1.Flag(f.Name))
+		}
+	})
+
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return err
@@ -282,6 +294,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithCompletions(o.Completions).
 		WithRequests(o.Requests).
 		WithLocalQueue(o.LocalQueue).
+		WithProvidedFlags(o.providedFlags).
 		Do(ctx)
 	if err != nil {
 		return err

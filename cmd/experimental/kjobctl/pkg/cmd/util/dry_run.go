@@ -46,10 +46,14 @@ const (
 	DryRunServer
 )
 
+const (
+	DryRunFlagName = "dry-run"
+)
+
 // AddDryRunFlag adds dry-run flag to a command.
 func AddDryRunFlag(cmd *cobra.Command) {
 	cmd.PersistentFlags().String(
-		"dry-run",
+		DryRunFlagName,
 		"none",
 		`Must be "none", "server", or "client". If client strategy, only print the object that would be sent, without sending it. If server strategy, submit server-side request without persisting the resource.`,
 	)

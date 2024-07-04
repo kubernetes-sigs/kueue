@@ -21,13 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8s "k8s.io/client-go/kubernetes"
+	"k8s.io/utils/set"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
@@ -41,11 +41,8 @@ var (
 	noApplicationProfileModeSpecifiedErr   = errors.New("no application profile mode specified")
 	invalidApplicationProfileModeErr       = errors.New("invalid application profile mode")
 	applicationProfileModeNotConfiguredErr = errors.New("application profile mode not configured")
-	noCommandSpecifiedErr                  = errors.New("no command specified")
-	noParallelismSpecifiedErr              = errors.New("no parallelism specified")
-	noCompletionsSpecifiedErr              = errors.New("no completions specified")
-	noRequestsSpecifiedErr                 = errors.New("no requests specified")
-	noLocalQueueSpecifiedErr               = errors.New("no local queue specified")
+	missingFlagsErr                        = errors.New("required flags missing")
+	extraFlagsErr                          = errors.New("extra flags provided")
 )
 
 type builder interface {
@@ -71,7 +68,8 @@ type Builder struct {
 	mode          *v1alpha1.SupportedMode
 	volumeBundles []v1alpha1.VolumeBundle
 
-	buildTime time.Time
+	buildTime     time.Time
+	providedFlags []v1alpha1.Flag
 }
 
 func NewBuilder(clientGetter util.ClientGetter, buildTime time.Time) *Builder {
@@ -115,6 +113,11 @@ func (b *Builder) WithRequests(requests corev1.ResourceList) *Builder {
 
 func (b *Builder) WithLocalQueue(localQueue string) *Builder {
 	b.localQueue = localQueue
+	return b
+}
+
+func (b *Builder) WithProvidedFlags(flags []v1alpha1.Flag) *Builder {
+	b.providedFlags = flags
 	return b
 }
 
@@ -173,26 +176,19 @@ func (b *Builder) complete(ctx context.Context) error {
 }
 
 func (b *Builder) validateFlags() error {
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.CmdFlag) && len(b.command) == 0 {
-		return noCommandSpecifiedErr
+	requiredSet := set.New(b.mode.RequiredFlags...)
+	providedSet := set.New(b.providedFlags...)
+
+	missing := requiredSet.Difference(providedSet)
+	extra := providedSet.Difference(requiredSet)
+
+	if missing.Len() > 0 {
+		return fmt.Errorf("%w: %v", missingFlagsErr, missing.SortedList())
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.ParallelismFlag) && b.parallelism == nil {
-		return noParallelismSpecifiedErr
+	if extra.Len() > 0 {
+		return fmt.Errorf("%w: %s", extraFlagsErr, extra.SortedList())
 	}
-
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.CompletionsFlag) && b.completions == nil {
-		return noCompletionsSpecifiedErr
-	}
-
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.RequestFlag) && b.requests == nil {
-		return noRequestsSpecifiedErr
-	}
-
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.LocalQueueFlag) && b.localQueue == "" {
-		return noLocalQueueSpecifiedErr
-	}
-
 	return nil
 }
 

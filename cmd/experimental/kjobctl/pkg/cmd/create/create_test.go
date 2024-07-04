@@ -159,7 +159,11 @@ func TestCreateCmd(t *testing.T) {
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").Obj()).
+					WithSupportedMode(
+						*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").
+							RequiredFlags(v1alpha1.LocalQueueFlag).
+							Obj(),
+					).
 					Obj(),
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
@@ -184,7 +188,11 @@ func TestCreateCmd(t *testing.T) {
 					Completions(1).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").Obj()).
+					WithSupportedMode(
+						*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").
+							RequiredFlags(v1alpha1.ParallelismFlag).
+							Obj(),
+					).
 					Obj(),
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
@@ -210,7 +218,11 @@ func TestCreateCmd(t *testing.T) {
 					Completions(1).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").Obj()).
+					WithSupportedMode(
+						*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").
+							RequiredFlags(v1alpha1.CompletionsFlag).
+							Obj(),
+					).
 					Obj(),
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
@@ -238,7 +250,11 @@ func TestCreateCmd(t *testing.T) {
 					WithContainer(*wrappers.MakeContainer("c2", "sleep").Obj()).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").Obj()).
+					WithSupportedMode(
+						*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").
+							RequiredFlags(v1alpha1.CmdFlag).
+							Obj(),
+					).
 					Obj(),
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
@@ -276,7 +292,11 @@ func TestCreateCmd(t *testing.T) {
 					WithContainer(*wrappers.MakeContainer("c2", "sleep").Obj()).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").Obj()).
+					WithSupportedMode(
+						*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").
+							RequiredFlags(v1alpha1.RequestFlag).
+							Obj(),
+					).
 					Obj(),
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},

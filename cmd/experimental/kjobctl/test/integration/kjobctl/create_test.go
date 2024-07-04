@@ -66,7 +66,11 @@ var _ = ginkgo.Describe("Kjobctl Create", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Expect(k8sClient.Create(ctx, jobTemplate)).To(gomega.Succeed())
 
 			profile = wrappers.MakeApplicationProfile("profile", ns.Name).
-				WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").Obj()).
+				WithSupportedMode(
+					*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").
+						RequiredFlags(v1alpha1.CmdFlag, v1alpha1.ParallelismFlag, v1alpha1.CompletionsFlag, v1alpha1.RequestFlag, v1alpha1.LocalQueueFlag).
+						Obj(),
+				).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, profile)).To(gomega.Succeed())
 		})
@@ -152,7 +156,17 @@ var _ = ginkgo.Describe("Kjobctl Create", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				kjobctlCmd := cmd.NewKjobctlCmd(cmd.KjobctlOptions{ConfigFlags: configFlags, IOStreams: streams})
 				kjobctlCmd.SetOut(out)
 				kjobctlCmd.SetErr(outErr)
-				kjobctlCmd.SetArgs([]string{"create", "job", "-n", ns.Name, "--profile", profile.Name, "--dry-run", "server"})
+				kjobctlCmd.SetArgs([]string{
+					"create", "job",
+					"-n", ns.Name,
+					"--profile", profile.Name,
+					"--cmd", "sleep 60s",
+					"--parallelism", "2",
+					"--completions", "3",
+					"--request", "cpu=100m,memory=4Gi",
+					"--localqueue", "lq1",
+					"--dry-run", "server",
+				})
 
 				err := kjobctlCmd.Execute()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
