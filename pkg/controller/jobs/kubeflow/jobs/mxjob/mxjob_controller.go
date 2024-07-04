@@ -85,7 +85,7 @@ func (j *JobControl) GVK() schema.GroupVersionKind {
 }
 
 func (j *JobControl) PodLabelSelector() string {
-	return fmt.Sprintf("%s=%s,%s=%s", kftraining.OperatorNameLabel, j.Labels[kftraining.OperatorNameLabel], kftraining.JobNameLabel, j.Labels[kftraining.JobNameLabel])
+	return fmt.Sprintf("%s=%s", kftraining.JobNameLabel, j.Name)
 }
 
 func (j *JobControl) RunPolicy() *kftraining.RunPolicy {

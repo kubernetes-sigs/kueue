@@ -18,9 +18,7 @@ package list
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +29,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	k8s "k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
@@ -42,6 +41,7 @@ import (
 	kueuetfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	kueuexgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	kueuempijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	kueueraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	kueuerayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 )
@@ -53,6 +53,20 @@ const (
 	podExample = `  # List Pods
   kueuectl list pods --for job/job-name`
 )
+
+var jobControllersWithPodLabelSelector = []jobControllerWithPodLabelSelector{
+	&kueuejob.Job{},
+	&kueuejobset.JobSet{},
+	&kueuemxjob.JobControl{},
+	&kueuepaddlejob.JobControl{},
+	&kueuetfjob.JobControl{},
+	&kueuepytorchjob.JobControl{},
+	&kueuexgboostjob.JobControl{},
+	&kueuempijob.MPIJob{},
+	&pod.Pod{},
+	&kueueraycluster.RayCluster{},
+	&kueuerayjob.RayJob{},
+}
 
 type PodOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
@@ -70,6 +84,12 @@ type PodOptions struct {
 	Clientset k8s.Interface
 
 	genericiooptions.IOStreams
+}
+
+type jobControllerWithPodLabelSelector interface {
+	Object() client.Object
+	GVK() schema.GroupVersionKind
+	PodLabelSelector() string
 }
 
 func NewPodOptions(streams genericiooptions.IOStreams) *PodOptions {
@@ -125,59 +145,56 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 		return err
 	}
 
-	// parse --for flag
-	if o.UserSpecifiedForObject != "" {
-		mapper, err := clientGetter.ToRESTMapper()
-		if err != nil {
-			return err
-		}
-		var found bool
-		o.ForGVK, o.ForName, found, err = decodeResourceTypeName(mapper, o.UserSpecifiedForObject)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return fmt.Errorf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", o.UserSpecifiedForObject)
-		}
-
-		r := clientGetter.NewResourceBuilder().
-			Unstructured().
-			NamespaceParam(o.Namespace).
-			DefaultNamespace().
-			AllNamespaces(o.AllNamespaces).
-			FieldSelectorParam(fmt.Sprintf("metadata.name=%s", o.ForName)).
-			ResourceTypeOrNameArgs(true, o.ForGVK.Kind).
-			ContinueOnError().
-			Latest().
-			Flatten().
-			Do()
-		if r == nil {
-			return fmt.Errorf("Error building client for: %s/%s", o.ForGVK.Kind, o.ForName)
-		}
-		if err := r.Err(); err != nil {
-			return err
-		}
-		infos, err := r.Infos()
-		if err != nil {
-			return err
-		}
-
-		if len(infos) == 0 {
-			if !o.AllNamespaces {
-				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
-			} else {
-				fmt.Fprintln(o.ErrOut, "No resources found")
-			}
-			return nil
-		}
-
-		job, ok := infos[0].Object.(*unstructured.Unstructured)
-		if !ok {
-			fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
-			return nil
-		}
-		o.ForObject = job
+	mapper, err := clientGetter.ToRESTMapper()
+	if err != nil {
+		return err
 	}
+	var found bool
+	o.ForGVK, o.ForName, found, err = decodeResourceTypeName(mapper, o.UserSpecifiedForObject)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", o.UserSpecifiedForObject)
+	}
+
+	r := clientGetter.NewResourceBuilder().
+		Unstructured().
+		NamespaceParam(o.Namespace).
+		DefaultNamespace().
+		AllNamespaces(o.AllNamespaces).
+		FieldSelectorParam(fmt.Sprintf("metadata.name=%s", o.ForName)).
+		ResourceTypeOrNameArgs(true, o.ForGVK.Kind).
+		ContinueOnError().
+		Latest().
+		Flatten().
+		Do()
+	if r == nil {
+		return fmt.Errorf("Error building client for: %s/%s", o.ForGVK.Kind, o.ForName)
+	}
+	if err := r.Err(); err != nil {
+		return err
+	}
+	infos, err := r.Infos()
+	if err != nil {
+		return err
+	}
+
+	if len(infos) == 0 {
+		if !o.AllNamespaces {
+			fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+		} else {
+			fmt.Fprintln(o.ErrOut, "No resources found")
+		}
+		return nil
+	}
+
+	job, ok := infos[0].Object.(*unstructured.Unstructured)
+	if !ok {
+		fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
+		return nil
+	}
+	o.ForObject = job
 
 	return nil
 }
@@ -274,46 +291,26 @@ func (o *PodOptions) listPods(ctx context.Context) error {
 	}
 }
 
+func (o *PodOptions) getJobController() jobControllerWithPodLabelSelector {
+	for _, jobController := range jobControllersWithPodLabelSelector {
+		if jobController.GVK() == o.ForGVK {
+			return jobController
+		}
+	}
+	return nil
+}
+
 // getPodLabelSelector returns the podLabels used as a standard selector for jobs
 func (o *PodOptions) getPodLabelSelector() (string, error) {
-	// Helper function to handle the conversion
-	getSelector := func(dest interface{}) (string, error) {
-		err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.ForObject.UnstructuredContent(), dest)
-		if err != nil {
-			return "", fmt.Errorf("failed to convert unstructured object: %w", err)
-		}
-
-		switch v := dest.(type) {
-		case interface{ PodLabelSelector() string }:
-			return v.PodLabelSelector(), nil
-		default:
-			return "", errors.New("unsupported type for getting PodLabelSelector")
-		}
-	}
-
-	// getSelector based on ForObject kind. Only limited to job integrations.
-	switch strings.ToLower(o.ForObject.GetKind()) {
-	case "job":
-		return getSelector(&kueuejob.Job{})
-	case "jobset":
-		return getSelector(&kueuejobset.JobSet{})
-	case "mpijob":
-		return getSelector(&kueuempijob.MPIJob{})
-	case "mxjob":
-		return getSelector(&kueuemxjob.JobControl{})
-	case "paddlejob":
-		return getSelector(&kueuepaddlejob.JobControl{})
-	case "tfjob":
-		return getSelector(&kueuetfjob.JobControl{})
-	case "pytorchjob":
-		return getSelector(&kueuepytorchjob.JobControl{})
-	case "xgboostjob":
-		return getSelector(&kueuexgboostjob.JobControl{})
-	case "raycluster":
-		return getSelector(&kueueraycluster.RayCluster{})
-	case "rayjob":
-		return getSelector(&kueuerayjob.RayJob{})
-	default:
+	jobController := o.getJobController()
+	if jobController == nil {
 		return "", fmt.Errorf("unsupported kind: %s", o.ForObject.GetKind())
 	}
+
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.ForObject.UnstructuredContent(), jobController.Object())
+	if err != nil {
+		return "", fmt.Errorf("failed to convert unstructured object: %w", err)
+	}
+
+	return jobController.PodLabelSelector(), nil
 }

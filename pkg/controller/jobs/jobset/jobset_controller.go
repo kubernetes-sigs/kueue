@@ -106,7 +106,7 @@ func (j *JobSet) GVK() schema.GroupVersionKind {
 }
 
 func (j *JobSet) PodLabelSelector() string {
-	return fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, j.Labels[jobsetapi.JobSetNameKey])
+	return fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, j.Name)
 }
 
 func (j *JobSet) PodSets() []kueue.PodSet {

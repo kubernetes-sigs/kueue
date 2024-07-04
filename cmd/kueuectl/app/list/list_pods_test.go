@@ -311,7 +311,7 @@ valid-pod-2   COMPLETED   60m
 			job: []runtime.Object{
 				&batchv1.Job{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
+						Name:      "sample-job",
 						Namespace: metav1.NamespaceDefault,
 						Labels: map[string]string{
 							batchv1.JobNameLabel: "sample-job",
@@ -718,13 +718,13 @@ valid-pod-1   RUNNING   60m
 			mapperGVKs: []schema.GroupVersionKind{
 				{
 					Group:   "kubeflow.org",
-					Version: "v1",
+					Version: "v2beta1",
 					Kind:    "MPIJob",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
 				{
-					GroupVersion: "kubeflow.org/v1",
+					GroupVersion: "kubeflow.org/v2beta1",
 					APIResources: []metav1.APIResource{
 						{
 							SingularName: "mpijob",
@@ -816,7 +816,7 @@ valid-pod-1   RUNNING   60m
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
 						Labels: map[string]string{
-							rayutils.RayClusterLabelKey: "test-cluster",
+							batchv1.JobNameLabel: "test-job",
 						},
 					},
 				},
@@ -830,7 +830,7 @@ valid-pod-1   RUNNING   60m
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
 						Labels: map[string]string{
-							rayutils.RayClusterLabelKey: "test-cluster",
+							batchv1.JobNameLabel: "test-job",
 						},
 					},
 					Status: corev1.PodStatus{
@@ -844,7 +844,7 @@ valid-pod-1   RUNNING   60m
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
 						Labels: map[string]string{
-							rayutils.RayClusterLabelKey: "sample-cluster",
+							batchv1.JobNameLabel: "invalid-job",
 						},
 					},
 					Status: corev1.PodStatus{
@@ -880,7 +880,7 @@ valid-pod-1   RUNNING   60m
 			job: []runtime.Object{
 				&rayv1.RayCluster{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
+						Name:      "test-cluster",
 						Namespace: metav1.NamespaceDefault,
 						Labels: map[string]string{
 							rayutils.RayClusterLabelKey: "test-cluster",
@@ -911,7 +911,7 @@ valid-pod-1   RUNNING   60m
 							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
 						},
 						Labels: map[string]string{
-							rayutils.RayClusterLabelKey: "sample-cluster",
+							rayutils.RayClusterLabelKey: "invalid-cluster",
 						},
 					},
 					Status: corev1.PodStatus{
@@ -938,7 +938,7 @@ valid-pod-1   RUNNING   60m
 					},
 				},
 			},
-			args: []string{"--for", "raycluster/test-job"},
+			args: []string{"--for", "raycluster/test-cluster"},
 			wantOut: `NAME          STATUS    AGE
 valid-pod-1   RUNNING   60m
 `,
@@ -988,19 +988,19 @@ valid-pod-1   RUNNING   60m
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
-					Group:   "x-k8s.io",
+					Group:   "jobset.x-k8s.io",
 					Version: "v1alpha2",
 					Kind:    "JobSet",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
 				{
-					GroupVersion: "x-k8s.io/v1alpha2",
+					GroupVersion: "jobset.x-k8s.io/v1alpha2",
 					APIResources: []metav1.APIResource{
 						{
 							SingularName: "jobset",
 							Kind:         "JobSet",
-							Group:        "x-k8s.io",
+							Group:        "jobset.x-k8s.io",
 						},
 					},
 				},
@@ -1055,24 +1055,24 @@ valid-pod-1   RUNNING   60m
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
-					Group:   "x-k8s.io",
+					Group:   "jobset.x-k8s.io",
 					Version: "v1alpha2",
 					Kind:    "JobSet",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
 				{
-					GroupVersion: "x-k8s.io/v1alpha2",
+					GroupVersion: "jobset.x-k8s.io/v1alpha2",
 					APIResources: []metav1.APIResource{
 						{
 							SingularName: "jobset",
 							Kind:         "JobSet",
-							Group:        "x-k8s.io",
+							Group:        "jobset.x-k8s.io",
 						},
 					},
 				},
 			},
-			args: []string{"--for", "jobset.x-k8s.io/test-job"},
+			args: []string{"--for", "jobset.jobset.x-k8s.io/test-job"},
 			wantOut: `NAME          STATUS    AGE
 valid-pod-1   RUNNING   60m
 `,
