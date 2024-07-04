@@ -90,14 +90,6 @@ type PendingWorkloadsSummary struct {
 }
 
 // +kubebuilder:object:root=true
-type PendingWorkloadsSummaryList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-
-	Items []PendingWorkloadsSummary `json:"items"`
-}
-
-// +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
 // +k8s:conversion-gen:explicit-from=net/url.Values
 // +k8s:defaulter-gen=true
