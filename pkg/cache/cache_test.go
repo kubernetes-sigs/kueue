@@ -108,21 +108,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "default",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal:        10_000,
-									BorrowingLimit: ptr.To[int64](10_000),
-								},
-							},
-						}},
-						LabelKeys: sets.New("cpuType"),
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -139,20 +126,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"b": {
 					Name:                          "b",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "default",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal: 15_000,
-								},
-							},
-						}},
-						LabelKeys: sets.New("cpuType"),
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -169,7 +144,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"c": {
 					Name:                          "c",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -180,7 +154,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"d": {
 					Name:                          "d",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -191,19 +164,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"e": {
 					Name:                          "e",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "nonexistent-flavor",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal: 15_000,
-								},
-							},
-						}},
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "nonexistent-flavor", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -220,7 +182,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"f": {
 					Name:                          "f",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					Usage:                         resources.FlavorResourceQuantities{},
 					Status:                        active,
@@ -303,21 +264,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "default",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal:        10_000,
-									BorrowingLimit: ptr.To[int64](10_000),
-								},
-							},
-						}},
-						LabelKeys: sets.New("cpuType"),
-					}},
-					FlavorFungibility: defaultFlavorFungibility,
-					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -334,20 +282,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"b": {
 					Name:                          "b",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "default",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal: 15_000,
-								},
-							},
-						}},
-						LabelKeys: sets.New("cpuType"),
-					}},
-					FlavorFungibility: defaultFlavorFungibility,
-					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -364,7 +300,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"c": {
 					Name:                          "c",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -375,7 +310,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"d": {
 					Name:                          "d",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -386,21 +320,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"e": {
 					Name:                          "e",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "nonexistent-flavor",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 15_000,
-									},
-								},
-							},
-						},
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "nonexistent-flavor", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -417,7 +338,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"f": {
 					Name:                          "f",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					Usage:                         resources.FlavorResourceQuantities{},
 					Status:                        active,
@@ -475,21 +395,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 2,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "default",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal:        5_000,
-									BorrowingLimit: ptr.To[int64](5_000),
-								},
-							},
-						}},
-						LabelKeys: sets.New("cpuType", "region"),
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -506,7 +413,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"b": {
 					Name:                          "b",
 					AllocatableResourceGeneration: 2,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Everything(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -517,7 +423,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"c": {
 					Name:                          "c",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -528,7 +433,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"d": {
 					Name:                          "d",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -539,20 +443,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"e": {
 					Name:                          "e",
 					AllocatableResourceGeneration: 2,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "default",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal:        5_000,
-									BorrowingLimit: ptr.To[int64](5_000),
-									LendingLimit:   ptr.To[int64](4_000),
-								},
-							}},
-						},
-						LabelKeys: sets.New("cpuType", "region"),
-					}},
 					GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: "cpu"}: 1_000,
 					}.Unflatten(),
@@ -574,7 +464,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"f": {
 					Name:                          "f",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					Usage:                         resources.FlavorResourceQuantities{},
 					Status:                        active,
@@ -612,18 +501,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"b": {
 					Name:                          "b",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "default",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {Nominal: 15_000},
-							},
-						}},
-						LabelKeys: sets.New("cpuType"),
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -640,7 +519,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"c": {
 					Name:                          "c",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -651,21 +529,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"e": {
 					Name:                          "e",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "nonexistent-flavor",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 15_000,
-									},
-								},
-							},
-						},
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "nonexistent-flavor", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -682,7 +547,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"f": {
 					Name:                          "f",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					Usage:                         resources.FlavorResourceQuantities{},
 					Status:                        active,
@@ -715,21 +579,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "default",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal:        10_000,
-									BorrowingLimit: ptr.To[int64](10_000),
-								},
-							},
-						}},
-						LabelKeys: sets.New("cpuType"),
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -746,20 +597,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"b": {
 					Name:                          "b",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "default",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal: 15_000,
-								},
-							},
-						}},
-						LabelKeys: sets.New("cpuType"),
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -776,7 +615,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"c": {
 					Name:                          "c",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -787,7 +625,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"d": {
 					Name:                          "d",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Usage:                         resources.FlavorResourceQuantities{},
@@ -798,19 +635,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"e": {
 					Name:                          "e",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{{
-						CoveredResources: sets.New(corev1.ResourceCPU),
-						Flavors: []FlavorQuotas{{
-							Name: "nonexistent-flavor",
-							Resources: map[corev1.ResourceName]*ResourceQuota{
-								corev1.ResourceCPU: {
-									Nominal: 15_000,
-								},
-							},
-						}},
-					}},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "nonexistent-flavor", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
@@ -827,7 +653,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"f": {
 					Name:                          "f",
 					AllocatableResourceGeneration: 1,
-					ResourceGroups:                []ResourceGroup{},
 					NamespaceSelector:             labels.Nothing(),
 					Usage:                         resources.FlavorResourceQuantities{},
 					Status:                        active,
@@ -874,45 +699,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
 					AllocatableResourceGeneration: 1,
-					ResourceGroups: []ResourceGroup{
-						{
-							CoveredResources: sets.New[corev1.ResourceName]("cpu", "memory"),
-							Flavors: []FlavorQuotas{
-								{
-									Name: "foo",
-									Resources: map[corev1.ResourceName]*ResourceQuota{
-										"cpu":    {},
-										"memory": {},
-									},
-								},
-								{
-									Name: "bar",
-									Resources: map[corev1.ResourceName]*ResourceQuota{
-										"cpu":    {},
-										"memory": {},
-									},
-								},
-							},
-						},
-						{
-							CoveredResources: sets.New[corev1.ResourceName]("example.com/gpu"),
-							Flavors: []FlavorQuotas{
-								{
-									Name: "theta",
-									Resources: map[corev1.ResourceName]*ResourceQuota{
-										"example.com/gpu": {},
-									},
-								},
-								{
-									Name: "gamma",
-									Resources: map[corev1.ResourceName]*ResourceQuota{
-										"example.com/gpu": {},
-									},
-								},
-							},
-						},
-					},
-					FlavorFungibility: defaultFlavorFungibility,
+					FlavorFungibility:             defaultFlavorFungibility,
 					Usage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "foo", Resource: "cpu"}:               0,
 						{Flavor: "foo", Resource: "memory"}:            0,
