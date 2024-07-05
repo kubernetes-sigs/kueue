@@ -236,16 +236,6 @@ func (o *PodOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, erro
 
 // Run prints the pods for a specific Job
 func (o *PodOptions) Run(ctx context.Context) error {
-	err := o.listPods(ctx)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// listPods lists the pods based on the given --for object
-func (o *PodOptions) listPods(ctx context.Context) error {
 	var totalCount int
 
 	namespace := o.Namespace
