@@ -2093,6 +2093,7 @@ func TestLastSchedulingContext(t *testing.T) {
 		ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
 		Admitted(true).
 		Obj()
+	now := time.Now()
 	cases := []struct {
 		name                           string
 		cqs                            []kueue.ClusterQueue
@@ -2276,6 +2277,90 @@ func TestLastSchedulingContext(t *testing.T) {
 				"default/new":                    *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 			},
 		},
+		{
+			name: "TryNextFlavor, but second flavor is full and can preempt on first",
+			cqs: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("eng-cohort-alpha").
+					Cohort("cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.TryNextFlavor,
+						WhenCanBorrow:  kueue.TryNextFlavor,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("60").Append().
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("30").BorrowingLimit("30").Append().
+							Obj(),
+					).Obj(),
+				*utiltesting.MakeClusterQueue("eng-cohort-beta").
+					Cohort("cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanPreempt: kueue.TryNextFlavor,
+						WhenCanBorrow:  kueue.TryNextFlavor,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("30").BorrowingLimit("30").Append().
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("30").BorrowingLimit("30").Append().
+							Obj(),
+					).Obj(),
+				*utiltesting.MakeClusterQueue("eng-cohort-shared").
+					Cohort("cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("30").Append().
+							Obj(),
+					).Obj(),
+			},
+			admittedWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("alpha1", "default").
+					Request(corev1.ResourceCPU, "22").
+					SimpleReserveQuota("eng-cohort-alpha", "on-demand", now.Add(-time.Second)).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("alpha2", "default").
+					Request(corev1.ResourceCPU, "22").
+					SimpleReserveQuota("eng-cohort-alpha", "on-demand", now).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("alpha3", "default").
+					Request(corev1.ResourceCPU, "22").
+					SimpleReserveQuota("eng-cohort-alpha", "spot", now).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("beta1", "default").
+					Request(corev1.ResourceCPU, "22").
+					SimpleReserveQuota("eng-cohort-beta", "spot", now).
+					Admitted(true).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "default").
+					Queue("main-beta").
+					Request(corev1.ResourceCPU, "22").
+					Obj(),
+			},
+			deleteWorkloads: []kueue.Workload{*utiltesting.MakeWorkload("alpha2", "default").Obj()},
+			wantPreempted:   sets.New("default/alpha2"),
+			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
+				"default/alpha1": *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "22").Obj(),
+				"default/alpha3": *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "spot", "22").Obj(),
+				"default/beta1":  *utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "spot", "22").Obj(),
+				"default/new":    *utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "on-demand", "22").Obj(),
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -2346,7 +2431,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
 				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantAdmissionsOnFirstSchedule, gotScheduled); diff != "" {
+			if diff := cmp.Diff(tc.wantAdmissionsOnFirstSchedule, gotScheduled, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 			}
 
