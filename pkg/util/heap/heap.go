@@ -16,6 +16,7 @@ limitations under the License.
 
 // heap.Interface implementation inspired by
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/internal/heap/heap.go
+
 package heap
 
 import (

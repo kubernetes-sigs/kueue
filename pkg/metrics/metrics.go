@@ -176,6 +176,7 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 	)
 
 	// Optional cluster queue metrics
+
 	ClusterQueueResourceReservations = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,

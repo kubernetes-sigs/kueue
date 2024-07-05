@@ -21,7 +21,7 @@ import (
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 )
 
-// This type is used only to install localqueues/ resource so we can install localqueues/pending_workloads subresource.
+// LqREST type is used only to install localqueues/ resource, so we can install localqueues/pending_workloads subresource.
 // It implements the necessary interfaces for genericapiserver but does not provide any actual functionalities.
 type LqREST struct{}
 

@@ -127,7 +127,7 @@ type ClusterQueueSpec struct {
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
-// AdmissionCheckStrategy defines a strategy for a AdmissionCheck.
+// AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
 type AdmissionChecksStrategy struct {
 	// admissionChecks is a list of strategies for AdmissionChecks
 	AdmissionChecks []AdmissionCheckStrategyRule `json:"admissionChecks,omitempty"`

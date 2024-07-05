@@ -479,7 +479,7 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
 
-<p>AdmissionCheckStrategy defines a strategy for a AdmissionCheck.</p>
+<p>AdmissionChecksStrategy defines a strategy for a AdmissionCheck.</p>
 
 
 <table class="table">

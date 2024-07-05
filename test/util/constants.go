@@ -30,7 +30,7 @@ const (
 	// LongTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
 	LongTimeout = 45 * time.Second
-	// StartupTimeout is meant to be used for waiting for Kueue to startup, given
+	// StartUpTimeout is meant to be used for waiting for Kueue to startup, given
 	// that cert updates can take up to 3 minutes to propagate to the filesystem.
 	// Taken into account that after the certificates are ready, all Kueue's components
 	// need started and the time it takes for a change in ready probe response triggers
