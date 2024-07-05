@@ -1,9 +1,9 @@
 ---
-title: "Sequential Admission with Ready Pods"
+title: "Setup all-or-nothing with ready Pods"
 date: 2022-03-14
 weight: 5
 description: >
-  Simple implementation of the all-or-nothing scheduling
+  Timeout-based implementation of the all-or-nothing scheduling
 ---
 
 Some jobs need all pods to be running at the same time to operate; for example,
@@ -15,10 +15,10 @@ sequentially.
 
 To address this requirement, in version 0.3.0 we introduced an opt-in mechanism
 configured via the flag `waitForPodsReady` that provides a simple implementation
-of the all-or-nothing scheduling. When enabled, admission of workloads is blocked
-not only on the availability of quota, but also until all previously admitted
-jobs have their pods scheduled (all pods are running or completed, up the the
-level of the job parallelism).
+of the all-or-nothing scheduling. When enabled, the workload is monitored by
+Kueue until all of its Pods are ready (meaning scheduled, running, and passing
+the optional readiness probe). If not all pods of the workload are ready within
+the configured timeout, then the workload is evicted and requeued.
 
 This page shows you how to configure Kueue to use `waitForPodsReady`, which
 is a simple implementation of the all-or-nothing scheduling.
@@ -69,12 +69,12 @@ pods are not all scheduled yet (i.e., the Workload condition remains
 `PodsReady=False`), then the Workload's admission is
 cancelled, the corresponding job is suspended and the Workload is re-queued.
 
-The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter, defaulting to `false`.
-When the `blockAdmission` is set to `true` regardless of the `enable` (`waitForPodsReady.enable`) is set to `false`,
-the `enable` is overridden to `true`.
-When the `blockAdmission` is set to `true`, admitted Workload with not ready pods block admission for other Workloads.
+The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter.
+When enabled, then the workloads are admitted sequentially to prevent deadlock
+situations as demonstrated in the example below.
 
 ### Requeuing Strategy
+
 {{% alert title="Warning" color="warning" %}}
 Available in Kueue v0.6.0 and later
 {{% /alert %}}
@@ -82,7 +82,7 @@ Available in Kueue v0.6.0 and later
 The `backoffBaseSeconds` and `backoffMaxSeconds` are available in Kueue v0.7.0 and later
 {{% /alert %}}
 
-The `requeuingStrategy` (`waitForPodsReady.requeuingStrategy`) contains optional parameters: 
+The `requeuingStrategy` (`waitForPodsReady.requeuingStrategy`) contains optional parameters:
 - `timestamp`
 - `backoffLimitCount`
 - `backoffBaseSeconds`
@@ -158,7 +158,7 @@ spec:
     - name: "default-flavor"
       resources:
       - name: "memory"
-        nominalQuota: 16858Mi # double the value of allocatable memory in the cluster         
+        nominalQuota: 16858Mi # double the value of allocatable memory in the cluster
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
