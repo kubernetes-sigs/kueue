@@ -22,7 +22,7 @@ As a batch administrator, you can learn how to:
 - [Setup role-based access control](manage/rbac)
   to Kueue objects.
 - [Administer cluster quotas](manage/administer_cluster_quotas) with ClusterQueues and LocalQueues.
-- Setup [Sequential Admission with Ready Pods](manage/setup_sequential_admission).
+- Setup [All-or-nothing with ready Pods](manage/setup_wait_for_pods_ready).
 - As a batch administrator, you can learn how to
   [monitor pending workloads](manage/monitor_pending_workloads).
 - As a batch administrator, you can learn how to [run a Kueue managed Jobs with a custom WorkloadPriority](manage/run_job_with_workload_priority).
