@@ -166,25 +166,6 @@ func (c *ClusterQueue) FitInCohort(q resources.FlavorResourceQuantities) bool {
 	return true
 }
 
-func (c *ClusterQueue) IsBorrowing() bool {
-	if c.Cohort == nil || len(c.Usage) == 0 {
-		return false
-	}
-	for _, rg := range c.ResourceGroups {
-		for _, flvQuotas := range rg.Flavors {
-			if flvUsage, isUsing := c.Usage[flvQuotas.Name]; isUsing {
-				for rName, rQuota := range flvQuotas.Resources {
-					used := flvUsage[rName]
-					if used > rQuota.Nominal {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
 func (c *ClusterQueue) Active() bool {
 	return c.Status == active
 }
