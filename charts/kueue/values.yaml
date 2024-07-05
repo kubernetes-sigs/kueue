@@ -24,6 +24,7 @@ controllerManager:
       repository: gcr.io/k8s-staging-kueue/kueue
       # This should be set to 'IfNotPresent' for released version      
       pullPolicy: Always
+      tag: main
     podAnnotations: {}
     resources:
       limits:
