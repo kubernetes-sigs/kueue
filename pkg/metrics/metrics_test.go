@@ -158,3 +158,15 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 	ClearQueueSystemMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
 }
+
+func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
+	ReportPreemptedWorkloads("cluster_queue1", "InCohortReclamation")
+	ReportPreemptedWorkloads("cluster_queue1", "InCohortFairSharing")
+
+	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 2, "preemptor_cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preemptor_cluster_queue", "cluster_queue1", "reason", "InCohortReclamation")
+	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preemptor_cluster_queue", "cluster_queue1", "reason", "InCohortFairSharing")
+	// clear
+	ClearQueueSystemMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preemptor_cluster_queue", "cluster_queue1")
+}

@@ -138,6 +138,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl1, lowWl2)
 			util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, 2)
+			util.ExpectPreemptedWorkloadsTotalMetric(cq.Name, "InClusterQueue", 2)
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl2)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
