@@ -81,6 +81,7 @@ type PodOptions struct {
 	ForName                string
 	ForGVK                 schema.GroupVersionKind
 	ForObject              *unstructured.Unstructured
+	PodLabelSelector       string
 
 	Clientset k8s.Interface
 
@@ -173,7 +174,15 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 		return nil
 	}
 
-	o.ForObject = o.getForObject(infos)
+	o.ForObject, err = o.getForObject(infos)
+	if err != nil {
+		return err
+	}
+
+	o.PodLabelSelector, err = o.getPodLabelSelector()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -208,14 +217,13 @@ func (o *PodOptions) fetchDynamicResourceInfos(clientGetter util.ClientGetter) (
 	return infos, nil
 }
 
-func (o *PodOptions) getForObject(infos []*resource.Info) *unstructured.Unstructured {
+func (o *PodOptions) getForObject(infos []*resource.Info) (*unstructured.Unstructured, error) {
 	job, ok := infos[0].Object.(*unstructured.Unstructured)
 	if !ok {
-		fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
-		return nil
+		return nil, fmt.Errorf("Invalid object %+v. Unexpected type %T", job, infos[0].Object)
 	}
 
-	return job
+	return job, nil
 }
 
 func (o *PodOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, error) {
@@ -243,17 +251,12 @@ func (o *PodOptions) Run(ctx context.Context) error {
 		namespace = ""
 	}
 
-	podLabelSelector, err := o.getPodLabelSelector()
-	if err != nil {
-		return err
-	}
-
 	if len(o.LabelSelector) != 0 {
-		podLabelSelector = "," + podLabelSelector
+		o.PodLabelSelector = "," + o.PodLabelSelector
 	}
 
 	opts := metav1.ListOptions{
-		LabelSelector: o.LabelSelector + podLabelSelector,
+		LabelSelector: o.LabelSelector + o.PodLabelSelector,
 		FieldSelector: o.FieldSelector,
 		Limit:         o.Limit,
 	}
