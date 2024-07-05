@@ -275,6 +275,7 @@ github.com/prometheus/procfs/internal/util
 # github.com/ray-project/kuberay/ray-operator v1.1.1
 ## explicit; go 1.20
 github.com/ray-project/kuberay/ray-operator/apis/ray/v1
+github.com/ray-project/kuberay/ray-operator/controllers/ray/utils
 # github.com/rogpeppe/go-internal v1.12.0
 ## explicit; go 1.20
 # github.com/sirupsen/logrus v1.9.3
