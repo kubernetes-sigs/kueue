@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/cli-runtime/pkg/printers"
+
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,7 +36,7 @@ func TestPodPrint(t *testing.T) {
 		in      *corev1.PodList
 		out     []metav1.TableRow
 	}{
-		"should print local queue list": {
+		"should print pod list": {
 			options: &PodOptions{},
 			in: &corev1.PodList{
 				Items: []corev1.Pod{
@@ -44,15 +46,19 @@ func TestPodPrint(t *testing.T) {
 							Name:              "test-pod",
 							CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
 						},
+						Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 						Status: corev1.PodStatus{
-							Phase: "RUNNING",
+							Phase: corev1.PodRunning,
+							ContainerStatuses: []corev1.ContainerStatus{
+								{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+							},
 						},
 					},
 				},
 			},
 			out: []metav1.TableRow{
 				{
-					Cells: []any{"test-pod", corev1.PodPhase("RUNNING"), "60m"},
+					Cells: []any{"test-pod", "1/1", "Running", "0", "60m"},
 					Object: runtime.RawExtension{
 						Object: &corev1.Pod{
 							TypeMeta: metav1.TypeMeta{},
@@ -60,8 +66,12 @@ func TestPodPrint(t *testing.T) {
 								Name:              "test-pod",
 								CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
 							},
+							Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 							Status: corev1.PodStatus{
-								Phase: "RUNNING",
+								Phase: corev1.PodRunning,
+								ContainerStatuses: []corev1.ContainerStatus{
+									{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+								},
 							},
 						},
 					},
@@ -72,7 +82,7 @@ func TestPodPrint(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			out := printPodList(tc.in)
+			out := printPodList(tc.in, printers.PrintOptions{})
 			if diff := cmp.Diff(tc.out, out); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}

@@ -94,8 +94,12 @@ func TestPodCmd(t *testing.T) {
 							},
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -115,8 +119,12 @@ func TestPodCmd(t *testing.T) {
 							},
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -140,9 +148,9 @@ func TestPodCmd(t *testing.T) {
 				},
 			},
 			args: []string{"--for", "job/test-job"},
-			wantOut: `NAME          STATUS      AGE
-valid-pod-1   RUNNING     60m
-valid-pod-2   COMPLETED   60m
+			wantOut: `NAME          READY   STATUS      RESTARTS   AGE
+valid-pod-1   1/1     Running     0          60m
+valid-pod-2   0/1     Completed   0          60m
 `,
 		}, {
 			name: "no valid pods for batch/job type in current namespace",
@@ -176,8 +184,12 @@ valid-pod-2   COMPLETED   60m
 							},
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -197,8 +209,12 @@ valid-pod-2   COMPLETED   60m
 							},
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -257,8 +273,12 @@ valid-pod-2   COMPLETED   60m
 							},
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -278,8 +298,12 @@ valid-pod-2   COMPLETED   60m
 							},
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -338,8 +362,12 @@ valid-pod-2   COMPLETED   60m
 							},
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -359,8 +387,12 @@ valid-pod-2   COMPLETED   60m
 							},
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -384,9 +416,9 @@ valid-pod-2   COMPLETED   60m
 				},
 			},
 			args: []string{"--for", "job/sample-job", "-A"},
-			wantOut: `NAMESPACE    NAME          STATUS      AGE
-dev-team-a   valid-pod-1   RUNNING     60m
-dev-team-b   valid-pod-2   COMPLETED   60m
+			wantOut: `NAMESPACE    NAME          READY   STATUS      RESTARTS   AGE
+dev-team-a   valid-pod-1   1/1     Running     0          60m
+dev-team-b   valid-pod-2   0/1     Completed   0          60m
 `,
 		}, {
 			name: "list pods for kubeflow.org/PyTorchJob type",
@@ -415,8 +447,12 @@ dev-team-b   valid-pod-2   COMPLETED   60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -430,8 +466,12 @@ dev-team-b   valid-pod-2   COMPLETED   60m
 							kftraining.JobNameLabel:      "sample-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -455,8 +495,8 @@ dev-team-b   valid-pod-2   COMPLETED   60m
 				},
 			},
 			args: []string{"--for", "pytorchjob/test-job"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		}, {
 			name: "list pods for kubeflow.org/MXjob type",
@@ -485,8 +525,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -500,8 +544,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "sample-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -525,8 +573,8 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "mxjob/test-job"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		}, {
 			name: "list pods for kubeflow.org/paddlejob type",
@@ -555,8 +603,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -570,8 +622,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "sample-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -595,8 +651,8 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "paddlejob/test-job"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		}, {
 			name: "list pods for kubeflow.org/tfjob type",
@@ -625,8 +681,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -640,8 +700,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "sample-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -665,8 +729,8 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "tfjob/test-job"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		}, {
 			name: "list pods for kubeflow.org/mpijob type",
@@ -695,8 +759,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -710,8 +778,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "sample-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -735,8 +807,8 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "mpijob/test-job"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		}, {
 			name: "list pods for kubeflow.org/xgboostjob type",
@@ -765,8 +837,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -780,8 +856,12 @@ valid-pod-1   RUNNING   60m
 							kftraining.JobNameLabel:      "sample-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -805,8 +885,8 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "xgboostjob/test-job"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		}, {
 			name: "list pods for ray.io/rayjob type",
@@ -833,8 +913,12 @@ valid-pod-1   RUNNING   60m
 							batchv1.JobNameLabel: "test-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -847,8 +931,12 @@ valid-pod-1   RUNNING   60m
 							batchv1.JobNameLabel: "invalid-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -872,8 +960,8 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "rayjob/test-job"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		}, {
 			name: "list pods for ray.io/raycluster type",
@@ -900,8 +988,12 @@ valid-pod-1   RUNNING   60m
 							rayutils.RayClusterLabelKey: "test-cluster",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -914,8 +1006,12 @@ valid-pod-1   RUNNING   60m
 							rayutils.RayClusterLabelKey: "invalid-cluster",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -939,8 +1035,8 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "raycluster/test-cluster"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		}, {
 			name: "list pods for jobset.x-k8s.io/jobset type",
@@ -967,8 +1063,12 @@ valid-pod-1   RUNNING   60m
 							jobsetapi.JobSetNameKey: "test-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -981,8 +1081,12 @@ valid-pod-1   RUNNING   60m
 							jobsetapi.JobSetNameKey: "sample-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -1006,8 +1110,8 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "jobset/test-job"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		}, {
 			name: "list pods with api-group filter",
@@ -1034,8 +1138,12 @@ valid-pod-1   RUNNING   60m
 							jobsetapi.JobSetNameKey: "test-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "RUNNING",
+						Phase: corev1.PodRunning,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+						},
 					},
 				}, &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1048,8 +1156,12 @@ valid-pod-1   RUNNING   60m
 							jobsetapi.JobSetNameKey: "sample-job",
 						},
 					},
+					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
 					Status: corev1.PodStatus{
-						Phase: "COMPLETED",
+						Phase: corev1.PodSucceeded,
+						ContainerStatuses: []corev1.ContainerStatus{
+							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+						},
 					},
 				},
 			},
@@ -1073,8 +1185,8 @@ valid-pod-1   RUNNING   60m
 				},
 			},
 			args: []string{"--for", "jobset.jobset.x-k8s.io/test-job"},
-			wantOut: `NAME          STATUS    AGE
-valid-pod-1   RUNNING   60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          60m
 `,
 		},
 	}
