@@ -82,7 +82,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 	setup := func(cache *Cache) error {
 		cache.AddOrUpdateResourceFlavor(
 			utiltesting.MakeResourceFlavor("default").
-				Label("cpuType", "default").
+				NodeLabel("cpuType", "default").
 				Obj())
 		for _, c := range initialClusterQueues {
 			if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
@@ -256,7 +256,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				cache.AddOrUpdateResourceFlavor(
 					utiltesting.MakeResourceFlavor("default").
-						Label("cpuType", "default").
+						NodeLabel("cpuType", "default").
 						Obj())
 				return nil
 			},
@@ -386,8 +386,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				cache.AddOrUpdateResourceFlavor(
 					utiltesting.MakeResourceFlavor("default").
-						Label("cpuType", "default").
-						Label("region", "central").
+						NodeLabel("cpuType", "default").
+						NodeLabel("region", "central").
 						Obj())
 				return nil
 			},

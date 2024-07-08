@@ -168,7 +168,7 @@ func TestReconciler(t *testing.T) {
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
-				utiltesting.MakeResourceFlavor("unit-test-flavor").Label("kubernetes.io/arch", "arm64").Obj(),
+				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel("kubernetes.io/arch", "arm64").Obj(),
 			},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
@@ -691,7 +691,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"scheduling gate is removed for all pods in the group if workload is admitted": {
 			initObjects: []client.Object{
-				utiltesting.MakeResourceFlavor("unit-test-flavor").Label("kubernetes.io/arch", "arm64").Obj(),
+				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel("kubernetes.io/arch", "arm64").Obj(),
 			},
 			pods: []corev1.Pod{
 				*basePodWrapper.

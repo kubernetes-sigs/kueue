@@ -214,9 +214,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
 			spotFlavor = testing.MakeResourceFlavor(flavorSpot).Obj()
 			gomega.Expect(k8sClient.Create(ctx, spotFlavor)).To(gomega.Succeed())
-			modelAFlavor = testing.MakeResourceFlavor(flavorModelA).Label(resourceGPU.String(), flavorModelA).Obj()
+			modelAFlavor = testing.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
 			gomega.Expect(k8sClient.Create(ctx, modelAFlavor)).To(gomega.Succeed())
-			modelBFlavor = testing.MakeResourceFlavor(flavorModelB).Label(resourceGPU.String(), flavorModelB).Obj()
+			modelBFlavor = testing.MakeResourceFlavor(flavorModelB).NodeLabel(resourceGPU.String(), flavorModelB).Obj()
 			gomega.Expect(k8sClient.Create(ctx, modelBFlavor)).To(gomega.Succeed())
 
 			ginkgo.By("Set workloads quota reservation")
@@ -424,9 +424,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
 				spotFlavor = testing.MakeResourceFlavor(flavorSpot).Obj()
 				gomega.Expect(k8sClient.Create(ctx, spotFlavor)).To(gomega.Succeed())
-				modelAFlavor = testing.MakeResourceFlavor(flavorModelA).Label(resourceGPU.String(), flavorModelA).Obj()
+				modelAFlavor = testing.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
 				gomega.Expect(k8sClient.Create(ctx, modelAFlavor)).To(gomega.Succeed())
-				modelBFlavor = testing.MakeResourceFlavor(flavorModelB).Label(resourceGPU.String(), flavorModelB).Obj()
+				modelBFlavor = testing.MakeResourceFlavor(flavorModelB).NodeLabel(resourceGPU.String(), flavorModelB).Obj()
 				gomega.Expect(k8sClient.Create(ctx, modelBFlavor)).To(gomega.Succeed())
 			})
 

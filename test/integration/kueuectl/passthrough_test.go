@@ -38,7 +38,7 @@ func makePassThroughWorkload(ns string) client.Object {
 }
 
 func makePassThroughResourceFlavor(_ string) client.Object {
-	return testing.MakeResourceFlavor("pass-through-resource-flavor").Label("type", "small").Obj()
+	return testing.MakeResourceFlavor("pass-through-resource-flavor").NodeLabel("type", "small").Obj()
 }
 
 func setupEnv(c *exec.Cmd, kassetsPath string, kubeconfigPath string) {

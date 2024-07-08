@@ -109,12 +109,12 @@ func TestSnapshot(t *testing.T) {
 		"resourceFlavors": {
 			rfs: []*kueue.ResourceFlavor{
 				utiltesting.MakeResourceFlavor("demand").
-					Label("a", "b").
-					Label("instance", "demand").
+					NodeLabel("a", "b").
+					NodeLabel("instance", "demand").
 					Obj(),
 				utiltesting.MakeResourceFlavor("spot").
-					Label("c", "d").
-					Label("instance", "spot").
+					NodeLabel("c", "d").
+					NodeLabel("instance", "spot").
 					Obj(),
 				utiltesting.MakeResourceFlavor("default").Obj(),
 			},
@@ -122,12 +122,12 @@ func TestSnapshot(t *testing.T) {
 				ClusterQueues: map[string]*ClusterQueueSnapshot{},
 				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"demand": utiltesting.MakeResourceFlavor("demand").
-						Label("a", "b").
-						Label("instance", "demand").
+						NodeLabel("a", "b").
+						NodeLabel("instance", "demand").
 						Obj(),
 					"spot": utiltesting.MakeResourceFlavor("spot").
-						Label("c", "d").
-						Label("instance", "spot").
+						NodeLabel("c", "d").
+						NodeLabel("instance", "spot").
 						Obj(),
 					"default": utiltesting.MakeResourceFlavor("default").Obj(),
 				},
@@ -158,8 +158,8 @@ func TestSnapshot(t *testing.T) {
 					Obj(),
 			},
 			rfs: []*kueue.ResourceFlavor{
-				utiltesting.MakeResourceFlavor("demand").Label("instance", "demand").Obj(),
-				utiltesting.MakeResourceFlavor("spot").Label("instance", "spot").Obj(),
+				utiltesting.MakeResourceFlavor("demand").NodeLabel("instance", "demand").Obj(),
+				utiltesting.MakeResourceFlavor("spot").NodeLabel("instance", "spot").Obj(),
 				utiltesting.MakeResourceFlavor("default").Obj(),
 			},
 			wls: []*kueue.Workload{
@@ -359,8 +359,8 @@ func TestSnapshot(t *testing.T) {
 						},
 					},
 					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
-						"demand":  utiltesting.MakeResourceFlavor("demand").Label("instance", "demand").Obj(),
-						"spot":    utiltesting.MakeResourceFlavor("spot").Label("instance", "spot").Obj(),
+						"demand":  utiltesting.MakeResourceFlavor("demand").NodeLabel("instance", "demand").Obj(),
+						"spot":    utiltesting.MakeResourceFlavor("spot").NodeLabel("instance", "spot").Obj(),
 						"default": utiltesting.MakeResourceFlavor("default").Obj(),
 					},
 				}
@@ -430,8 +430,8 @@ func TestSnapshot(t *testing.T) {
 					Obj(),
 			},
 			rfs: []*kueue.ResourceFlavor{
-				utiltesting.MakeResourceFlavor("arm").Label("arch", "arm").Obj(),
-				utiltesting.MakeResourceFlavor("x86").Label("arch", "x86").Obj(),
+				utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
+				utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
 			},
 			wls: []*kueue.Workload{
 				utiltesting.MakeWorkload("alpha", "").
@@ -597,8 +597,8 @@ func TestSnapshot(t *testing.T) {
 						},
 					},
 					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
-						"arm": utiltesting.MakeResourceFlavor("arm").Label("arch", "arm").Obj(),
-						"x86": utiltesting.MakeResourceFlavor("x86").Label("arch", "x86").Obj(),
+						"arm": utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
+						"x86": utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
 					},
 				}
 			}(),

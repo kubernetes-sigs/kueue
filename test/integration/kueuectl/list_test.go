@@ -246,4 +246,73 @@ wl2                                             very-long-local-queue-name      
 			)))
 		})
 	})
+
+	ginkgo.When("List ResourceFlavors", func() {
+		var (
+			rf1 *v1beta1.ResourceFlavor
+			rf2 *v1beta1.ResourceFlavor
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			rf1 = testing.MakeResourceFlavor("rf1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, rf1)).To(gomega.Succeed())
+
+			rf2 = testing.MakeResourceFlavor("very-long-resource-flavor-name").Obj()
+			gomega.Expect(k8sClient.Create(ctx, rf2)).To(gomega.Succeed())
+		})
+
+		ginkgo.JustAfterEach(func() {
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf1, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf2, true)
+		})
+
+		// Simple client set that are using on unit tests not allow to filter by field selector.
+		ginkgo.It("Should print resource flavor list filtered by field selector", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{
+				ConfigFlags: configFlags,
+				IOStreams:   streams,
+				Clock:       testingclock.NewFakeClock(executeTime),
+			})
+
+			kueuectl.SetArgs([]string{"list", "resourceflavor", "--field-selector",
+				fmt.Sprintf("metadata.name=%s", rf1.Name)})
+			err := kueuectl.Execute()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   AGE
+rf1    %s
+`,
+				duration.HumanDuration(executeTime.Sub(rf1.CreationTimestamp.Time)),
+			)))
+		})
+
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should print resource flavor list with paging", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{
+				ConfigFlags: configFlags,
+				IOStreams:   streams,
+				Clock:       testingclock.NewFakeClock(executeTime),
+			})
+
+			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			kueuectl.SetArgs([]string{"list", "resourceflavor"})
+			err := kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                             AGE
+rf1                              %s
+very-long-resource-flavor-name   %s
+`,
+				duration.HumanDuration(executeTime.Sub(rf1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(rf2.CreationTimestamp.Time)),
+			)))
+		})
+	})
 })

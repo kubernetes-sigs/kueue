@@ -42,7 +42,7 @@ func TestValidateResourceFlavor(t *testing.T) {
 		{
 			name: "valid",
 			rf: utiltesting.MakeResourceFlavor("resource-flavor").
-				Label("foo", "bar").
+				NodeLabel("foo", "bar").
 				Taint(corev1.Taint{
 					Key:    "spot",
 					Value:  "true",
@@ -51,14 +51,14 @@ func TestValidateResourceFlavor(t *testing.T) {
 		},
 		{
 			name: "invalid label name",
-			rf:   utiltesting.MakeResourceFlavor("resource-flavor").Label("@abc", "foo").Obj(),
+			rf:   utiltesting.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", ""),
 			},
 		},
 		{
 			name: "invalid label value",
-			rf:   utiltesting.MakeResourceFlavor("resource-flavor").Label("foo", "@abc").Obj(),
+			rf:   utiltesting.MakeResourceFlavor("resource-flavor").NodeLabel("foo", "@abc").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", ""),
 			},

@@ -50,15 +50,15 @@ func TestFromAssignment(t *testing.T) {
 	}
 
 	flavor1 := utiltesting.MakeResourceFlavor("flavor1").
-		Label("f1l1", "f1v1").
-		Label("f1l2", "f1v2").
+		NodeLabel("f1l1", "f1v1").
+		NodeLabel("f1l2", "f1v2").
 		Toleration(*toleration1.DeepCopy()).
 		Toleration(*toleration2.DeepCopy()).
 		Obj()
 
 	flavor2 := utiltesting.MakeResourceFlavor("flavor2").
-		Label("f2l1", "f2v1").
-		Label("f2l2", "f2v2").
+		NodeLabel("f2l1", "f2v1").
+		NodeLabel("f2l2", "f2v2").
 		Toleration(*toleration3.DeepCopy()).
 		Obj()
 
