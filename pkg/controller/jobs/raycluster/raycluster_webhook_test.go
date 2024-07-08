@@ -163,7 +163,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "queue", apivalidation.FieldImmutableErrorMsg),
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "queue2", apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
 		"managed - queue name can change while suspended": {
@@ -187,7 +187,7 @@ func TestValidateUpdate(t *testing.T) {
 				WorkloadPriorityClass("test-2").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(workloadPriorityClassNamePath, "test-1", apivalidation.FieldImmutableErrorMsg),
+				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
 	}
