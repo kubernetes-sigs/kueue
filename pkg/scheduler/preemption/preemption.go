@@ -152,7 +152,7 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 }
 
 // canBorrowWithinCohort returns whether the behavior is enabled for the ClusterQueue and the threshold priority to use.
-func canBorrowWithinCohort(cq *cache.ClusterQueue, wl *kueue.Workload) (bool, *int32) {
+func canBorrowWithinCohort(cq *cache.ClusterQueueSnapshot, wl *kueue.Workload) (bool, *int32) {
 	borrowWithinCohort := cq.Preemption.BorrowWithinCohort
 	if borrowWithinCohort == nil || borrowWithinCohort.Policy == kueue.BorrowWithinCohortPolicyNever {
 		return false, nil
@@ -165,7 +165,7 @@ func canBorrowWithinCohort(cq *cache.ClusterQueue, wl *kueue.Workload) (bool, *i
 }
 
 // IssuePreemptions marks the target workloads as evicted.
-func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*workload.Info, cq *cache.ClusterQueue) (int, error) {
+func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*workload.Info, cq *cache.ClusterQueueSnapshot) (int, error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
@@ -214,7 +214,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueue, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
+func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info("Simulating preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", resPerFlv, "allowBorrowing", allowBorrowing, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
 	}
@@ -257,7 +257,7 @@ func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantitie
 	return targets
 }
 
-func fillBackWorkloads(targets []*workload.Info, wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueue, snapshot *cache.Snapshot, allowBorrowing bool) []*workload.Info {
+func fillBackWorkloads(targets []*workload.Info, wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, allowBorrowing bool) []*workload.Info {
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		snapshot.AddWorkload(targets[i])
@@ -393,7 +393,7 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl *workload.Info, assignme
 }
 
 type candidateCQ struct {
-	cq        *cache.ClusterQueue
+	cq        *cache.ClusterQueueSnapshot
 	workloads []*workload.Info
 	share     int
 }
@@ -448,7 +448,7 @@ func resourcesRequiringPreemption(assignment flavorassigner.Assignment) resource
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
-func findCandidates(wl *kueue.Workload, wo workload.Ordering, cq *cache.ClusterQueue, resPerFlv resourcesPerFlavor) []*workload.Info {
+func findCandidates(wl *kueue.Workload, wo workload.Ordering, cq *cache.ClusterQueueSnapshot, resPerFlv resourcesPerFlavor) []*workload.Info {
 	var candidates []*workload.Info
 	wlPriority := priority.Priority(wl)
 
@@ -497,7 +497,7 @@ func findCandidates(wl *kueue.Workload, wo workload.Ordering, cq *cache.ClusterQ
 	return candidates
 }
 
-func cqIsBorrowing(cq *cache.ClusterQueue, resPerFlv resourcesPerFlavor) bool {
+func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, resPerFlv resourcesPerFlavor) bool {
 	if cq.Cohort == nil {
 		return false
 	}
@@ -528,7 +528,7 @@ func workloadUsesResources(wl *workload.Info, resPerFlv resourcesPerFlavor) bool
 // workloadFits determines if the workload requests would fit given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
-func workloadFits(wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueue, allowBorrowing bool) bool {
+func workloadFits(wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, allowBorrowing bool) bool {
 	for _, rg := range cq.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
 			flvReq, found := wlReq[flvQuotas.Name]
@@ -567,7 +567,7 @@ func workloadFits(wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQue
 	return true
 }
 
-func queueUnderNominalInResourcesNeedingPreemption(resPerFlv resourcesPerFlavor, cq *cache.ClusterQueue) bool {
+func queueUnderNominalInResourcesNeedingPreemption(resPerFlv resourcesPerFlavor, cq *cache.ClusterQueueSnapshot) bool {
 	for _, rg := range cq.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
 			flvReq, found := resPerFlv[flvQuotas.Name]
