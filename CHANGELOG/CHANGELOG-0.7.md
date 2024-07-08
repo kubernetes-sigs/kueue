@@ -1,3 +1,28 @@
+## v0.7.1
+
+Changes since `v0.7.0`:
+
+### Feature
+
+- Improved logging for scheduling and preemption in levels 4 and 5 (#2510, @gabesaba, @alculquicondor)
+- MultiKueue: Remove remote objects synchronously when the worker cluster is reachable. (#2360, @trasc)
+
+### Bug or Regression
+
+- Fix check that prevents preemptions when a workload requests 0 for a resource that is at nominal or over it. (#2524, @mbobrovskyi, @alculquicondor)
+- Fix for the scenario when a workload doesn't match some resource flavors due to affinity or taints
+  could cause the workload to be continuously retried. (#2440, @KunWuLuan)
+- Fix missing fairSharingStatus in ClusterQueue (#2432, @mbobrovskyi)
+- Fix missing metric cluster_queue_status. (#2475, @mbobrovskyi)
+- Fix panic that could occur when a ClusterQueue is deleted while Kueue was updating the ClusterQueue status. (#2464, @mbobrovskyi)
+- Fix panic when there is not enough quota to assign flavors to a Workload in the cohort, when FairSharing is enabled. (#2449, @mbobrovskyi)
+- Fix performance issue in logging when processing LocalQueues. (#2492, @alexandear)
+- Fix race condition on delete workload from queue manager. (#2465, @mbobrovskyi)
+- MultiKueue: Do not reject a JobSet if the corresponding cluster queue doesn't exist (#2442, @vladikkuzn)
+- MultiKueue: Skip garbage collection for disconnected clients which could occasionally result in panic. (#2370, @trasc)
+- Show weightedShare in ClusterQueue status.fairSharing even if the value is zero (#2522, @alculquicondor)
+- Skip duplicate Tolerations when an admission check introduces a toleration that the job also set. (#2499, @trasc)
+
 ## v0.7.0
 
 Changes since `v0.6.0`:
