@@ -664,12 +664,12 @@ func (c *ClusterQueueSnapshot) DominantResourceShare() (int, corev1.ResourceName
 	return dominantResourceShare(c, nil, 0)
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
+func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantitiesFlat) (int, corev1.ResourceName) {
 	return dominantResourceShare(c, wlReq, 1)
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShareWithout(w *workload.Info) (int, corev1.ResourceName) {
-	return dominantResourceShare(c, w.FlavorResourceUsage(), -1)
+func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantitiesFlat) (int, corev1.ResourceName) {
+	return dominantResourceShare(c, wlReq, -1)
 }
 
 type dominantResourceShareNode interface {
@@ -680,7 +680,7 @@ type dominantResourceShareNode interface {
 	netQuotaNode
 }
 
-func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities, m int64) (int, corev1.ResourceName) {
+func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantitiesFlat, m int64) (int, corev1.ResourceName) {
 	if !node.hasCohort() {
 		return 0, ""
 	}
@@ -690,7 +690,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 
 	borrowing := make(map[corev1.ResourceName]int64)
 	for fr, quota := range remainingQuota(node) {
-		b := m*wlReq[fr.Flavor][fr.Resource] - quota
+		b := m*wlReq[fr] - quota
 		if b > 0 {
 			borrowing[fr.Resource] += b
 		}

@@ -106,17 +106,12 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 	return psFlavors
 }
 
-func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
-	usage := make(resources.FlavorResourceQuantities)
+func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantitiesFlat {
+	usage := make(resources.FlavorResourceQuantitiesFlat)
 	for i, ps := range wl.TotalRequests {
 		for res, q := range ps.Requests {
 			flv := a.PodSets[i].Flavors[res].Name
-			resUsage := usage[flv]
-			if resUsage == nil {
-				resUsage = make(map[corev1.ResourceName]int64)
-				usage[flv] = resUsage
-			}
-			resUsage[res] += q
+			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
 	}
 	return usage

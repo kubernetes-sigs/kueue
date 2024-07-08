@@ -593,9 +593,11 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 func TestFlavorResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info
-		want resources.FlavorResourceQuantities
+		want resources.FlavorResourceQuantitiesFlat
 	}{
-		"nil": {},
+		"nil": {
+			want: resources.FlavorResourceQuantitiesFlat{},
+		},
 		"one podset, no flavors": {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
@@ -605,11 +607,9 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				}},
 			},
-			want: map[kueue.ResourceFlavorReference]resources.Requests{
-				"": {
-					corev1.ResourceCPU: 1_000,
-					"example.com/gpu":  3,
-				},
+			want: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "", Resource: "cpu"}:             1_000,
+				{Flavor: "", Resource: "example.com/gpu"}: 3,
 			},
 		},
 		"one podset, multiple flavors": {
@@ -625,13 +625,9 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				}},
 			},
-			want: map[kueue.ResourceFlavorReference]resources.Requests{
-				"default": {
-					corev1.ResourceCPU: 1_000,
-				},
-				"gpu": {
-					"example.com/gpu": 3,
-				},
+			want: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: "cpu"}:         1_000,
+				{Flavor: "gpu", Resource: "example.com/gpu"}: 3,
 			},
 		},
 		"multiple podsets, multiple flavors": {
@@ -667,17 +663,11 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				},
 			},
-			want: map[kueue.ResourceFlavorReference]resources.Requests{
-				"default": {
-					corev1.ResourceCPU:    3_000,
-					corev1.ResourceMemory: 2 * utiltesting.Gi,
-				},
-				"model_a": {
-					"example.com/gpu": 3,
-				},
-				"model_b": {
-					"example.com/gpu": 1,
-				},
+			want: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: "cpu"}:             3_000,
+				{Flavor: "default", Resource: "memory"}:          2 * utiltesting.Gi,
+				{Flavor: "model_a", Resource: "example.com/gpu"}: 3,
+				{Flavor: "model_b", Resource: "example.com/gpu"}: 1,
 			},
 		},
 	}

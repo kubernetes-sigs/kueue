@@ -206,21 +206,15 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 
 // FlavorResourceUsage returns the total resource usage for the workload,
 // per flavor (if assigned, otherwise flavor shows as empty string), per resource.
-func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
-	if i == nil || len(i.TotalRequests) == 0 {
-		return nil
+func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantitiesFlat {
+	total := make(resources.FlavorResourceQuantitiesFlat)
+	if i == nil {
+		return total
 	}
-	total := make(resources.FlavorResourceQuantities)
 	for _, psReqs := range i.TotalRequests {
 		for res, q := range psReqs.Requests {
 			flv := psReqs.Flavors[res]
-			if requests, found := total[flv]; found {
-				requests[res] += q
-			} else {
-				total[flv] = resources.Requests{
-					res: q,
-				}
-			}
+			total[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
 	}
 	return total
