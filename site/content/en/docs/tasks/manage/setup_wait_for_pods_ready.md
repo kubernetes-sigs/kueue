@@ -3,7 +3,7 @@ title: "Setup All-or-nothing with ready Pods"
 date: 2022-03-14
 weight: 5
 description: >
-  Timeout-based implementation of the all-or-nothing scheduling
+  Timeout-based implementation of the All-or-nothing scheduling
 ---
 
 Some jobs need all pods to be running at the same time to operate; for example,
