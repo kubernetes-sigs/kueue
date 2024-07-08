@@ -126,10 +126,10 @@ unsuspended, they will start immediately.</p>
 <a href="#WaitForPodsReady"><code>WaitForPodsReady</code></a>
 </td>
 <td>
-   <p>WaitForPodsReady is configuration to provide simple all-or-nothing
-scheduling semantics for jobs to ensure they get resources assigned.
-This is achieved by blocking the start of new jobs until the previously
-started job has all pods running (ready).</p>
+   <p>WaitForPodsReady is configuration to provide a time-based all-or-nothing
+scheduling semantics for Jobs, by ensuring all pods are ready (running
+and passing the readiness probe) within the specified time. If the timeout
+is exceeded, then the workload is evicted.</p>
 </td>
 </tr>
 <tr><td><code>clientConnection</code> <B>[Required]</B><br/>
@@ -793,6 +793,9 @@ re-queuing an evicted workload.</p>
 
 
 
+<p>WaitForPodsReady defines configuration for the Wait For Pods Ready feature,
+which is used to ensure that all Pods are ready within the specified time.</p>
+
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
@@ -803,11 +806,8 @@ re-queuing an evicted workload.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>Enable when true, indicates that each admitted workload
-blocks the admission of all other workloads from all queues until it is in the
-<code>PodsReady</code> condition. If false, all workloads start as soon as they are
-admitted and do not block admission of other workloads. The PodsReady
-condition is only added if this setting is enabled. It defaults to false.</p>
+   <p>Enable indicates whether to enable wait for pods ready feature.
+Defaults to false.</p>
 </td>
 </tr>
 <tr><td><code>timeout</code><br/>
@@ -815,17 +815,18 @@ condition is only added if this setting is enabled. It defaults to false.</p>
 </td>
 <td>
    <p>Timeout defines the time for an admitted workload to reach the
-PodsReady=true condition. When the timeout is reached, the workload admission
-is cancelled and requeued in the same cluster queue. Defaults to 5min.</p>
+PodsReady=true condition. When the timeout is exceeded, the workload
+evicted and requeued in the same cluster queue.
+Defaults to 5min.</p>
 </td>
 </tr>
 <tr><td><code>blockAdmission</code> <B>[Required]</B><br/>
 <code>bool</code>
 </td>
 <td>
-   <p>BlockAdmission when true, cluster queue will block admissions for all subsequent jobs
-until the jobs reach the PodsReady=true condition. It defaults to false if Enable is false
-and defaults to true otherwise.</p>
+   <p>BlockAdmission when true, cluster queue will block admissions for all
+subsequent jobs until the jobs reach the PodsReady=true condition.
+This setting is only honored when <code>Enable</code> is set to true.</p>
 </td>
 </tr>
 <tr><td><code>requeuingStrategy</code><br/>
