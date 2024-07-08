@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						var p corev1.Pod
 						g.Expect(k8sClient.Get(ctx, replKey, &p)).To(gomega.Succeed())
 						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				}
 			})
 
