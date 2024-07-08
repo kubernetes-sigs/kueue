@@ -282,8 +282,8 @@ wl2                                             very-long-local-queue-name      
 			err := kueuectl.Execute()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   AGE
-rf1    %s
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   NODE LABELS   AGE
+rf1                  %s
 `,
 				duration.HumanDuration(executeTime.Sub(rf1.CreationTimestamp.Time)),
 			)))
@@ -306,9 +306,9 @@ rf1    %s
 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                             AGE
-rf1                              %s
-very-long-resource-flavor-name   %s
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                             NODE LABELS   AGE
+rf1                                            %s
+very-long-resource-flavor-name                 %s
 `,
 				duration.HumanDuration(executeTime.Sub(rf1.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(rf2.CreationTimestamp.Time)),

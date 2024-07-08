@@ -43,15 +43,19 @@ func TestResourceFlavorPrint(t *testing.T) {
 				Items: []v1beta1.ResourceFlavor{
 					*utiltesting.MakeResourceFlavor("rf").
 						Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
+						NodeLabel("key1", "value").
+						NodeLabel("key2", "value").
 						Obj(),
 				},
 			},
 			out: []metav1.TableRow{
 				{
-					Cells: []any{"rf", "60m"},
+					Cells: []any{"rf", "key1=value, key2=value", "60m"},
 					Object: runtime.RawExtension{
 						Object: utiltesting.MakeResourceFlavor("rf").
 							Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
+							NodeLabel("key1", "value").
+							NodeLabel("key2", "value").
 							Obj(),
 					},
 				},

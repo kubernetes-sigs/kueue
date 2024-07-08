@@ -41,7 +41,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 		wantOutErr string
 		wantErr    error
 	}{
-		"should print resource flavor list with namespace filter": {
+		"should print resource flavor list": {
 			objs: []runtime.Object{
 				utiltesting.MakeResourceFlavor("rf1").
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -50,9 +50,27 @@ func TestResourceFlavorCmd(t *testing.T) {
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   AGE
-rf1    60m
-rf2    120m
+			wantOut: `NAME   NODE LABELS   AGE
+rf1                  60m
+rf2                  120m
+`,
+		},
+		"should print resource flavor list with node labels": {
+			objs: []runtime.Object{
+				utiltesting.MakeResourceFlavor("rf1").
+					Creation(testStartTime.Add(-1*time.Hour).Truncate(time.Second)).
+					NodeLabel("key1", "value1").
+					NodeLabel("key2", "value2").
+					Obj(),
+				utiltesting.MakeResourceFlavor("rf2").
+					Creation(testStartTime.Add(-2*time.Hour).Truncate(time.Second)).
+					NodeLabel("key3", "value3").
+					NodeLabel("key4", "value4").
+					Obj(),
+			},
+			wantOut: `NAME   NODE LABELS                AGE
+rf1    key1=value1, key2=value2   60m
+rf2    key3=value3, key4=value4   120m
 `,
 		},
 		"should print resource flavor list with label selector filter": {
@@ -67,8 +85,8 @@ rf2    120m
 					Label("key", "value2").
 					Obj(),
 			},
-			wantOut: `NAME   AGE
-rf1    60m
+			wantOut: `NAME   NODE LABELS   AGE
+rf1                  60m
 `,
 		},
 		"should print resource flavor list with label selector filter (short flag)": {
@@ -82,8 +100,8 @@ rf1    60m
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   AGE
-rf1    60m
+			wantOut: `NAME   NODE LABELS   AGE
+rf1                  60m
 `,
 		},
 		"should print not found error": {
