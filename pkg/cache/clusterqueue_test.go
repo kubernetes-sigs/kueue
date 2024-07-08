@@ -1074,16 +1074,16 @@ func TestDominantResourceShare(t *testing.T) {
 }
 
 func TestCohortLendable(t *testing.T) {
-	cq := ClusterQueue{
-		Cohort: &Cohort{
+	cq := clusterQueue{
+		Cohort: &cohort{
 			Members: sets.New(
-				&ClusterQueue{
+				&clusterQueue{
 					Lendable: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 8_000,
 						"example.com/gpu":  3,
 					},
 				},
-				&ClusterQueue{
+				&clusterQueue{
 					Lendable: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2_000,
 					},

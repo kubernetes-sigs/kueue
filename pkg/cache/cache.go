@@ -89,8 +89,8 @@ type Cache struct {
 	podsReadyCond sync.Cond
 
 	client              client.Client
-	clusterQueues       map[string]*ClusterQueue
-	cohorts             map[string]*Cohort
+	clusterQueues       map[string]*clusterQueue
+	cohorts             map[string]*cohort
 	assumedWorkloads    map[string]string
 	resourceFlavors     map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking   bool
@@ -106,8 +106,8 @@ func New(client client.Client, opts ...Option) *Cache {
 	}
 	c := &Cache{
 		client:              client,
-		clusterQueues:       make(map[string]*ClusterQueue),
-		cohorts:             make(map[string]*Cohort),
+		clusterQueues:       make(map[string]*clusterQueue),
+		cohorts:             make(map[string]*cohort),
 		assumedWorkloads:    make(map[string]string),
 		resourceFlavors:     make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:     make(map[string]AdmissionCheck),
@@ -119,8 +119,8 @@ func New(client client.Client, opts ...Option) *Cache {
 	return c
 }
 
-func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
-	cqImpl := &ClusterQueue{
+func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
+	cqImpl := &clusterQueue{
 		Name:                cq.Name,
 		Workloads:           make(map[string]*workload.Info),
 		WorkloadsNotReady:   sets.New[string](),
@@ -615,7 +615,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	return stats, nil
 }
 
-func getUsage(frq resources.FlavorResourceQuantities, rgs []ResourceGroup, cohort *Cohort) []kueue.FlavorUsage {
+func getUsage(frq resources.FlavorResourceQuantities, rgs []ResourceGroup, cohort *cohort) []kueue.FlavorUsage {
 	usage := make([]kueue.FlavorUsage, 0, len(frq))
 	for _, rg := range rgs {
 		for _, flvQuotas := range rg.Flavors {
@@ -717,7 +717,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 	}
 }
 
-func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *ClusterQueue {
+func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *clusterQueue {
 	if workload.HasQuotaReservation(w) {
 		return c.clusterQueues[string(w.Status.Admission.ClusterQueue)]
 	}
@@ -730,7 +730,7 @@ func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *ClusterQueue {
 	return nil
 }
 
-func (c *Cache) addClusterQueueToCohort(cq *ClusterQueue, cohortName string) {
+func (c *Cache) addClusterQueueToCohort(cq *clusterQueue, cohortName string) {
 	if cohortName == "" {
 		return
 	}
@@ -743,7 +743,7 @@ func (c *Cache) addClusterQueueToCohort(cq *ClusterQueue, cohortName string) {
 	cq.Cohort = cohort
 }
 
-func (c *Cache) deleteClusterQueueFromCohort(cq *ClusterQueue) {
+func (c *Cache) deleteClusterQueueFromCohort(cq *clusterQueue) {
 	if cq.Cohort == nil {
 		return
 	}
