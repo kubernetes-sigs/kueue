@@ -26,7 +26,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
@@ -40,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -154,7 +154,7 @@ type Info struct {
 type PodSetResources struct {
 	Name string
 	// Requests incorporates the requests from all pods in the podset.
-	Requests Requests
+	Requests resources.Requests
 	// Count indicates how many pods are in the podset.
 	Count int32
 
@@ -169,8 +169,9 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 		Count:    psr.Count,
 		Flavors:  maps.Clone(psr.Flavors),
 	}
-	ret.Requests.scaleDown(int64(ret.Count))
-	ret.Requests.scaleUp(int64(newCount))
+
+	scaleDown(ret.Requests, int64(ret.Count))
+	scaleUp(ret.Requests, int64(newCount))
 	ret.Count = newCount
 	return ret
 }
@@ -205,18 +206,18 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 
 // FlavorResourceUsage returns the total resource usage for the workload,
 // per flavor (if assigned, otherwise flavor shows as empty string), per resource.
-func (i *Info) FlavorResourceUsage() map[kueue.ResourceFlavorReference]Requests {
+func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
 	if i == nil || len(i.TotalRequests) == 0 {
 		return nil
 	}
-	total := make(map[kueue.ResourceFlavorReference]Requests)
+	total := make(resources.FlavorResourceQuantities)
 	for _, psReqs := range i.TotalRequests {
 		for res, q := range psReqs.Requests {
 			flv := psReqs.Flavors[res]
 			if requests, found := total[flv]; found {
 				requests[res] += q
 			} else {
-				total[flv] = Requests{
+				total[flv] = resources.Requests{
 					res: q,
 				}
 			}
@@ -301,8 +302,8 @@ func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 			Name:  ps.Name,
 			Count: count,
 		}
-		setRes.Requests = newRequests(limitrange.TotalRequests(&ps.Template.Spec))
-		setRes.Requests.scaleUp(int64(count))
+		setRes.Requests = resources.NewRequests(limitrange.TotalRequests(&ps.Template.Spec))
+		scaleUp(setRes.Requests, int64(count))
 		res = append(res, setRes)
 	}
 	return res
@@ -320,12 +321,12 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			Name:     psa.Name,
 			Flavors:  psa.Flavors,
 			Count:    ptr.Deref(psa.Count, totalCounts[psa.Name]),
-			Requests: newRequests(psa.ResourceUsage),
+			Requests: resources.NewRequests(psa.ResourceUsage),
 		}
 
 		if count := currentCounts[psa.Name]; count != setRes.Count {
-			setRes.Requests.scaleDown(int64(setRes.Count))
-			setRes.Requests.scaleUp(int64(count))
+			scaleDown(setRes.Requests, int64(setRes.Count))
+			scaleUp(setRes.Requests, int64(count))
 			setRes.Count = count
 		}
 
@@ -334,58 +335,13 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 	return res
 }
 
-// The following resources calculations are inspired on
-// https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
-
-// Requests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
-type Requests map[corev1.ResourceName]int64
-
-func newRequests(rl corev1.ResourceList) Requests {
-	r := Requests{}
-	for name, quant := range rl {
-		r[name] = ResourceValue(name, quant)
-	}
-	return r
-}
-
-func (r Requests) ToResourceList() corev1.ResourceList {
-	ret := make(corev1.ResourceList, len(r))
-	for k, v := range r {
-		ret[k] = ResourceQuantity(k, v)
-	}
-	return ret
-}
-
-// ResourceValue returns the integer value for the resource name.
-// It's milli-units for CPU and absolute units for everything else.
-func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
-	if name == corev1.ResourceCPU {
-		return q.MilliValue()
-	}
-	return q.Value()
-}
-
-func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
-	switch name {
-	case corev1.ResourceCPU:
-		return *resource.NewMilliQuantity(v, resource.DecimalSI)
-	case corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
-		return *resource.NewQuantity(v, resource.BinarySI)
-	default:
-		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
-			return *resource.NewQuantity(v, resource.BinarySI)
-		}
-		return *resource.NewQuantity(v, resource.DecimalSI)
-	}
-}
-
-func (r Requests) scaleUp(f int64) {
+func scaleUp(r resources.Requests, f int64) {
 	for name := range r {
 		r[name] *= f
 	}
 }
 
-func (r Requests) scaleDown(f int64) {
+func scaleDown(r resources.Requests, f int64) {
 	for name := range r {
 		r[name] /= f
 	}

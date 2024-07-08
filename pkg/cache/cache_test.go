@@ -912,7 +912,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     "main",
-									Requests: workload.Requests{corev1.ResourceCPU: 1000},
+									Requests: resources.Requests{corev1.ResourceCPU: 1000},
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
@@ -925,7 +925,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     "main",
-									Requests: workload.Requests{corev1.ResourceCPU: 1000},
+									Requests: resources.Requests{corev1.ResourceCPU: 1000},
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
@@ -2296,14 +2296,14 @@ func TestCacheQueueOperations(t *testing.T) {
 			reservingWorkloads: 1,
 			admittedWorkloads:  1,
 			usage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "spot", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("2")),
-				{Flavor: "spot", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi")),
-				{Flavor: "model-a", Resource: "example.com/gpu"}:  workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("2")),
+				{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi")),
+				{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 			admittedUsage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "spot", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("2")),
-				{Flavor: "spot", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi")),
-				{Flavor: "model-a", Resource: "example.com/gpu"}:  workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("2")),
+				{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi")),
+				{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 		},
 		"ns2/beta": {
@@ -2311,14 +2311,14 @@ func TestCacheQueueOperations(t *testing.T) {
 			reservingWorkloads: 2,
 			admittedWorkloads:  1,
 			usage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "spot", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-				{Flavor: "spot", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-				{Flavor: "model-a", Resource: "example.com/gpu"}:  workload.ResourceValue("example.com/gpu", resource.MustParse("7")),
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.ResourceValue("example.com/gpu", resource.MustParse("7")),
 			}.Unflatten(),
 			admittedUsage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "spot", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-				{Flavor: "spot", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-				{Flavor: "model-a", Resource: "example.com/gpu"}:  workload.ResourceValue("example.com/gpu", resource.MustParse("2")),
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.ResourceValue("example.com/gpu", resource.MustParse("2")),
 			}.Unflatten(),
 		},
 		"ns1/gamma": {
@@ -2326,14 +2326,14 @@ func TestCacheQueueOperations(t *testing.T) {
 			reservingWorkloads: 1,
 			admittedWorkloads:  0,
 			usage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("5")),
-				{Flavor: "ondemand", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("16Gi")),
-				{Flavor: "model-b", Resource: "example.com/gpu"}:      workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("5")),
+				{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("16Gi")),
+				{Flavor: "model-b", Resource: "example.com/gpu"}:      resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 			admittedUsage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-				{Flavor: "ondemand", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-				{Flavor: "model-b", Resource: "example.com/gpu"}:      workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+				{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				{Flavor: "model-b", Resource: "example.com/gpu"}:      resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 		},
 	}
@@ -2343,14 +2343,14 @@ func TestCacheQueueOperations(t *testing.T) {
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
 			usage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "spot", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-				{Flavor: "spot", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-				{Flavor: "model-a", Resource: "example.com/gpu"}:  workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 			admittedUsage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "spot", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-				{Flavor: "spot", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-				{Flavor: "model-a", Resource: "example.com/gpu"}:  workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 		},
 		"ns2/beta": {
@@ -2358,14 +2358,14 @@ func TestCacheQueueOperations(t *testing.T) {
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
 			usage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "spot", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-				{Flavor: "spot", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-				{Flavor: "model-a", Resource: "example.com/gpu"}:  workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 			admittedUsage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "spot", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-				{Flavor: "spot", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-				{Flavor: "model-a", Resource: "example.com/gpu"}:  workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+				{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 		},
 		"ns1/gamma": {
@@ -2373,14 +2373,14 @@ func TestCacheQueueOperations(t *testing.T) {
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
 			usage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-				{Flavor: "ondemand", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-				{Flavor: "model-b", Resource: "example.com/gpu"}:      workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+				{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				{Flavor: "model-b", Resource: "example.com/gpu"}:      resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 			admittedUsage: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
-				{Flavor: "ondemand", Resource: corev1.ResourceMemory}: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
-				{Flavor: "model-b", Resource: "example.com/gpu"}:      workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+				{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				{Flavor: "model-b", Resource: "example.com/gpu"}:      resources.ResourceValue("example.com/gpu", resource.MustParse("0")),
 			}.Unflatten(),
 		},
 	}

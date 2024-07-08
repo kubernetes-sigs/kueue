@@ -628,13 +628,13 @@ func getUsage(frq resources.FlavorResourceQuantities, rgs []ResourceGroup, cohor
 				used := flvUsage[rName]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
-					Total: workload.ResourceQuantity(rName, used),
+					Total: resources.ResourceQuantity(rName, used),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
 				if cohort != nil {
 					borrowed := used - rQuota.Nominal
 					if borrowed > 0 {
-						rUsage.Borrowed = workload.ResourceQuantity(rName, borrowed)
+						rUsage.Borrowed = resources.ResourceQuantity(rName, borrowed)
 					}
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
@@ -689,7 +689,7 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 			for rName := range flvQuotas.Resources {
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
-					Total: workload.ResourceQuantity(rName, flvUsage[rName]),
+					Total: resources.ResourceQuantity(rName, flvUsage[rName]),
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.

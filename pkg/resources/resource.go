@@ -20,7 +20,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type FlavorResource struct {
@@ -28,14 +27,14 @@ type FlavorResource struct {
 	Resource corev1.ResourceName
 }
 
-type FlavorResourceQuantities map[kueue.ResourceFlavorReference]workload.Requests
+type FlavorResourceQuantities map[kueue.ResourceFlavorReference]Requests
 type FlavorResourceQuantitiesFlat map[FlavorResource]int64
 
 func (f FlavorResourceQuantitiesFlat) Unflatten() FlavorResourceQuantities {
 	out := make(FlavorResourceQuantities)
 	for flavorResource, value := range f {
 		if _, ok := out[flavorResource.Flavor]; !ok {
-			out[flavorResource.Flavor] = make(workload.Requests)
+			out[flavorResource.Flavor] = make(Requests)
 		}
 		out[flavorResource.Flavor][flavorResource.Resource] = value
 	}

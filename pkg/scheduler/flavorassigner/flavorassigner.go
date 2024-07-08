@@ -358,7 +358,7 @@ func (psa *PodSetAssignment) append(flavors ResourceAssignment, status *Status) 
 	}
 }
 
-func (a *Assignment) append(requests workload.Requests, psAssignment *PodSetAssignment) {
+func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAssignment) {
 	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
@@ -382,7 +382,7 @@ func (a *Assignment) append(requests workload.Requests, psAssignment *PodSetAssi
 func (a *FlavorAssigner) findFlavorForPodSetResource(
 	log logr.Logger,
 	psID int,
-	requests workload.Requests,
+	requests resources.Requests,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
 ) (ResourceAssignment, *Status) {
@@ -602,7 +602,7 @@ func (a *FlavorAssigner) fitsResourceQuota(fName kueue.ResourceFlavorReference, 
 		return Fit, used+val > rQuota.Nominal, nil
 	}
 
-	lackQuantity := workload.ResourceQuantity(rName, lack)
+	lackQuantity := resources.ResourceQuantity(rName, lack)
 	msg := fmt.Sprintf("insufficient unused quota in cohort for %s in flavor %s, %s more needed", rName, fName, &lackQuantity)
 	if a.cq.Cohort == nil {
 		if mode == NoFit {
@@ -620,8 +620,8 @@ func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
 		(a.enableFairSharing && a.cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever)
 }
 
-func filterRequestedResources(req workload.Requests, allowList sets.Set[corev1.ResourceName]) workload.Requests {
-	filtered := make(workload.Requests)
+func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.ResourceName]) resources.Requests {
+	filtered := make(resources.Requests)
 	for n, v := range req {
 		if allowList.Has(n) {
 			filtered[n] = v
