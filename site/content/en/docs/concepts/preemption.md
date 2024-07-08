@@ -112,7 +112,7 @@ admitted when accounting back the quota usage of the target Workload.
 
 ## Fair Sharing
 
-{{< feature-state state="stable" for_version="v0.7.0+" >}}
+{{< feature-state state="stable" for_version="v0.7.0" >}}
 
 To enable fair sharing, [use a Kueue Configuration](/docs/installation#install-a-custom-configured-release-version) similar to the following:
 
