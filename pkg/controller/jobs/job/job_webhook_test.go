@@ -254,7 +254,7 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob: testingutil.MakeJob("job", "default").Obj(),
 			newJob: testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(queueNameLabelPath, "", apivalidation.FieldImmutableErrorMsg),
+				field.Invalid(queueNameLabelPath, "queue", apivalidation.FieldImmutableErrorMsg),
 			},
 		},
 		{
@@ -268,7 +268,7 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob: testingutil.MakeJob("job", "default").Queue("queue").Obj(),
 			newJob: testingutil.MakeJob("job", "default").Queue("queue2").Suspend(false).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(queueNameLabelPath, "queue", apivalidation.FieldImmutableErrorMsg),
+				field.Invalid(queueNameLabelPath, "queue2", apivalidation.FieldImmutableErrorMsg),
 			},
 		},
 		{
@@ -354,7 +354,7 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Obj(),
 			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(workloadPriorityClassNamePath, "test-1", apivalidation.FieldImmutableErrorMsg),
+				field.Invalid(workloadPriorityClassNamePath, "test-2", apivalidation.FieldImmutableErrorMsg),
 			},
 		},
 		{
