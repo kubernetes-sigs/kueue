@@ -200,7 +200,7 @@ type WaitForPodsReady struct {
 
 	// BlockAdmission when true, cluster queue will block admissions for all
 	// subsequent jobs until the jobs reach the PodsReady=true condition.
-	// It defaults to false if Enable is false and defaults to true otherwise.
+	// This setting is only honored when `Enable` is set to true.
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 
 	// RequeuingStrategy defines the strategy for requeuing a Workload.
