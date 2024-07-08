@@ -18,7 +18,10 @@ package list
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"slices"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,6 +50,7 @@ func (p *listResourceFlavorPrinter) PrintObj(obj runtime.Object, out io.Writer) 
 	table := &metav1.Table{
 		ColumnDefinitions: []metav1.TableColumnDefinition{
 			{Name: "Name", Type: "string", Format: "name"},
+			{Name: "Node Labels", Type: "string"},
 			{Name: "Age", Type: "string"},
 		},
 		Rows: p.printResourceFlavorList(list),
@@ -81,8 +85,14 @@ func (p *listResourceFlavorPrinter) printResourceFlavorList(list *v1beta1.Resour
 
 func (p *listResourceFlavorPrinter) printResourceFlavor(resourceFlavor *v1beta1.ResourceFlavor) metav1.TableRow {
 	row := metav1.TableRow{Object: runtime.RawExtension{Object: resourceFlavor}}
+	nodeLabels := make([]string, 0, len(resourceFlavor.Spec.NodeLabels))
+	for key, value := range resourceFlavor.Spec.NodeLabels {
+		nodeLabels = append(nodeLabels, fmt.Sprintf("%s=%s", key, value))
+	}
+	slices.Sort(nodeLabels)
 	row.Cells = []any{
 		resourceFlavor.Name,
+		strings.Join(nodeLabels, ", "),
 		duration.HumanDuration(p.clock.Since(resourceFlavor.CreationTimestamp.Time)),
 	}
 	return row
