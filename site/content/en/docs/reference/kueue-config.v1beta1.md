@@ -826,7 +826,7 @@ Defaults to 5min.</p>
 <td>
    <p>BlockAdmission when true, cluster queue will block admissions for all
 subsequent jobs until the jobs reach the PodsReady=true condition.
-It defaults to false if Enable is false and defaults to true otherwise.</p>
+This setting is only honored when <code>Enable</code> is set to true.</p>
 </td>
 </tr>
 <tr><td><code>requeuingStrategy</code><br/>
