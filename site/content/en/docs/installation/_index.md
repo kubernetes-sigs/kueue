@@ -147,7 +147,7 @@ data:
 __The `integrations.externalFrameworks` field is available in Kueue v0.7.0 and later.__
 
 {{% alert title="Note" color="primary" %}}
-See [Sequential Admission with Ready Pods](/docs/tasks/manage/setup_sequential_admission) to learn
+See [All-or-nothing with ready Pods](/docs/tasks/manage/setup_wait_for_pods_ready) to learn
 more about using `waitForPodsReady` for Kueue.
 {{% /alert %}}
 
@@ -219,7 +219,7 @@ To install and configure Kueue with [Helm](https://helm.sh/), follow the [instru
 
 Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).
 
-In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include 
+In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include
 
 ```
 --feature-gates=...,<FeatureName>=<true|false>
