@@ -163,7 +163,7 @@ func (cu *cohortsUsage) add(cohort string, assignment resources.FlavorResourceQu
 }
 
 func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
-	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b workload.Requests) workload.Requests {
+	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b resources.Requests) resources.Requests {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }

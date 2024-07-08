@@ -259,15 +259,15 @@ func (c *clusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 				Resources: make(map[corev1.ResourceName]*ResourceQuota, len(fIn.Resources)),
 			}
 			for _, rIn := range fIn.Resources {
-				nominal := workload.ResourceValue(rIn.Name, rIn.NominalQuota)
+				nominal := resources.ResourceValue(rIn.Name, rIn.NominalQuota)
 				rQuota := ResourceQuota{
 					Nominal: nominal,
 				}
 				if rIn.BorrowingLimit != nil {
-					rQuota.BorrowingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
+					rQuota.BorrowingLimit = ptr.To(resources.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
 				}
 				if features.Enabled(features.LendingLimit) && rIn.LendingLimit != nil {
-					rQuota.LendingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.LendingLimit))
+					rQuota.LendingLimit = ptr.To(resources.ResourceValue(rIn.Name, *rIn.LendingLimit))
 					c.Lendable[rIn.Name] += *rQuota.LendingLimit
 				} else {
 					c.Lendable[rIn.Name] += nominal
