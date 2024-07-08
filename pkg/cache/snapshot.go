@@ -118,7 +118,7 @@ func (c *Cache) Snapshot() Snapshot {
 
 // snapshot creates a copy of ClusterQueue that includes references to immutable
 // objects and deep copies of changing ones. A reference to the cohort is not included.
-func (c *ClusterQueue) snapshot() *ClusterQueueSnapshot {
+func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 	cc := &ClusterQueueSnapshot{
 		Name:                          c.Name,
 		ResourceGroups:                c.ResourceGroups, // Shallow copy is enough.
@@ -144,7 +144,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueueSnapshot {
 	return cc
 }
 
-func (c *Cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
+func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
 	cohortSnap := &CohortSnapshot{
 		Name:     c.Name,
 		Members:  make(sets.Set[*ClusterQueueSnapshot], c.Members.Len()),

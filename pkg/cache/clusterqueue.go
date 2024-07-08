@@ -43,11 +43,11 @@ var (
 	oneQuantity           = resource.MustParse("1")
 )
 
-// ClusterQueue is the internal implementation of kueue.ClusterQueue that
+// clusterQueue is the internal implementation of kueue.clusterQueue that
 // holds admitted workloads.
-type ClusterQueue struct {
+type clusterQueue struct {
 	Name              string
-	Cohort            *Cohort
+	Cohort            *cohort
 	ResourceGroups    []ResourceGroup
 	Usage             resources.FlavorResourceQuantities
 	Workloads         map[string]*workload.Info
@@ -84,10 +84,10 @@ type ClusterQueue struct {
 	workloadInfoOptions                                []workload.InfoOption
 }
 
-// Cohort is a set of ClusterQueues that can borrow resources from each other.
-type Cohort struct {
+// cohort is a set of ClusterQueues that can borrow resources from each other.
+type cohort struct {
 	Name    string
-	Members sets.Set[*ClusterQueue]
+	Members sets.Set[*clusterQueue]
 }
 
 type ResourceGroup struct {
@@ -120,14 +120,14 @@ type queue struct {
 	admittedUsage resources.FlavorResourceQuantities
 }
 
-func newCohort(name string, size int) *Cohort {
-	return &Cohort{
+func newCohort(name string, size int) *cohort {
+	return &cohort{
 		Name:    name,
-		Members: make(sets.Set[*ClusterQueue], size),
+		Members: make(sets.Set[*clusterQueue], size),
 	}
 }
 
-func (c *Cohort) CalculateLendable() map[corev1.ResourceName]int64 {
+func (c *cohort) CalculateLendable() map[corev1.ResourceName]int64 {
 	lendable := make(map[corev1.ResourceName]int64)
 	for member := range c.Members {
 		for res, v := range member.Lendable {
@@ -153,7 +153,7 @@ func (c *ClusterQueueSnapshot) FitInCohort(q resources.FlavorResourceQuantities)
 	return true
 }
 
-func (c *ClusterQueue) Active() bool {
+func (c *clusterQueue) Active() bool {
 	return c.Status == active
 }
 
@@ -164,7 +164,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 
 var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
 
-func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck) error {
+func (c *clusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck) error {
 	c.updateResourceGroups(in.Spec.ResourceGroups)
 	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
 	if err != nil {
@@ -242,7 +242,7 @@ func filterFlavorQuantities(orig resources.FlavorResourceQuantities, resourceGro
 	return ret
 }
 
-func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
+func (c *clusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 	oldRG := c.ResourceGroups
 	c.ResourceGroups = make([]ResourceGroup, len(in))
 	c.Lendable = make(map[corev1.ResourceName]int64)
@@ -283,7 +283,7 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 	}
 }
 
-func (c *ClusterQueue) updateQueueStatus() {
+func (c *clusterQueue) updateQueueStatus() {
 	status := active
 	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks || c.hasFlavorIndependentAdmissionCheckAppliedPerFlavor {
 		status = pending
@@ -297,7 +297,7 @@ func (c *ClusterQueue) updateQueueStatus() {
 	}
 }
 
-func (c *ClusterQueue) inactiveReason() (string, string) {
+func (c *clusterQueue) inactiveReason() (string, string) {
 	switch c.Status {
 	case terminating:
 		return "Terminating", "Can't admit new workloads; clusterQueue is terminating"
@@ -332,12 +332,12 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
 // Exported only for testing.
-func (c *ClusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
+func (c *clusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
 	c.hasMissingFlavors = c.updateLabelKeys(flavors)
 	c.updateQueueStatus()
 }
 
-func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) bool {
+func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) bool {
 	var flavorNotFound bool
 	for i := range c.ResourceGroups {
 		rg := &c.ResourceGroups[i]
@@ -365,7 +365,7 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 }
 
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
-func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
+func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
 	hasMissing := false
 	hasSpecificChecks := false
 	checksPerController := make(map[string]int, len(c.AdmissionChecks))
@@ -415,7 +415,7 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	}
 }
 
-func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
+func (c *clusterQueue) addWorkload(w *kueue.Workload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		return errors.New("workload already exists in ClusterQueue")
@@ -430,7 +430,7 @@ func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
 	return nil
 }
 
-func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
+func (c *clusterQueue) deleteWorkload(w *kueue.Workload) {
 	k := workload.Key(w)
 	wi, exist := c.Workloads[k]
 	if !exist {
@@ -448,14 +448,14 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	c.reportActiveWorkloads()
 }
 
-func (c *ClusterQueue) reportActiveWorkloads() {
+func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.AdmittedActiveWorkloads.WithLabelValues(c.Name).Set(float64(c.admittedWorkloadsCount))
 	metrics.ReservingActiveWorkloads.WithLabelValues(c.Name).Set(float64(len(c.Workloads)))
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
-func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
+func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	updateFlavorUsage(wi, c.Usage, m)
 	if admitted {
@@ -510,7 +510,7 @@ func updateCohortUsage(wi *workload.Info, cq *ClusterQueueSnapshot, m int64) {
 	}
 }
 
-func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
+func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qKey := queueKey(q)
 	if _, ok := c.localQueues[qKey]; ok {
 		return errQueueAlreadyExists
@@ -539,12 +539,12 @@ func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	return nil
 }
 
-func (c *ClusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
+func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
 	delete(c.localQueues, qKey)
 }
 
-func (c *ClusterQueue) flavorInUse(flavor string) bool {
+func (c *clusterQueue) flavorInUse(flavor string) bool {
 	for _, rg := range c.ResourceGroups {
 		for _, f := range rg.Flavors {
 			if kueue.ResourceFlavorReference(flavor) == f.Name {
@@ -634,23 +634,23 @@ func (c *ClusterQueueSnapshot) UsedCohortQuota(fName kueue.ResourceFlavorReferen
 // The methods below implement several interfaces. See
 // dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
 
-func (c *ClusterQueue) hasCohort() bool {
+func (c *clusterQueue) hasCohort() bool {
 	return c.Cohort != nil
 }
 
-func (c *ClusterQueue) fairWeight() *resource.Quantity {
+func (c *clusterQueue) fairWeight() *resource.Quantity {
 	return &c.FairWeight
 }
 
-func (c *ClusterQueue) lendableResourcesInCohort() map[corev1.ResourceName]int64 {
+func (c *clusterQueue) lendableResourcesInCohort() map[corev1.ResourceName]int64 {
 	return c.Cohort.CalculateLendable()
 }
 
-func (c *ClusterQueue) usageFor(fr resources.FlavorResource) int64 {
+func (c *clusterQueue) usageFor(fr resources.FlavorResource) int64 {
 	return c.Usage.For(fr)
 }
 
-func (c *ClusterQueue) resourceGroups() []ResourceGroup {
+func (c *clusterQueue) resourceGroups() []ResourceGroup {
 	return c.ResourceGroups
 }
 

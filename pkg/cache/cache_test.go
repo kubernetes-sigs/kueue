@@ -95,7 +95,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		name               string
 		operation          func(*Cache) error
 		clientObjects      []client.Object
-		wantClusterQueues  map[string]*ClusterQueue
+		wantClusterQueues  map[string]*clusterQueue
 		wantCohorts        map[string]sets.Set[string]
 		enableLendingLimit bool
 	}{
@@ -104,7 +104,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			operation: func(cache *Cache) error {
 				return setup(cache)
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 1,
@@ -210,7 +210,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					AllocatableResourceGeneration: 1,
@@ -234,7 +234,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					AllocatableResourceGeneration: 1,
@@ -260,7 +260,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 1,
@@ -391,7 +391,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 2,
@@ -497,7 +497,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"b": {
 					Name:                          "b",
 					AllocatableResourceGeneration: 1,
@@ -575,7 +575,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				})
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"a": {
 					Name:                          "a",
 					AllocatableResourceGeneration: 1,
@@ -694,7 +694,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -739,7 +739,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -771,7 +771,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -804,7 +804,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cache.DeleteAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -837,7 +837,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionFalse).Obj())
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -888,7 +888,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"cq1": {
 					Name:                          "cq1",
 					NamespaceSelector:             labels.Everything(),
@@ -990,7 +990,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Obj()
 				return cache.AddClusterQueue(context.Background(), cq)
 			},
-			wantClusterQueues: map[string]*ClusterQueue{
+			wantClusterQueues: map[string]*clusterQueue{
 				"foo": {
 					Name:                          "foo",
 					NamespaceSelector:             labels.Everything(),
@@ -1038,9 +1038,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.clusterQueues,
-				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "ResourceGroups"),
+				cmpopts.IgnoreFields(clusterQueue{}, "Cohort", "ResourceGroups"),
 				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment"),
-				cmpopts.IgnoreUnexported(ClusterQueue{}),
+				cmpopts.IgnoreUnexported(clusterQueue{}),
 				cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
@@ -2949,7 +2949,7 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 		}, {
 			name: "Workload Is not Assumed but is Admitted",
 			cache: &Cache{
-				clusterQueues: map[string]*ClusterQueue{
+				clusterQueues: map[string]*clusterQueue{
 					"ClusterQueue1": {
 						Name: "ClusterQueue1",
 						Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
@@ -2976,7 +2976,7 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 		}, {
 			name: "Workload Is Assumed and Admitted",
 			cache: &Cache{
-				clusterQueues: map[string]*ClusterQueue{
+				clusterQueues: map[string]*clusterQueue{
 					"ClusterQueue1": {
 						Name: "ClusterQueue1",
 						Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
@@ -3003,7 +3003,7 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 		}, {
 			name: "Workload Is not Assumed and is not Admitted",
 			cache: &Cache{
-				clusterQueues: map[string]*ClusterQueue{
+				clusterQueues: map[string]*clusterQueue{
 					"ClusterQueue1": {
 						Name: "ClusterQueue1",
 						Workloads: map[string]*workload.Info{"workload_namespace2/workload_name2": {
