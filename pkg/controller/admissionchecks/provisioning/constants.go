@@ -19,8 +19,8 @@ package provisioning
 const (
 	ConfigKind             = "ProvisioningRequestConfig"
 	ControllerName         = "kueue.x-k8s.io/provisioning-request"
-	ConsumesAnnotationKey  = "cluster-autoscaler.kubernetes.io/consume-provisioning-request"
-	ClassNameAnnotationKey = "cluster-autoscaler.kubernetes.io/provisioning-class-name"
+	ConsumesAnnotationKey  = "autoscaling.x-k8s.io/consume-provisioning-request"
+	ClassNameAnnotationKey = "autoscaling.x-k8s.io/provisioning-class-name"
 
 	CheckInactiveMessage = "the check is not active"
 	NoRequestNeeded      = "the provisioning request is not needed"
