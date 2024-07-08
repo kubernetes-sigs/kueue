@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 var (
@@ -68,7 +69,7 @@ func init() {
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -162,28 +163,39 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = ptr.To(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, eventMsg string) (bool, error) {
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
 	stoppedNow := false
 	if !j.IsSuspended() {
+		objectOriginal := j.Object().DeepCopyObject().(client.Object)
 		j.Suspend()
-		if err := c.Update(ctx, j.Object()); err != nil {
+		object := j.Object()
+		if err := clientutil.Patch(ctx, c, objectOriginal, object); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
+		}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(object), object); err != nil {
+			return false, fmt.Errorf("get after suspend: %w", err)
 		}
 		stoppedNow = true
 	}
 
 	// Reset start time if necessary, so we can update the scheduling directives.
 	if j.Status.StartTime != nil {
+		objectOriginal := j.Object().DeepCopyObject().(client.Object)
 		j.Status.StartTime = nil
-		if err := c.Status().Update(ctx, j.Object()); err != nil {
+		object := j.Object()
+		if err := clientutil.PatchStatus(ctx, c, objectOriginal, object); err != nil {
 			return stoppedNow, fmt.Errorf("reset status: %w", err)
+		}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(object), object); err != nil {
+			return false, fmt.Errorf("get after resetting the start time: %w", err)
 		}
 	}
 
+	objectOriginal := j.Object().DeepCopyObject().(client.Object)
 	if changed := j.RestorePodSetsInfo(podSetsInfo); !changed {
 		return stoppedNow, nil
 	}
-	if err := c.Update(ctx, j.Object()); err != nil {
+	if err := clientutil.Patch(ctx, c, objectOriginal, j.Object()); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
 	}
 	return stoppedNow, nil

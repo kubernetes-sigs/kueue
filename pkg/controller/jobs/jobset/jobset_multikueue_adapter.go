@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 type multikueueAdapter struct{}
@@ -40,14 +41,15 @@ type multikueueAdapter struct{}
 var _ jobframework.MultiKueueAdapter = (*multikueueAdapter)(nil)
 
 func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
-	localJob := jobset.JobSet{}
-	err := localClient.Get(ctx, key, &localJob)
+	localJob := &jobset.JobSet{}
+	err := localClient.Get(ctx, key, localJob)
 	if err != nil {
 		return err
 	}
+	localJobOriginal := localJob.DeepCopy()
 
-	remoteJob := jobset.JobSet{}
-	err = remoteClient.Get(ctx, key, &remoteJob)
+	remoteJob := &jobset.JobSet{}
+	err = remoteClient.Get(ctx, key, remoteJob)
 	if client.IgnoreNotFound(err) != nil {
 		return err
 	}
@@ -55,10 +57,10 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// if the remote exists, just copy the status
 	if err == nil {
 		localJob.Status = remoteJob.Status
-		return localClient.Status().Update(ctx, &localJob)
+		return clientutil.PatchStatus(ctx, localClient, localJobOriginal, localJob)
 	}
 
-	remoteJob = jobset.JobSet{
+	remoteJob = &jobset.JobSet{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
@@ -73,7 +75,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// clear the managedBy enables the JobSet controller to take over
 	remoteJob.Spec.ManagedBy = nil
 
-	return remoteClient.Create(ctx, &remoteJob)
+	return remoteClient.Create(ctx, remoteJob)
 }
 
 func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
