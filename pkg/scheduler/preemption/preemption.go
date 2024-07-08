@@ -214,7 +214,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
+func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantitiesFlat, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info("Simulating preemption", "candidates", workload.References(candidates), "resourcesRequiringPreemption", resPerFlv, "allowBorrowing", allowBorrowing, "allowBorrowingBelowPriority", allowBorrowingBelowPriority)
 	}
@@ -257,7 +257,7 @@ func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantitie
 	return targets
 }
 
-func fillBackWorkloads(targets []*workload.Info, wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, allowBorrowing bool) []*workload.Info {
+func fillBackWorkloads(targets []*workload.Info, wlReq resources.FlavorResourceQuantitiesFlat, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, allowBorrowing bool) []*workload.Info {
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		snapshot.AddWorkload(targets[i])
@@ -342,7 +342,7 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl *workload.Info, assignme
 
 		for i, candWl := range candCQ.workloads {
 			belowThreshold := allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) < *allowBorrowingBelowPriority
-			newCandShareVal, _ := candCQ.cq.DominantResourceShareWithout(candWl)
+			newCandShareVal, _ := candCQ.cq.DominantResourceShareWithout(candWl.FlavorResourceUsage())
 			if belowThreshold || p.fsStrategies[0](newNominatedShareValue, candCQ.share, newCandShareVal) {
 				snapshot.RemoveWorkload(candWl)
 				targets = append(targets, candWl)
@@ -528,17 +528,16 @@ func workloadUsesResources(wl *workload.Info, resPerFlv resourcesPerFlavor) bool
 // workloadFits determines if the workload requests would fit given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
-func workloadFits(wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, allowBorrowing bool) bool {
+func workloadFits(wlReq resources.FlavorResourceQuantitiesFlat, cq *cache.ClusterQueueSnapshot, allowBorrowing bool) bool {
 	for _, rg := range cq.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
-			flvReq, found := wlReq[flvQuotas.Name]
-			if !found {
-				// Workload doesn't request this flavor.
-				continue
-			}
 			cqResUsage := cq.Usage[flvQuotas.Name]
-			for rName, rReq := range flvReq {
-				resource := flvQuotas.Resources[rName]
+			for rName, resource := range flvQuotas.Resources {
+				rReq, found := wlReq[resources.FlavorResource{Flavor: flvQuotas.Name, Resource: rName}]
+				if !found {
+					// Workload doesn't request this FlavorResource.
+					continue
+				}
 
 				if cq.Cohort == nil || !allowBorrowing {
 					if cqResUsage[rName]+rReq > resource.Nominal {

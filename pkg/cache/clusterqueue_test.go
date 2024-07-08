@@ -716,7 +716,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 func TestDominantResourceShare(t *testing.T) {
 	cases := map[string]struct {
 		cq          ClusterQueueSnapshot
-		flvResQ     resources.FlavorResourceQuantities
+		flvResQ     resources.FlavorResourceQuantitiesFlat
 		wantDRValue int
 		wantDRName  corev1.ResourceName
 	}{
@@ -885,7 +885,7 @@ func TestDominantResourceShare(t *testing.T) {
 			flvResQ: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  4,
-			}.Unflatten(),
+			},
 			wantDRName:  corev1.ResourceCPU,
 			wantDRValue: 300, // (1+4-2)*1000/10
 		},
@@ -925,7 +925,7 @@ func TestDominantResourceShare(t *testing.T) {
 			flvResQ: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  4,
-			}.Unflatten(),
+			},
 			wantDRName:  corev1.ResourceCPU,
 			wantDRValue: 300, // (1+4-2)*1000/10
 		},
@@ -967,7 +967,7 @@ func TestDominantResourceShare(t *testing.T) {
 			},
 			flvResQ: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10_000,
-			}.Unflatten(),
+			},
 			wantDRName:  corev1.ResourceCPU,
 			wantDRValue: 25, // ((15+10-20)+0)*1000/200 (spot under nominal)
 		},
