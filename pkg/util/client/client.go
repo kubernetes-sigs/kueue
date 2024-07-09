@@ -41,14 +41,3 @@ func Patch(ctx context.Context, c client.Client, before, after client.Object) er
 	}
 	return nil
 }
-
-func PatchStatus(ctx context.Context, c client.Client, before, after client.Object) error {
-	patch, err := CreatePatch(before, after)
-	if err != nil {
-		return err
-	}
-	if err = c.Status().Patch(ctx, before, patch); err != nil {
-		return err
-	}
-	return nil
-}

@@ -134,7 +134,6 @@ rules:
   - jobs/status
   verbs:
   - get
-  - patch
   - update
 - apiGroups:
   - flowcontrol.apiserver.k8s.io
@@ -179,7 +178,6 @@ rules:
   - jobsets/status
   verbs:
   - get
-  - patch
   - update
 - apiGroups:
   - kubeflow.org
