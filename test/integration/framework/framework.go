@@ -21,6 +21,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,6 +72,12 @@ func (f *Framework) Init() *rest.Config {
 
 	if len(f.APIServerFeatureGates) > 0 {
 		f.testEnv.ControlPlane.GetAPIServer().Configure().Append("feature-gates", strings.Join(f.APIServerFeatureGates, ","))
+	}
+
+	if level, err := strconv.Atoi(os.Getenv("API_LOG_LEVEL")); err == nil && level > 0 {
+		f.testEnv.ControlPlane.GetAPIServer().Configure().Append("v", strconv.Itoa(level))
+		f.testEnv.ControlPlane.GetAPIServer().Out = ginkgo.GinkgoWriter
+		f.testEnv.ControlPlane.GetAPIServer().Err = ginkgo.GinkgoWriter
 	}
 
 	cfg, err := f.testEnv.Start()
