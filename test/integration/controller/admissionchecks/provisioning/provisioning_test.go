@@ -133,11 +133,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, pendingAC)).To(gomega.Succeed())
 
-			pendingAC = testing.MakeAdmissionCheck("pending-ac").
-				ControllerName("dummy-controller").
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, pendingAC)).To(gomega.Succeed())
-
 			rf = testing.MakeResourceFlavor(flavorOnDemand).NodeLabel("ns1", "ns1v").Obj()
 			gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
 
@@ -1198,6 +1193,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf, true)
 			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, pendingAC, true)
 			util.ExpectProvisioningRequestConfigToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
