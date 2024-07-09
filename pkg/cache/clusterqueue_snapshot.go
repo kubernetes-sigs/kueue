@@ -34,9 +34,6 @@ type ClusterQueueSnapshot struct {
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
-
-	// Lendable holds the total lendable quota for the resources of the ClusterQueue, independent of the flavor.
-	Lendable map[corev1.ResourceName]int64
 }
 
 // RGByResource returns the ResourceGroup which contains capacity

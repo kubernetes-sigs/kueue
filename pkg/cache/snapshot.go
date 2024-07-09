@@ -126,7 +126,6 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
 		Usage:                         make(resources.FlavorResourceQuantities, len(c.Usage)),
-		Lendable:                      maps.Clone(c.Lendable),
 		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
