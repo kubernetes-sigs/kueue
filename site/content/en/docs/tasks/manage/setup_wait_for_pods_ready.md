@@ -74,12 +74,8 @@ When enabled, then the workloads are admitted sequentially to prevent deadlock
 situations as demonstrated in the example below.
 
 ### Requeuing Strategy
-<<<<<<< HEAD:site/content/en/docs/tasks/manage/setup_wait_for_pods_ready.md
 
-{{< feature-state state="stable" for_version="v0.6.0+" >}}
-=======
-{{< feature-state state="stable" for_version="v0.6.0" >}}
->>>>>>> 1dcff82e (Use feature-state states):site/content/en/docs/tasks/manage/setup_sequential_admission.md
+{{< feature-state state="stable" for_version="v0.6" >}}
 
 {{% alert title="Note" color="primary" %}}
 The `backoffBaseSeconds` and `backoffMaxSeconds` are available in Kueue v0.7.0 and later
