@@ -281,25 +281,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 			ginkgo.By("Verify the Preempted condition", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(alphaLowWl), alphaLowWl)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(alphaLowWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadPreempted,
-						Status:  metav1.ConditionTrue,
-						Reason:  preemption.InClusterQueueReason,
-						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", alphaMidWl.UID, preemption.ClusterQueueOrigin),
-					}, conditionCmpOpts))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(betaMidWl), betaMidWl)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(betaMidWl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadPreempted,
-						Status:  metav1.ConditionTrue,
-						Reason:  preemption.InCohortReclamationReason,
-						Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", alphaMidWl.UID, preemption.CohortOrigin),
-					}, conditionCmpOpts))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectPreemptedCondition(ctx, k8sClient, preemption.InClusterQueueReason, metav1.ConditionTrue, alphaLowWl, alphaMidWl)
+				util.ExpectPreemptedCondition(ctx, k8sClient, preemption.InCohortReclaimWhileBorrowingReason, metav1.ConditionTrue, betaMidWl, alphaMidWl)
 			})
 
 			ginkgo.By("Verify the Preempted condition on re-admission, as the preemptor is finished", func() {
@@ -313,7 +296,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the %s", alphaMidWl.UID, preemption.ClusterQueueOrigin),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[preemption.InClusterQueueReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -323,7 +306,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) in the %s", alphaMidWl.UID, preemption.CohortOrigin),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[preemption.InCohortReclaimWhileBorrowingReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -705,16 +688,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, aStandardVeryHighWl)).To(gomega.Succeed())
 
-			conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aBestEffortLowWl), aBestEffortLowWl)).To(gomega.Succeed())
-				g.Expect(aBestEffortLowWl.Status.Conditions).To(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
-					Type:    kueue.WorkloadPreempted,
-					Status:  metav1.ConditionTrue,
-					Reason:  preemption.InCohortReclaimWhileBorrowingReason,
-					Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", aStandardVeryHighWl.UID, preemption.CohortOrigin),
-				}, conditionCmpOpts)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectPreemptedCondition(ctx, k8sClient, preemption.InCohortReclaimWhileBorrowingReason, metav1.ConditionTrue, aBestEffortLowWl, aStandardVeryHighWl)
 
 			ginkgo.By("Finish eviction fo the a-best-effort-low workload")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, aBestEffortLowWl)

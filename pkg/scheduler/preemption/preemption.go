@@ -99,7 +99,17 @@ func candidatesFromCQOrUnderThreshold(candidates []*workload.Info, clusterQueue 
 type Target struct {
 	Wl     *workload.Info
 	Reason string
-	Scope  string // ClusterQueue/Cohort
+}
+
+func GetWorkloadReferences(targets []*Target) []klog.ObjectRef {
+	if len(targets) == 0 {
+		return nil
+	}
+	keys := make([]klog.ObjectRef, len(targets))
+	for i, t := range targets {
+		keys[i] = klog.KObj(t.Wl.Obj)
+	}
+	return keys
 }
 
 // GetTargets returns the list of workloads that should be evicted in order to make room for wl.
@@ -175,16 +185,29 @@ const (
 	ClusterQueueOrigin = "ClusterQueue"
 	// CohortOrigin indicates that preemption originated from cohort
 	CohortOrigin = "Cohort"
-
-	InClusterQueueReason = "InClusterQueue"
-
-	InCohortReclamationReason           = "InCohortReclamation"
-	InCohortFairSharingReason           = "InCohortFairSharing"
-	InCohortReclaimWhileBorrowingReason = "InCohortReclaimWhileBorrowing"
 )
 
+// In cluster queue preemption reasons
+const (
+	InClusterQueueReason string = "InClusterQueue"
+)
+
+// In cohort preemption reasons
+const (
+	InCohortReclamationReason           string = "InCohortReclamation"
+	InCohortFairSharingReason           string = "InCohortFairSharing"
+	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
+)
+
+var HumanReadablePreemptionReasons = map[string]string{
+	InClusterQueueReason:                "prioritization in the ClusterQueue",
+	InCohortReclamationReason:           "reclamation within the cohort",
+	InCohortFairSharingReason:           "fair sharing within the cohort",
+	InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
+}
+
 // IssuePreemptions marks the target workloads as evicted.
-func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*workload.Info, cq *cache.ClusterQueueSnapshot) (int, error) {
+func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.Info, targets []*Target, cq *cache.ClusterQueueSnapshot) (int, error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
@@ -193,7 +216,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
 		if !meta.IsStatusConditionTrue(target.Wl.Obj.Status.Conditions, kueue.WorkloadEvicted) {
-			message := fmt.Sprintf("Preempted to accommodate a workload (UID: %s) in the %s", preemptor.Obj.UID, target.Scope)
+			message := fmt.Sprintf("Preempted to accommodate a workload (UID: %s) due to %s", preemptor.Obj.UID, HumanReadablePreemptionReasons[target.Reason])
 			err := p.applyPreemption(ctx, target.Wl.Obj, target.Reason, message)
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
@@ -236,13 +259,12 @@ func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantitie
 	for _, candWl := range candidates {
 		candCQ := snapshot.ClusterQueues[candWl.ClusterQueue]
 		sameCq := cq == candCQ
-		scope := ClusterQueueOrigin
 		reason := InClusterQueueReason
 		if !sameCq && !cqIsBorrowing(candCQ, resPerFlv) {
 			continue
 		}
 		if !sameCq {
-			scope = CohortOrigin
+			reason = InCohortReclamationReason
 			if allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) >= *allowBorrowingBelowPriority {
 				// We set allowBorrowing=false if there is a candidate with priority
 				// exceeding allowBorrowingBelowPriority added to targets.
@@ -262,14 +284,9 @@ func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantitie
 			}
 		}
 		snapshot.RemoveWorkload(candWl)
-		if !sameCq && !allowBorrowing {
-			scope = CohortOrigin
-			reason = InCohortReclamationReason
-		}
 		targets = append(targets, &Target{
 			Wl:     candWl,
 			Reason: reason,
-			Scope:  scope,
 		})
 		if workloadFits(wlReq, cq, allowBorrowing) {
 			fits = true
@@ -285,7 +302,7 @@ func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantitie
 	return targets
 }
 
-func fillBackWorkloads(targets []*Target, wlReq resources.FlavorResourceQuantities, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, allowBorrowing bool) []*Target {
+func fillBackWorkloads(targets []*Target, wlReq resources.FlavorResourceQuantitiesFlat, cq *cache.ClusterQueueSnapshot, snapshot *cache.Snapshot, allowBorrowing bool) []*Target {
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		snapshot.AddWorkload(targets[i].Wl)
@@ -357,7 +374,6 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl *workload.Info, assignme
 			targets = append(targets, &Target{
 				Wl:     candWl,
 				Reason: InClusterQueueReason,
-				Scope:  ClusterQueueOrigin,
 			})
 			if workloadFits(wlReq, nominatedCQ, true) {
 				fits = true
@@ -375,12 +391,17 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl *workload.Info, assignme
 		for i, candWl := range candCQ.workloads {
 			belowThreshold := allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) < *allowBorrowingBelowPriority
 			newCandShareVal, _ := candCQ.cq.DominantResourceShareWithout(candWl.FlavorResourceUsage())
-			if belowThreshold || p.fsStrategies[0](newNominatedShareValue, candCQ.share, newCandShareVal) {
+			strategy := p.fsStrategies[0](newNominatedShareValue, candCQ.share, newCandShareVal)
+			if belowThreshold || strategy {
 				snapshot.RemoveWorkload(candWl)
+				reason := InCohortFairSharingReason
+				if !strategy && belowThreshold {
+					reason = InCohortReclaimWhileBorrowingReason
+				}
+
 				targets = append(targets, &Target{
 					Wl:     candWl,
-					Reason: InCohortFairSharingReason,
-					Scope:  CohortOrigin,
+					Reason: reason,
 				})
 				if workloadFits(wlReq, nominatedCQ, true) {
 					fits = true
@@ -413,7 +434,6 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl *workload.Info, assignme
 				targets = append(targets, &Target{
 					Wl:     candWl,
 					Reason: InCohortFairSharingReason,
-					Scope:  CohortOrigin,
 				})
 				if workloadFits(wlReq, nominatedCQ, true) {
 					fits = true
