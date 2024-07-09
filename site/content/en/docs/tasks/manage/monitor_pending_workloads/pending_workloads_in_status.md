@@ -28,7 +28,7 @@ QueueVisibility is an `Alpha` feature disabled by default, check the [Change the
 
 ## Monitor pending workloads
 
-> _Available in Kueue v0.5.0 and later_
+{{< feature-state state="alpha" for_version="v0.5" >}}
 
 To install a simple setup of cluster queue, run the following command:
 
