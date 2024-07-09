@@ -254,6 +254,7 @@ kueuectl list resourceflavors
 Output:
 
 * Name
+* Node Labels
 * Age
 
 ### Stop ClusterQueue
