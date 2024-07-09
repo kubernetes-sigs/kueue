@@ -45,7 +45,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/maps"
@@ -294,10 +293,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "couldn't get the parent job workload")
 				return ctrl.Result{}, err
 			} else if parentWorkload == nil || !workload.IsAdmitted(parentWorkload) {
-				objectOriginal := object.DeepCopyObject().(client.Object)
 				// suspend it
 				job.Suspend()
-				if err := clientutil.Patch(ctx, r.client, objectOriginal, object); err != nil {
+				if err := r.client.Update(ctx, object); err != nil {
 					log.Error(err, "suspending child job failed")
 					return ctrl.Result{}, err
 				}
@@ -800,11 +798,11 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 			return err
 		}
 	} else {
-		objectOriginal := object.DeepCopyObject().(client.Object)
 		if runErr := job.RunWithPodSetsInfo(info); runErr != nil {
 			return runErr
 		}
-		if err := clientutil.Patch(ctx, r.client, objectOriginal, object); err != nil {
+
+		if err := r.client.Update(ctx, object); err != nil {
 			return err
 		}
 		r.record.Event(object, corev1.EventTypeNormal, ReasonStarted, msg)
@@ -846,13 +844,11 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return nil
 	}
 
-	objectOriginal := object.DeepCopyObject().(client.Object)
-
 	job.Suspend()
 	if info != nil {
 		job.RestorePodSetsInfo(info)
 	}
-	if err := clientutil.Patch(ctx, r.client, objectOriginal, object); err != nil {
+	if err := r.client.Update(ctx, object); err != nil {
 		return err
 	}
 

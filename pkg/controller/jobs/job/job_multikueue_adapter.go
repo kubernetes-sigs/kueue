@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 type multikueueAdapter struct{}
@@ -43,15 +42,14 @@ type multikueueAdapter struct{}
 var _ jobframework.MultiKueueAdapter = (*multikueueAdapter)(nil)
 
 func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
-	localJob := &batchv1.Job{}
-	err := localClient.Get(ctx, key, localJob)
+	localJob := batchv1.Job{}
+	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
 		return err
 	}
-	localJobOriginal := localJob.DeepCopy()
 
-	remoteJob := &batchv1.Job{}
-	err = remoteClient.Get(ctx, key, remoteJob)
+	remoteJob := batchv1.Job{}
+	err = remoteClient.Get(ctx, key, &remoteJob)
 	if client.IgnoreNotFound(err) != nil {
 		return err
 	}
@@ -60,7 +58,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	if err == nil {
 		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
 			localJob.Status = remoteJob.Status
-			return clientutil.PatchStatus(ctx, localClient, localJobOriginal, localJob)
+			return localClient.Status().Update(ctx, &localJob)
 		}
 		remoteFinished := false
 		for _, c := range remoteJob.Status.Conditions {
@@ -69,14 +67,15 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				break
 			}
 		}
+
 		if remoteFinished {
 			localJob.Status = remoteJob.Status
-			return clientutil.PatchStatus(ctx, localClient, localJobOriginal, localJob)
+			return localClient.Status().Update(ctx, &localJob)
 		}
 		return nil
 	}
 
-	remoteJob = &batchv1.Job{
+	remoteJob = batchv1.Job{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
@@ -101,7 +100,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		remoteJob.Spec.ManagedBy = nil
 	}
 
-	return remoteClient.Create(ctx, remoteJob)
+	return remoteClient.Create(ctx, &remoteJob)
 }
 
 func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
