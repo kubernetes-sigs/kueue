@@ -6,7 +6,7 @@ description: >
   Kueue multi cluster job dispatching.
 ---
 
-{{< feature-state state="alpha" for_version="v0.6.0" >}}
+{{< feature-state state="alpha" for_version="v0.6" >}}
 
 {{% alert title="Warning" color="warning" %}}
 MultiKueue is currently an alpha feature and disabled by default. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
