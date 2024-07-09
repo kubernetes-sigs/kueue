@@ -31,12 +31,45 @@ func CreatePatch(before, after client.Object) (client.Patch, error) {
 	return client.RawPatch(patchBase.Type(), patchBytes), nil
 }
 
-func Patch(ctx context.Context, c client.Client, before, after client.Object) error {
-	patch, err := CreatePatch(before, after)
+// Patch applies the merge patch of client.Object.
+// If strict is true, the resourceVersion will be part of the patch, make this call fail if
+// client.Object was changed.
+func Patch(ctx context.Context, c client.Client, obj client.Object, strict bool, update func() (bool, error)) error {
+	objOriginal := obj.DeepCopyObject().(client.Object)
+	if strict {
+		// Clearing ResourceVersion from the original object to make sure it is included in the generated patch.
+		objOriginal.SetResourceVersion("")
+	}
+	updated, err := update()
+	if err != nil || !updated {
+		return err
+	}
+	patch, err := CreatePatch(objOriginal, obj)
 	if err != nil {
 		return err
 	}
-	if err = c.Patch(ctx, before, patch); err != nil {
+	if err = c.Patch(ctx, obj, patch); err != nil {
+		return err
+	}
+	return nil
+}
+
+// PatchStatus applies the merge patch of client.Object status.
+// The resourceVersion will be part of the patch, make this call fail if
+// client.Object was changed.
+func PatchStatus(ctx context.Context, c client.Client, obj client.Object, update func() (bool, error)) error {
+	objOriginal := obj.DeepCopyObject().(client.Object)
+	// Clearing ResourceVersion from the original object to make sure it is included in the generated patch.
+	objOriginal.SetResourceVersion("")
+	updated, err := update()
+	if err != nil || !updated {
+		return err
+	}
+	patch, err := CreatePatch(objOriginal, obj)
+	if err != nil {
+		return err
+	}
+	if err = c.Status().Patch(ctx, obj, patch); err != nil {
 		return err
 	}
 	return nil
