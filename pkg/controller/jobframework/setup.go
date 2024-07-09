@@ -45,6 +45,10 @@ var (
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
 func SetupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+	return manager.setupControllers(mgr, log, opts...)
+}
+
+func (m *integrationManager) setupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
 	for fwkName := range options.EnabledExternalFrameworks {
@@ -52,7 +56,7 @@ func SetupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 			return err
 		}
 	}
-	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
+	return m.forEach(func(name string, cb IntegrationCallbacks) error {
 		logger := log.WithValues("jobFrameworkName", name)
 		fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", name)
 
@@ -83,7 +87,7 @@ func SetupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 				if err = cb.SetupWebhook(mgr, opts...); err != nil {
 					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
 				}
-				EnableIntegration(name)
+				m.enableIntegration(name)
 				logger.Info("Set up controller and webhook for job framework")
 				return nil
 			}

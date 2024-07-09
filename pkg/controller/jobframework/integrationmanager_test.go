@@ -32,10 +32,24 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-func testNewReconciler(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+type testReconciler struct{}
+
+func (t *testReconciler) Reconcile(context.Context, reconcile.Request) (reconcile.Result, error) {
+	return reconcile.Result{}, nil
+}
+
+func (t *testReconciler) SetupWithManager(mgr ctrlmgr.Manager) error {
 	return nil
+}
+
+var _ JobReconcilerInterface = (*testReconciler)(nil)
+
+func testNewReconciler(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+	return &testReconciler{}
 }
 
 func testSetupWebhook(ctrl.Manager, ...Option) error {
