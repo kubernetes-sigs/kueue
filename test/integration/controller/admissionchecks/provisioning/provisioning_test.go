@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -51,9 +50,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		minBackoffSeconds int32
 		resourceGPU       corev1.ResourceName = "example.com/gpu"
 		flavorOnDemand                        = "on-demand"
-		acCmpOptions                          = []cmp.Option{
-			cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "Name", "LastTransitionTime", "Message", "PodSetUpdates"),
-		}
 	)
 
 	ginkgo.JustBeforeEach(func() {
@@ -476,9 +472,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStateRejected}, acCmpOptions...))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateRejected,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
 					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
@@ -525,10 +524,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
 			})
 
 			ginkgo.By("Setting the ProvisioningRequest as CapacityRevoked", func() {
@@ -546,9 +542,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStateRejected}, acCmpOptions...))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateRejected,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
 					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
@@ -600,8 +599,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStateRejected}, acCmpOptions...))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateRejected,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
 					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
@@ -649,12 +652,15 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking if an AdmissionCheck is Ready", func() {
+			ginkgo.By("Checking if the AdmissionCheck is Ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).NotTo(gomega.BeNil())
-					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateReady,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -681,8 +687,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStateReady}, acCmpOptions...))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateReady,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeTrue())
@@ -720,10 +730,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			ginkgo.By("Checking if the workload is Admitted", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, &updatedWl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
 			})
 
 			ginkgo.By("Setting the provisioning request as BookingExpired", func() {
@@ -741,8 +749,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if the admission check is still ready and workload is admitted", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStateReady}, acCmpOptions...))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateReady,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -780,11 +792,18 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
-					checkState := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(checkState).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStateReady}, acCmpOptions...))
-
-					pendingCheckState := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, pendingAC.Name)
-					g.Expect(pendingCheckState.State).To(gomega.BeComparableTo(kueue.CheckStatePending))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateReady,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  pendingAC.Name,
+							State: kueue.CheckStatePending,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -808,9 +827,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStateRejected}, acCmpOptions...))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateRejected,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse(), "The workload should be deactivated")
 
 					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
@@ -1022,10 +1044,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			ginkgo.By("Check the workload is admitted", func() {
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, &updatedWl)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
 			})
 
 			ginkgo.By("Deleting the provision request", func() {
@@ -1347,8 +1366,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
 
-					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(state).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStateRejected}, acCmpOptions...))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateRejected,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
 
 					ok, err := testing.HasEventAppeared(ctx, k8sClient, corev1.Event{
@@ -1403,10 +1426,18 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if one admission check is ready, and the other is pending thus workload is not admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					checkState := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(checkState).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStateReady}, acCmpOptions...))
-					pendingCheckState := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, pendingAC.Name)
-					g.Expect(pendingCheckState).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStatePending}, acCmpOptions...))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStateReady,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  pendingAC.Name,
+							State: kueue.CheckStatePending,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -1430,8 +1461,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			ginkgo.By("Checking if the admission check is pending and the request is retried", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					checkState := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
-					g.Expect(checkState).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{State: kueue.CheckStatePending}, acCmpOptions...))
+					g.Expect(updatedWl.Status.AdmissionChecks).To(gomega.ContainElement(gomega.BeComparableTo(
+						kueue.AdmissionCheckState{
+							Name:  ac.Name,
+							State: kueue.CheckStatePending,
+						},
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates", "Message"))))
 
 					provReqKey = types.NamespacedName{
 						Namespace: wlKey.Namespace,
