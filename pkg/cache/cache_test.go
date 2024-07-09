@@ -116,9 +116,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -134,9 +131,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 15_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -172,9 +166,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "nonexistent-flavor", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 15_000,
-					},
 					Status:     pending,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -272,9 +263,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -290,9 +278,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 15_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -328,9 +313,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "nonexistent-flavor", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 15_000,
-					},
 					Status:     pending,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -403,9 +385,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 5_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -454,9 +433,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 4_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -509,9 +485,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 15_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -537,9 +510,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "nonexistent-flavor", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 15_000,
-					},
 					Status:     pending,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -587,9 +557,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -605,9 +572,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 15_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -643,9 +607,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "nonexistent-flavor", Resource: corev1.ResourceCPU}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 15_000,
-					},
 					Status:     active,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -716,11 +677,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						{Flavor: "theta", Resource: "example.com/gpu"}: 0,
 						{Flavor: "gamma", Resource: "example.com/gpu"}: 0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    0,
-						corev1.ResourceMemory: 0,
-						"example.com/gpu":     0,
-					},
 					Status:     pending,
 					Preemption: defaultPreemption,
 					FairWeight: oneQuantity,
@@ -902,9 +858,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AdmittedUsage: resources.FlavorResourceQuantitiesFlat{
 						{Flavor: "f1", Resource: corev1.ResourceCPU}: 1000,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
-					},
 					FairWeight: oneQuantity,
 					Workloads: map[string]*workload.Info{
 						"ns/reserving": {
@@ -1020,11 +973,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						{Flavor: "spot", Resource: corev1.ResourceMemory}:      0,
 						{Flavor: "license", Resource: "license"}:               0,
 					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    28_000,
-						corev1.ResourceMemory: 28 * utiltesting.Gi,
-						"license":             4,
-					},
 				},
 			},
 		},

@@ -68,9 +68,6 @@ type clusterQueue struct {
 	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
 
-	// Lendable holds the total lendable quota for the resources of the ClusterQueue, independent of the flavor.
-	Lendable map[corev1.ResourceName]int64
-
 	AdmittedUsage resources.FlavorResourceQuantities
 	// localQueues by (namespace/name).
 	localQueues                                        map[string]*queue
@@ -130,8 +127,12 @@ func newCohort(name string, size int) *cohort {
 func (c *cohort) CalculateLendable() map[corev1.ResourceName]int64 {
 	lendable := make(map[corev1.ResourceName]int64)
 	for member := range c.Members {
-		for res, v := range member.Lendable {
-			lendable[res] += v
+		for _, frq := range flavorResourceQuotas(member) {
+			if features.Enabled(features.LendingLimit) && frq.quota.LendingLimit != nil {
+				lendable[frq.fr.Resource] += *frq.quota.LendingLimit
+			} else {
+				lendable[frq.fr.Resource] += frq.quota.Nominal
+			}
 		}
 	}
 	return lendable
@@ -245,7 +246,6 @@ func filterFlavorQuantities(orig resources.FlavorResourceQuantities, resourceGro
 func (c *clusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 	oldRG := c.ResourceGroups
 	c.ResourceGroups = make([]ResourceGroup, len(in))
-	c.Lendable = make(map[corev1.ResourceName]int64)
 	for i, rgIn := range in {
 		rg := &c.ResourceGroups[i]
 		*rg = ResourceGroup{
@@ -268,9 +268,6 @@ func (c *clusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 				}
 				if features.Enabled(features.LendingLimit) && rIn.LendingLimit != nil {
 					rQuota.LendingLimit = ptr.To(resources.ResourceValue(rIn.Name, *rIn.LendingLimit))
-					c.Lendable[rIn.Name] += *rQuota.LendingLimit
-				} else {
-					c.Lendable[rIn.Name] += nominal
 				}
 				fQuotas.Resources[rIn.Name] = &rQuota
 			}

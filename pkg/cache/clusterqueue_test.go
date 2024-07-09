@@ -17,6 +17,7 @@ limitations under the License.
 package cache
 
 import (
+	"context"
 	"math"
 	"testing"
 
@@ -1074,22 +1075,30 @@ func TestDominantResourceShare(t *testing.T) {
 }
 
 func TestCohortLendable(t *testing.T) {
-	cq := clusterQueue{
-		Cohort: &cohort{
-			Members: sets.New(
-				&clusterQueue{
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 8_000,
-						"example.com/gpu":  3,
-					},
-				},
-				&clusterQueue{
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 2_000,
-					},
-				},
-			),
-		},
+	cache := New(utiltesting.NewFakeClient())
+
+	cq1 := utiltesting.MakeClusterQueue("cq1").
+		ResourceGroup(
+			utiltesting.MakeFlavorQuotas("default").
+				ResourceQuotaWrapper("cpu").NominalQuota("8").LendingLimit("8").Append().
+				ResourceQuotaWrapper("example.com/gpu").NominalQuota("3").LendingLimit("3").Append().
+				FlavorQuotas,
+		).Cohort("test-cohort").
+		ClusterQueue
+
+	cq2 := utiltesting.MakeClusterQueue("cq2").
+		ResourceGroup(
+			utiltesting.MakeFlavorQuotas("default").
+				ResourceQuotaWrapper("cpu").NominalQuota("2").LendingLimit("2").Append().
+				FlavorQuotas,
+		).Cohort("test-cohort").
+		ClusterQueue
+
+	if err := cache.AddClusterQueue(context.Background(), &cq1); err != nil {
+		t.Fatal("Failed to add CQ to cache", err)
+	}
+	if err := cache.AddClusterQueue(context.Background(), &cq2); err != nil {
+		t.Fatal("Failed to add CQ to cache", err)
 	}
 
 	wantLendable := map[corev1.ResourceName]int64{
@@ -1097,7 +1106,7 @@ func TestCohortLendable(t *testing.T) {
 		"example.com/gpu":  3,
 	}
 
-	lendable := cq.Cohort.CalculateLendable()
+	lendable := cache.clusterQueues["cq1"].Cohort.CalculateLendable()
 	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
 		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
 	}
