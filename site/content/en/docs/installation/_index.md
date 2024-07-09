@@ -59,9 +59,6 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 
 ### Add metrics scraping for prometheus-operator
 
-{{< feature-state state="stable" for_version="v0.2.1" >}}
-
-
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:
 
