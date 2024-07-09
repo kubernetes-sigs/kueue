@@ -43,7 +43,7 @@ This KEP introduces the ability to create Multikueue Admission Check controllers
 
 ## Motivation
 
-Many Kueue adaptors have company specific CustomResources.
+Many Kueue adopters have company specific CustomResources.
 Kueue should give a possibility to manage such CustomResources across multiple clusters.
 
 ### Goals
@@ -68,7 +68,7 @@ I would like to support the extension mechanism so that we can implement the Mul
 
 Internally the MultiKueue uses a set of controller-runtime client, one for each MultiKueueCluster, the clients are used both by the MultiKueue internals and passed to the job adapters for the custom jobs synchronization.
 
-The clients cannot be share with an external controller and assuming the external controller can get the same connectivity to the worker clusters might be wrong, especially when we are taking about FS mounted kubeconfigs.
+The clients cannot be shared with an external controller and assuming the external controller can get the same connectivity to the worker clusters might be wrong, especially when we are taking about FS mounted kubeconfigs.
 
 Designing additional APIs to communicate between the internal and external controller will bring extra complexity and latency at runtime. 
 
@@ -79,18 +79,25 @@ Designing additional APIs to communicate between the internal and external contr
 Provide a way to integrate external controllers to manage Jobs in the Kueue.
 MulikueueCluster API needs to be modified to ensure that one multikueue cluster is only managed by one admission check controller.
 
-1. Add ControllerName to the `MultiKueueClusterSpec`
+1. Turn Status of the `MultiKueueClusterStatus` into a map with ControllerName as a key and Conditions map as a value.
+
 ```golang
-type MultiKueueClusterSpec struct {
-  ...
-	// controllerName is name of the controller which will actually perform
-	// the checks. This is the name with which controller identifies with,
-	// not necessarily a K8S Pod or Deployment name. Cannot be empty.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:default="kueue.x-k8s.io/multikueue"
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="field is immutable"
-	ControllerName string `json:"controllerName"`
-  ...
+type MultiKueueClusterStatus struct {
+ // +optional
+ // +listType=map
+ // +listMapKey=controllerName
+ Status []MultiKueueClusterStatusConditions `json:"conditions,omitempty"`
+}
+
+type MultiKueueClusterStatusConditions struct {
+ ControllerName string `json:"controllerName"`
+ // +optional
+ // +listType=map
+ // +listMapKey=type
+ // +patchStrategy=merge
+ // +patchMergeKey=type
+Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+}
 ```
 
 2. Make Controller Name used in Multikueue admission check configurable.
@@ -139,6 +146,58 @@ func WithAdapter(adapter jobframework.MultiKueueAdapter) SetupOption {
 	}
 }
 ```
+
+### Example configuration
+
+2 admission checks for 2 custom controllers: `multikueue-controller-job` and `multikueue-controller-jobset`.
+The `multikueue-controller-job` contains the adapter only for `batch/Jobs` and the `multikueue-controller-jobset` contains the adapter only for `jobSet`.
+
+```yaml
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  namespaceSelector: {} # match all.
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+      - name: "memory"
+        nominalQuota: 36Gi
+  admissionChecks:
+  - sample-multikueue-job
+  - sample-multikueue-jobset
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: sample-multikueue-job
+spec:
+  controllerName: kueue.x-k8s.io/multikueue-controller-job
+  parameters:
+    apiGroup: kueue.x-k8s.io
+    kind: MultiKueueConfig
+    name: multikueue-test
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: sample-multikueue-jobset
+spec:
+  controllerName: kueue.x-k8s.io/multikueue-controller-jobset
+  parameters:
+    apiGroup: kueue.x-k8s.io
+    kind: MultiKueueConfig
+    name: multikueue-test
+---
+
+```
+
 
 ### Test Plan
 
