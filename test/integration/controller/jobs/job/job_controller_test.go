@@ -1692,6 +1692,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		ginkgo.By("job should be suspended and its parallelism restored", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+				g.Expect(createdJob.Annotations[workloadjob.StoppingAnnotation]).ToNot(gomega.Equal("true"))
 				g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue(), "the job should be suspended")
 				g.Expect(ptr.Deref(createdJob.Spec.Parallelism, 0)).To(gomega.BeEquivalentTo(5))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
