@@ -21,9 +21,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -71,25 +73,17 @@ func (m *integrationManager) setupControllers(mgr ctrl.Manager, log logr.Logger,
 			if err != nil {
 				return fmt.Errorf("%s: %w: %w", fwkNamePrefix, errFailedMappingResource, err)
 			}
-			if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+			if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
 				if !meta.IsNoMatchError(err) {
 					return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 				}
 				logger.Info("No matching API in the server for job framework, skipped setup of controller and webhook")
+				go waitForAPI(context.Background(), mgr, logger, gvk, func() {
+					log.Info(fmt.Sprintf("API now available, starting controller and webhook for %v", gvk))
+					m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...)
+				})
 			} else {
-				if err = cb.NewReconciler(
-					mgr.GetClient(),
-					mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
-					opts...,
-				).SetupWithManager(mgr); err != nil {
-					return fmt.Errorf("%s: %w", fwkNamePrefix, err)
-				}
-				if err = cb.SetupWebhook(mgr, opts...); err != nil {
-					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
-				}
-				m.enableIntegration(name)
-				logger.Info("Set up controller and webhook for job framework")
-				return nil
+				m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...)
 			}
 		}
 		if err := noop.SetupWebhook(mgr, cb.JobType); err != nil {
@@ -97,6 +91,42 @@ func (m *integrationManager) setupControllers(mgr ctrl.Manager, log logr.Logger,
 		}
 		return nil
 	})
+}
+
+func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
+	if err := cb.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
+		opts...,
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("%s: %w", fwkNamePrefix, err)
+	}
+	if err := cb.SetupWebhook(mgr, opts...); err != nil {
+		return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
+	}
+	m.enableIntegration(name)
+	return nil
+}
+
+func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
+	getRestMapping := func() (*meta.RESTMapping, error) {
+		return mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
+	}
+	var err error
+	for {
+		_, err = getRestMapping()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				log.Info(fmt.Sprint("Context cancelled!", "gvk", gvk))
+				return
+			case <-time.After(time.Second * 5):
+				continue
+			}
+		}
+		break
+	}
+	action()
 }
 
 // SetupIndexes setups the indexers for integrations.
