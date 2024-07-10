@@ -105,7 +105,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 	o := NewPodOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "pods --for [<type>[.<api-group>]/]<name>",
+		Use:                   "pods --for TYPE[.API-GROUP]/NAME",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"po"},
 		Short:                 "List Pods belong to a Job Kind",
@@ -113,7 +113,9 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 		Example:               podExample,
 		Run: func(cmd *cobra.Command, args []string) {
 			cobra.CheckErr(o.Complete(clientGetter))
-			cobra.CheckErr(o.Run(cmd.Context()))
+			if o.ForObject != nil {
+				cobra.CheckErr(o.Run(cmd.Context()))
+			}
 		},
 	}
 
@@ -157,7 +159,7 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 		return err
 	}
 	if !found {
-		return fmt.Errorf("invalid value '%s' used in --for flag; value must be in the format [TYPE[.API-GROUP]/]NAME", o.UserSpecifiedForObject)
+		return fmt.Errorf("invalid value '%s' used in --for flag; value must be in the format TYPE[.API-GROUP]/NAME", o.UserSpecifiedForObject)
 	}
 
 	infos, err := o.fetchDynamicResourceInfos(clientGetter)
@@ -166,11 +168,7 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 	}
 
 	if len(infos) == 0 {
-		if !o.AllNamespaces {
-			fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
-		} else {
-			fmt.Fprintln(o.ErrOut, "No resources found")
-		}
+		o.printNoResourcesFound()
 		return nil
 	}
 
@@ -287,11 +285,7 @@ func (o *PodOptions) Run(ctx context.Context) error {
 
 		// handle if no filtered podList found
 		if totalCount == 0 {
-			if !o.AllNamespaces {
-				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
-			} else {
-				fmt.Fprintln(o.ErrOut, "No resources found.")
-			}
+			o.printNoResourcesFound()
 			return nil
 		}
 
@@ -325,4 +319,12 @@ func (o *PodOptions) getPodLabelSelector() (string, error) {
 	}
 
 	return jobController.PodLabelSelector(), nil
+}
+
+func (o *PodOptions) printNoResourcesFound() {
+	if !o.AllNamespaces {
+		fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+	} else {
+		fmt.Fprintln(o.ErrOut, "No resources found.")
+	}
 }
