@@ -245,11 +245,11 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		attempt := int32(1)
 		shouldCreatePr := false
 		if exists {
-			if isFailed(oldPr) {
+			if isFailed(oldPr) || (isBookingExpired(oldPr) && !workload.IsAdmitted(wl)) {
+				// if the workload is Admitted we don't want to retry on BookingExpired
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
 				if attempt <= c.maxRetries {
-					prFailed := apimeta.FindStatusCondition(oldPr.Status.Conditions, autoscaling.Failed)
-					remainingTime := c.remainingTime(attempt, prFailed.LastTransitionTime.Time)
+					remainingTime := c.remainingTimeToRetry(oldPr, attempt)
 					if remainingTime <= 0 {
 						shouldCreatePr = true
 						attempt += 1
@@ -310,9 +310,15 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 	return requeAfter, nil
 }
 
-func (c *Controller) remainingTime(failuresCount int32, lastFailureTime time.Time) time.Duration {
+func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32) time.Duration {
 	backoffDuration := time.Duration(c.minBackoffSeconds) * time.Second
 	maxBackoffDuration := time.Duration(c.maxBackoffSeconds) * time.Second
+	var cond *metav1.Condition
+	if isFailed(pr) {
+		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
+	} else {
+		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired)
+	}
 	for i := 1; i < int(failuresCount); i++ {
 		backoffDuration *= 2
 		if backoffDuration >= maxBackoffDuration {
@@ -320,7 +326,7 @@ func (c *Controller) remainingTime(failuresCount int32, lastFailureTime time.Tim
 			break
 		}
 	}
-	timeElapsedSinceLastFailure := time.Since(lastFailureTime)
+	timeElapsedSinceLastFailure := time.Since(cond.LastTransitionTime.Time)
 	return backoffDuration - timeElapsedSinceLastFailure
 }
 
@@ -516,11 +522,25 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 				}
 			case isCapacityRevoked(pr):
 				if workload.IsActive(wl) && !workload.IsFinished(wl) {
-					// We mark the admission check as rejected to trigger workload eviction.
+					// We mark the admission check as rejected to trigger workload deactivation.
 					// This is needed to prevent replacement pods being stuck in the pending phase indefinitely
 					// as the nodes are already deleted by Cluster Autoscaler.
 					updated = updateCheckState(&checkState, kueue.CheckStateRejected) || updated
 					updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
+				}
+			case isBookingExpired(pr):
+				if !workload.IsAdmitted(wl) {
+					attempt := getAttempt(log, pr, wl.Name, check)
+					if attempt <= c.maxRetries {
+						// it is going to be retried
+						message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
+						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
+						updated = updateCheckMessage(&checkState, message) || updated
+					} else {
+						updated = true
+						checkState.State = kueue.CheckStateRejected
+						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message
+					}
 				}
 			case isProvisioned(pr):
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
@@ -550,7 +570,6 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			}
 			recorderMessages = append(recorderMessages, message)
 		}
-
 		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
 	}
 	if updated {
