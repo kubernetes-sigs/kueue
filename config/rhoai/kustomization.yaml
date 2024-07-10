@@ -43,6 +43,7 @@ resources:
 - webhook_network_policy.yaml
 - batch-user-rolebinding.yaml
 - kueue-metrics-service.yaml
+- prometheus_rule.yaml
 
 patches:
 # Mount the controller config file for loading manager configurations
