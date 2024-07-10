@@ -152,7 +152,7 @@ When a Workload deactivated by All-or-nothing with ready Pods is re-activated,
 the requeueState (`.status.requeueState`) will be reset to null.
 
 ## Replicate labels from Jobs into Workloads
-At Workload creation, you can configure Kueue to copy labels into the Workload from the underlying Job or Pod objects. This can be useful for Workload identification and debugging.
+You can configure Kueue to copy labels, at Workload creation, into the new Workload from the underlying Job or Pod objects. This can be useful for Workload identification and debugging.
 You can specify which labels should be copied by setting the `labelKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod label into the Workload. 
 
 
