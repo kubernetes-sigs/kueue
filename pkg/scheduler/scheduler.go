@@ -69,6 +69,9 @@ type Scheduler struct {
 	workloadOrdering        workload.Ordering
 	fairSharing             config.FairSharing
 
+	// attemptCount identifies the number of scheduling attempt in logs, from the last restart.
+	attemptCount int64
+
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
 }
@@ -160,7 +163,7 @@ func (cu *cohortsUsage) add(cohort string, assignment resources.FlavorResourceQu
 }
 
 func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
-	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b workload.Requests) workload.Requests {
+	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b resources.Requests) resources.Requests {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
@@ -183,7 +186,9 @@ func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assignment resou
 }
 
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
-	log := ctrl.LoggerFrom(ctx)
+	s.attemptCount++
+	log := ctrl.LoggerFrom(ctx).WithValues("attemptCount", s.attemptCount)
+	ctx = ctrl.LoggerInto(ctx, log)
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
@@ -291,7 +296,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
 		if e.status != assumed {
-			s.requeueAndUpdate(log, ctx, e)
+			s.requeueAndUpdate(ctx, e)
 		} else {
 			result = metrics.AdmissionResultSuccess
 		}
@@ -372,7 +377,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
-func resourcesToReserve(e *entry, cq *cache.ClusterQueue) resources.FlavorResourceQuantities {
+func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
 		return e.assignment.Usage
 	}
@@ -380,7 +385,7 @@ func resourcesToReserve(e *entry, cq *cache.ClusterQueue) resources.FlavorResour
 	for flavor, resourceUsage := range e.assignment.Usage {
 		reservedUsage[flavor] = make(map[corev1.ResourceName]int64)
 		for resource, usage := range resourceUsage {
-			rg := cq.RGByResource[resource]
+			rg := cq.RGByResource(resource)
 			cqQuota := cache.ResourceQuota{}
 			for _, cqFlavor := range rg.Flavors {
 				if cqFlavor.Name == flavor {
@@ -419,7 +424,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	}
 
 	if arm == flavorassigner.Preempt {
-		faPreemtionTargets = s.preemptor.GetTargets(*wl, fullAssignment, snap)
+		faPreemtionTargets = s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
 	}
 
 	// if the feature gate is not enabled or we can preempt
@@ -433,7 +438,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 			if assignment.RepresentativeMode() == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
 			}
-			preemptionTargets := s.preemptor.GetTargets(*wl, assignment, snap)
+			preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
 			if len(preemptionTargets) > 0 {
 				return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
 			}
@@ -508,7 +513,7 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueue) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueSnapshot) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
@@ -552,7 +557,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueue)
 		}
 
 		log.Error(err, errCouldNotAdmitWL)
-		s.requeueAndUpdate(log, ctx, *e)
+		s.requeueAndUpdate(ctx, *e)
 	})
 
 	return nil
@@ -611,18 +616,19 @@ func (e entryOrdering) Less(i, j int) bool {
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
 }
 
-func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e entry) {
+func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
+	log := ctrl.LoggerFrom(ctx)
 	if e.status != notNominated && e.requeueReason == queue.RequeueReasonGeneric {
 		// Failed after nomination is the only reason why a workload would be requeued downstream.
 		e.requeueReason = queue.RequeueReasonFailedAfterNomination
 	}
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added)
+	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
-		if workload.UnsetQuotaReservationWithCondition(e.Obj, "Pending", e.inadmissibleMsg) {
-			err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true)
-			if err != nil {
+		patch := workload.AdmissionStatusPatch(e.Obj, true)
+		if workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg) {
+			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, patch); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 		}

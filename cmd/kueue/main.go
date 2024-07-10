@@ -192,7 +192,7 @@ func main() {
 	}()
 
 	if features.Enabled(features.VisibilityOnDemand) {
-		go visibility.CreateAndStartVisibilityServer(queues, ctx)
+		go visibility.CreateAndStartVisibilityServer(ctx, queues)
 	}
 
 	setupScheduler(mgr, cCache, queues, &cfg)

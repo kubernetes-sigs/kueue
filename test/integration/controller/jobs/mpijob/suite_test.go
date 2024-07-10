@@ -60,7 +60,7 @@ func TestAPIs(t *testing.T) {
 }
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
-	return func(mgr manager.Manager, ctx context.Context) {
+	return func(ctx context.Context, mgr manager.Manager) {
 		reconciler := mpijob.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
@@ -90,7 +90,7 @@ func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.M
 }
 
 func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
-	return func(mgr manager.Manager, ctx context.Context) {
+	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

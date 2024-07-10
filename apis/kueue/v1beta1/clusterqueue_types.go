@@ -127,7 +127,7 @@ type ClusterQueueSpec struct {
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
-// AdmissionCheckStrategy defines a strategy for a AdmissionCheck.
+// AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
 type AdmissionChecksStrategy struct {
 	// admissionChecks is a list of strategies for AdmissionChecks
 	AdmissionChecks []AdmissionCheckStrategyRule `json:"admissionChecks,omitempty"`
@@ -349,7 +349,7 @@ type FairSharingStatus struct {
 	// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 	// If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
 	// the maximum possible share value.
-	WeightedShare int64 `json:"weightedShare,omitempty"`
+	WeightedShare int64 `json:"weightedShare"`
 }
 
 const (

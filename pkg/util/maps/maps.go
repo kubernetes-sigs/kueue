@@ -14,8 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// replacing this with `https://pkg.go.dev/golang.org/x/exp/maps` should be considered
-// when `x/exp/maps` graduates to stable.
 package maps
 
 import (
@@ -98,7 +96,17 @@ func Keys[K comparable, V any, M ~map[K]V](m M) []K {
 	return ret
 }
 
-// Filter returns a sub-map containing only keys from the given list
+// Values returns the values of the map m.
+// The values will be in an indeterminate order.
+func Values[M ~map[K]V, K comparable, V any](m M) []V {
+	r := make([]V, 0, len(m))
+	for _, v := range m {
+		r = append(r, v)
+	}
+	return r
+}
+
+// FilterKeys returns a sub-map containing only keys from the given list
 func FilterKeys[K comparable, V any, M ~map[K]V](m M, k []K) M {
 	if m == nil || len(k) == 0 {
 		return nil

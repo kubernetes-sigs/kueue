@@ -220,7 +220,7 @@ including situations like:
 * Job has a scale up, gated pods are admitted, pods get ungated and assigned same flavors as parent workload
 * Workload slices are correctly folded and deleted
 * Job has a scale down, Workload spec reflects podset count values
-* When Kueu preempt a resized Job, it should preempt it as a whole
+* When Kueue preempt a resized Job, it should preempt it as a whole
 
 ### Graduation Criteria
 <!--

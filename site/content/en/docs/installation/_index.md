@@ -59,8 +59,6 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 
 ### Add metrics scraping for prometheus-operator
 
-> _Available in Kueue v0.2.1 and later_
-
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:
 
@@ -76,7 +74,8 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 
 ### Add visibility API to monitor pending workloads
 
-> _Available in Kueue v0.6.0 and later_
+{{< feature-state state="alpha" for_version="v0.6" >}}
+
 
 To add the visibility API that enables monitoring pending workloads, change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`, and run the following command
 
@@ -147,7 +146,7 @@ data:
 __The `integrations.externalFrameworks` field is available in Kueue v0.7.0 and later.__
 
 {{% alert title="Note" color="primary" %}}
-See [Sequential Admission with Ready Pods](/docs/tasks/manage/setup_sequential_admission) to learn
+See [All-or-nothing with ready Pods](/docs/tasks/manage/setup_wait_for_pods_ready) to learn
 more about using `waitForPodsReady` for Kueue.
 {{% /alert %}}
 
@@ -195,8 +194,6 @@ IMAGE_REGISTRY=registry.example.com/my-user make image-local-push deploy
 
 ### Add metrics scraping for prometheus-operator
 
-> _Available in Kueue v0.2.0 and later_
-
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:
 
@@ -219,7 +216,7 @@ To install and configure Kueue with [Helm](https://helm.sh/), follow the [instru
 
 Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).
 
-In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include 
+In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include
 
 ```
 --feature-gates=...,<FeatureName>=<true|false>

@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		onDemandRF = testing.MakeResourceFlavor("on-demand").Label("instance-type", "on-demand").Obj()
+		onDemandRF = testing.MakeResourceFlavor("on-demand").NodeLabel("instance-type", "on-demand").Obj()
 		gomega.Expect(k8sClient.Create(ctx, onDemandRF)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
@@ -320,12 +320,14 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			ginkgo.By("Check the second pod is no longer pending", func() {
+				// Since kueue is not involved in this transition (ungated pod to no pending)
+				// it is acceptable to wait `LongTimeout` for it to happen.
 				gomega.Eventually(func(g gomega.Gomega) {
 					var p corev1.Pod
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[1]), &p)).To(gomega.Succeed())
 					g.Expect(p.Status.Phase).NotTo(gomega.Equal(corev1.PodPending))
 					g.Expect(p.Spec.NodeName).NotTo(gomega.BeEmpty())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Check the first pod is Unschedulable", func() {
@@ -541,7 +543,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						var p corev1.Pod
 						g.Expect(k8sClient.Get(ctx, replKey, &p)).To(gomega.Succeed())
 						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				}
 			})
 

@@ -758,25 +758,57 @@ func (f *FlavorQuotasWrapper) Obj() *kueue.FlavorQuotas {
 	return &f.FlavorQuotas
 }
 
+// Resource takes ResourceName, followed by the optional NominalQuota, BorrowingLimit, LendingLimit.
 func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *FlavorQuotasWrapper {
-	rq := kueue.ResourceQuota{
-		Name: name,
-	}
+	resourceWrapper := f.ResourceQuotaWrapper(name)
 	if len(qs) > 0 {
-		rq.NominalQuota = resource.MustParse(qs[0])
+		resourceWrapper.NominalQuota(qs[0])
 	}
 	if len(qs) > 1 && len(qs[1]) > 0 {
-		rq.BorrowingLimit = ptr.To(resource.MustParse(qs[1]))
+		resourceWrapper.BorrowingLimit(qs[1])
 	}
 	if len(qs) > 2 && len(qs[2]) > 0 {
-		rq.LendingLimit = ptr.To(resource.MustParse(qs[2]))
+		resourceWrapper.LendingLimit(qs[2])
 	}
 	if len(qs) > 3 {
 		panic("Must have at most 3 quantities for nominalQuota, borrowingLimit and lendingLimit")
 	}
+	return resourceWrapper.Append()
+}
 
-	f.Resources = append(f.Resources, rq)
-	return f
+// ResourceQuotaWrapper allows creation the creation of a Resource in a type-safe manner.
+func (f *FlavorQuotasWrapper) ResourceQuotaWrapper(name corev1.ResourceName) *resourceQuotaWrapper {
+	rq := kueue.ResourceQuota{
+		Name: name,
+	}
+	return &resourceQuotaWrapper{parent: f, ResourceQuota: rq}
+}
+
+// resourceQuotaWrapper wraps a ResourceQuota object.
+type resourceQuotaWrapper struct {
+	parent *FlavorQuotasWrapper
+	kueue.ResourceQuota
+}
+
+func (rq *resourceQuotaWrapper) NominalQuota(quantity string) *resourceQuotaWrapper {
+	rq.ResourceQuota.NominalQuota = resource.MustParse(quantity)
+	return rq
+}
+
+func (rq *resourceQuotaWrapper) BorrowingLimit(quantity string) *resourceQuotaWrapper {
+	rq.ResourceQuota.BorrowingLimit = ptr.To(resource.MustParse(quantity))
+	return rq
+}
+
+func (rq *resourceQuotaWrapper) LendingLimit(quantity string) *resourceQuotaWrapper {
+	rq.ResourceQuota.LendingLimit = ptr.To(resource.MustParse(quantity))
+	return rq
+}
+
+// Append appends the ResourceQuotaWrapper to its parent
+func (rq *resourceQuotaWrapper) Append() *FlavorQuotasWrapper {
+	rq.parent.Resources = append(rq.parent.Resources, rq.ResourceQuota)
+	return rq.parent
 }
 
 // ResourceFlavorWrapper wraps a ResourceFlavor.
@@ -799,8 +831,17 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 	return &rf.ResourceFlavor
 }
 
-// Label add a label kueue and value pair to the ResourceFlavor.
+// Label sets the label on the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
+	if rf.ObjectMeta.Labels == nil {
+		rf.ObjectMeta.Labels = map[string]string{}
+	}
+	rf.ObjectMeta.Labels[k] = v
+	return rf
+}
+
+// NodeLabel add a label kueue and value pair to the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) NodeLabel(k, v string) *ResourceFlavorWrapper {
 	rf.Spec.NodeLabels[k] = v
 	return rf
 }
@@ -814,6 +855,12 @@ func (rf *ResourceFlavorWrapper) Taint(t corev1.Taint) *ResourceFlavorWrapper {
 // Toleration  adds a taint to the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Toleration(t corev1.Toleration) *ResourceFlavorWrapper {
 	rf.Spec.Tolerations = append(rf.Spec.Tolerations, t)
+	return rf
+}
+
+// Creation sets the creation timestamp of the LocalQueue.
+func (rf *ResourceFlavorWrapper) Creation(t time.Time) *ResourceFlavorWrapper {
+	rf.CreationTimestamp = metav1.NewTime(t)
 	return rf
 }
 

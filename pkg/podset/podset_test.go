@@ -50,15 +50,15 @@ func TestFromAssignment(t *testing.T) {
 	}
 
 	flavor1 := utiltesting.MakeResourceFlavor("flavor1").
-		Label("f1l1", "f1v1").
-		Label("f1l2", "f1v2").
+		NodeLabel("f1l1", "f1v1").
+		NodeLabel("f1l2", "f1v2").
 		Toleration(*toleration1.DeepCopy()).
 		Toleration(*toleration2.DeepCopy()).
 		Obj()
 
 	flavor2 := utiltesting.MakeResourceFlavor("flavor2").
-		Label("f2l1", "f2v1").
-		Label("f2l2", "f2v2").
+		NodeLabel("f2l1", "f2v1").
+		NodeLabel("f2l2", "f2v2").
 		Toleration(*toleration3.DeepCopy()).
 		Obj()
 
@@ -243,6 +243,40 @@ func TestMergeRestore(t *testing.T) {
 					Key:      "t1",
 					Operator: corev1.TolerationOpEqual,
 					Value:    "t1v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Obj(),
+			wantRestoreChanges: true,
+		},
+		"don't duplicate tolerations": {
+			podSet: basePodSet.DeepCopy(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					"a1": "a1v",
+				},
+				Labels: map[string]string{
+					"l1": "l1v",
+				},
+				NodeSelector: map[string]string{
+					"ns1": "ns1v",
+				},
+				Tolerations: []corev1.Toleration{
+					{
+						Key:      "t0",
+						Operator: corev1.TolerationOpEqual,
+						Value:    "t0v",
+						Effect:   corev1.TaintEffectNoSchedule,
+					},
+				},
+			},
+			wantPodSet: utiltesting.MakePodSet("", 1).
+				NodeSelector(map[string]string{"ns0": "ns0v", "ns1": "ns1v"}).
+				Labels(map[string]string{"l0": "l0v", "l1": "l1v"}).
+				Annotations(map[string]string{"a0": "a0v", "a1": "a1v"}).
+				Toleration(corev1.Toleration{
+					Key:      "t0",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "t0v",
 					Effect:   corev1.TaintEffectNoSchedule,
 				}).
 				Obj(),

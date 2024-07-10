@@ -47,10 +47,10 @@ import (
 
 var snapCmpOpts = []cmp.Option{
 	cmpopts.EquateEmpty(),
-	cmpopts.IgnoreUnexported(cache.ClusterQueue{}),
-	cmpopts.IgnoreFields(cache.Cohort{}, "AllocatableResourceGeneration"),
-	cmpopts.IgnoreFields(cache.ClusterQueue{}, "AllocatableResourceGeneration"),
-	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueue]) sets.Set[string] {
+	cmpopts.IgnoreUnexported(cache.ClusterQueueSnapshot{}),
+	cmpopts.IgnoreFields(cache.CohortSnapshot{}, "AllocatableResourceGeneration"),
+	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "AllocatableResourceGeneration"),
+	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueueSnapshot]) sets.Set[string] {
 		result := make(sets.Set[string], len(s))
 		for cq := range s {
 			result.Insert(cq.Name)
@@ -60,6 +60,7 @@ var snapCmpOpts = []cmp.Option{
 }
 
 func TestPreemption(t *testing.T) {
+	now := time.Now()
 	flavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
 		utiltesting.MakeResourceFlavor("alpha").Obj(),
@@ -86,8 +87,8 @@ func TestPreemption(t *testing.T) {
 		utiltesting.MakeClusterQueue("c1").
 			Cohort("cohort").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "6", "12").
-				Resource(corev1.ResourceMemory, "3Gi", "6Gi").
+				Resource(corev1.ResourceCPU, "6", "6").
+				Resource(corev1.ResourceMemory, "3Gi", "3Gi").
 				Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -98,8 +99,8 @@ func TestPreemption(t *testing.T) {
 		utiltesting.MakeClusterQueue("c2").
 			Cohort("cohort").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "6", "12").
-				Resource(corev1.ResourceMemory, "3Gi", "6Gi").
+				Resource(corev1.ResourceCPU, "6", "6").
+				Resource(corev1.ResourceMemory, "3Gi", "3Gi").
 				Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -509,6 +510,42 @@ func TestPreemption(t *testing.T) {
 				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 					Name: "default",
 					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: sets.New("/c2-mid"),
+		},
+		"reclaim quota if workload requests 0 resources for a resource at nominal quota": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("c1-low", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "3").
+					Request(corev1.ResourceMemory, "3Gi").
+					SimpleReserveQuota("c1", "default", now).
+					Obj(),
+				*utiltesting.MakeWorkload("c2-mid", "").
+					Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("c2", "default", now).
+					Obj(),
+				*utiltesting.MakeWorkload("c2-high", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "6").
+					SimpleReserveQuota("c2", "default", now).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Priority(1).
+				Request(corev1.ResourceCPU, "3").
+				Request(corev1.ResourceMemory, "0").
+				Obj(),
+			targetCQ: "c1",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Fit,
 				},
 			}),
 			wantPreempted: sets.New("/c2-mid"),
@@ -1384,7 +1421,7 @@ func TestPreemption(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
@@ -1418,7 +1455,7 @@ func TestPreemption(t *testing.T) {
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targetClusterQueue := snapshot.ClusterQueues[wlInfo.ClusterQueue]
-			targets := preemptor.GetTargets(*wlInfo, tc.assignment, &snapshot)
+			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, &snapshot)
 			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, targetClusterQueue)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
@@ -1875,7 +1912,7 @@ func TestFairPreemptions(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			// Set name as UID so that candidates sorting is predictable.
 			for i := range tc.admitted {
 				tc.admitted[i].UID = types.UID(tc.admitted[i].Name)
@@ -1904,7 +1941,7 @@ func TestFairPreemptions(t *testing.T) {
 			snapshot := cqCache.Snapshot()
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(*wlInfo, singlePodSetAssignment(
+			targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: "default", Mode: flavorassigner.Preempt,

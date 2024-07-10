@@ -42,8 +42,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		queue           *kueue.LocalQueue
 		clusterQueue    *kueue.ClusterQueue
 		resourceFlavors = []kueue.ResourceFlavor{
-			*testing.MakeResourceFlavor(flavorModelC).Label(resourceGPU.String(), flavorModelC).Obj(),
-			*testing.MakeResourceFlavor(flavorModelD).Label(resourceGPU.String(), flavorModelD).Obj(),
+			*testing.MakeResourceFlavor(flavorModelC).NodeLabel(resourceGPU.String(), flavorModelC).Obj(),
+			*testing.MakeResourceFlavor(flavorModelD).NodeLabel(resourceGPU.String(), flavorModelD).Obj(),
 		}
 		ac *kueue.AdmissionCheck
 	)

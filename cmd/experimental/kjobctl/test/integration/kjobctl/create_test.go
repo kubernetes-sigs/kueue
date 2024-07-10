@@ -111,11 +111,8 @@ var _ = ginkgo.Describe("Kjobctl Create", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					corev1.ResourceCPU:    resource.MustParse("100m"),
 					corev1.ResourceMemory: resource.MustParse("4Gi"),
 				}))
-				gomega.Expect(jobList.Items[0].Spec.Template.Spec.Containers[1].Command).To(gomega.Equal([]string{"sleep", "60s"}))
-				gomega.Expect(jobList.Items[0].Spec.Template.Spec.Containers[1].Resources.Requests).To(gomega.Equal(corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("100m"),
-					corev1.ResourceMemory: resource.MustParse("4Gi"),
-				}))
+				gomega.Expect(jobList.Items[0].Spec.Template.Spec.Containers[1].Command).To(gomega.BeNil())
+				gomega.Expect(jobList.Items[0].Spec.Template.Spec.Containers[1].Resources.Requests).To(gomega.BeNil())
 			})
 		})
 

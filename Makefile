@@ -77,7 +77,7 @@ LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.7.0
+RELEASE_VERSION=v0.7.1
 RELEASE_BRANCH=main
 
 .PHONY: all
@@ -173,8 +173,6 @@ shell-lint: ## Run shell linting.
 .PHONY: verify
 verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref prepare-release-branch
 	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/
-	# verify kjobctl
-	cd cmd/experimental/kjobctl && make verify
 
 ##@ Build
 

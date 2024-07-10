@@ -58,7 +58,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 	if configuration == nil {
 		configuration = &config.Configuration{}
 	}
-	return func(mgr manager.Manager, ctx context.Context) {
+	return func(ctx context.Context, mgr manager.Manager) {
 		var (
 			cacheOpts  []cache.Option
 			queuesOpts []queue.Option

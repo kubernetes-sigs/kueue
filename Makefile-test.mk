@@ -35,6 +35,9 @@ ENVTEST_K8S_VERSION ?= 1.30
 INTEGRATION_NPROCS ?= 4
 # Folder where the integration tests are located.
 INTEGRATION_TARGET ?= ./test/integration/...
+# Verbosity level for apiserver logging.
+# The logging is disabled if 0.
+INTEGRATION_API_LOG_LEVEL ?= 0
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
@@ -68,7 +71,8 @@ test-integration: gomod-download envtest ginkgo mpi-operator-crd ray-operator-cr
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
-	$(GINKGO) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
+	$(GINKGO) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e

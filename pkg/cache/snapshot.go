@@ -32,7 +32,7 @@ import (
 )
 
 type Snapshot struct {
-	ClusterQueues            map[string]*ClusterQueue
+	ClusterQueues            map[string]*ClusterQueueSnapshot
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[string]
 }
@@ -53,7 +53,7 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq.addOrRemoveWorkload(wl, 1)
 }
 
-func (c *ClusterQueue) addOrRemoveWorkload(wl *workload.Info, m int64) {
+func (c *ClusterQueueSnapshot) addOrRemoveWorkload(wl *workload.Info, m int64) {
 	updateFlavorUsage(wl, c.Usage, m)
 	if c.Cohort != nil {
 		if features.Enabled(features.LendingLimit) {
@@ -65,12 +65,12 @@ func (c *ClusterQueue) addOrRemoveWorkload(wl *workload.Info, m int64) {
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
-	cohorts := make(map[string]*Cohort)
+	cohorts := make(map[string]*CohortSnapshot)
 	for name, cq := range s.ClusterQueues {
 		cohortName := "<none>"
 		if cq.Cohort != nil {
-			cohorts[cq.Name] = cq.Cohort
 			cohortName = cq.Cohort.Name
+			cohorts[cohortName] = cq.Cohort
 		}
 
 		log.Info("Found ClusterQueue",
@@ -95,7 +95,7 @@ func (c *Cache) Snapshot() Snapshot {
 	defer c.RUnlock()
 
 	snap := Snapshot{
-		ClusterQueues:            make(map[string]*ClusterQueue, len(c.clusterQueues)),
+		ClusterQueues:            make(map[string]*ClusterQueueSnapshot, len(c.clusterQueues)),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[string](),
 	}
@@ -111,34 +111,21 @@ func (c *Cache) Snapshot() Snapshot {
 		snap.ResourceFlavors[name] = rf
 	}
 	for _, cohort := range c.cohorts {
-		cohortCopy := newCohort(cohort.Name, cohort.Members.Len())
-		cohortCopy.AllocatableResourceGeneration = 0
-		for cq := range cohort.Members {
-			if cq.Active() {
-				cqCopy := snap.ClusterQueues[cq.Name]
-				cqCopy.accumulateResources(cohortCopy)
-				cqCopy.Cohort = cohortCopy
-				cohortCopy.Members.Insert(cqCopy)
-				cohortCopy.AllocatableResourceGeneration += cqCopy.AllocatableResourceGeneration
-				cohortCopy.Lendable = cohortCopy.CalculateLendable()
-			}
-		}
+		cohort.snapshotInto(snap.ClusterQueues)
 	}
 	return snap
 }
 
 // snapshot creates a copy of ClusterQueue that includes references to immutable
 // objects and deep copies of changing ones. A reference to the cohort is not included.
-func (c *ClusterQueue) snapshot() *ClusterQueue {
-	cc := &ClusterQueue{
+func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
+	cc := &ClusterQueueSnapshot{
 		Name:                          c.Name,
 		ResourceGroups:                c.ResourceGroups, // Shallow copy is enough.
-		RGByResource:                  c.RGByResource,   // Shallow copy is enough.
 		FlavorFungibility:             c.FlavorFungibility,
 		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
 		Usage:                         make(resources.FlavorResourceQuantities, len(c.Usage)),
-		Lendable:                      maps.Clone(c.Lendable),
 		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
@@ -156,7 +143,25 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 	return cc
 }
 
-func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
+func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
+	cohortSnap := &CohortSnapshot{
+		Name:     c.Name,
+		Members:  make(sets.Set[*ClusterQueueSnapshot], c.Members.Len()),
+		Lendable: c.CalculateLendable(),
+	}
+	cohortSnap.AllocatableResourceGeneration = 0
+	for cq := range c.Members {
+		if cq.Active() {
+			cqSnap := cqs[cq.Name]
+			cqSnap.accumulateResources(cohortSnap)
+			cqSnap.Cohort = cohortSnap
+			cohortSnap.Members.Insert(cqSnap)
+			cohortSnap.AllocatableResourceGeneration += cqSnap.AllocatableResourceGeneration
+		}
+	}
+}
+
+func (c *ClusterQueueSnapshot) accumulateResources(cohort *CohortSnapshot) {
 	if cohort.RequestableResources == nil {
 		cohort.RequestableResources = make(resources.FlavorResourceQuantities, len(c.ResourceGroups))
 	}

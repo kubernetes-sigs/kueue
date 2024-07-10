@@ -56,7 +56,7 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
 
-	k8sClient = util.CreateClientUsingCluster("")
+	k8sClient, _ = util.CreateClientUsingCluster("")
 	visibilityClient = util.CreateVisibilityClient("")
 	impersonatedVisibilityClient = util.CreateVisibilityClient("system:serviceaccount:kueue-system:default")
 	ctx = context.Background()

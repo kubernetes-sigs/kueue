@@ -106,17 +106,12 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 	return psFlavors
 }
 
-func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
-	usage := make(resources.FlavorResourceQuantities)
+func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantitiesFlat {
+	usage := make(resources.FlavorResourceQuantitiesFlat)
 	for i, ps := range wl.TotalRequests {
 		for res, q := range ps.Requests {
 			flv := a.PodSets[i].Flavors[res].Name
-			resUsage := usage[flv]
-			if resUsage == nil {
-				resUsage = make(map[corev1.ResourceName]int64)
-				usage[flv] = resUsage
-			}
-			resUsage[res] += q
+			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
 	}
 	return usage
@@ -246,12 +241,12 @@ type FlavorAssignment struct {
 
 type FlavorAssigner struct {
 	wl                *workload.Info
-	cq                *cache.ClusterQueue
+	cq                *cache.ClusterQueueSnapshot
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	enableFairSharing bool
 }
 
-func New(wl *workload.Info, cq *cache.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool) *FlavorAssigner {
+func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, enableFairSharing bool) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                wl,
 		cq:                cq,
@@ -260,7 +255,7 @@ func New(wl *workload.Info, cq *cache.ClusterQueue, resourceFlavors map[kueue.Re
 	}
 }
 
-func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueue) bool {
+func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueueSnapshot) bool {
 	return cq.AllocatableResourceGeneration > wl.LastAssignment.ClusterQueueGeneration ||
 		(cq.Cohort != nil && cq.Cohort.AllocatableResourceGeneration > wl.LastAssignment.CohortGeneration)
 }
@@ -313,7 +308,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodS
 	}
 
 	for i, podSet := range requests {
-		if _, found := a.cq.RGByResource[corev1.ResourcePods]; found {
+		if a.cq.RGByResource(corev1.ResourcePods) != nil {
 			podSet.Requests[corev1.ResourcePods] = int64(podSet.Count)
 		}
 
@@ -358,7 +353,7 @@ func (psa *PodSetAssignment) append(flavors ResourceAssignment, status *Status) 
 	}
 }
 
-func (a *Assignment) append(requests workload.Requests, psAssignment *PodSetAssignment) {
+func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAssignment) {
 	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
@@ -382,12 +377,12 @@ func (a *Assignment) append(requests workload.Requests, psAssignment *PodSetAssi
 func (a *FlavorAssigner) findFlavorForPodSetResource(
 	log logr.Logger,
 	psID int,
-	requests workload.Requests,
+	requests resources.Requests,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
 ) (ResourceAssignment, *Status) {
-	resourceGroup, found := a.cq.RGByResource[resName]
-	if !found {
+	resourceGroup := a.cq.RGByResource(resName)
+	if resourceGroup == nil {
 		return nil, &Status{
 			reasons: []string{fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)},
 		}
@@ -602,7 +597,7 @@ func (a *FlavorAssigner) fitsResourceQuota(fName kueue.ResourceFlavorReference, 
 		return Fit, used+val > rQuota.Nominal, nil
 	}
 
-	lackQuantity := workload.ResourceQuantity(rName, lack)
+	lackQuantity := resources.ResourceQuantity(rName, lack)
 	msg := fmt.Sprintf("insufficient unused quota in cohort for %s in flavor %s, %s more needed", rName, fName, &lackQuantity)
 	if a.cq.Cohort == nil {
 		if mode == NoFit {
@@ -620,8 +615,8 @@ func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
 		(a.enableFairSharing && a.cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever)
 }
 
-func filterRequestedResources(req workload.Requests, allowList sets.Set[corev1.ResourceName]) workload.Requests {
-	filtered := make(workload.Requests)
+func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.ResourceName]) resources.Requests {
+	filtered := make(resources.Requests)
 	for n, v := range req {
 		if allowList.Has(n) {
 			filtered[n] = v

@@ -95,10 +95,10 @@ var _ = ginkgo.Describe("Kueue", func() {
 		)
 		ginkgo.BeforeEach(func() {
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
-				Label("instance-type", "on-demand").Obj()
+				NodeLabel("instance-type", "on-demand").Obj()
 			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
 			spotRF = testing.MakeResourceFlavor("spot").
-				Label("instance-type", "spot").Obj()
+				NodeLabel("instance-type", "spot").Obj()
 			gomega.Expect(k8sClient.Create(ctx, spotRF)).Should(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
@@ -336,7 +336,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, check)).Should(gomega.Succeed())
 			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
-				Label("instance-type", "on-demand").Obj()
+				NodeLabel("instance-type", "on-demand").Obj()
 			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(

@@ -96,7 +96,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	return c
 }
 
-func managerSetup(mgr manager.Manager, ctx context.Context) {
+func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -137,8 +137,8 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context, gcInterval time.Duration) {
-	managerSetup(mgr, ctx)
+func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration) {
+	managerSetup(ctx, mgr)
 
 	managersConfigNamespace = &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -165,8 +165,8 @@ func multiclusterSetup(gcInterval time.Duration) {
 		managerFeatureGates = []string{"JobManagedBy=true"}
 	}
 
-	managerTestCluster = createCluster(func(mgr manager.Manager, ctx context.Context) {
-		managerAndMultiKueueSetup(mgr, ctx, gcInterval)
+	managerTestCluster = createCluster(func(ctx context.Context, mgr manager.Manager) {
+		managerAndMultiKueueSetup(ctx, mgr, gcInterval)
 	}, managerFeatureGates...)
 	worker1TestCluster = createCluster(managerSetup)
 	worker2TestCluster = createCluster(managerSetup)

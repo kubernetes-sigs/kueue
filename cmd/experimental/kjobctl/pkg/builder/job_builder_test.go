@@ -52,6 +52,19 @@ func TestJobBuilder(t *testing.T) {
 				Completions: ptr.To[int32](1),
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
+						InitContainers: []corev1.Container{
+							{
+								Name:      "ic1",
+								Command:   []string{""},
+								Resources: corev1.ResourceRequirements{},
+								Env: []corev1.EnvVar{
+									{Name: "e0", Value: "default-value0"},
+								},
+								VolumeMounts: []corev1.VolumeMount{
+									{Name: "vm0", MountPath: "/etc/default-config0"},
+								},
+							},
+						},
 						Containers: []corev1.Container{
 							{
 								Name:    "c1",
@@ -217,16 +230,6 @@ func TestJobBuilder(t *testing.T) {
 					Spec: v1alpha1.VolumeBundleSpec{
 						Volumes: []corev1.Volume{
 							{
-								Name: "v1",
-								VolumeSource: corev1.VolumeSource{
-									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "config1",
-										},
-									},
-								},
-							},
-							{
 								Name: "v3",
 								VolumeSource: corev1.VolumeSource{
 									ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -238,11 +241,9 @@ func TestJobBuilder(t *testing.T) {
 							},
 						},
 						ContainerVolumeMounts: []corev1.VolumeMount{
-							{Name: "vm1", MountPath: "/etc/config1"},
 							{Name: "vm3", MountPath: "/etc/config3"},
 						},
 						EnvVars: []corev1.EnvVar{
-							{Name: "e1", Value: "value1"},
 							{Name: "e3", Value: "value3"},
 						},
 					},
@@ -273,6 +274,21 @@ func TestJobBuilder(t *testing.T) {
 					Completions: ptr.To[int32](3),
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
+							InitContainers: []corev1.Container{
+								{
+									Name:      "ic1",
+									Command:   []string{""},
+									Resources: corev1.ResourceRequirements{},
+									Env: []corev1.EnvVar{
+										{Name: "e0", Value: "default-value0"},
+										{Name: "e3", Value: "value3"},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: "vm0", MountPath: "/etc/default-config0"},
+										{Name: "vm3", MountPath: "/etc/config3"},
+									},
+								},
+							},
 							Containers: []corev1.Container{
 								{
 									Name:    "c1",
@@ -283,31 +299,31 @@ func TestJobBuilder(t *testing.T) {
 										},
 									},
 									Env: []corev1.EnvVar{
-										{Name: "e1", Value: "value1"},
+										{Name: "e1", Value: "default-value1"},
 										{Name: "e2", Value: "default-value2"},
 										{Name: "e3", Value: "value3"},
 									},
 									VolumeMounts: []corev1.VolumeMount{
-										{Name: "vm1", MountPath: "/etc/config1"},
+										{Name: "vm1", MountPath: "/etc/default-config1"},
 										{Name: "vm2", MountPath: "/etc/default-config2"},
 										{Name: "vm3", MountPath: "/etc/config3"},
 									},
 								},
 								{
 									Name:    "c2",
-									Command: []string{"sleep"},
+									Command: []string{""},
 									Resources: corev1.ResourceRequirements{
 										Requests: corev1.ResourceList{
-											corev1.ResourceCPU: resource.MustParse("3"),
+											corev1.ResourceCPU: resource.MustParse("2"),
 										},
 									},
 									Env: []corev1.EnvVar{
-										{Name: "e1", Value: "value1"},
+										{Name: "e1", Value: "default-value1"},
 										{Name: "e2", Value: "default-value2"},
 										{Name: "e3", Value: "value3"},
 									},
 									VolumeMounts: []corev1.VolumeMount{
-										{Name: "vm1", MountPath: "/etc/config1"},
+										{Name: "vm1", MountPath: "/etc/default-config1"},
 										{Name: "vm2", MountPath: "/etc/default-config2"},
 										{Name: "vm3", MountPath: "/etc/config3"},
 									},
@@ -319,7 +335,7 @@ func TestJobBuilder(t *testing.T) {
 									VolumeSource: corev1.VolumeSource{
 										ConfigMap: &corev1.ConfigMapVolumeSource{
 											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "config1",
+												Name: "default-config1",
 											},
 										},
 									},

@@ -37,6 +37,10 @@ func makePassThroughWorkload(ns string) client.Object {
 	return testing.MakeWorkload("pass-through-wl", ns).Obj()
 }
 
+func makePassThroughResourceFlavor(_ string) client.Object {
+	return testing.MakeResourceFlavor("pass-through-resource-flavor").NodeLabel("type", "small").Obj()
+}
+
 func setupEnv(c *exec.Cmd, kassetsPath string, kubeconfigPath string) {
 	c.Env = os.Environ()
 	cmdPath := os.Getenv("PATH")
@@ -70,7 +74,10 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 			gomega.Expect(k8sClient.Create(ctx, obj)).To(gomega.Succeed())
 			key := client.ObjectKeyFromObject(obj)
 
-			identityArgs := []string{oType, key.Name, "-n", key.Namespace}
+			identityArgs := []string{oType, key.Name}
+			if len(key.Namespace) > 0 {
+				identityArgs = append(identityArgs, "-n", key.Namespace)
+			}
 
 			ginkgo.By("Get the object", func() {
 				args := append([]string{"get"}, identityArgs...)
@@ -113,5 +120,7 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 		},
 		ginkgo.Entry("Workload", "workload", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'"),
 		ginkgo.Entry("Workload(short)", "wl", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'"),
+		ginkgo.Entry("ResourceFlavor", "resourceflavor", makePassThroughResourceFlavor, "{.spec.nodeLabels.type}", "'small'", `{"spec":{"nodeLabels":{"type":"large"}}}`, "'large'"),
+		ginkgo.Entry("ResourceFlavor(short)", "rf", makePassThroughResourceFlavor, "{.spec.nodeLabels.type}", "'small'", `{"spec":{"nodeLabels":{"type":"large"}}}`, "'large'"),
 	)
 })

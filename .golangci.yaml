@@ -22,6 +22,7 @@ linters-settings:
   revive:
     enable-all-rules: false
     rules:
+      - name: context-as-argument
       - name: empty-lines
       - name: var-naming
 

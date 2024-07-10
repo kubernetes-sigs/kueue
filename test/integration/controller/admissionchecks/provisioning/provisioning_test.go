@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
 
-			rf = testing.MakeResourceFlavor(flavorOnDemand).Label("ns1", "ns1v").Obj()
+			rf = testing.MakeResourceFlavor(flavorOnDemand).NodeLabel("ns1", "ns1v").Obj()
 			gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
 
 			cq = testing.MakeClusterQueue("cluster-queue").
@@ -952,7 +952,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
 
-			rf = testing.MakeResourceFlavor("rf1").Label("ns1", "ns1v").Obj()
+			rf = testing.MakeResourceFlavor("rf1").NodeLabel("ns1", "ns1v").Obj()
 			gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
 
 			cq = testing.MakeClusterQueue("cluster-queue").

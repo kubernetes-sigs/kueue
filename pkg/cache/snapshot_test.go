@@ -38,9 +38,7 @@ import (
 
 var snapCmpOpts = []cmp.Option{
 	cmpopts.EquateEmpty(),
-	cmpopts.IgnoreUnexported(ClusterQueue{}),
-	cmpopts.IgnoreFields(ClusterQueue{}, "RGByResource"),
-	cmpopts.IgnoreFields(Cohort{}, "Members"), // avoid recursion.
+	cmpopts.IgnoreFields(CohortSnapshot{}, "Members"), // avoid recursion.
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }
 
@@ -65,7 +63,7 @@ func TestSnapshot(t *testing.T) {
 					ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				ClusterQueues: map[string]*ClusterQueue{
+				ClusterQueues: map[string]*ClusterQueueSnapshot{
 					"a": {
 						Name:                          "a",
 						NamespaceSelector:             labels.Everything(),
@@ -111,25 +109,25 @@ func TestSnapshot(t *testing.T) {
 		"resourceFlavors": {
 			rfs: []*kueue.ResourceFlavor{
 				utiltesting.MakeResourceFlavor("demand").
-					Label("a", "b").
-					Label("instance", "demand").
+					NodeLabel("a", "b").
+					NodeLabel("instance", "demand").
 					Obj(),
 				utiltesting.MakeResourceFlavor("spot").
-					Label("c", "d").
-					Label("instance", "spot").
+					NodeLabel("c", "d").
+					NodeLabel("instance", "spot").
 					Obj(),
 				utiltesting.MakeResourceFlavor("default").Obj(),
 			},
 			wantSnapshot: Snapshot{
-				ClusterQueues: map[string]*ClusterQueue{},
+				ClusterQueues: map[string]*ClusterQueueSnapshot{},
 				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"demand": utiltesting.MakeResourceFlavor("demand").
-						Label("a", "b").
-						Label("instance", "demand").
+						NodeLabel("a", "b").
+						NodeLabel("instance", "demand").
 						Obj(),
 					"spot": utiltesting.MakeResourceFlavor("spot").
-						Label("c", "d").
-						Label("instance", "spot").
+						NodeLabel("c", "d").
+						NodeLabel("instance", "spot").
 						Obj(),
 					"default": utiltesting.MakeResourceFlavor("default").Obj(),
 				},
@@ -160,8 +158,8 @@ func TestSnapshot(t *testing.T) {
 					Obj(),
 			},
 			rfs: []*kueue.ResourceFlavor{
-				utiltesting.MakeResourceFlavor("demand").Label("instance", "demand").Obj(),
-				utiltesting.MakeResourceFlavor("spot").Label("instance", "spot").Obj(),
+				utiltesting.MakeResourceFlavor("demand").NodeLabel("instance", "demand").Obj(),
+				utiltesting.MakeResourceFlavor("spot").NodeLabel("instance", "spot").Obj(),
 				utiltesting.MakeResourceFlavor("default").Obj(),
 			},
 			wls: []*kueue.Workload{
@@ -202,7 +200,7 @@ func TestSnapshot(t *testing.T) {
 					Obj(),
 			},
 			wantSnapshot: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "borrowing",
 					AllocatableResourceGeneration: 2,
 					RequestableResources: resources.FlavorResourceQuantitiesFlat{
@@ -221,7 +219,7 @@ func TestSnapshot(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"a": {
 							Name:                          "a",
 							Cohort:                        cohort,
@@ -251,9 +249,6 @@ func TestSnapshot(t *testing.T) {
 								{Flavor: "demand", Resource: corev1.ResourceCPU}: 10_000,
 								{Flavor: "spot", Resource: corev1.ResourceCPU}:   0,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 300_000,
-							},
 							Workloads: map[string]*workload.Info{
 								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
@@ -299,10 +294,6 @@ func TestSnapshot(t *testing.T) {
 								{Flavor: "spot", Resource: corev1.ResourceCPU}:   10_000,
 								{Flavor: "default", Resource: "example.com/gpu"}: 15,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 100_000,
-								"example.com/gpu":  50,
-							},
 							Workloads: map[string]*workload.Info{
 								"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
@@ -351,9 +342,6 @@ func TestSnapshot(t *testing.T) {
 							Usage: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 100_000,
-							},
 							Preemption:        defaultPreemption,
 							FairWeight:        oneQuantity,
 							NamespaceSelector: labels.Everything(),
@@ -361,8 +349,8 @@ func TestSnapshot(t *testing.T) {
 						},
 					},
 					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
-						"demand":  utiltesting.MakeResourceFlavor("demand").Label("instance", "demand").Obj(),
-						"spot":    utiltesting.MakeResourceFlavor("spot").Label("instance", "spot").Obj(),
+						"demand":  utiltesting.MakeResourceFlavor("demand").NodeLabel("instance", "demand").Obj(),
+						"spot":    utiltesting.MakeResourceFlavor("spot").NodeLabel("instance", "spot").Obj(),
 						"default": utiltesting.MakeResourceFlavor("default").Obj(),
 					},
 				}
@@ -377,7 +365,7 @@ func TestSnapshot(t *testing.T) {
 					}).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				ClusterQueues: map[string]*ClusterQueue{
+				ClusterQueues: map[string]*ClusterQueueSnapshot{
 					"with-preemption": {
 						Name:                          "with-preemption",
 						NamespaceSelector:             labels.Everything(),
@@ -399,7 +387,7 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeClusterQueue("with-preemption").FairWeight(resource.MustParse("3")).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				ClusterQueues: map[string]*ClusterQueue{
+				ClusterQueues: map[string]*ClusterQueueSnapshot{
 					"with-preemption": {
 						Name:                          "with-preemption",
 						NamespaceSelector:             labels.Everything(),
@@ -432,8 +420,8 @@ func TestSnapshot(t *testing.T) {
 					Obj(),
 			},
 			rfs: []*kueue.ResourceFlavor{
-				utiltesting.MakeResourceFlavor("arm").Label("arch", "arm").Obj(),
-				utiltesting.MakeResourceFlavor("x86").Label("arch", "x86").Obj(),
+				utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
+				utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
 			},
 			wls: []*kueue.Workload{
 				utiltesting.MakeWorkload("alpha", "").
@@ -459,7 +447,7 @@ func TestSnapshot(t *testing.T) {
 					Obj(),
 			},
 			wantSnapshot: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "lending",
 					AllocatableResourceGeneration: 2,
 					RequestableResources: resources.FlavorResourceQuantitiesFlat{
@@ -475,7 +463,7 @@ func TestSnapshot(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"a": {
 							Name:                          "a",
 							Cohort:                        cohort,
@@ -514,9 +502,6 @@ func TestSnapshot(t *testing.T) {
 								{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
 								{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 15_000,
-							},
 							Workloads: map[string]*workload.Info{
 								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
@@ -586,9 +571,6 @@ func TestSnapshot(t *testing.T) {
 								{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
 								{Flavor: "x86", Resource: corev1.ResourceCPU}: 0,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 15_000,
-							},
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
 							Status:            active,
@@ -599,8 +581,8 @@ func TestSnapshot(t *testing.T) {
 						},
 					},
 					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
-						"arm": utiltesting.MakeResourceFlavor("arm").Label("arch", "arm").Obj(),
-						"x86": utiltesting.MakeResourceFlavor("x86").Label("arch", "x86").Obj(),
+						"arm": utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
+						"x86": utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
 					},
 				}
 			}(),
@@ -633,8 +615,8 @@ func TestSnapshot(t *testing.T) {
 				for i := range cq.ResourceGroups {
 					rg := &cq.ResourceGroups[i]
 					for rName := range rg.CoveredResources {
-						if cq.RGByResource[rName] != rg {
-							t.Errorf("RGByResource[%s] does not point to its resource group", rName)
+						if cq.RGByResource(rName) != rg {
+							t.Errorf("RGByResource[%s] does return its resource group", rName)
 						}
 					}
 				}
@@ -723,7 +705,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		"remove all": {
 			remove: []string{"/c1-cpu", "/c1-memory-alpha", "/c1-memory-beta", "/c2-cpu-1", "/c2-cpu-2"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "cohort",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -738,7 +720,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"c1": {
 							Name:                          "c1",
 							Cohort:                        cohort,
@@ -752,10 +734,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
 								{Flavor: "beta", Resource: corev1.ResourceMemory}:  0,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU:    6_000,
-								corev1.ResourceMemory: 12 * utiltesting.Gi,
-							},
 						},
 						"c2": {
 							Name:                          "c2",
@@ -768,9 +746,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							Usage: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -779,7 +754,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		"remove c1-cpu": {
 			remove: []string{"/c1-cpu"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "cohort",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -794,7 +769,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"c1": {
 							Name:   "c1",
 							Cohort: cohort,
@@ -811,10 +786,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi,
 								{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU:    6_000,
-								corev1.ResourceMemory: 12 * utiltesting.Gi,
-							},
 						},
 						"c2": {
 							Name:   "c2",
@@ -830,9 +801,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							Usage: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -841,7 +809,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		"remove c1-memory-alpha": {
 			remove: []string{"/c1-memory-alpha"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "cohort",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -856,7 +824,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"c1": {
 							Name:   "c1",
 							Cohort: cohort,
@@ -873,10 +841,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
 								{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU:    6_000,
-								corev1.ResourceMemory: 12 * utiltesting.Gi,
-							},
 						},
 						"c2": {
 							Name:   "c2",
@@ -892,9 +856,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							Usage: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -902,8 +863,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		},
 	}
 	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueue{}, "NamespaceSelector", "Preemption", "Status"),
-		cmpopts.IgnoreFields(Cohort{}),
+		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status"),
 		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
@@ -1001,7 +961,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		"remove all": {
 			remove: []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "lend",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -1013,7 +973,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"lend-a": {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
@@ -1028,9 +988,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 4_000,
-							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1046,9 +1003,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -1057,7 +1011,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		"remove workload, but still using quota over GuaranteedQuota": {
 			remove: []string{"/lend-a-2"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "lend",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -1069,7 +1023,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"lend-a": {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
@@ -1084,9 +1038,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 4_000,
-							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1102,9 +1053,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -1113,7 +1061,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		"remove wokload, using same quota as GuaranteedQuota": {
 			remove: []string{"/lend-a-1", "/lend-a-2"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "lend",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -1125,7 +1073,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"lend-a": {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
@@ -1140,9 +1088,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 4_000,
-							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1158,9 +1103,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -1169,7 +1111,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		"remove workload, using less quota than GuaranteedQuota": {
 			remove: []string{"/lend-a-2", "/lend-a-3"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "lend",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -1181,7 +1123,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"lend-a": {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
@@ -1196,9 +1138,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 4_000,
-							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1214,9 +1153,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -1226,7 +1162,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			remove: []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []string{"/lend-a-1"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "lend",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -1238,7 +1174,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"lend-a": {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
@@ -1253,9 +1189,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 4_000,
-							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1271,9 +1204,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -1283,7 +1213,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			remove: []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []string{"/lend-a-3"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "lend",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -1295,7 +1225,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"lend-a": {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
@@ -1310,9 +1240,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 4_000,
-							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1328,9 +1255,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -1340,7 +1264,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			remove: []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []string{"/lend-a-2"},
 			want: func() Snapshot {
-				cohort := &Cohort{
+				cohort := &CohortSnapshot{
 					Name:                          "lend",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
@@ -1352,7 +1276,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueue{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
 						"lend-a": {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
@@ -1367,9 +1291,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 4_000,
-							},
 						},
 						"lend-b": {
 							Name:                          "lend-b",
@@ -1385,9 +1306,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 							}.Unflatten(),
-							Lendable: map[corev1.ResourceName]int64{
-								corev1.ResourceCPU: 6_000,
-							},
 						},
 					},
 				}
@@ -1395,7 +1313,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		},
 	}
 	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueue{}, "NamespaceSelector", "Preemption", "Status"),
+		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status"),
 		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {

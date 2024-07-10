@@ -68,7 +68,7 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
+func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	fairSharing := &config.FairSharing{Enable: true}
 
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())

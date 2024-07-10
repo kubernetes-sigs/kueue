@@ -63,7 +63,7 @@ func (p *PodWrapper) Obj() *corev1.Pod {
 	return &p.Pod
 }
 
-// Group returns multiple pods that form a pod group, based on the original wrapper.
+// MakeGroup returns multiple pods that form a pod group, based on the original wrapper.
 func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
 	var pods []*corev1.Pod
 	for i := 0; i < count; i++ {
@@ -176,7 +176,7 @@ func (p *PodWrapper) Image(image string, args []string) *PodWrapper {
 	return p
 }
 
-// Request adds a resource limit to the default container.
+// Limit adds a resource limit to the default container.
 func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return p

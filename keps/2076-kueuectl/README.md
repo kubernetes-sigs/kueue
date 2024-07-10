@@ -13,9 +13,11 @@
 - [Design Details](#design-details)
   - [Create ClusterQueue](#create-clusterqueue)
   - [Create LocalQueue](#create-localqueue)
+  - [Create ResourceFlavor](#create-resourceflavor)
   - [List ClusterQueue](#list-clusterqueue)
   - [List LocalQueue](#list-localqueue)
   - [List Workloads](#list-workloads)
+  - [List ResourceFlavors](#list-resourceflavors)
   - [Stop ClusterQueue](#stop-clusterqueue)
   - [Resume ClusterQueue](#resume-clusterqueue)
   - [Stop LocalQueue](#stop-localqueue)
@@ -52,9 +54,9 @@ tedious without writing a custom mini script or complex pipe processing.
 
     * Create ClusterQueues and LocalQueues.
     * Listing Queues and Workloads that meet certain criteria.
-    * Stopping and resuming execution in ClusteQueues and LocalQueues.
+    * Stopping and resuming execution in ClusterQueues and LocalQueues.
     * Stopping and resuming individual Workloads.
-    * (In the future) Migrating workloads between LocalQueues and other avanced operations
+    * (In the future) Migrating workloads between LocalQueues and other advanced operations
     
 * Build it on top of kubectl (as a [kubectl plugin](https://kubernetes.io/docs/tasks/extend-kubectl/kubectl-plugins/)) to reuse all of
 the authentication/cluster selection methods.
@@ -153,6 +155,22 @@ kueuectl create lq|localqueue lqname
 Output:  
 A simple confirmation `localqueue.kueue.x-k8s.io/xxxxx created`
 
+### Create ResourceFlavor
+
+Creates a ResourceFlavor with the given name.
+
+Format:
+
+```
+kueuectl create rf|resourceflavor rfname
+--node-labels key1=value1,key2=value2
+--node-taints key1=value:NoSchedule,key2:NoExecute
+--tolerations key1=value:NoSchedule,key2:NoExecute,key3=value,key4,:PreferNoSchedule
+```
+
+Output:  
+A simple confirmation `resourceflavor.kueue.x-k8s.io/xxxxx created`
+
 ### List ClusterQueue
 
 List all ClusterQueues, potentially limiting output to those that are active/inactive and 
@@ -225,6 +243,19 @@ Output:
 * Position in Queue (if Pending)
 * Age
 
+### List ResourceFlavors
+
+Lists ResourceFlavors. Format:
+
+```
+kueuectl list resourceflavors 
+```
+
+Output:
+
+* Name
+* Node Labels
+* Age
 
 ### Stop ClusterQueue
 
@@ -304,11 +335,11 @@ None.
 For completeness there will be 5 additional commands that will simply execute regular kubectl
 so that the users won't have to remember to switch the command to kubectl.
 
-* `get workload|clusterqueue|cq|localqueue|lq`
-* `describe workload|clusterqueue|cq|localqueue|lq`
-* `edit workload|clusterqueue|cq|localqueue|lq`
-* `patch workload|clusterqueue|cq|localqueue|lq`
-* `delete workload|clusterqueue|cq|localqueue|lq`
+* `get workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `describe workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `edit workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `patch workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `delete workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
 
 ### Test Plan
 
