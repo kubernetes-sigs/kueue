@@ -1978,7 +1978,7 @@ func TestFairPreemptions(t *testing.T) {
 				},
 			), &snapshot)
 			gotTargets := sets.New(slices.Map(targets, func(t **Target) string {
-				return targetKeyReasonScope(workload.Key((*t).Wl.Obj), (*t).Reason)
+				return targetKeyReasonScope(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)
 			if diff := cmp.Diff(tc.wantPreempted, gotTargets, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)

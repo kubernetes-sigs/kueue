@@ -37,7 +37,7 @@ func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
 	}
 	if log.V(4).Enabled() {
 		args = append(args, "nominatedAssignment", e.assignment)
-		args = append(args, "preempted", preemption.GetWorkloadReferences(e.preemptionTargets))
+		args = append(args, "preempted", getWorkloadReferences(e.preemptionTargets))
 	}
 	logV.Info("Workload evaluated for admission", args...)
 }
@@ -46,4 +46,15 @@ func logSnapshotIfVerbose(log logr.Logger, s *cache.Snapshot) {
 	if logV := log.V(6); logV.Enabled() {
 		s.Log(logV)
 	}
+}
+
+func getWorkloadReferences(targets []*preemption.Target) []klog.ObjectRef {
+	if len(targets) == 0 {
+		return nil
+	}
+	keys := make([]klog.ObjectRef, len(targets))
+	for i, t := range targets {
+		keys[i] = klog.KObj(t.WorkloadInfo.Obj)
+	}
+	return keys
 }
