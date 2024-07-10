@@ -43,8 +43,8 @@ import (
 )
 
 func TestSetupControllers(t *testing.T) {
-	aviableIntegrations := map[string]IntegrationCallbacks{
-		"batch/job": IntegrationCallbacks{
+	availableIntegrations := map[string]IntegrationCallbacks{
+		"batch/job": {
 			NewReconciler:         testNewReconciler,
 			SetupWebhook:          testSetupWebhook,
 			JobType:               &batchv1.Job{},
@@ -52,7 +52,7 @@ func TestSetupControllers(t *testing.T) {
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
 		},
-		"kubeflow.org/mpijob": IntegrationCallbacks{
+		"kubeflow.org/mpijob": {
 			NewReconciler:         testNewReconciler,
 			SetupWebhook:          testSetupWebhook,
 			JobType:               &kubeflow.MPIJob{},
@@ -60,7 +60,7 @@ func TestSetupControllers(t *testing.T) {
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
 		},
-		"pod": IntegrationCallbacks{
+		"pod": {
 			NewReconciler:         testNewReconciler,
 			SetupWebhook:          testSetupWebhook,
 			JobType:               &corev1.Pod{},
@@ -103,7 +103,7 @@ func TestSetupControllers(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			manager := integrationManager{}
-			for name, cbs := range aviableIntegrations {
+			for name, cbs := range availableIntegrations {
 				err := manager.register(name, cbs)
 				if err != nil {
 					t.Fatalf("Unexpected error while registering %q: %s", name, err)
