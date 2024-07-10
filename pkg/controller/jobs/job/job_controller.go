@@ -52,6 +52,7 @@ var (
 const (
 	JobMinParallelismAnnotation              = "kueue.x-k8s.io/job-min-parallelism"
 	JobCompletionsEqualParallelismAnnotation = "kueue.x-k8s.io/job-completions-equal-parallelism"
+	StoppingAnnotation                       = "kueue.x-k8s.io/stopping"
 )
 
 func init() {
@@ -151,7 +152,7 @@ func fromObject(o runtime.Object) *Job {
 }
 
 func (j *Job) IsSuspended() bool {
-	return j.Spec.Suspend != nil && *j.Spec.Suspend
+	return j.Spec.Suspend != nil && *j.Spec.Suspend && j.Annotations[StoppingAnnotation] != "true"
 }
 
 func (j *Job) IsActive() bool {
@@ -166,6 +167,11 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	stoppedNow := false
 	if !j.IsSuspended() {
 		j.Suspend()
+		if j.ObjectMeta.Annotations == nil {
+			j.ObjectMeta.Annotations = map[string]string{}
+		}
+		// We are using annotation to be sure that all updates finished successfully.
+		j.ObjectMeta.Annotations[StoppingAnnotation] = "true"
 		if err := c.Update(ctx, j.Object()); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
@@ -180,9 +186,8 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		}
 	}
 
-	if changed := j.RestorePodSetsInfo(podSetsInfo); !changed {
-		return stoppedNow, nil
-	}
+	j.RestorePodSetsInfo(podSetsInfo)
+	delete(j.ObjectMeta.Annotations, StoppingAnnotation)
 	if err := c.Update(ctx, j.Object()); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
 	}
