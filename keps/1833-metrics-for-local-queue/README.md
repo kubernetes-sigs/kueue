@@ -9,17 +9,16 @@
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-  - [Risks and Mitigations](#risks-and-mitigations)
+    - [Story 3](#story-3)
 - [Design Details](#design-details)
+  - [API changes:](#api-changes)
+  - [List of metrics for Local Queues:](#list-of-metrics-for-local-queues)
   - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -29,22 +28,19 @@ processing specific to individual namespaces / tenants.
 
 ## Motivation
 
-Metrics related to local queues are invaluable for batch users (usually with namespace-scoped permissions), as they provide 
-essential visibility and historical trends about their workloads. Currently, metrics are available for ClusterQueues but 
-not for namespace-scoped batch users. Cluster queue metrics are often ineffective for batch users and namespace admins 
-because they are global and cannot be filtered by namespaces. Furthermore, accessing cluster-scoped metrics 
-in secured Prometheus instances is generally restricted to cluster admin users with cluster level permissions across all namespaces and 
-tenants. This restriction makes it challenging for batch users to obtain the specific metrics they need for effective workload 
-management and to gain insights into their workloads within their limited scope of access.
+Metrics related to local queues are invaluable for batch users, providing essential visibility and historical trends 
+about their workloads. Currently, while metrics are available for only ClusterQueues, they do not provide batch users with 
+the necessary insights into their specific workloads.
 
 ### Goals
 
 1. Introduce the API changes required to enable Local Queue metrics. 
-1. List the Prometheus metrics that would be exposed for Local Queues.  
+2. List the Prometheus metrics that would be exposed for Local Queues.  
 
 ### Non-Goals
 
 1. Discuss the implementation details on where these metrics need to be collected in codebase.
+2. Discuss on metric visibility and RBAC required to enable the metrics securely for namespace admins.  
 
 ## Proposal
 
@@ -92,47 +88,57 @@ type ControllerManager struct {
 type ControllerMetrics struct {
 	...
 	
-	// EnableLocalQueueResources, if true the local queue resource usage and quotas
-	// metrics will be reported.
+	// LocalQueueMetrics is a configuration that provides enabling LocalQueue metrics and its options.
 	// +optional
-	EnableLocalQueueResources bool `json:"enableLocalQueueResources,omitempty"`
-	
-	// LocalQueueMetricOptions specifies the configuration options for local queue metrics.
-	LocalQueueMetricOptions *metricsOptions `json:"localQueueMetricOptions,omitempty"`
+	LocalQueueMetrics *LocalQueueMetrics `json:"localQueueMetrics,omitempty"`
 }
 
-// metricsOptions defines the configuration options for local queue metrics.
+// LocalQueueMetrics defines the configuration options for local queue metrics.
 // If left empty, then metrics will expose for all local queues across namespaces.
-type metricsOptions struct {
+type LocalQueueMetrics struct {
+	// Enable is a knob to allow metrics to be exposed for local queues. Defaults to false.
+	Enable bool `json:"enable,omitempty`
+	
 	// NamespaceSelector can be used to select namespaces in which the local queues should
 	// report metrics.
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 	
-	// QueueSelector can be used to choose the local queues that need metrics to be collected. 
-	QueueSelector *metav1.LabelSelector `json:"queueSelector,omitempty"`
+	// LocalQueueSelector can be used to choose the local queues that need metrics to be collected. 
+	LocalQueueSelector *metav1.LabelSelector `json:"localQueueSelector,omitempty"`
 }
 ```
 
 To reduce cardinality, and enable selection of metrics for local queues, the following
-knobs will be available:
+knobs will be available for `LocalQueueMetrics`:
 
-1. If `EnableLocalQueueResources` is false, then metrics will not be exposed.  
-1. If `EnableLocalQueueResources` is true, and `LocalQueueMetricOptions` is **not** provided - metrics will be exposed for all local queues.
-1. If `EnableLocalQueueResources` is true and `LocalQueueMetricOptions`  is provided - metrics will be collected for local queues that match specified label selectors.
+| `Enable` | `NamespaceSelector` | `LocalQueueSelector` | Description                                                                                                        |
+|----------|---------------------|----------------------|--------------------------------------------------------------------------------------------------------------------|
+| False    | -                   | -                    | Metrics will not be exposed.                                                                                       |
+| True     | -                   | -                    | Metrics for all local queues will be exposed.                                                                      |
+| True     | Specified           | -                    | All LocalQueues in the specific namespaces that match the selector have metrics enabled.                           |
+| True     | -                   | Specified            | All LocalQueues matching the label selector have metrics enabled.                                                  |
+| True     | Specified           | Specified            | Both the selectors are applied to local queues (logical AND) to filter the ones whose metrics have to be enabled.  |
+| False    | Specified           | Specified            | The selectors are disregarded, metrics will not be exposed.                                                        |
 
 ### List of metrics for Local Queues:
 
 In the first iteration, following are the list of metrics that would contain information on Local Queue statuses:
 
-| Metrics Name                   | Prometheus Type | Description                                                 | 
-|--------------------------------|-----------------|-------------------------------------------------------------|
-| local_queue_pending_workloads  | Gauge           | The number of pending workloads                             |
-| local_queue_reserved_workloads | Counter         | Total number of workloads in the LocalQueue reserving quota |
-| local_queue_admitted_workloads | Counter         | Total number of admitted workloads                          |
-| local_queue_resource_usage     | Gauge           | Total quantity of used quota per resource for a Local Queue |
+| Metrics Name                                   | Prometheus Type | Description                                                                                         | 
+|------------------------------------------------|-----------------|-----------------------------------------------------------------------------------------------------|
+| local_queue_pending_workloads                  | Gauge           | The number of pending workloads.                                                                    |
+| local_queue_reserved_workloads_total           | Counter         | Total number of workloads in the LocalQueue reserving quota.                                        | 
+| local_queue_admitted_workloads_total           | Counter         | Total number of admitted workloads.                                                                 |
+| local_queue_resource_usage                     | Gauge           | Total quantity of used quota per resource for a Local Queue.                                        |
+| local_queue_evicted_workloads_total            | Counter         | The total number of evicted workloads in Local Queue.                                               |
+| local_queue_reserved_wait_time_seconds         | Histogram       | The time between a workload was created or re-queued until it got quota reservation in local queue. |
+| local_queue_admission_checks_wait_time_seconds | Histogram       | The time from when a workload got the quota reservation until admission in local queue.             |
+| local_queue_admission_wait_time_seconds        | Histogram       | The time between a workload was created or re-queued until admission.                               |
+| local_queue_status                             | Gauge           | Reports the status of the ClusterQueue.                                                             |
 
 Each of these metrics will be augmented with relevant Prometheus labels, indicating the local queue name, namespace, 
-and any other unique identifiers as required during implementation.
+and any other unique identifiers as required during implementation. They will be exported in the controller namespace, 
+alongside cluster queue metrics, at the same endpoint.
 
 ### Test Plan
 
@@ -143,16 +149,16 @@ to implement this enhancement.
 #### Unit Tests
 
 There are existing unit tests for prometheus metrics: https://github.com/kubernetes-sigs/kueue/blob/main/pkg/metrics/metrics_test.go.
-However, unit tests to ensure coverage for any additional local queue metrics will be added. 
+However, unit tests to ensure coverage for any additional local queue metrics will be added.
 
-- `<package>`: `<date>` - `<test coverage>`
+- `pkg/metrics/`: `2024-07-19` - `48.2%`
 
 #### Integration tests
 
 The integration will address the following scenarios:
 
 1. Metrics for local queues are accurately reported throughout the lifecycle of workloads in local queues.
-1. Metrics are removed when a local queue is deleted from the cache.
+2. Metrics are removed when a local queue is deleted from the cache.
 
 ### Graduation Criteria
 
