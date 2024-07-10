@@ -151,7 +151,7 @@ status:
 When a Workload deactivated by Sequential Admission with Ready Pods is re-activated, 
 the requeueState (`.status.requeueState`) will be reset to null.
 
-## Copying labels
+## Replicate labels from Jobs into Workloads
 At Workload creation, Kueue has a functionality to copy labels into the Workload from the underlying Job or Pod objects. You can specify which labels should be copied by setting `labelKeysToCopy` field in the configuration API (under `Integrations`).
 
 
