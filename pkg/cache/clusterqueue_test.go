@@ -121,7 +121,6 @@ func TestFitInCohort(t *testing.T) {
 						{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
 					}.Unflatten(),
 				},
-				ResourceGroups: nil,
 			},
 		},
 		"can fit": {
@@ -147,7 +146,6 @@ func TestFitInCohort(t *testing.T) {
 						{Flavor: "f2", Resource: corev1.ResourceMemory}: 4,
 					}.Unflatten(),
 				},
-				ResourceGroups: nil,
 			},
 		},
 		"full cohort, none fit": {
@@ -175,7 +173,6 @@ func TestFitInCohort(t *testing.T) {
 						{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
 					}.Unflatten(),
 				},
-				ResourceGroups: nil,
 			},
 		},
 		"one cannot fit": {
@@ -203,7 +200,6 @@ func TestFitInCohort(t *testing.T) {
 						{Flavor: "f2", Resource: corev1.ResourceMemory}: 4,
 					}.Unflatten(),
 				},
-				ResourceGroups: nil,
 			},
 		},
 		"missing flavor": {
@@ -225,7 +221,6 @@ func TestFitInCohort(t *testing.T) {
 						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
 					}.Unflatten(),
 				},
-				ResourceGroups: nil,
 			},
 		},
 		"missing resource": {
@@ -245,7 +240,6 @@ func TestFitInCohort(t *testing.T) {
 						{Flavor: "f1", Resource: corev1.ResourceCPU}: 3,
 					}.Unflatten(),
 				},
-				ResourceGroups: nil,
 			},
 		},
 		"lendingLimit enabled can't fit": {

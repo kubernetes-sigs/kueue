@@ -38,6 +38,7 @@ import (
 
 var snapCmpOpts = []cmp.Option{
 	cmpopts.EquateEmpty(),
+	cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "ResourceGroups"),
 	cmpopts.IgnoreFields(CohortSnapshot{}, "Members"), // avoid recursion.
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }
@@ -224,27 +225,7 @@ func TestSnapshot(t *testing.T) {
 							Name:                          "a",
 							Cohort:                        cohort,
 							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{
-										{
-											Name: "demand",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {Nominal: 100_000},
-											},
-										},
-										{
-											Name: "spot",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {Nominal: 200_000},
-											},
-										},
-									},
-									LabelKeys: sets.New("instance"),
-								},
-							},
-							FlavorFungibility: defaultFlavorFungibility,
+							FlavorFungibility:             defaultFlavorFungibility,
 							Usage: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "demand", Resource: corev1.ResourceCPU}: 10_000,
 								{Flavor: "spot", Resource: corev1.ResourceCPU}:   0,
@@ -268,28 +249,7 @@ func TestSnapshot(t *testing.T) {
 							Name:                          "b",
 							Cohort:                        cohort,
 							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{{
-										Name: "spot",
-										Resources: map[corev1.ResourceName]*ResourceQuota{
-											corev1.ResourceCPU: {Nominal: 100_000},
-										},
-									}},
-									LabelKeys: sets.New("instance"),
-								},
-								{
-									CoveredResources: sets.New[corev1.ResourceName]("example.com/gpu"),
-									Flavors: []FlavorQuotas{{
-										Name: "default",
-										Resources: map[corev1.ResourceName]*ResourceQuota{
-											"example.com/gpu": {Nominal: 50},
-										},
-									}},
-								},
-							},
-							FlavorFungibility: defaultFlavorFungibility,
+							FlavorFungibility:             defaultFlavorFungibility,
 							Usage: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "spot", Resource: corev1.ResourceCPU}:   10_000,
 								{Flavor: "default", Resource: "example.com/gpu"}: 15,
@@ -327,18 +287,7 @@ func TestSnapshot(t *testing.T) {
 						"c": {
 							Name:                          "c",
 							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{{
-										Name: "default",
-										Resources: map[corev1.ResourceName]*ResourceQuota{
-											corev1.ResourceCPU: {Nominal: 100_000},
-										},
-									}},
-								},
-							},
-							FlavorFungibility: defaultFlavorFungibility,
+							FlavorFungibility:             defaultFlavorFungibility,
 							Usage: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
 							}.Unflatten(),
@@ -468,36 +417,8 @@ func TestSnapshot(t *testing.T) {
 							Name:                          "a",
 							Cohort:                        cohort,
 							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{
-										{
-											Name: "arm",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {
-													Nominal:        10_000,
-													BorrowingLimit: nil,
-													LendingLimit:   ptr.To[int64](5_000),
-												},
-											},
-										},
-										{
-											Name: "x86",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {
-													Nominal:        20_000,
-													BorrowingLimit: nil,
-													LendingLimit:   ptr.To[int64](10_000),
-												},
-											},
-										},
-									},
-									LabelKeys: sets.New("arch"),
-								},
-							},
-							FlavorFungibility: defaultFlavorFungibility,
-							FairWeight:        oneQuantity,
+							FlavorFungibility:             defaultFlavorFungibility,
+							FairWeight:                    oneQuantity,
 							Usage: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
 								{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
@@ -537,36 +458,8 @@ func TestSnapshot(t *testing.T) {
 							Name:                          "b",
 							Cohort:                        cohort,
 							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{
-										{
-											Name: "arm",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {
-													Nominal:        10_000,
-													BorrowingLimit: nil,
-													LendingLimit:   ptr.To[int64](5_000),
-												},
-											},
-										},
-										{
-											Name: "x86",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {
-													Nominal:        20_000,
-													BorrowingLimit: nil,
-													LendingLimit:   ptr.To[int64](10_000),
-												},
-											},
-										},
-									},
-									LabelKeys: sets.New("arch"),
-								},
-							},
-							FlavorFungibility: defaultFlavorFungibility,
-							FairWeight:        oneQuantity,
+							FlavorFungibility:             defaultFlavorFungibility,
+							FairWeight:                    oneQuantity,
 							Usage: resources.FlavorResourceQuantitiesFlat{
 								{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
 								{Flavor: "x86", Resource: corev1.ResourceCPU}: 0,
@@ -725,7 +618,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							Name:                          "c1",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -739,7 +631,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							Name:                          "c2",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -778,7 +669,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c1-memory-beta":  nil,
 							},
 							AllocatableResourceGeneration: 1,
-							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							Usage: resources.FlavorResourceQuantitiesFlat{
@@ -794,7 +684,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c2-cpu-1": nil,
 								"/c2-cpu-2": nil,
 							},
-							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -833,7 +722,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c1-memory-beta":  nil,
 							},
 							AllocatableResourceGeneration: 1,
-							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							Usage: resources.FlavorResourceQuantitiesFlat{
@@ -850,7 +738,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c2-cpu-2": nil,
 							},
 							AllocatableResourceGeneration: 1,
-							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							Usage: resources.FlavorResourceQuantitiesFlat{
@@ -978,7 +865,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -993,7 +879,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1028,7 +913,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1043,7 +927,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1078,7 +961,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1093,7 +975,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1128,7 +1009,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1143,7 +1023,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1179,7 +1058,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1194,7 +1072,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1230,7 +1107,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1245,7 +1121,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1281,7 +1156,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1296,7 +1170,6 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1330,4 +1203,167 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResourceGroups(t *testing.T) {
+	cache := New(utiltesting.NewFakeClient())
+
+	clusterQueue := utiltesting.MakeClusterQueue("test-clusterqueue").
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("on-demand").
+				ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").Append().
+				ResourceQuotaWrapper(corev1.ResourceMemory).NominalQuota("0").Append().
+				Obj(),
+			*utiltesting.MakeFlavorQuotas("spot").
+				ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").Append().
+				ResourceQuotaWrapper(corev1.ResourceMemory).NominalQuota("0").Append().
+				Obj(),
+		).
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("gpu1").
+				ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+				Obj(),
+			*utiltesting.MakeFlavorQuotas("gpu2").
+				ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+				Obj(),
+		).
+		ClusterQueue
+	if err := cache.AddClusterQueue(context.Background(), &clusterQueue); err != nil {
+		t.Fatal("Failed to add CQ to cache", err)
+	}
+
+	// Flavors (and Label) used by ResourceGroup1
+	cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("on-demand").
+		NodeLabel("instance", "demand").
+		Obj())
+	cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("spot").
+		NodeLabel("instance", "spot").
+		NodeLabel("cost", "cheap").
+		Obj())
+
+	// Flavors (and Label) used by ResourceGroup2
+	cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("gpu1").
+		NodeLabel("accelerator_type", "type1").
+		Obj())
+	cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("gpu2").
+		NodeLabel("instance", "demand").
+		NodeLabel("cost", "dear").
+		Obj())
+
+	t.Run("TestLabelKeys", func(t *testing.T) {
+		snapshot := cache.Snapshot()
+		clusterQueueSnapshot := snapshot.ClusterQueues["test-clusterqueue"]
+
+		group1Expected := sets.New("instance", "cost")
+		group2Expected := sets.New("instance", "accelerator_type", "cost")
+
+		if diff := cmp.Diff(clusterQueueSnapshot.RGByResource(corev1.ResourceCPU).LabelKeys, group1Expected); diff != "" {
+			t.Errorf("unexpected LabelKeys %s", diff)
+		}
+		if diff := cmp.Diff(clusterQueueSnapshot.RGByResource(corev1.ResourceMemory).LabelKeys, group1Expected); diff != "" {
+			t.Errorf("unexpected LabelKeys %s", diff)
+		}
+		if diff := cmp.Diff(clusterQueueSnapshot.RGByResource("example.com/gpu").LabelKeys, group2Expected); diff != "" {
+			t.Errorf("unexpected LabelKeys %s", diff)
+		}
+	})
+
+	t.Run("TestFlavorGrouping", func(t *testing.T) {
+		snapshot := cache.Snapshot()
+		clusterQueueSnapshot := snapshot.ClusterQueues["test-clusterqueue"]
+
+		getFlavors := func(r *ResourceGroup) sets.Set[kueue.ResourceFlavorReference] {
+			flavors := sets.New[kueue.ResourceFlavorReference]()
+			for _, f := range r.Flavors {
+				flavors.Insert(f.Name)
+			}
+			return flavors
+		}
+
+		group1Expected := sets.New[kueue.ResourceFlavorReference]("on-demand", "spot")
+		group2Expected := sets.New[kueue.ResourceFlavorReference]("gpu1", "gpu2")
+
+		if diff := cmp.Diff(getFlavors(clusterQueueSnapshot.RGByResource(corev1.ResourceCPU)), group1Expected); diff != "" {
+			t.Errorf("unexpected flavors %s", diff)
+		}
+		if diff := cmp.Diff(getFlavors(clusterQueueSnapshot.RGByResource(corev1.ResourceMemory)), group1Expected); diff != "" {
+			t.Errorf("unexpected flavors %s", diff)
+		}
+		if diff := cmp.Diff(getFlavors(clusterQueueSnapshot.RGByResource("example.com/gpu")), group2Expected); diff != "" {
+			t.Errorf("unexpected flavors %s", diff)
+		}
+	})
+
+	t.Run("TestResourceGrouping", func(t *testing.T) {
+		snapshot := cache.Snapshot()
+		clusterQueueSnapshot := snapshot.ClusterQueues["test-clusterqueue"]
+
+		group1Expected := sets.New[corev1.ResourceName](corev1.ResourceCPU, corev1.ResourceMemory)
+		group2Expected := sets.New[corev1.ResourceName]("example.com/gpu")
+
+		if diff := cmp.Diff(clusterQueueSnapshot.RGByResource(corev1.ResourceCPU).CoveredResources, group1Expected); diff != "" {
+			t.Errorf("unexpected resources %s", diff)
+		}
+		if diff := cmp.Diff(clusterQueueSnapshot.RGByResource(corev1.ResourceMemory).CoveredResources, group1Expected); diff != "" {
+			t.Errorf("unexpected resources %s", diff)
+		}
+		if diff := cmp.Diff(clusterQueueSnapshot.RGByResource("example.com/gpu").CoveredResources, group2Expected); diff != "" {
+			t.Errorf("unexpected resources %s", diff)
+		}
+	})
+}
+
+func TestQuotaAndLimits(t *testing.T) {
+	cache := New(utiltesting.NewFakeClient())
+	cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("on-demand").Obj())
+	cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("spot").Obj())
+	cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("gpu1").Obj())
+	cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("gpu2").Obj())
+
+	t.Run("TestQuotasAndLimits", func(t *testing.T) {
+		clusterQueue := utiltesting.MakeClusterQueue("test-clusterqueue").
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("5").Append().
+					ResourceQuotaWrapper(corev1.ResourceMemory).NominalQuota("10").Append().
+					Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("50").Append().
+					ResourceQuotaWrapper(corev1.ResourceMemory).NominalQuota("0").LendingLimit("100").Append().
+					Obj(),
+			).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("gpu1").
+					ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").BorrowingLimit("5").LendingLimit("10").Append().
+					Obj(),
+				*utiltesting.MakeFlavorQuotas("gpu2").
+					ResourceQuotaWrapper("example.com/gpu").NominalQuota("3").BorrowingLimit("1").LendingLimit("4").Append().
+					Obj(),
+			).
+			ClusterQueue
+
+		if err := cache.AddClusterQueue(context.Background(), &clusterQueue); err != nil {
+			t.Fatal("Failed to add CQ to cache", err)
+		}
+
+		snapshot := cache.Snapshot()
+		clusterQueueSnapshot := snapshot.ClusterQueues["test-clusterqueue"]
+
+		actualCapacitiesAndLimits := make(map[resources.FlavorResource]*ResourceQuota, 0)
+		for _, frq := range flavorResourceQuotas(clusterQueueSnapshot) {
+			actualCapacitiesAndLimits[frq.fr] = frq.quota
+		}
+
+		expectedCapacityAndLimits := map[resources.FlavorResource]*ResourceQuota{
+			{Flavor: "on-demand", Resource: corev1.ResourceCPU}:    {Nominal: 5_000},
+			{Flavor: "on-demand", Resource: corev1.ResourceMemory}: {Nominal: 10},
+			{Flavor: "spot", Resource: corev1.ResourceCPU}:         {Nominal: 0, BorrowingLimit: ptr.To[int64](50_000)},
+			{Flavor: "spot", Resource: corev1.ResourceMemory}:      {Nominal: 0, LendingLimit: ptr.To[int64](100)},
+			{Flavor: "gpu1", Resource: "example.com/gpu"}:          {Nominal: 0, BorrowingLimit: ptr.To[int64](5), LendingLimit: ptr.To[int64](10)},
+			{Flavor: "gpu2", Resource: "example.com/gpu"}:          {Nominal: 3, BorrowingLimit: ptr.To[int64](1), LendingLimit: ptr.To[int64](4)},
+		}
+		if diff := cmp.Diff(expectedCapacityAndLimits, actualCapacitiesAndLimits); diff != "" {
+			t.Errorf("Unexpected capacityAndLimits (-want,+got):\n%s", diff)
+		}
+	})
 }
