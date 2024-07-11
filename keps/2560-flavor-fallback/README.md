@@ -61,8 +61,9 @@ The feature will involve adding new APIs to the ClusterQueue and Workload object
 
 ## Motivation
 
-Currently, there is no fallback mechanism to a different flavor in Kueue. It means that if there is a free capacity in Kueue, but there are stockouts on the cloud provider side, Kueue will assign the same flavor over and over to a given Workload. This results in wasteful assignments VMs to a Workload that will not start (e.g. Workload will get repeatedly 5 VMs, when it needs 10 of them to start)
-Users would like to be able to configure Kueue in a way, so that in case there are stockouts, Kueue will try a different flavor (e.g. Spot vs On-demand).
+Currently, we provide the fallback mechanism only within a single scheduling cycle by flavorFungibility. 
+It means that if there is a free capacity in Kueue, but there are stockouts on the cloud provider side, or fragmented resource consumption happening in the cluster, Kueue will assign the same flavor over and over to a given Workload throughout the requeuing cycles. This results in wasteful assignments VMs to a Workload that will not start (e.g. Workload will repeatedly get 5 VMs, when it needs 10 of them to start)
+Users would like to be able to configure Kueue in a way, so that in case there are stockouts or fragmented node resource consumption, Kueue will try a different flavor (e.g. Spot vs On-demand).
 
 Additionally, as of now users do not have the ability to express how much time they are willing to wait for an AdmissionCheck (in particular ProvisioningRequest) to succeed.
 
@@ -102,7 +103,7 @@ We propose to introduce a new API to the ClusterQueue object, similarly to Admis
 ```golang
 type FlavorFungibility struct {
 	[...]
-	// FallbackStrategy defines a list of strategies to determine which how much time a user is willing to spend on trying a ResourceFlavor.
+	// fallbackStrategy defines a list of strategies to determine which how much time a user is willing to spend on trying a ResourceFlavor.
 	// +optional
 	FallbackStrategy *FlavorFallbackStrategy
 }
@@ -114,13 +115,13 @@ type FlavorFallbackStrategy struct {
 
 	// rules is a list of strategies for ResourceFlavor fallbacks.
 	// +optional
-// +listType=map
+	// +listType=map
 	Rules []FlavorFallbackStrategyRule
 }
 
 // FlavorFallbackStrategyRule defines rules for a single ResourceFlavor
 type FlavorFallbackStrategyRule struct {
-	// name is an ResourceFlavor's name.
+	// name is a ResourceFlavor's name.
 	// '*' means that the rule applies to every ResourceFlavor
 	Name ResourceFlavorReference
 
@@ -178,6 +179,8 @@ E.g:
 type WorkloadStatus struct {
 	[...]
 	// flavorAssignmentHistory is a list containing history of flavor assignments for this workload
+	// +listType=map
+	// +listMapKey=resourceFlavor
 	FlavorAssignmentHistory []FlavorAssignmentHistory
 }
 
