@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	batchv1 "k8s.io/api/batch/v1"
@@ -452,37 +453,29 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
 
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name)
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		count, err := testutil.GetCounterMetricValue(metric)
-		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int(count)).Should(gomega.Equal(v))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	expectCounterMetric(metric, v)
 }
 
 func ExpectEvictedWorkloadsTotalMetric(cqName, reason string, v int) {
 	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason)
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		count, err := testutil.GetCounterMetricValue(metric)
-		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int(count)).Should(gomega.Equal(v))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	expectCounterMetric(metric, v)
 }
 
 func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) {
 	metric := metrics.PreemptedWorkloadsTotal.WithLabelValues(preemptorCqName, reason)
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		count, err := testutil.GetCounterMetricValue(metric)
-		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int(count)).Should(gomega.Equal(v))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	expectCounterMetric(metric, v)
 }
 
 func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name)
+	expectCounterMetric(metric, v)
+}
+
+func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		count, err := testutil.GetCounterMetricValue(metric)
+		v, err := testutil.GetCounterMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int(count)).Should(gomega.Equal(v))
+		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
