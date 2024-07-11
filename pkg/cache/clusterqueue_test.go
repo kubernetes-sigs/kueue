@@ -18,6 +18,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 
@@ -25,14 +26,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestClusterQueueUpdateWithFlavors(t *testing.T) {
@@ -716,173 +716,125 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 
 func TestDominantResourceShare(t *testing.T) {
 	cases := map[string]struct {
-		cq          ClusterQueueSnapshot
-		flvResQ     resources.FlavorResourceQuantitiesFlat
-		wantDRValue int
-		wantDRName  corev1.ResourceName
+		usage               resources.FlavorResourceQuantitiesFlat
+		clusterQueue        *kueue.ClusterQueue
+		lendingClusterQueue *kueue.ClusterQueue
+		flvResQ             resources.FlavorResourceQuantitiesFlat
+		wantDRValue         int
+		wantDRName          corev1.ResourceName
 	}{
 		"no cohort": {
-			cq: ClusterQueueSnapshot{
-				FairWeight: oneQuantity,
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-					{Flavor: "default", Resource: "example.com/gpu"}:  2,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "default",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 2_000,
-									},
-									"example.com/gpu": {
-										Nominal: 5,
-									},
-								},
-							},
-						},
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("2000").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
 		},
 		"usage below nominal": {
-			cq: ClusterQueueSnapshot{
-				FairWeight: oneQuantity,
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-					{Flavor: "default", Resource: "example.com/gpu"}:  2,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "default",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 2_000,
-									},
-									"example.com/gpu": {
-										Nominal: 5,
-									},
-								},
-							},
-						},
-					},
-				},
-				Cohort: &CohortSnapshot{
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
-						"example.com/gpu":  10,
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
 		},
 		"usage above nominal": {
-			cq: ClusterQueueSnapshot{
-				FairWeight: oneQuantity,
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
-					{Flavor: "default", Resource: "example.com/gpu"}:  7,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "default",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 2_000,
-									},
-									"example.com/gpu": {
-										Nominal: 5,
-									},
-								},
-							},
-						},
-					},
-				},
-				Cohort: &CohortSnapshot{
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
-						"example.com/gpu":  10,
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
+				{Flavor: "default", Resource: "example.com/gpu"}:  7,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
 			wantDRName:  "example.com/gpu",
 			wantDRValue: 200, // (7-5)*1000/10
 		},
 		"one resource above nominal": {
-			cq: ClusterQueueSnapshot{
-				FairWeight: oneQuantity,
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
-					{Flavor: "default", Resource: "example.com/gpu"}:  3,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "default",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 2_000,
-									},
-									"example.com/gpu": {
-										Nominal: 5,
-									},
-								},
-							},
-						},
-					},
-				},
-				Cohort: &CohortSnapshot{
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
-						"example.com/gpu":  10,
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
+				{Flavor: "default", Resource: "example.com/gpu"}:  3,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
 			wantDRName:  corev1.ResourceCPU,
 			wantDRValue: 100, // (3-2)*1000/10
 		},
 		"usage with workload above nominal": {
-			cq: ClusterQueueSnapshot{
-				FairWeight: oneQuantity,
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-					{Flavor: "default", Resource: "example.com/gpu"}:  2,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "default",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 2_000,
-									},
-									"example.com/gpu": {
-										Nominal: 5,
-									},
-								},
-							},
-						},
-					},
-				},
-				Cohort: &CohortSnapshot{
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
-						"example.com/gpu":  10,
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
 			flvResQ: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  4,
@@ -891,38 +843,28 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 300, // (1+4-2)*1000/10
 		},
 		"A resource with zero lendable": {
-			cq: ClusterQueueSnapshot{
-				FairWeight: oneQuantity,
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-					{Flavor: "default", Resource: "example.com/gpu"}:  1,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "default",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 2_000,
-									},
-									"example.com/gpu": {
-										Nominal:      2,
-										LendingLimit: ptr.To[int64](0),
-									},
-								},
-							},
-						},
-					},
-				},
-				Cohort: &CohortSnapshot{
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
-						"example.com/gpu":  0,
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+				{Flavor: "default", Resource: "example.com/gpu"}:  1,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("2").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("2").LendingLimit("0").Append().
+						FlavorQuotas,
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("64").LendingLimit("0").Append().
+						FlavorQuotas,
+				).Obj(),
 			flvResQ: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  4,
@@ -931,41 +873,29 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 300, // (1+4-2)*1000/10
 		},
 		"multiple flavors": {
-			cq: ClusterQueueSnapshot{
-				FairWeight: oneQuantity,
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 15_000,
-					{Flavor: "spot", Resource: corev1.ResourceCPU}:      5_000,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "on-demand",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 20_000,
-									},
-								},
-							},
-							{
-								Name: "spot",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									corev1.ResourceCPU: {
-										Nominal: 80_000,
-									},
-								},
-							},
-						},
-					},
-				},
-				Cohort: &CohortSnapshot{
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 200_000,
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 15_000,
+				{Flavor: "spot", Resource: corev1.ResourceCPU}:      5_000,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("on-demand").
+						ResourceQuotaWrapper("cpu").NominalQuota("20").Append().
+						FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("spot").
+						ResourceQuotaWrapper("cpu").NominalQuota("80").Append().
+						FlavorQuotas,
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("100").Append().
+						FlavorQuotas,
+				).Obj(),
 			flvResQ: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10_000,
 			},
@@ -973,102 +903,120 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 25, // ((15+10-20)+0)*1000/200 (spot under nominal)
 		},
 		"above nominal with integer weight": {
-			cq: ClusterQueueSnapshot{
-				FairWeight: resource.MustParse("2"),
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: "example.com/gpu"}: 7,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "default",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									"example.com/gpu": {
-										Nominal: 5,
-									},
-								},
-							},
-						},
-					},
-				},
-				Cohort: &CohortSnapshot{
-					Lendable: map[corev1.ResourceName]int64{
-						"example.com/gpu": 10,
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("2")).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
 			wantDRName:  "example.com/gpu",
 			wantDRValue: 100, // ((7-5)*1000/10)/2
 		},
 		"above nominal with decimal weight": {
-			cq: ClusterQueueSnapshot{
-				FairWeight: resource.MustParse("0.5"),
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: "example.com/gpu"}: 7,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "default",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									"example.com/gpu": {
-										Nominal: 5,
-									},
-								},
-							},
-						},
-					},
-				},
-				Cohort: &CohortSnapshot{
-					Lendable: map[corev1.ResourceName]int64{
-						"example.com/gpu": 10,
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("0.5")).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
 			wantDRName:  "example.com/gpu",
 			wantDRValue: 400, // ((7-5)*1000/10)/(1/2)
 		},
 		"above nominal with zero weight": {
-			cq: ClusterQueueSnapshot{
-				Usage: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "default", Resource: "example.com/gpu"}: 7,
-				}.Unflatten(),
-				ResourceGroups: []ResourceGroup{
-					{
-						CoveredResources: sets.New(corev1.ResourceCPU, "example.com/gpu"),
-						Flavors: []FlavorQuotas{
-							{
-								Name: "default",
-								Resources: map[corev1.ResourceName]*ResourceQuota{
-									"example.com/gpu": {
-										Nominal: 5,
-									},
-								},
-							},
-						},
-					},
-				},
-				Cohort: &CohortSnapshot{
-					Lendable: map[corev1.ResourceName]int64{
-						"example.com/gpu": 10,
-					},
-				},
+			usage: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				FairWeight(resource.MustParse("0")).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						FlavorQuotas,
+				).Obj(),
+			lendingClusterQueue: utiltesting.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(oneQuantity).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("10").Append().
+						FlavorQuotas,
+				).Obj(),
 			wantDRValue: math.MaxInt,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			drValue, drName := tc.cq.DominantResourceShareWith(tc.flvResQ)
-			if drValue != tc.wantDRValue {
-				t.Errorf("DominantResourceShare(_) returned value %d, want %d", drValue, tc.wantDRValue)
+			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
+
+			cache := New(utiltesting.NewFakeClient())
+			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("default").Obj())
+			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("on-demand").Obj())
+			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("spot").Obj())
+
+			_ = cache.AddClusterQueue(context.Background(), tc.clusterQueue)
+
+			if tc.lendingClusterQueue != nil {
+				// we create a second cluster queue to add lendable capacity to the cohort.
+				_ = cache.AddClusterQueue(context.Background(), tc.lendingClusterQueue)
 			}
-			if drName != tc.wantDRName {
-				t.Errorf("DominantResourceShare(_) returned resource %s, want %s", drName, tc.wantDRName)
+
+			snapshot := cache.Snapshot()
+
+			i := 0
+			for fr, v := range tc.usage {
+				admission := utiltesting.MakeAdmission("cq")
+				quantity := resources.ResourceQuantity(fr.Resource, v)
+				admission.Assignment(fr.Resource, fr.Flavor, quantity.String())
+
+				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
+
+				cache.AddOrUpdateWorkload(wl)
+				snapshot.AddWorkload(workload.NewInfo(wl))
+				i += 1
+			}
+
+			drVal, drNameCache := dominantResourceShare(cache.clusterQueues["cq"], tc.flvResQ, 1)
+			if drVal != tc.wantDRValue {
+				t.Errorf("cache.DominantResourceShare(_) returned value %d, want %d", drVal, tc.wantDRValue)
+			}
+			if drNameCache != tc.wantDRName {
+				t.Errorf("cache.DominantResourceShare(_) returned resource %s, want %s", drNameCache, tc.wantDRName)
+			}
+
+			drValSnap, drNameSnap := snapshot.ClusterQueues["cq"].DominantResourceShareWith(tc.flvResQ)
+			if drValSnap != tc.wantDRValue {
+				t.Errorf("snapshot.DominantResourceShare(_) returned value %d, want %d", drValSnap, tc.wantDRValue)
+			}
+			if drNameSnap != tc.wantDRName {
+				t.Errorf("snapshot.DominantResourceShare(_) returned resource %s, want %s", drNameSnap, tc.wantDRName)
 			}
 		})
 	}
