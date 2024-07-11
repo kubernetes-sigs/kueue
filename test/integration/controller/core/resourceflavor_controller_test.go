@@ -83,13 +83,13 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		})
 
 		ginkgo.It("Should delete the resourceFlavor when the corresponding clusterQueue no longer uses the resourceFlavor", func() {
 			ginkgo.By("Try to delete resourceFlavor")
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, resourceFlavor)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, resourceFlavor)).To(gomega.Succeed())
 			var rf kueue.ResourceFlavor
 			gomega.Eventually(func() []string {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 		})
 
 		ginkgo.It("Should delete the resourceFlavor when the corresponding clusterQueue is deleted", func() {
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, resourceFlavor)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, resourceFlavor)).To(gomega.Succeed())
 
 			var rf kueue.ResourceFlavor
 			gomega.Eventually(func() []string {
@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]string{kueue.ResourceInUseFinalizerName}))
 			gomega.Expect(rf.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
 
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
 			gomega.Eventually(func() error {
 				return k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)
 			}, util.Timeout, util.Interval).Should(utiltesting.BeNotFoundError())

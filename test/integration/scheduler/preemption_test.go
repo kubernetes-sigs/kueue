@@ -62,7 +62,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, alphaFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, alphaFlavor, true)
 	})
 
 	ginkgo.Context("In a single ClusterQueue", func() {
@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
 		ginkgo.It("Should preempt Workloads with lower priority when there is not enough quota", func() {
@@ -234,9 +234,9 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, alphaCQ, true)
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, betaCQ, true)
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, gammaCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, alphaCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, betaCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, gammaCQ, true)
 		})
 
 		ginkgo.It("Should preempt Workloads in the cohort borrowing quota, when the ClusterQueue is using less than nominal quota", func() {
@@ -483,11 +483,11 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, alphaLQ)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, alphaCQ, true)
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, betaLQ)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, betaCQ, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, oneFlavor, true)
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, alphaLQ)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, alphaCQ, true)
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, betaLQ)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, betaCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, oneFlavor, true)
 		})
 
 		ginkgo.It("Should reclaim from cohort even if another CQ has pending workloads", func() {
@@ -631,13 +631,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, aStandardCQ, true)
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, aBestEffortCQ, true)
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, bBestEffortCQ, true)
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, bStandardCQ, true)
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, sharedCQ, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, oneFlavor, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, fallbackFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, aStandardCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, aBestEffortCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, bBestEffortCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, bStandardCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, sharedCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, oneFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, fallbackFlavor, true)
 		})
 
 		ginkgo.It("should allow preempting workloads while borrowing", func() {
@@ -728,9 +728,9 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.AfterEach(func() {
 			_ = features.SetEnable(features.LendingLimit, false)
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
 			if devCQ != nil {
-				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devCQ, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, devCQ, true)
 			}
 		})
 

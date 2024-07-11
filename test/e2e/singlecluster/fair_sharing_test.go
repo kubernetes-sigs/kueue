@@ -85,10 +85,10 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq1, true)
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq2, true)
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq3, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq3, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 	})
 
 	ginkgo.When("the cluster queue starts borrowing", func() {

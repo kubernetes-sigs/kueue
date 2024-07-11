@@ -163,8 +163,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, flavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 	})
 
@@ -199,10 +199,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check2, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check1, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, flavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
 		ginkgo.It("the workload should get the AdditionalChecks added", func() {

@@ -54,7 +54,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 	})
 
 	ginkgo.When("Preemption is disabled", func() {
@@ -93,9 +93,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cqA, true)
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cqB, true)
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cqShared, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqA, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqB, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqShared, true)
 		})
 
 		ginkgo.It("Admits workloads respecting fair share", func() {
@@ -231,9 +231,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cqA)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cqB)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cqC)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, cqA)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, cqB)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, cqC)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("Admits workloads respecting fair share", func() {

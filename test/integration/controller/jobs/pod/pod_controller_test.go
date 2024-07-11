@@ -93,8 +93,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 		})
 		ginkgo.AfterAll(func() {
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 			fwk.Teardown()
 		})
 
@@ -133,8 +133,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, fl, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 		})
 
 		ginkgo.When("Using single pod", func() {
@@ -434,9 +434,9 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				ginkgo.AfterEach(func() {
 					gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-					util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueueAc, true)
-					util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, testFlavor, true)
-					util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, admissionCheck, true)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueueAc, true)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, testFlavor, true)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 				})
 
 				ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
@@ -1422,8 +1422,8 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 	})
 	ginkgo.AfterAll(func() {
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 		fwk.Teardown()
 	})
 
@@ -1613,7 +1613,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 			})
 
 			ginkgo.By("deleting the localQueue to prevent readmission", func() {
-				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("clearing the workload's admission to stop the job", func() {
@@ -1697,8 +1697,8 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, fl, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 	})
 
 	ginkgo.When("pod group not ready", func() {

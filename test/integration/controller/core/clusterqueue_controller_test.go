@@ -143,12 +143,12 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotFlavor, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, modelAFlavor, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, modelBFlavor, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, modelAFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, modelBFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		})
 
 		ginkgo.It("Should update status and report metrics when workloads are assigned and finish", func() {
@@ -623,13 +623,13 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkload(ctx, k8sClient, wl)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, lq)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, cpuArchAFlavor, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, cpuArchBFlavor, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check1, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check2, true)
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, wl)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, lq)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cpuArchAFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cpuArchBFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
 		})
 
 		ginkgo.It("Should update status conditions when flavors are created", func() {
@@ -779,11 +779,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check, true)
 		})
 
 		ginkgo.It("Should delete clusterQueues successfully when no admitted workloads are running", func() {
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
 		ginkgo.It("Should be stuck in termination until admitted workloads finished running", func() {
@@ -803,7 +803,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusTerminating)
 			var newCQ kueue.ClusterQueue
 			gomega.Eventually(func() []string {
@@ -831,7 +831,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 	})
 })
@@ -887,8 +887,8 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", func() {

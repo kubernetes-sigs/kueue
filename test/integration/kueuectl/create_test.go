@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 	})
 
 	ginkgo.When("Creating a LocalQueue", func() {
@@ -144,7 +144,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)
 			gomega.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
 			if !apierrors.IsNotFound(err) {
-				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &createdQueue, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &createdQueue, true)
 			}
 		})
 
@@ -435,7 +435,7 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Ordered, ginkgo.ContinueOnFail
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: rfName}, &resourceFlavor)
 			gomega.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
 			if !apierrors.IsNotFound(err) {
-				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, &resourceFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &resourceFlavor, true)
 			}
 		})
 

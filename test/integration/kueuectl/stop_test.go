@@ -139,7 +139,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", ginkgo.Ordered, ginkgo.ContinueOnFailur
 				})
 
 				ginkgo.DeferCleanup(func() {
-					util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 				})
 
 				createdClusterQueue := &v1beta1.ClusterQueue{}

@@ -80,13 +80,6 @@ func ExpectObjectToBeDeleted[PtrT objAsPtr[T], T any](ctx context.Context, k8sCl
 	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
-var (
-	ExpectAdmissionCheckToBeDeleted            = ExpectObjectToBeDeleted[*kueue.AdmissionCheck]
-	ExpectProvisioningRequestConfigToBeDeleted = ExpectObjectToBeDeleted[*kueue.ProvisioningRequestConfig]
-	ExpectClusterQueueToBeDeleted              = ExpectObjectToBeDeleted[*kueue.ClusterQueue]
-	ExpectResourceFlavorToBeDeleted            = ExpectObjectToBeDeleted[*kueue.ResourceFlavor]
-)
-
 // DeleteNamespace deletes all objects the tests typically create in the namespace.
 func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	if ns == nil {
