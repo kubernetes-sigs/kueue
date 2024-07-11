@@ -253,54 +253,58 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return fmt.Errorf("%w: expecting 1 pod set got %d", podset.ErrInvalidPodsetInfo, len(podSetsInfo))
 		}
 
-		podOriginal := p.pod.DeepCopy()
-
-		if ungated := ungatePod(&p.pod); !ungated {
+		if gateIndex(&p.pod) == gateNotFound {
 			return nil
 		}
 
-		if err := podset.Merge(&p.pod.ObjectMeta, &p.pod.Spec, podSetsInfo[0]); err != nil {
+		if err := clientutil.Patch(ctx, c, &p.pod, true, func() (bool, error) {
+			ungatePod(&p.pod)
+			return true, podset.Merge(&p.pod.ObjectMeta, &p.pod.Spec, podSetsInfo[0])
+		}); err != nil {
 			return err
 		}
 
-		if err := clientutil.Patch(ctx, c, podOriginal, &p.pod); err != nil {
-			return err
-		}
 		if recorder != nil {
 			recorder.Event(&p.pod, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
 		}
+
 		return nil
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
 		pod := &p.list.Items[i]
-		podOriginal := pod.DeepCopy()
 
-		if ungated := ungatePod(pod); !ungated {
+		if gateIndex(pod) == gateNotFound {
 			return nil
 		}
 
-		roleHash, err := getRoleHash(*pod)
-		if err != nil {
+		if err := clientutil.Patch(ctx, c, pod, true, func() (bool, error) {
+			ungatePod(pod)
+
+			roleHash, err := getRoleHash(*pod)
+			if err != nil {
+				return false, err
+			}
+
+			podSetIndex := slices.IndexFunc(podSetsInfo, func(info podset.PodSetInfo) bool {
+				return info.Name == roleHash
+			})
+			if podSetIndex == -1 {
+				return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
+			}
+
+			err = podset.Merge(&pod.ObjectMeta, &pod.Spec, podSetsInfo[podSetIndex])
+			if err != nil {
+				return false, err
+			}
+
+			log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
+
+			return true, nil
+		}); err != nil {
 			return err
 		}
 
-		podSetIndex := slices.IndexFunc(podSetsInfo, func(info podset.PodSetInfo) bool {
-			return info.Name == roleHash
-		})
-		if podSetIndex == -1 {
-			return fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
-		}
-
-		err = podset.Merge(&pod.ObjectMeta, &pod.Spec, podSetsInfo[podSetIndex])
-		if err != nil {
-			return err
-		}
-
-		log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
-		if err := clientutil.Patch(ctx, c, podOriginal, pod); err != nil {
-			return err
-		}
 		if recorder != nil {
 			recorder.Event(pod, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
 		}
@@ -530,11 +534,9 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 
 	return parallelize.Until(ctx, len(podsInGroup.Items), func(i int) error {
 		pod := &podsInGroup.Items[i]
-		podOriginal := pod.DeepCopy()
-		if controllerutil.RemoveFinalizer(pod, PodFinalizer) {
-			return clientutil.Patch(ctx, c, podOriginal, pod)
-		}
-		return nil
+		return clientutil.Patch(ctx, c, pod, false, func() (bool, error) {
+			return controllerutil.RemoveFinalizer(pod, PodFinalizer), nil
+		})
 	})
 }
 
@@ -840,14 +842,14 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 	// Finalize and delete the active pods created last
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
-		podOriginal := pod.DeepCopy()
-		if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {
+		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+			removed := controllerutil.RemoveFinalizer(&pod, PodFinalizer)
 			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
-			if err := clientutil.Patch(ctx, c, podOriginal, &pod); err != nil {
-				// We won't observe this cleanup in the event handler.
-				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
-				return err
-			}
+			return removed, nil
+		}); err != nil {
+			// We won't observe this cleanup in the event handler.
+			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
+			return err
 		}
 		if pod.DeletionTimestamp.IsZero() {
 			log.V(3).Info("Deleting excess pod in group", "excessPod", klog.KObj(&pod))
@@ -879,15 +881,17 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 
 	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := extraPods[i]
-		podOriginal := pod.DeepCopy()
-		if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {
+		var removed bool
+		if err := clientutil.Patch(ctx, c, &pod, false, func() (bool, error) {
+			removed = controllerutil.RemoveFinalizer(&pod, PodFinalizer)
 			log.V(3).Info("Finalizing pod in group", "Pod", klog.KObj(&pod))
-			if err := clientutil.Patch(ctx, c, podOriginal, &pod); err != nil {
-				// We won't observe this cleanup in the event handler.
-				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
-				return err
-			}
-		} else {
+			return removed, nil
+		}); err != nil {
+			// We won't observe this cleanup in the event handler.
+			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
+			return err
+		}
+		if !removed {
 			// We don't expect an event in this case.
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 		}

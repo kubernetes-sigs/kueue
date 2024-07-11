@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 var (
@@ -69,7 +70,7 @@ func init() {
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -163,16 +164,20 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = ptr.To(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, eventMsg string) (bool, error) {
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
+	object := j.Object()
 	stoppedNow := false
+
 	if !j.IsSuspended() {
-		j.Suspend()
-		if j.ObjectMeta.Annotations == nil {
-			j.ObjectMeta.Annotations = map[string]string{}
-		}
-		// We are using annotation to be sure that all updates finished successfully.
-		j.ObjectMeta.Annotations[StoppingAnnotation] = "true"
-		if err := c.Update(ctx, j.Object()); err != nil {
+		if err := clientutil.Patch(ctx, c, object, true, func() (bool, error) {
+			j.Suspend()
+			if j.ObjectMeta.Annotations == nil {
+				j.ObjectMeta.Annotations = map[string]string{}
+			}
+			// We are using annotation to be sure that all updates finished successfully.
+			j.ObjectMeta.Annotations[StoppingAnnotation] = "true"
+			return true, nil
+		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
 		stoppedNow = true
@@ -180,17 +185,22 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 
 	// Reset start time if necessary, so we can update the scheduling directives.
 	if j.Status.StartTime != nil {
-		j.Status.StartTime = nil
-		if err := c.Status().Update(ctx, j.Object()); err != nil {
+		if err := clientutil.PatchStatus(ctx, c, object, func() (bool, error) {
+			j.Status.StartTime = nil
+			return true, nil
+		}); err != nil {
 			return stoppedNow, fmt.Errorf("reset status: %w", err)
 		}
 	}
 
-	j.RestorePodSetsInfo(podSetsInfo)
-	delete(j.ObjectMeta.Annotations, StoppingAnnotation)
-	if err := c.Update(ctx, j.Object()); err != nil {
+	if err := clientutil.Patch(ctx, c, object, true, func() (bool, error) {
+		j.RestorePodSetsInfo(podSetsInfo)
+		delete(j.ObjectMeta.Annotations, StoppingAnnotation)
+		return true, nil
+	}); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
 	}
+
 	return stoppedNow, nil
 }
 
