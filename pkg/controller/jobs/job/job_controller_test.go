@@ -396,7 +396,7 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
-	defer jobframework.EnableIntegrationsForTest(FrameworkName)()
+	defer jobframework.EnableIntegrationsForTest(t, FrameworkName)()
 	baseJobWrapper := utiltestingjob.MakeJob("job", "ns").
 		Suspend(true).
 		Queue("foo").

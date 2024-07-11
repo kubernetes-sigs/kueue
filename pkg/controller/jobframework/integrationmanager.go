@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -204,7 +205,8 @@ func EnableIntegration(name string) {
 
 // EnableIntegrationsForTest - should be used only in tests
 // Mark the frameworks identified by names and return a revert function.
-func EnableIntegrationsForTest(names ...string) func() {
+func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
+	tb.Helper()
 	old := manager.enabledIntegrations.Clone()
 	for _, name := range names {
 		manager.enableIntegration(name)

@@ -286,7 +286,7 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			defer jobframework.EnableIntegrationsForTest(tc.enableIntegrations...)()
+			defer jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...)()
 			builder := utiltesting.NewClientBuilder()
 			builder = builder.WithObjects(tc.initObjects...)
 			cli := builder.Build()
@@ -400,7 +400,7 @@ func TestGetRoleHash(t *testing.T) {
 }
 
 func TestValidateCreate(t *testing.T) {
-	defer jobframework.EnableIntegrationsForTest("batch/job")()
+	defer jobframework.EnableIntegrationsForTest(t, "batch/job")()
 	testCases := map[string]struct {
 		pod       *corev1.Pod
 		wantErr   error
@@ -503,7 +503,7 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
-	defer jobframework.EnableIntegrationsForTest("batch/job")()
+	defer jobframework.EnableIntegrationsForTest(t, "batch/job")()
 	testCases := map[string]struct {
 		oldPod    *corev1.Pod
 		newPod    *corev1.Pod

@@ -4879,7 +4879,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 }
 
 func TestIsPodOwnerManagedByQueue(t *testing.T) {
-	defer jobframework.EnableIntegrationsForTest("batch/job", "ray.io/raycluster")()
+	defer jobframework.EnableIntegrationsForTest(t, "batch/job", "ray.io/raycluster")()
 	testCases := map[string]struct {
 		ownerReference metav1.OwnerReference
 		wantRes        bool
