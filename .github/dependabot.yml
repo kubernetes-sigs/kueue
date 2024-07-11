@@ -77,6 +77,9 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
     open-pull-requests-limit: 10
     groups:
       all:
