@@ -58,6 +58,11 @@ func (b *interactiveBuilder) build(ctx context.Context) (runtime.Object, error) 
 
 	pod.Spec = b.buildPodSpec(pod.Spec)
 
+	if len(pod.Spec.Containers) > 0 {
+		pod.Spec.Containers[0].TTY = true
+		pod.Spec.Containers[0].Stdin = true
+	}
+
 	if len(b.localQueue) > 0 {
 		pod.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
 	}

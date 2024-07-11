@@ -23,6 +23,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
 	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
@@ -39,11 +40,15 @@ type TestClientGetter struct {
 	kjobctlClientset kjobctlversioned.Interface
 	dynamicClient    dynamic.Interface
 
+	restConfig *rest.Config
+
 	configFlags *genericclioptions.TestConfigFlags
 }
 
 func NewTestClientGetter() *TestClientGetter {
 	clientConfig := &clientcmd.DeferredLoadingClientConfig{}
+	restConfig := &rest.Config{}
+
 	configFlags := genericclioptions.NewTestConfigFlags().
 		WithClientConfig(clientConfig).
 		WithNamespace(metav1.NamespaceDefault)
@@ -51,6 +56,7 @@ func NewTestClientGetter() *TestClientGetter {
 		ClientGetter:     util.NewClientGetter(configFlags),
 		kjobctlClientset: kjobctlfake.NewSimpleClientset(),
 		k8sClientset:     k8sfake.NewSimpleClientset(),
+		restConfig:       restConfig,
 		configFlags:      configFlags,
 	}
 }
@@ -63,6 +69,15 @@ func (cg *TestClientGetter) WithNamespace(ns string) *TestClientGetter {
 func (cg *TestClientGetter) WithRESTMapper(mapper meta.RESTMapper) *TestClientGetter {
 	cg.configFlags.WithRESTMapper(mapper)
 	return cg
+}
+
+func (cg *TestClientGetter) WithRESTConfig(config *rest.Config) *TestClientGetter {
+	cg.restConfig = config
+	return cg
+}
+
+func (cg *TestClientGetter) ToRESTConfig() (*rest.Config, error) {
+	return cg.restConfig, nil
 }
 
 func (cg *TestClientGetter) WithK8sClientset(clientset k8s.Interface) *TestClientGetter {

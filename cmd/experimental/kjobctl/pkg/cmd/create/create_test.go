@@ -18,10 +18,14 @@ package create
 
 import (
 	"context"
+	"io"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,7 +34,10 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/client-go/dynamic/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	kjobctlfake "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
@@ -45,11 +52,6 @@ func TestCreateOptions_Complete(t *testing.T) {
 		wantOptions *CreateOptions
 		wantErr     string
 	}{
-		"invalid mode": {
-			args:    []string{"invalid"},
-			options: &CreateOptions{},
-			wantErr: invalidApplicationProfileModeErr.Error(),
-		},
 		"invalid request": {
 			args: []string{"job"},
 			options: &CreateOptions{
@@ -72,7 +74,7 @@ func TestCreateOptions_Complete(t *testing.T) {
 			cmd.SetErr(outErr)
 			cmd.SetArgs(tc.args)
 
-			gotErr := tc.options.Complete(tcg, cmd, tc.args)
+			gotErr := tc.options.Complete(tcg, cmd.Commands()[0])
 
 			var gotErrStr string
 			if gotErr != nil {
@@ -101,14 +103,6 @@ func TestCreateCmd(t *testing.T) {
 		wantOutErr  string
 		wantErr     string
 	}{
-		"shouldn't create job without mode": {
-			args:    []string{},
-			wantErr: `accepts 1 arg(s), received 0`,
-		},
-		"shouldn't create job with invalid mode": {
-			args:    []string{"invalid"},
-			wantErr: `invalid argument "invalid" for "create"`,
-		},
 		"should create job": {
 			args: []string{"job", "--profile", "profile"},
 			kjobctlObjs: []runtime.Object{
@@ -386,5 +380,143 @@ func TestCreateCmd(t *testing.T) {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestInteractivePod(t *testing.T) {
+	testCases := map[string]struct {
+		podName string
+		options *CreateOptions
+		pods    []runtime.Object
+		wantErr string
+	}{
+		"success": {
+			podName: "foo",
+			options: &CreateOptions{
+				Namespace:  "test",
+				Attach:     &fakeRemoteAttach{},
+				AttachFunc: testAttachFunc,
+			},
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo",
+						Namespace: "test",
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "bar",
+								Stdin: true,
+								TTY:   true,
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				},
+			},
+		},
+		"tty not allocated": {
+			podName: "foo",
+			options: &CreateOptions{
+				Namespace:  "test",
+				Attach:     &fakeRemoteAttach{},
+				AttachFunc: testAttachFunc,
+			},
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo",
+						Namespace: "test",
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "bar",
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+					},
+				},
+			},
+			wantErr: "error: Unable to use a TTY - container bar did not allocate one",
+		},
+		"timeout waiting for pod": {
+			podName: "foo",
+			options: &CreateOptions{
+				Namespace:         "test",
+				Attach:            &fakeRemoteAttach{},
+				AttachFunc:        testAttachFunc,
+				PodRunningTimeout: 1 * time.Second,
+			},
+			pods: []runtime.Object{
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo",
+						Namespace: "test",
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "bar",
+								Stdin: true,
+								TTY:   true,
+							},
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodPending,
+					},
+				},
+			},
+			wantErr: "context deadline exceeded",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
+			tc.options.IOStreams = streams
+			tc.options.Out = out
+			tc.options.ErrOut = outErr
+
+			clientset := k8sfake.NewSimpleClientset(tc.pods...)
+			tcg := cmdtesting.NewTestClientGetter().WithK8sClientset(clientset)
+
+			gotErr := tc.options.RunInteractivePod(context.TODO(), tcg, tc.podName)
+
+			var gotErrStr string
+			if gotErr != nil {
+				gotErrStr = gotErr.Error()
+			}
+
+			if diff := cmp.Diff(tc.wantErr, gotErrStr); diff != "" {
+				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
+
+type fakeRemoteAttach struct {
+	url *url.URL
+	err error
+}
+
+func (f *fakeRemoteAttach) Attach(url *url.URL, config *restclient.Config, stdin io.Reader, stdout, stderr io.Writer, tty bool, terminalSizeQueue remotecommand.TerminalSizeQueue) error {
+	f.url = url
+	return f.err
+}
+
+func testAttachFunc(o *CreateOptions, containerToAttach *corev1.Container, sizeQueue remotecommand.TerminalSizeQueue, pod *corev1.Pod) func() error {
+	return func() error {
+		u, err := url.Parse("http://kjobctl.test")
+		if err != nil {
+			return err
+		}
+
+		return o.Attach.Attach(u, nil, nil, nil, nil, o.TTY, sizeQueue)
 	}
 }

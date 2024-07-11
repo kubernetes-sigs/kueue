@@ -351,6 +351,11 @@ func TestInteractiveBuilder(t *testing.T) {
 				WithLocalQueue(tc.localQueue).
 				Do(ctx)
 
+			wantPod := tc.wantObj.(*corev1.Pod)
+			wantPod.Spec.Containers[0].TTY = true
+			wantPod.Spec.Containers[0].Stdin = true
+			tc.wantObj = wantPod
+
 			var opts []cmp.Option
 			var statusError *apierrors.StatusError
 			if !errors.As(tc.wantErr, &statusError) {
