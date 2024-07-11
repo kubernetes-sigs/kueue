@@ -52,7 +52,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 
 ## Installation
 
-**Requires Kubernetes 1.22 or newer**.
+**Requires Kubernetes 1.25 or newer**.
 
 To install the latest release of Kueue in your cluster, run the following command:
 
