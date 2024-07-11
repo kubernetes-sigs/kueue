@@ -42,20 +42,22 @@ var provisioningrequestconfigsKind = v1beta1.SchemeGroupVersion.WithKind("Provis
 
 // Get takes name of the provisioningRequestConfig, and returns the corresponding provisioningRequestConfig object, and an error if there is any.
 func (c *FakeProvisioningRequestConfigs) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
+	emptyResult := &v1beta1.ProvisioningRequestConfig{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootGetAction(provisioningrequestconfigsResource, name), &v1beta1.ProvisioningRequestConfig{})
+		Invokes(testing.NewRootGetAction(provisioningrequestconfigsResource, name), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1beta1.ProvisioningRequestConfig), err
 }
 
 // List takes label and field selectors, and returns the list of ProvisioningRequestConfigs that match those selectors.
 func (c *FakeProvisioningRequestConfigs) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.ProvisioningRequestConfigList, err error) {
+	emptyResult := &v1beta1.ProvisioningRequestConfigList{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootListAction(provisioningrequestconfigsResource, provisioningrequestconfigsKind, opts), &v1beta1.ProvisioningRequestConfigList{})
+		Invokes(testing.NewRootListAction(provisioningrequestconfigsResource, provisioningrequestconfigsKind, opts), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 
 	label, _, _ := testing.ExtractFromListOptions(opts)
@@ -79,20 +81,22 @@ func (c *FakeProvisioningRequestConfigs) Watch(ctx context.Context, opts v1.List
 
 // Create takes the representation of a provisioningRequestConfig and creates it.  Returns the server's representation of the provisioningRequestConfig, and an error, if there is any.
 func (c *FakeProvisioningRequestConfigs) Create(ctx context.Context, provisioningRequestConfig *v1beta1.ProvisioningRequestConfig, opts v1.CreateOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
+	emptyResult := &v1beta1.ProvisioningRequestConfig{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootCreateAction(provisioningrequestconfigsResource, provisioningRequestConfig), &v1beta1.ProvisioningRequestConfig{})
+		Invokes(testing.NewRootCreateAction(provisioningrequestconfigsResource, provisioningRequestConfig), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1beta1.ProvisioningRequestConfig), err
 }
 
 // Update takes the representation of a provisioningRequestConfig and updates it. Returns the server's representation of the provisioningRequestConfig, and an error, if there is any.
 func (c *FakeProvisioningRequestConfigs) Update(ctx context.Context, provisioningRequestConfig *v1beta1.ProvisioningRequestConfig, opts v1.UpdateOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
+	emptyResult := &v1beta1.ProvisioningRequestConfig{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateAction(provisioningrequestconfigsResource, provisioningRequestConfig), &v1beta1.ProvisioningRequestConfig{})
+		Invokes(testing.NewRootUpdateAction(provisioningrequestconfigsResource, provisioningRequestConfig), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1beta1.ProvisioningRequestConfig), err
 }
@@ -114,10 +118,11 @@ func (c *FakeProvisioningRequestConfigs) DeleteCollection(ctx context.Context, o
 
 // Patch applies the patch and returns the patched provisioningRequestConfig.
 func (c *FakeProvisioningRequestConfigs) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ProvisioningRequestConfig, err error) {
+	emptyResult := &v1beta1.ProvisioningRequestConfig{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceAction(provisioningrequestconfigsResource, name, pt, data, subresources...), &v1beta1.ProvisioningRequestConfig{})
+		Invokes(testing.NewRootPatchSubresourceAction(provisioningrequestconfigsResource, name, pt, data, subresources...), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1beta1.ProvisioningRequestConfig), err
 }
@@ -135,10 +140,11 @@ func (c *FakeProvisioningRequestConfigs) Apply(ctx context.Context, provisioning
 	if name == nil {
 		return nil, fmt.Errorf("provisioningRequestConfig.Name must be provided to Apply")
 	}
+	emptyResult := &v1beta1.ProvisioningRequestConfig{}
 	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceAction(provisioningrequestconfigsResource, *name, types.ApplyPatchType, data), &v1beta1.ProvisioningRequestConfig{})
+		Invokes(testing.NewRootPatchSubresourceAction(provisioningrequestconfigsResource, *name, types.ApplyPatchType, data), emptyResult)
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1beta1.ProvisioningRequestConfig), err
 }

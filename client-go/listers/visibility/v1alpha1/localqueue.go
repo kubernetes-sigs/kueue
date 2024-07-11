@@ -18,8 +18,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/listers"
 	"k8s.io/client-go/tools/cache"
 	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 )
@@ -37,25 +37,17 @@ type LocalQueueLister interface {
 
 // localQueueLister implements the LocalQueueLister interface.
 type localQueueLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*v1alpha1.LocalQueue]
 }
 
 // NewLocalQueueLister returns a new LocalQueueLister.
 func NewLocalQueueLister(indexer cache.Indexer) LocalQueueLister {
-	return &localQueueLister{indexer: indexer}
-}
-
-// List lists all LocalQueues in the indexer.
-func (s *localQueueLister) List(selector labels.Selector) (ret []*v1alpha1.LocalQueue, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.LocalQueue))
-	})
-	return ret, err
+	return &localQueueLister{listers.New[*v1alpha1.LocalQueue](indexer, v1alpha1.Resource("localqueue"))}
 }
 
 // LocalQueues returns an object that can list and get LocalQueues.
 func (s *localQueueLister) LocalQueues(namespace string) LocalQueueNamespaceLister {
-	return localQueueNamespaceLister{indexer: s.indexer, namespace: namespace}
+	return localQueueNamespaceLister{listers.NewNamespaced[*v1alpha1.LocalQueue](s.ResourceIndexer, namespace)}
 }
 
 // LocalQueueNamespaceLister helps list and get LocalQueues.
@@ -73,26 +65,5 @@ type LocalQueueNamespaceLister interface {
 // localQueueNamespaceLister implements the LocalQueueNamespaceLister
 // interface.
 type localQueueNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all LocalQueues in the indexer for a given namespace.
-func (s localQueueNamespaceLister) List(selector labels.Selector) (ret []*v1alpha1.LocalQueue, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.LocalQueue))
-	})
-	return ret, err
-}
-
-// Get retrieves the LocalQueue from the indexer for a given namespace and name.
-func (s localQueueNamespaceLister) Get(name string) (*v1alpha1.LocalQueue, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("localqueue"), name)
-	}
-	return obj.(*v1alpha1.LocalQueue), nil
+	listers.ResourceIndexer[*v1alpha1.LocalQueue]
 }

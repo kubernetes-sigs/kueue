@@ -18,8 +18,8 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/listers"
 	"k8s.io/client-go/tools/cache"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -37,25 +37,17 @@ type WorkloadLister interface {
 
 // workloadLister implements the WorkloadLister interface.
 type workloadLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*v1beta1.Workload]
 }
 
 // NewWorkloadLister returns a new WorkloadLister.
 func NewWorkloadLister(indexer cache.Indexer) WorkloadLister {
-	return &workloadLister{indexer: indexer}
-}
-
-// List lists all Workloads in the indexer.
-func (s *workloadLister) List(selector labels.Selector) (ret []*v1beta1.Workload, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.Workload))
-	})
-	return ret, err
+	return &workloadLister{listers.New[*v1beta1.Workload](indexer, v1beta1.Resource("workload"))}
 }
 
 // Workloads returns an object that can list and get Workloads.
 func (s *workloadLister) Workloads(namespace string) WorkloadNamespaceLister {
-	return workloadNamespaceLister{indexer: s.indexer, namespace: namespace}
+	return workloadNamespaceLister{listers.NewNamespaced[*v1beta1.Workload](s.ResourceIndexer, namespace)}
 }
 
 // WorkloadNamespaceLister helps list and get Workloads.
@@ -73,26 +65,5 @@ type WorkloadNamespaceLister interface {
 // workloadNamespaceLister implements the WorkloadNamespaceLister
 // interface.
 type workloadNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all Workloads in the indexer for a given namespace.
-func (s workloadNamespaceLister) List(selector labels.Selector) (ret []*v1beta1.Workload, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.Workload))
-	})
-	return ret, err
-}
-
-// Get retrieves the Workload from the indexer for a given namespace and name.
-func (s workloadNamespaceLister) Get(name string) (*v1beta1.Workload, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1beta1.Resource("workload"), name)
-	}
-	return obj.(*v1beta1.Workload), nil
+	listers.ResourceIndexer[*v1beta1.Workload]
 }
