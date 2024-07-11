@@ -13,6 +13,8 @@ This page shows how you can set up for Kueue a Job Admission Policy using the Ku
 Ensure the following conditions are met:
 
 - A Kubernetes cluster is running.
+- The `ValidatingAdmissionPolicy` [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) 
+is enabled. In Kubernetes 1.30 or newer, the feature gate is enabled by default.
 - The kubectl command-line tool can communicate with your cluster.
 - [Kueue is installed](/docs/installation).
 
