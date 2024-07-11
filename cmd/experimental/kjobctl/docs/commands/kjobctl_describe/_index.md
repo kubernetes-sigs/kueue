@@ -3,18 +3,87 @@ The file is auto-generated from the Go source code of the component using the
 [generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
 -->
 
-# kjobctl
+# kjobctl describe
 
 
 ## Synopsis
 
 
-ML/AI/Batch Jobs Made Easy
+Show details of a specific resource or group of resources.
+
+```
+kjobctl describe MODE NAME
+```
+
+
+## Examples
+
+```
+  # Describe a task with job mode
+  kjobctl describe job sample-job
+
+  # Describe a task with job mode
+  kjobctl describe job/sample-job
+  
+  # Describe all tasks with job mode
+  kjobctl describe job
+  
+  # Describe tasks by label name=myLabel
+  kjobctl describe job -l name=myLabel
+```
 
 
 ## Options
 
 
+<table style="width: 100%; table-layout: fixed;">
+    <colgroup>
+        <col span="1" style="width: 10px;" />
+        <col span="1" />
+    </colgroup>
+    <tbody>
+    <tr>
+        <td colspan="2">-A, --all-namespaces</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-h, --help</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>help for describe</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-p, --profile string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Filter by profile name which is associated with the resource.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-l, --selector string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Selector (label query) to filter on, supports &#39;=&#39;, &#39;==&#39;, and &#39;!=&#39;.(e.g. -l key1=value1,key2=value2). Matching objects must satisfy all of the specified label constraints.</p>
+        </td>
+    </tr>
+    </tbody>
+</table>
+
+
+
+## Options inherited from parent commands
 <table style="width: 100%; table-layout: fixed;">
     <colgroup>
         <col span="1" style="width: 10px;" />
@@ -112,15 +181,6 @@ ML/AI/Batch Jobs Made Easy
         </td>
     </tr>
     <tr>
-        <td colspan="2">-h, --help</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for kjobctl</p>
-        </td>
-    </tr>
-    <tr>
         <td colspan="2">--insecure-skip-tls-verify</td>
     </tr>
     <tr>
@@ -199,7 +259,5 @@ ML/AI/Batch Jobs Made Easy
 
 ## See Also
 
-* [kjobctl create](kjobctl_create/_index.md)	 - Create a task
-* [kjobctl describe](kjobctl_describe/_index.md)	 - Show details of a specific resource or group of resources.
-* [kjobctl list](kjobctl_list/_index.md)	 - Display resources
+* [kjobctl](../kjobctl.md)	 - ML/AI/Batch Jobs Made Easy
 
