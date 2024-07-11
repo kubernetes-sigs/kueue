@@ -60,10 +60,11 @@ func NewVersionCmd(clientGetter util.ClientGetter, streams genericiooptions.IOSt
 	o := NewOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:     "version",
-		Short:   "Prints the client version and the kueue controller manager image, if installed",
-		Example: versionExample,
-		Args:    cobra.NoArgs,
+		Use:                   "version",
+		Short:                 "Prints the client version and the kueue controller manager image, if installed",
+		Example:               versionExample,
+		Args:                  cobra.NoArgs,
+		DisableFlagsInUseLine: true,
 		Run: func(cmd *cobra.Command, args []string) {
 			cobra.CheckErr(o.Complete(clientGetter))
 			cobra.CheckErr(o.Run(cmd.Context()))
