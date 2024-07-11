@@ -178,9 +178,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, managerCq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, managerFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, multiKueueAc, true)
-		gomega.Expect(k8sManagerClient.Delete(ctx, multiKueueConfig)).To(gomega.Succeed())
-		gomega.Expect(k8sManagerClient.Delete(ctx, workerCluster1)).To(gomega.Succeed())
-		gomega.Expect(k8sManagerClient.Delete(ctx, workerCluster2)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, multiKueueConfig, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster1, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster2, true)
 	})
 
 	ginkgo.When("Creating a multikueue admission check", func() {

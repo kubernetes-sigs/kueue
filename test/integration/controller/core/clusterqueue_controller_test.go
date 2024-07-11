@@ -815,10 +815,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.FinishWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("The clusterQueue will be deleted")
-			gomega.Eventually(func() error {
-				var newCQ kueue.ClusterQueue
-				return k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
-			}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, false)
 		})
 
 		ginkgo.It("Should delete the cluster without waiting for reserving only workloads to finish", func() {

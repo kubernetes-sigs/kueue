@@ -140,9 +140,7 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 			gomega.Expect(rf.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
 
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
-			gomega.Eventually(func() error {
-				return k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &rf)
-			}, util.Timeout, util.Interval).Should(utiltesting.BeNotFoundError())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, false)
 		})
 	})
 })

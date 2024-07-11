@@ -1071,7 +1071,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				pod1LookupKey := client.ObjectKeyFromObject(pod1)
 				pod2LookupKey := client.ObjectKeyFromObject(pod2)
-				excessPodLookupKey := client.ObjectKeyFromObject(excessBasePod.Obj())
 
 				gomega.Expect(k8sClient.Create(ctx, pod1)).Should(gomega.Succeed())
 				gomega.Expect(k8sClient.Create(ctx, pod2)).Should(gomega.Succeed())
@@ -1091,7 +1090,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.PodSets[1].Count).To(gomega.Equal(int32(1)))
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
-				createdPod := &corev1.Pod{}
 				ginkgo.By("checking that excess pod is deleted before admission", func() {
 					// Make sure that at least a second passes between
 					// creation of pods to avoid flaky behavior.
@@ -1100,9 +1098,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					excessPod := excessBasePod.Clone().Obj()
 					gomega.Expect(k8sClient.Create(ctx, excessPod)).Should(gomega.Succeed())
 
-					gomega.Eventually(func() error {
-						return k8sClient.Get(ctx, excessPodLookupKey, createdPod)
-					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, excessPod, false)
 				})
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
@@ -1142,9 +1138,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					excessPod := excessBasePod.Clone().Obj()
 					gomega.Expect(k8sClient.Create(ctx, excessPod)).Should(gomega.Succeed())
 
-					gomega.Eventually(func() error {
-						return k8sClient.Get(ctx, excessPodLookupKey, createdPod)
-					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, excessPod, false)
 				})
 			})
 

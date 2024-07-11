@@ -119,9 +119,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 				return k8sClient.Update(ctx, &cq)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			gomega.Eventually(func() error {
-				return k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)
-			}, util.Timeout, util.Interval).Should(utiltesting.BeNotFoundError())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, false)
 		})
 
 		ginkgo.It("Should delete the resourceFlavor when the corresponding clusterQueue is deleted", func() {
@@ -135,9 +133,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 			gomega.Expect(rf.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
 
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
-			gomega.Eventually(func() error {
-				return k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)
-			}, util.Timeout, util.Interval).Should(utiltesting.BeNotFoundError())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, false)
 		})
 	})
 })

@@ -30,7 +30,6 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -705,17 +704,9 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("Delete high priority rayjob")
-		gomega.Expect(k8sClient.Delete(ctx, highPriorityJob)).To(gomega.Succeed())
-		gomega.EventuallyWithOffset(1, func() error {
-			rayjob := &rayv1.RayJob{}
-			return k8sClient.Get(ctx, client.ObjectKeyFromObject(highPriorityJob), rayjob)
-		}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityJob, true)
 		// Manually delete workload because no garbage collection controller.
-		gomega.Expect(k8sClient.Delete(ctx, highPriorityWL)).To(gomega.Succeed())
-		gomega.EventuallyWithOffset(1, func() error {
-			wl := &kueue.Workload{}
-			return k8sClient.Get(ctx, highPriorityLookupKey, wl)
-		}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityWL, true)
 
 		ginkgo.By("Low priority workload should be admitted again")
 		createdWorkload = &kueue.Workload{}

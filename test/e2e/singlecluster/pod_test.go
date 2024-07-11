@@ -263,9 +263,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					})
 				})
 				ginkgo.By("Verify the excess pod is deleted", func() {
-					gomega.Eventually(func() error {
-						return k8sClient.Get(ctx, client.ObjectKeyFromObject(excess), &corev1.Pod{})
-					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, excess, false)
 				})
 			})
 
