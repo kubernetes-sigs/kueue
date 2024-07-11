@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandRF, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
 	})
 
 	ginkgo.When("Single CQ", func() {
@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
 		ginkgo.It("should admit group that fits", func() {
@@ -263,9 +263,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					})
 				})
 				ginkgo.By("Verify the excess pod is deleted", func() {
-					gomega.Eventually(func() error {
-						return k8sClient.Get(ctx, client.ObjectKeyFromObject(excess), &corev1.Pod{})
-					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, excess, false)
 				})
 			})
 

@@ -200,12 +200,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, pendingAC, true)
-			util.ExpectProvisioningRequestConfigToBeDeleted(ctx, k8sClient, prc2, true)
-			util.ExpectProvisioningRequestConfigToBeDeleted(ctx, k8sClient, prc, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, pendingAC, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
 		ginkgo.It("Should not create provisioning requests before quota is reserved", func() {
@@ -1200,11 +1200,11 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, pendingAC, true)
-			util.ExpectProvisioningRequestConfigToBeDeleted(ctx, k8sClient, prc, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, pendingAC, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
 		ginkgo.It("Should retry when ProvisioningRequestConfig has MaxRetries=2, the succeeded if the second Provisioning request succeeds", func() {

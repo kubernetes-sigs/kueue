@@ -350,7 +350,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		fwk.Teardown()
 	})
 
@@ -557,9 +557,9 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
@@ -680,8 +680,8 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 	})
 
 	ginkgo.It("Should preempt lower priority RayClusters when resource insufficient", func() {
@@ -735,17 +735,9 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("Delete high priority raycluster")
-		gomega.Expect(k8sClient.Delete(ctx, highPriorityJob)).To(gomega.Succeed())
-		gomega.EventuallyWithOffset(1, func() error {
-			raycluster := &rayv1.RayCluster{}
-			return k8sClient.Get(ctx, client.ObjectKeyFromObject(highPriorityJob), raycluster)
-		}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityJob, true)
 		// Manually delete workload because no garbage collection controller.
-		gomega.Expect(k8sClient.Delete(ctx, highPriorityWL)).To(gomega.Succeed())
-		gomega.EventuallyWithOffset(1, func() error {
-			wl := &kueue.Workload{}
-			return k8sClient.Get(ctx, highPriorityLookupKey, wl)
-		}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityWL, true)
 
 		ginkgo.By("Low priority workload should be admitted again")
 		createdWorkload = &kueue.Workload{}

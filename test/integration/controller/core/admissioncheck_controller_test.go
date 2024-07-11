@@ -88,13 +88,13 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, admissionCheck, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 		})
 
 		ginkgo.It("Should delete the admissionCheck when the corresponding clusterQueue no longer uses the admissionCheck", func() {
 			ginkgo.By("Try to delete admissionCheck")
-			gomega.Expect(util.DeleteAdmissionCheck(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
 			var ac kueue.AdmissionCheck
 			gomega.Eventually(func() []string {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &ac)).To(gomega.Succeed())
@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 		})
 
 		ginkgo.It("Should delete the admissionCheck when the corresponding clusterQueue is deleted", func() {
-			gomega.Expect(util.DeleteAdmissionCheck(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
 
 			var rf kueue.AdmissionCheck
 			gomega.Eventually(func() []string {
@@ -139,10 +139,8 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]string{kueue.ResourceInUseFinalizerName}))
 			gomega.Expect(rf.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
 
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
-			gomega.Eventually(func() error {
-				return k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &rf)
-			}, util.Timeout, util.Interval).Should(utiltesting.BeNotFoundError())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, false)
 		})
 	})
 })

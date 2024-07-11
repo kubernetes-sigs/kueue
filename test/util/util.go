@@ -31,7 +31,6 @@ import (
 	"go.uber.org/zap/zapcore"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,61 +53,31 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func DeleteAdmissionCheck(ctx context.Context, c client.Client, ac *kueue.AdmissionCheck) error {
-	if ac != nil {
-		if err := c.Delete(ctx, ac); err != nil && !apierrors.IsNotFound(err) {
+type objAsPtr[T any] interface {
+	client.Object
+	*T
+}
+
+func DeleteObject[PtrT objAsPtr[T], T any](ctx context.Context, c client.Client, o PtrT) error {
+	if o != nil {
+		if err := c.Delete(ctx, o); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
 	return nil
 }
 
-func DeleteProvisioningRequestConfig(ctx context.Context, c client.Client, ac *kueue.ProvisioningRequestConfig) error {
-	if ac != nil {
-		if err := c.Delete(ctx, ac); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
+func ExpectObjectToBeDeleted[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool) {
+	if o == nil {
+		return
 	}
-	return nil
-}
-
-func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
-	if wl != nil {
-		if err := c.Delete(ctx, wl); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
+	if deleteNow {
+		gomega.Expect(client.IgnoreNotFound(DeleteObject(ctx, k8sClient, o))).To(gomega.Succeed())
 	}
-	return nil
-}
-
-func DeleteClusterQueue(ctx context.Context, c client.Client, cq *kueue.ClusterQueue) error {
-	if cq == nil {
-		return nil
-	}
-	if err := c.Delete(ctx, cq); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
-}
-
-func DeleteResourceFlavor(ctx context.Context, c client.Client, rf *kueue.ResourceFlavor) error {
-	if rf == nil {
-		return nil
-	}
-	if err := c.Delete(ctx, rf); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
-}
-
-func DeleteLocalQueue(ctx context.Context, c client.Client, q *kueue.LocalQueue) error {
-	if q == nil {
-		return nil
-	}
-	if err := c.Delete(ctx, q); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
+	gomega.EventuallyWithOffset(1, func() error {
+		newObj := PtrT(new(T))
+		return k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)
+	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
 // DeleteNamespace deletes all objects the tests typically create in the namespace.
@@ -209,16 +178,6 @@ func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1
 		return nil
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 
-	return nil
-}
-
-func DeleteRuntimeClass(ctx context.Context, c client.Client, runtimeClass *nodev1.RuntimeClass) error {
-	if runtimeClass == nil {
-		return nil
-	}
-	if err := c.Delete(ctx, runtimeClass); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
 	return nil
 }
 
@@ -540,55 +499,6 @@ func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, v int64) {
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int64(count)).Should(gomega.Equal(v))
 	}, Timeout, Interval).Should(gomega.Succeed())
-}
-
-func ExpectAdmissionCheckToBeDeleted(ctx context.Context, k8sClient client.Client, ac *kueue.AdmissionCheck, deleteAC bool) {
-	if ac == nil {
-		return
-	}
-	if deleteAC {
-		gomega.Expect(client.IgnoreNotFound(DeleteAdmissionCheck(ctx, k8sClient, ac))).To(gomega.Succeed())
-	}
-	gomega.EventuallyWithOffset(1, func() error {
-		var newAC kueue.AdmissionCheck
-		return k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &newAC)
-	}, Timeout, Interval).Should(testing.BeNotFoundError())
-}
-
-func ExpectProvisioningRequestConfigToBeDeleted(ctx context.Context, k8sClient client.Client, prc *kueue.ProvisioningRequestConfig, deleteAC bool) {
-	if prc == nil {
-		return
-	}
-	if deleteAC {
-		gomega.ExpectWithOffset(1, client.IgnoreNotFound(DeleteProvisioningRequestConfig(ctx, k8sClient, prc))).To(gomega.Succeed())
-	}
-	gomega.EventuallyWithOffset(1, func() error {
-		var newAC kueue.AdmissionCheck
-		return k8sClient.Get(ctx, client.ObjectKeyFromObject(prc), &newAC)
-	}, Timeout, Interval).Should(testing.BeNotFoundError())
-}
-
-func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {
-	if deleteCq {
-		gomega.Expect(DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
-	}
-	gomega.EventuallyWithOffset(1, func() error {
-		var newCQ kueue.ClusterQueue
-		return k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
-	}, Timeout, Interval).Should(testing.BeNotFoundError())
-}
-
-func ExpectResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Client, rf *kueue.ResourceFlavor, deleteRf bool) {
-	if rf == nil {
-		return
-	}
-	if deleteRf {
-		gomega.Expect(DeleteResourceFlavor(ctx, k8sClient, rf)).To(gomega.Succeed())
-	}
-	gomega.EventuallyWithOffset(1, func() error {
-		var newRF kueue.ResourceFlavor
-		return k8sClient.Get(ctx, client.ObjectKeyFromObject(rf), &newRF)
-	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
 func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {

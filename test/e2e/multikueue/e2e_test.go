@@ -169,18 +169,18 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sWorker1Client, worker1Cq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sWorker1Client, worker1Flavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1Cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1Flavor, true)
 
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sWorker2Client, worker2Cq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sWorker2Client, worker2Flavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2Cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2Flavor, true)
 
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sManagerClient, managerCq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sManagerClient, managerFlavor, true)
-		util.ExpectAdmissionCheckToBeDeleted(ctx, k8sManagerClient, multiKueueAc, true)
-		gomega.Expect(k8sManagerClient.Delete(ctx, multiKueueConfig)).To(gomega.Succeed())
-		gomega.Expect(k8sManagerClient.Delete(ctx, workerCluster1)).To(gomega.Succeed())
-		gomega.Expect(k8sManagerClient.Delete(ctx, workerCluster2)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, managerCq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, managerFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, multiKueueAc, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, multiKueueConfig, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster1, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster2, true)
 	})
 
 	ginkgo.When("Creating a multikueue admission check", func() {
@@ -411,7 +411,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 				gomega.Eventually(func() error {
-					return util.DeleteClusterQueue(ctx, k8sWorker1Client, worker1Cq2)
+					return util.DeleteObject(ctx, k8sWorker1Client, worker1Cq2)
 				}, util.LongTimeout, util.Interval).ShouldNot(gomega.HaveOccurred())
 
 				// After reconnecting the container to the network, when we try to get pods,

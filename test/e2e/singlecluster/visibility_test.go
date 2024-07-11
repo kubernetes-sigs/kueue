@@ -127,11 +127,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			gomega.Expect(k8sClient.Delete(ctx, lowPriorityClass)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, midPriorityClass)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueueB)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueueA)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueueB)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueueA)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, nsA)).Should(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultRF, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRF, true)
 		})
 
 		ginkgo.It("Should allow fetching information about pending workloads in ClusterQueue", func() {

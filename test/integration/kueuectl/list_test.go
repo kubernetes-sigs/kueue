@@ -139,8 +139,8 @@ very-long-local-queue-name   cq1                            0                   
 		})
 
 		ginkgo.JustAfterEach(func() {
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq1, true)
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.
@@ -262,8 +262,8 @@ wl2                                             very-long-local-queue-name      
 		})
 
 		ginkgo.JustAfterEach(func() {
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf1, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf2, true)
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.

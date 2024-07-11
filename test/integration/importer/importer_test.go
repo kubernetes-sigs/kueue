@@ -66,8 +66,8 @@ var _ = ginkgo.Describe("Importer", func() {
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, flavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 	})
 
 	ginkgo.When("Kueue is started after import", func() {

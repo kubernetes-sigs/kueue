@@ -614,10 +614,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAdmissionCheck(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, testFlavor, true)
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, testFlavor, true)
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueueAc, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueueAc, true)
 		})
 
 		ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
@@ -737,7 +737,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.By("delete the localQueue to prevent readmission", func() {
-				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
@@ -860,7 +860,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
 	})
 	ginkgo.AfterAll(func() {
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		fwk.Teardown()
 	})
 
@@ -1177,12 +1177,12 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, podsCountClusterQ, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, prodClusterQ, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, devClusterQ, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, podsCountClusterQ, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
@@ -1331,7 +1331,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			})
 
 			ginkgo.By("delete the localQueue to prevent readmission", func() {
-				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
@@ -1391,7 +1391,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			})
 
 			ginkgo.By("delete the localQueue to prevent readmission", func() {
-				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("deleting the workload", func() {
@@ -1681,7 +1681,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		})
 
 		ginkgo.By("delete the localQueue to prevent readmission", func() {
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, prodLocalQ)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, prodLocalQ)).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("clear the workloads admission to stop the job", func() {
@@ -1954,8 +1954,8 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 	ginkgo.JustAfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, fl, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 		fwk.Teardown()
 	})
 

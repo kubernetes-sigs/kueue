@@ -109,7 +109,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
 	})
 	ginkgo.AfterAll(func() {
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		fwk.Teardown()
 	})
 
@@ -269,9 +269,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		gomega.Expect(util.DeleteObject(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
