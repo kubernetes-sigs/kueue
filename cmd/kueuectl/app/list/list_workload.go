@@ -100,9 +100,13 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 		Short:                 "List Workload",
 		Long:                  wlLong,
 		Example:               wlExample,
-		Run: func(cmd *cobra.Command, args []string) {
-			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
-			cobra.CheckErr(o.Run(cmd.Context()))
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			err := o.Complete(clientGetter, cmd, args)
+			if err != nil {
+				return err
+			}
+			return o.Run(cmd.Context())
 		},
 	}
 

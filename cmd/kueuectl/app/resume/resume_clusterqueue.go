@@ -68,9 +68,13 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 		Example:               cqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		ValidArgsFunction:     completion.ClusterQueueNameFunc(clientGetter, ptr.To(false)),
-		Run: func(cmd *cobra.Command, args []string) {
-			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
-			cobra.CheckErr(o.Run(cmd.Context()))
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			err := o.Complete(clientGetter, cmd, args)
+			if err != nil {
+				return err
+			}
+			return o.Run(cmd.Context())
 		},
 	}
 

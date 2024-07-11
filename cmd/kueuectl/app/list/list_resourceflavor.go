@@ -67,9 +67,13 @@ func NewResourceFlavorCmd(clientGetter util.ClientGetter, streams genericiooptio
 		Aliases:               []string{"rf"},
 		Short:                 "List ResourceFlavor",
 		Example:               rfExample,
-		Run: func(cmd *cobra.Command, args []string) {
-			cobra.CheckErr(o.Complete(clientGetter))
-			cobra.CheckErr(o.Run(cmd.Context()))
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
+			err := o.Complete(clientGetter)
+			if err != nil {
+				return err
+			}
+			return o.Run(cmd.Context())
 		},
 	}
 
