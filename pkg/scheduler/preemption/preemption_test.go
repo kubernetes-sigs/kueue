@@ -636,7 +636,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
-					Name: "alpha",
+					Name: "default",
 					Mode: flavorassigner.Preempt,
 				},
 			}),
