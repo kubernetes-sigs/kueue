@@ -37,6 +37,9 @@ var (
 	errFailedMappingResource = errors.New("restMapper failed mapping resource")
 )
 
+// APIRetryInterval is the duration to wait before retrying the API request.
+const APIRetryInterval = time.Second * 20
+
 // SetupControllers setups all controllers and webhooks for integrations.
 // When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
 // they can easily setup controllers and webhooks for the in-house custom jobs.
@@ -84,10 +87,14 @@ func (m *integrationManager) setupControllers(mgr ctrl.Manager, log logr.Logger,
 				logger.Info("No matching API in the server for job framework, skipped setup of controller and webhook")
 				go waitForAPI(context.Background(), mgr, logger, gvk, func() {
 					log.Info(fmt.Sprintf("API now available, starting controller and webhook for %v", gvk))
-					m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...)
+					if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
+						log.Error(err, "Failed to setup controller and webhook for job framework")
+					}
 				})
 			} else {
-				m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...)
+				if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
+					return err
+				}
 			}
 		}
 		if err := noop.SetupWebhook(mgr, cb.JobType); err != nil {
@@ -113,18 +120,14 @@ func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name st
 }
 
 func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
-	getRestMapping := func() (*meta.RESTMapping, error) {
-		return mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
-	}
-	var err error
 	for {
-		_, err = getRestMapping()
+		_, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
 			select {
 			case <-ctx.Done():
 				log.Info(fmt.Sprint("Context cancelled!", "gvk", gvk))
 				return
-			case <-time.After(time.Second * 5):
+			case <-time.After(APIRetryInterval):
 				continue
 			}
 		}
