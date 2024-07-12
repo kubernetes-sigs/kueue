@@ -79,7 +79,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 		Example:               lqExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter, cmd, args)
+			err := o.Complete(clientGetter)
 			if err != nil {
 				return err
 			}
@@ -100,7 +100,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 }
 
 // Complete completes all the required options
-func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter) error {
 	var err error
 
 	o.Limit, err = listRequestLimit()
