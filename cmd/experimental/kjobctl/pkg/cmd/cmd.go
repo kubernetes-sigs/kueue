@@ -74,7 +74,7 @@ func NewKjobctlCmd(o KjobctlOptions) *cobra.Command {
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("cluster", completion.ClustersFunc(clientGetter)))
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("user", completion.UsersFunc(clientGetter)))
 
-	cmd.AddCommand(create.NewCreateCmd(clientGetter, o.IOStreams))
+	cmd.AddCommand(create.NewCreateCmd(clientGetter, o.IOStreams, o.Clock))
 	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
 
 	return cmd

@@ -18,8 +18,10 @@ package create
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"testing"
 	"time"
 
@@ -38,14 +40,18 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	kjobctlfake "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
 
 func TestCreateOptions_Complete(t *testing.T) {
+	testStartTime := time.Now()
+
 	testCases := map[string]struct {
 		args        []string
 		options     *CreateOptions
@@ -69,7 +75,7 @@ func TestCreateOptions_Complete(t *testing.T) {
 
 			tcg := cmdtesting.NewTestClientGetter()
 
-			cmd := NewCreateCmd(tcg, streams)
+			cmd := NewCreateCmd(tcg, streams, clocktesting.NewFakeClock(testStartTime))
 			cmd.SetOut(out)
 			cmd.SetErr(outErr)
 			cmd.SetArgs(tc.args)
@@ -93,6 +99,9 @@ func TestCreateOptions_Complete(t *testing.T) {
 }
 
 func TestCreateCmd(t *testing.T) {
+	testStartTime := time.Now()
+	userID := os.Getenv(constants.SystemEnvVarNameUser)
+
 	testCases := map[string]struct {
 		ns          string
 		args        []string
@@ -243,6 +252,14 @@ func TestCreateCmd(t *testing.T) {
 						Completions(1).
 						WithContainer(*wrappers.MakeContainer("c1", "sleep").Command("sleep", "15s").Obj()).
 						WithContainer(*wrappers.MakeContainer("c2", "sleep").Obj()).
+						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+						WithEnvVar(corev1.EnvVar{
+							Name:  constants.EnvVarTaskID,
+							Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+						}).
+						WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+						WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
 						Obj(),
 				},
 			},
@@ -277,10 +294,15 @@ func TestCreateCmd(t *testing.T) {
 								WithRequest("ram", resource.MustParse("3Gi")).
 								Obj(),
 						).
-						WithContainer(
-							*wrappers.MakeContainer("c2", "sleep").
-								Obj(),
-						).
+						WithContainer(*wrappers.MakeContainer("c2", "sleep").Obj()).
+						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+						WithEnvVar(corev1.EnvVar{
+							Name:  constants.EnvVarTaskID,
+							Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+						}).
+						WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+						WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
 						Obj(),
 				},
 			},
@@ -325,7 +347,7 @@ func TestCreateCmd(t *testing.T) {
 				tcg.WithNamespace(tc.ns)
 			}
 
-			cmd := NewCreateCmd(tcg, streams)
+			cmd := NewCreateCmd(tcg, streams, clocktesting.NewFakeClock(testStartTime))
 			cmd.SetOut(out)
 			cmd.SetErr(outErr)
 			cmd.SetArgs(tc.args)

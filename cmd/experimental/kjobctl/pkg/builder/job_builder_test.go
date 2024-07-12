@@ -19,11 +19,13 @@ package builder
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,98 +38,42 @@ import (
 	kjobctlfake "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 func TestJobBuilder(t *testing.T) {
-	testJobTemplate := &v1alpha1.JobTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: metav1.NamespaceDefault,
-			Name:      "job-template",
-			Labels:    map[string]string{"foo": "bar"},
-		},
-		Template: v1alpha1.JobTemplateSpec{
-			Spec: batchv1.JobSpec{
-				Parallelism: ptr.To[int32](1),
-				Completions: ptr.To[int32](1),
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						InitContainers: []corev1.Container{
-							{
-								Name:      "ic1",
-								Command:   []string{""},
-								Resources: corev1.ResourceRequirements{},
-								Env: []corev1.EnvVar{
-									{Name: "e0", Value: "default-value0"},
-								},
-								VolumeMounts: []corev1.VolumeMount{
-									{Name: "vm0", MountPath: "/etc/default-config0"},
-								},
-							},
-						},
-						Containers: []corev1.Container{
-							{
-								Name:    "c1",
-								Command: []string{""},
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("1"),
-									},
-								},
-								Env: []corev1.EnvVar{
-									{Name: "e1", Value: "default-value1"},
-									{Name: "e2", Value: "default-value2"},
-								},
-								VolumeMounts: []corev1.VolumeMount{
-									{Name: "vm1", MountPath: "/etc/default-config1"},
-									{Name: "vm2", MountPath: "/etc/default-config2"},
-								},
-							},
-							{
-								Name:    "c2",
-								Command: []string{""},
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU: resource.MustParse("2"),
-									},
-								},
-								Env: []corev1.EnvVar{
-									{Name: "e1", Value: "default-value1"},
-									{Name: "e2", Value: "default-value2"},
-								},
-								VolumeMounts: []corev1.VolumeMount{
-									{Name: "vm1", MountPath: "/etc/default-config1"},
-									{Name: "vm2", MountPath: "/etc/default-config2"},
-								},
-							},
-						},
-						Volumes: []corev1.Volume{
-							{
-								Name: "v1",
-								VolumeSource: corev1.VolumeSource{
-									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "default-config1",
-										},
-									},
-								},
-							},
-							{
-								Name: "v2",
-								VolumeSource: corev1.VolumeSource{
-									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "default-config2",
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
+	testStartTime := time.Now()
+	userID := os.Getenv(constants.SystemEnvVarNameUser)
+
+	testJobTemplateWrapper := wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).
+		Parallelism(1).
+		Completions(1).
+		WithInitContainer(
+			*wrappers.MakeContainer("ic1", "").
+				WithEnvVar(corev1.EnvVar{Name: "e0", Value: "default-value0"}).
+				WithVolumeMount(corev1.VolumeMount{Name: "vm0", MountPath: "/etc/default-config0"}).
+				Obj(),
+		).
+		WithContainer(
+			*wrappers.MakeContainer("c1", "").
+				WithRequest(corev1.ResourceCPU, resource.MustParse("1")).
+				WithEnvVar(corev1.EnvVar{Name: "e1", Value: "default-value1"}).
+				WithEnvVar(corev1.EnvVar{Name: "e2", Value: "default-value2"}).
+				WithVolumeMount(corev1.VolumeMount{Name: "vm1", MountPath: "/etc/default-config1"}).
+				WithVolumeMount(corev1.VolumeMount{Name: "vm2", MountPath: "/etc/default-config2"}).
+				Obj(),
+		).
+		WithContainer(*wrappers.MakeContainer("c2", "").
+			WithRequest(corev1.ResourceCPU, resource.MustParse("2")).
+			WithEnvVar(corev1.EnvVar{Name: "e1", Value: "default-value1"}).
+			WithEnvVar(corev1.EnvVar{Name: "e2", Value: "default-value2"}).
+			WithVolumeMount(corev1.VolumeMount{Name: "vm1", MountPath: "/etc/default-config1"}).
+			WithVolumeMount(corev1.VolumeMount{Name: "vm2", MountPath: "/etc/default-config2"}).
+			Obj(),
+		).
+		WithVolume("v1", "default-config1").
+		WithVolume("v2", "default-config2")
 
 	testCases := map[string]struct {
 		namespace   string
@@ -147,18 +93,9 @@ func TestJobBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:     v1alpha1.JobMode,
-							Template: "job-template",
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.JobMode, Template: "job-template"}).
+					Obj(),
 			},
 			wantErr: apierrors.NewNotFound(schema.GroupResource{Group: "kjobctl.x-k8s.io", Resource: "jobtemplates"}, "job-template"),
 		},
@@ -167,34 +104,26 @@ func TestJobBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				testJobTemplate,
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:     v1alpha1.JobMode,
-							Template: "job-template",
-						}},
-					},
-				},
+				testJobTemplateWrapper.Clone().Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.JobMode, Template: "job-template"}).
+					Obj(),
 			},
-			wantObj: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "Job",
-					APIVersion: "batch/v1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "profile-",
-					Namespace:    metav1.NamespaceDefault,
-					Labels: map[string]string{
-						constants.ProfileLabel: "profile",
-					},
-				},
-				Spec: testJobTemplate.Template.Spec,
-			},
+			wantObj: wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				Label(constants.ProfileLabel, "profile").
+				Spec(
+					testJobTemplateWrapper.Clone().
+						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+						WithEnvVar(corev1.EnvVar{
+							Name:  constants.EnvVarTaskID,
+							Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+						}).
+						WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+						WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+						Obj().Template.Spec,
+				).
+				Obj(),
 		},
 		"should build job with replacements": {
 			namespace:   metav1.NamespaceDefault,
@@ -203,169 +132,44 @@ func TestJobBuilder(t *testing.T) {
 			command:     []string{"sleep"},
 			parallelism: ptr.To[int32](2),
 			completions: ptr.To[int32](3),
-			requests: corev1.ResourceList{
-				corev1.ResourceCPU: resource.MustParse("3"),
-			},
-			localQueue: "lq1",
+			requests:    corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+			localQueue:  "lq1",
 			kjobctlObjs: []runtime.Object{
-				testJobTemplate,
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:     v1alpha1.JobMode,
-							Template: "job-template",
-						}},
-						VolumeBundles: []v1alpha1.VolumeBundleReference{"vb1", "vb2"},
-					},
-				},
-				&v1alpha1.VolumeBundle{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "vb1",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.VolumeBundleSpec{
-						Volumes: []corev1.Volume{
-							{
-								Name: "v3",
-								VolumeSource: corev1.VolumeSource{
-									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "config3",
-										},
-									},
-								},
-							},
-						},
-						ContainerVolumeMounts: []corev1.VolumeMount{
-							{Name: "vm3", MountPath: "/etc/config3"},
-						},
-						EnvVars: []corev1.EnvVar{
-							{Name: "e3", Value: "value3"},
-						},
-					},
-				},
-				&v1alpha1.VolumeBundle{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "vb2",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.VolumeBundleSpec{},
-				},
+				testJobTemplateWrapper.Clone().Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.JobMode, Template: "job-template"}).
+					WithVolumeBundleReferences("vb1", "vb2").
+					Obj(),
+				wrappers.MakeVolumeBundle("vb1", metav1.NamespaceDefault).
+					WithVolume("v3", "config3").
+					WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
+					WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
+					Obj(),
+				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObj: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "Job",
-					APIVersion: "batch/v1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "profile-",
-					Namespace:    metav1.NamespaceDefault,
-					Labels: map[string]string{
-						constants.ProfileLabel:    "profile",
-						kueueconstants.QueueLabel: "lq1",
-					},
-				},
-				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](2),
-					Completions: ptr.To[int32](3),
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							InitContainers: []corev1.Container{
-								{
-									Name:      "ic1",
-									Command:   []string{""},
-									Resources: corev1.ResourceRequirements{},
-									Env: []corev1.EnvVar{
-										{Name: "e0", Value: "default-value0"},
-										{Name: "e3", Value: "value3"},
-									},
-									VolumeMounts: []corev1.VolumeMount{
-										{Name: "vm0", MountPath: "/etc/default-config0"},
-										{Name: "vm3", MountPath: "/etc/config3"},
-									},
-								},
-							},
-							Containers: []corev1.Container{
-								{
-									Name:    "c1",
-									Command: []string{"sleep"},
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourceCPU: resource.MustParse("3"),
-										},
-									},
-									Env: []corev1.EnvVar{
-										{Name: "e1", Value: "default-value1"},
-										{Name: "e2", Value: "default-value2"},
-										{Name: "e3", Value: "value3"},
-									},
-									VolumeMounts: []corev1.VolumeMount{
-										{Name: "vm1", MountPath: "/etc/default-config1"},
-										{Name: "vm2", MountPath: "/etc/default-config2"},
-										{Name: "vm3", MountPath: "/etc/config3"},
-									},
-								},
-								{
-									Name:    "c2",
-									Command: []string{""},
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourceCPU: resource.MustParse("2"),
-										},
-									},
-									Env: []corev1.EnvVar{
-										{Name: "e1", Value: "default-value1"},
-										{Name: "e2", Value: "default-value2"},
-										{Name: "e3", Value: "value3"},
-									},
-									VolumeMounts: []corev1.VolumeMount{
-										{Name: "vm1", MountPath: "/etc/default-config1"},
-										{Name: "vm2", MountPath: "/etc/default-config2"},
-										{Name: "vm3", MountPath: "/etc/config3"},
-									},
-								},
-							},
-							Volumes: []corev1.Volume{
-								{
-									Name: "v1",
-									VolumeSource: corev1.VolumeSource{
-										ConfigMap: &corev1.ConfigMapVolumeSource{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "default-config1",
-											},
-										},
-									},
-								},
-								{
-									Name: "v2",
-									VolumeSource: corev1.VolumeSource{
-										ConfigMap: &corev1.ConfigMapVolumeSource{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "default-config2",
-											},
-										},
-									},
-								},
-								{
-									Name: "v3",
-									VolumeSource: corev1.VolumeSource{
-										ConfigMap: &corev1.ConfigMapVolumeSource{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "config3",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr: nil,
+			wantObj: wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				Label(constants.ProfileLabel, "profile").
+				Label(kueueconstants.QueueLabel, "lq1").
+				Spec(
+					testJobTemplateWrapper.Clone().
+						Command([]string{"sleep"}).
+						Parallelism(2).
+						Completions(3).
+						WithRequest(corev1.ResourceCPU, resource.MustParse("3")).
+						WithVolume("v3", "config3").
+						WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
+						WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
+						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+						WithEnvVar(corev1.EnvVar{
+							Name:  constants.EnvVarTaskID,
+							Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+						}).
+						WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+						WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+						Obj().Template.Spec,
+				).
+				Obj(),
 		},
 	}
 	for name, tc := range testCases {
@@ -376,7 +180,7 @@ func TestJobBuilder(t *testing.T) {
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...))
 
-			gotObjs, gotErr := NewBuilder(tcg).
+			gotObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).

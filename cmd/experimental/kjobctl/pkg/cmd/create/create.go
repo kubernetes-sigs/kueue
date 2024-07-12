@@ -37,6 +37,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/cmd/attach"
 	"k8s.io/kubectl/pkg/cmd/exec"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
@@ -74,6 +75,7 @@ var (
 
 type CreateOptions struct {
 	exec.StreamOptions
+
 	PrintFlags *genericclioptions.PrintFlags
 	Config     *restclient.Config
 	Attach     attach.RemoteAttach
@@ -147,8 +149,9 @@ var createModeSubcommands = map[string]modeSubcommand{
 	},
 }
 
-func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
+func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
 	o := NewCreateOptions(streams)
+
 	cmd := &cobra.Command{
 		Use:     "create",
 		Short:   "Create a task",
@@ -172,7 +175,7 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 					return err
 				}
 
-				return o.Run(cmd.Context(), clientGetter)
+				return o.Run(cmd.Context(), clientGetter, clock.Now())
 			},
 		}
 
@@ -269,8 +272,8 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	return nil
 }
 
-func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter) error {
-	obj, err := builder.NewBuilder(clientGetter).
+func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter, runTime time.Time) error {
+	obj, err := builder.NewBuilder(clientGetter, runTime).
 		WithNamespace(o.Namespace).
 		WithProfileName(o.ProfileName).
 		WithModeName(o.ModeName).

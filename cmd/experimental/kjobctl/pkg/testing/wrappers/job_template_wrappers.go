@@ -18,6 +18,7 @@ package wrappers
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -62,8 +63,81 @@ func (j *JobTemplateWrapper) RestartPolicy(restartPolicy corev1.RestartPolicy) *
 	return j
 }
 
+// WithInitContainer add init container to the pod template.
+func (j *JobTemplateWrapper) WithInitContainer(container corev1.Container) *JobTemplateWrapper {
+	j.Template.Spec.Template.Spec.InitContainers = append(j.Template.Spec.Template.Spec.InitContainers, container)
+	return j
+}
+
 // WithContainer add container to the pod template.
 func (j *JobTemplateWrapper) WithContainer(container corev1.Container) *JobTemplateWrapper {
 	j.Template.Spec.Template.Spec.Containers = append(j.Template.Spec.Template.Spec.Containers, container)
+	return j
+}
+
+// Clone clone JobTemplateWrapper.
+func (j *JobTemplateWrapper) Clone() *JobTemplateWrapper {
+	return &JobTemplateWrapper{
+		JobTemplate: *j.JobTemplate.DeepCopy(),
+	}
+}
+
+// WithVolume add volume to the job template.
+func (j *JobTemplateWrapper) WithVolume(name, localObjectReferenceName string) *JobTemplateWrapper {
+	j.Template.Spec.Template.Spec.Volumes = append(j.Template.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: localObjectReferenceName,
+				},
+			},
+		},
+	})
+	return j
+}
+
+// WithEnvVar add volume to the job template.
+func (j *JobTemplateWrapper) WithEnvVar(envVar corev1.EnvVar) *JobTemplateWrapper {
+	for index := range j.Template.Spec.Template.Spec.InitContainers {
+		j.Template.Spec.Template.Spec.InitContainers[index].Env =
+			append(j.Template.Spec.Template.Spec.InitContainers[index].Env, envVar)
+	}
+	for index := range j.Template.Spec.Template.Spec.Containers {
+		j.Template.Spec.Template.Spec.Containers[index].Env =
+			append(j.Template.Spec.Template.Spec.Containers[index].Env, envVar)
+	}
+	return j
+}
+
+// WithVolumeMount add volume mount to pod templates.
+func (j *JobTemplateWrapper) WithVolumeMount(volumeMount corev1.VolumeMount) *JobTemplateWrapper {
+	for index := range j.Template.Spec.Template.Spec.InitContainers {
+		j.Template.Spec.Template.Spec.InitContainers[index].VolumeMounts =
+			append(j.Template.Spec.Template.Spec.InitContainers[index].VolumeMounts, volumeMount)
+	}
+	for index := range j.Template.Spec.Template.Spec.Containers {
+		j.Template.Spec.Template.Spec.Containers[index].VolumeMounts =
+			append(j.Template.Spec.Template.Spec.Containers[index].VolumeMounts, volumeMount)
+	}
+	return j
+}
+
+// Command set command to primary pod templates.
+func (j *JobTemplateWrapper) Command(command []string) *JobTemplateWrapper {
+	if len(j.Template.Spec.Template.Spec.Containers) > 0 {
+		j.Template.Spec.Template.Spec.Containers[0].Command = command
+	}
+	return j
+}
+
+// WithRequest set command to primary pod templates.
+func (j *JobTemplateWrapper) WithRequest(key corev1.ResourceName, value resource.Quantity) *JobTemplateWrapper {
+	if len(j.Template.Spec.Template.Spec.Containers) > 0 {
+		if j.Template.Spec.Template.Spec.Containers[0].Resources.Requests == nil {
+			j.Template.Spec.Template.Spec.Containers[0].Resources.Requests = make(corev1.ResourceList)
+		}
+		j.Template.Spec.Template.Spec.Containers[0].Resources.Requests[key] = value
+	}
 	return j
 }

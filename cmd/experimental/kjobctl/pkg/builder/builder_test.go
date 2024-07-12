@@ -20,10 +20,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	batchv1 "k8s.io/api/batch/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,9 +33,12 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
 
 func TestBuilder(t *testing.T) {
+	testStartTime := time.Now()
+
 	testCases := map[string]struct {
 		namespace   string
 		profile     string
@@ -61,15 +64,9 @@ func TestBuilder(t *testing.T) {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{Name: v1alpha1.JobMode}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.JobMode}).
+					Obj(),
 			},
 			wantErr: noApplicationProfileModeSpecifiedErr,
 		},
@@ -78,15 +75,9 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{Name: v1alpha1.InteractiveMode}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.InteractiveMode}).
+					Obj(),
 			},
 			wantErr: applicationProfileModeNotConfiguredErr,
 		},
@@ -95,15 +86,9 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      "Invalid",
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{Name: v1alpha1.InteractiveMode}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.InteractiveMode}).
+					Obj(),
 			},
 			wantErr: invalidApplicationProfileModeErr,
 		},
@@ -112,18 +97,12 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.CmdFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.CmdFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noCommandSpecifiedErr,
 		},
@@ -132,18 +111,12 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.ParallelismFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.ParallelismFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noParallelismSpecifiedErr,
 		},
@@ -152,18 +125,12 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.CompletionsFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.CompletionsFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noCompletionsSpecifiedErr,
 		},
@@ -172,18 +139,12 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.RequestFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.RequestFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noRequestsSpecifiedErr,
 		},
@@ -192,18 +153,12 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.LocalQueueFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.LocalQueueFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noLocalQueueSpecifiedErr,
 		},
@@ -212,38 +167,17 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.JobTemplate{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: metav1.NamespaceDefault,
-						Name:      "job-template",
-					},
-				},
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:     v1alpha1.JobMode,
-							Template: "job-template",
-						}},
-					},
-				},
+				wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:     v1alpha1.JobMode,
+						Template: "job-template",
+					}).
+					Obj(),
 			},
-			wantObj: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "Job",
-					APIVersion: "batch/v1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "profile-",
-					Namespace:    metav1.NamespaceDefault,
-					Labels: map[string]string{
-						constants.ProfileLabel: "profile",
-					},
-				},
-			},
+			wantObj: wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				Label(constants.ProfileLabel, "profile").
+				Obj(),
 		},
 	}
 	for name, tc := range testCases {
@@ -253,7 +187,7 @@ func TestBuilder(t *testing.T) {
 
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(fake.NewSimpleClientset(tc.kjobctlObjs...))
-			gotObjs, gotErr := NewBuilder(tcg).
+			gotObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
