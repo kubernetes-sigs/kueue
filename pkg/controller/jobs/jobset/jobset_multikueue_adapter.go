@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 type multikueueAdapter struct{}
@@ -54,8 +55,10 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// if the remote exists, just copy the status
 	if err == nil {
-		localJob.Status = remoteJob.Status
-		return localClient.Status().Update(ctx, &localJob)
+		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+			localJob.Status = remoteJob.Status
+			return true, nil
+		})
 	}
 
 	remoteJob = jobset.JobSet{

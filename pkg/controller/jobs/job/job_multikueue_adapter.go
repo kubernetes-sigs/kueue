@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 type multikueueAdapter struct{}
@@ -57,8 +58,10 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// the remote job exists
 	if err == nil {
 		if features.Enabled(features.MultiKueueBatchJobWithManagedBy) {
-			localJob.Status = remoteJob.Status
-			return localClient.Status().Update(ctx, &localJob)
+			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+				localJob.Status = remoteJob.Status
+				return true, nil
+			})
 		}
 		remoteFinished := false
 		for _, c := range remoteJob.Status.Conditions {
@@ -67,10 +70,11 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 				break
 			}
 		}
-
 		if remoteFinished {
-			localJob.Status = remoteJob.Status
-			return localClient.Status().Update(ctx, &localJob)
+			return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+				localJob.Status = remoteJob.Status
+				return true, nil
+			})
 		}
 		return nil
 	}
