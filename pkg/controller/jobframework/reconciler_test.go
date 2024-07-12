@@ -84,6 +84,7 @@ func TestIsParentJobManaged(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob"))
 			builder := utiltesting.NewClientBuilder(kubeflow.AddToScheme)
 			if tc.parentJob != nil {
 				builder = builder.WithObjects(tc.parentJob)

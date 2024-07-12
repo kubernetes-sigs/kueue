@@ -32,10 +32,24 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-func testNewReconciler(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+type testReconciler struct{}
+
+func (t *testReconciler) Reconcile(context.Context, reconcile.Request) (reconcile.Result, error) {
+	return reconcile.Result{}, nil
+}
+
+func (t *testReconciler) SetupWithManager(mgr ctrlmgr.Manager) error {
 	return nil
+}
+
+var _ JobReconcilerInterface = (*testReconciler)(nil)
+
+func testNewReconciler(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+	return &testReconciler{}
 }
 
 func testSetupWebhook(ctrl.Manager, ...Option) error {
@@ -363,18 +377,28 @@ func TestGetJobTypeForOwner(t *testing.T) {
 	externalK3 := func() runtime.Object {
 		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3"}}
 	}()
+	disabledK4 := func() IntegrationCallbacks {
+		ret := dontManage
+		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K4" }
+		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K4"}}
+		return ret
+	}()
 
 	mgr := integrationManager{
-		names: []string{"manageK1", "dontManage", "manageK2"},
+		names: []string{"manageK1", "dontManage", "manageK2", "disabledK4"},
 		integrations: map[string]IntegrationCallbacks{
 			"dontManage": dontManage,
 			"manageK1":   manageK1,
 			"manageK2":   manageK2,
+			"disabledK4": disabledK4,
 		},
 		externalIntegrations: map[string]runtime.Object{
 			"externalK3": externalK3,
 		},
 	}
+	mgr.enableIntegration("dontManage")
+	mgr.enableIntegration("manageK1")
+	mgr.enableIntegration("manageK2")
 
 	cases := map[string]struct {
 		owner       *metav1.OwnerReference
@@ -394,6 +418,10 @@ func TestGetJobTypeForOwner(t *testing.T) {
 		},
 		"K4": {
 			owner:       &metav1.OwnerReference{Kind: "K4"},
+			wantJobType: nil,
+		},
+		"K5": {
+			owner:       &metav1.OwnerReference{Kind: "K5"},
 			wantJobType: nil,
 		},
 	}

@@ -43,10 +43,38 @@ import (
 )
 
 func TestSetupControllers(t *testing.T) {
+	availableIntegrations := map[string]IntegrationCallbacks{
+		"batch/job": {
+			NewReconciler:         testNewReconciler,
+			SetupWebhook:          testSetupWebhook,
+			JobType:               &batchv1.Job{},
+			SetupIndexes:          testSetupIndexes,
+			AddToScheme:           testAddToScheme,
+			CanSupportIntegration: testCanSupportIntegration,
+		},
+		"kubeflow.org/mpijob": {
+			NewReconciler:         testNewReconciler,
+			SetupWebhook:          testSetupWebhook,
+			JobType:               &kubeflow.MPIJob{},
+			SetupIndexes:          testSetupIndexes,
+			AddToScheme:           testAddToScheme,
+			CanSupportIntegration: testCanSupportIntegration,
+		},
+		"pod": {
+			NewReconciler:         testNewReconciler,
+			SetupWebhook:          testSetupWebhook,
+			JobType:               &corev1.Pod{},
+			SetupIndexes:          testSetupIndexes,
+			AddToScheme:           testAddToScheme,
+			CanSupportIntegration: testCanSupportIntegration,
+		},
+	}
+
 	cases := map[string]struct {
-		opts       []Option
-		mapperGVKs []schema.GroupVersionKind
-		wantError  error
+		opts                    []Option
+		mapperGVKs              []schema.GroupVersionKind
+		wantError               error
+		wantEnabledIntegrations []string
 	}{
 		"setup controllers succeed": {
 			opts: []Option{
@@ -60,6 +88,7 @@ func TestSetupControllers(t *testing.T) {
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 				kubeflow.SchemeGroupVersionKind,
 			},
+			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob"},
 		},
 		"mapper doesn't have kubeflow.org/mpijob, but no error occur": {
 			opts: []Option{
@@ -68,10 +97,19 @@ func TestSetupControllers(t *testing.T) {
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 			},
+			wantEnabledIntegrations: []string{"batch/job"},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			manager := integrationManager{}
+			for name, cbs := range availableIntegrations {
+				err := manager.register(name, cbs)
+				if err != nil {
+					t.Fatalf("Unexpected error while registering %q: %s", name, err)
+				}
+			}
+
 			_, logger := utiltesting.ContextWithLog(t)
 			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kubeflow.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme).Build()
 
@@ -97,9 +135,13 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			gotError := SetupControllers(mgr, logger, tc.opts...)
+			gotError := manager.setupControllers(mgr, logger, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantEnabledIntegrations, manager.enabledIntegrations.SortedList()); len(diff) != 0 {
+				t.Errorf("Unexpected enabled integrations (-want,+got):\n%s", diff)
 			}
 		})
 	}
