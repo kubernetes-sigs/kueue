@@ -377,7 +377,7 @@ func TestGetJobTypeForOwner(t *testing.T) {
 	externalK3 := func() runtime.Object {
 		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3"}}
 	}()
-	manageK4 := func() IntegrationCallbacks {
+	disabledK4 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K4" }
 		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K4"}}
@@ -385,12 +385,12 @@ func TestGetJobTypeForOwner(t *testing.T) {
 	}()
 
 	mgr := integrationManager{
-		names: []string{"manageK1", "dontManage", "manageK2", "manageK4"},
+		names: []string{"manageK1", "dontManage", "manageK2", "disabledK4"},
 		integrations: map[string]IntegrationCallbacks{
 			"dontManage": dontManage,
 			"manageK1":   manageK1,
 			"manageK2":   manageK2,
-			"manageK4":   manageK4,
+			"disabledK4": disabledK4,
 		},
 		externalIntegrations: map[string]runtime.Object{
 			"externalK3": externalK3,
