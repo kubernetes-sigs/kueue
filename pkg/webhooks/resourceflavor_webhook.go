@@ -74,7 +74,7 @@ func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, obj runtime.
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
 	newRF := newObj.(*kueue.ResourceFlavor)
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
 	log.V(5).Info("Validating update", "resourceFlavor", klog.KObj(newRF))
@@ -82,7 +82,7 @@ func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, oldObj, newO
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *ResourceFlavorWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 

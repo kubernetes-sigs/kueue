@@ -105,7 +105,7 @@ func (h *parentWorkloadHandler) Update(ctx context.Context, e event.UpdateEvent,
 func (h *parentWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *parentWorkloadHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
 }
 
 // queueReconcileForChildJob queues reconciliation of the child jobs (jobs with the
