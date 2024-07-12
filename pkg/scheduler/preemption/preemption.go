@@ -544,10 +544,11 @@ func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, resPerFlv resourcesPerFlavor)
 		return false
 	}
 	for _, rg := range cq.ResourceGroups {
-		for _, fQuotas := range rg.Flavors {
-			fUsage := cq.Usage[fQuotas.Name]
-			for rName := range resPerFlv[fQuotas.Name] {
-				if fUsage[rName] > fQuotas.Resources[rName].Nominal {
+		for _, fName := range rg.Flavors {
+			fUsage := cq.Usage[fName]
+			for rName := range resPerFlv[fName] {
+				quota := cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
+				if fUsage[rName] > quota.Nominal {
 					return true
 				}
 			}
@@ -572,10 +573,11 @@ func workloadUsesResources(wl *workload.Info, resPerFlv resourcesPerFlavor) bool
 // if it belongs to one.
 func workloadFits(wlReq resources.FlavorResourceQuantitiesFlat, cq *cache.ClusterQueueSnapshot, allowBorrowing bool) bool {
 	for _, rg := range cq.ResourceGroups {
-		for _, flvQuotas := range rg.Flavors {
-			cqResUsage := cq.Usage[flvQuotas.Name]
-			for rName, resource := range flvQuotas.Resources {
-				rReq, found := wlReq[resources.FlavorResource{Flavor: flvQuotas.Name, Resource: rName}]
+		for _, fName := range rg.Flavors {
+			cqResUsage := cq.Usage[fName]
+			for rName := range rg.CoveredResources {
+				resource := cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
+				rReq, found := wlReq[resources.FlavorResource{Flavor: fName, Resource: rName}]
 				if !found {
 					// Workload doesn't request this FlavorResource.
 					continue
@@ -596,8 +598,8 @@ func workloadFits(wlReq resources.FlavorResourceQuantitiesFlat, cq *cache.Cluste
 				}
 
 				if cq.Cohort != nil {
-					cohortResUsage := cq.UsedCohortQuota(flvQuotas.Name, rName)
-					requestableQuota := cq.RequestableCohortQuota(flvQuotas.Name, rName)
+					cohortResUsage := cq.UsedCohortQuota(fName, rName)
+					requestableQuota := cq.RequestableCohortQuota(fName, rName)
 					if cohortResUsage+rReq > requestableQuota {
 						return false
 					}
@@ -610,15 +612,15 @@ func workloadFits(wlReq resources.FlavorResourceQuantitiesFlat, cq *cache.Cluste
 
 func queueUnderNominalInResourcesNeedingPreemption(resPerFlv resourcesPerFlavor, cq *cache.ClusterQueueSnapshot) bool {
 	for _, rg := range cq.ResourceGroups {
-		for _, flvQuotas := range rg.Flavors {
-			flvReq, found := resPerFlv[flvQuotas.Name]
+		for _, fName := range rg.Flavors {
+			flvReq, found := resPerFlv[fName]
 			if !found {
 				// Workload doesn't request this flavor.
 				continue
 			}
-			cqResUsage := cq.Usage[flvQuotas.Name]
+			cqResUsage := cq.Usage[fName]
 			for rName := range flvReq {
-				if cqResUsage[rName] >= flvQuotas.Resources[rName].Nominal {
+				if cqResUsage[rName] >= cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName}).Nominal {
 					return false
 				}
 			}

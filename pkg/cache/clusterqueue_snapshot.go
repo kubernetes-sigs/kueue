@@ -28,6 +28,7 @@ type ClusterQueueSnapshot struct {
 	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
 	AdmissionChecks map[string]sets.Set[kueue.ResourceFlavorReference]
 	Status          metrics.ClusterQueueStatus
+	Quotas          map[resources.FlavorResource]*ResourceQuota
 	// GuaranteedQuota records how much resource quota the ClusterQueue reserved
 	// when feature LendingLimit is enabled and flavor's lendingLimit is not nil.
 	GuaranteedQuota resources.FlavorResourceQuantities
@@ -45,6 +46,10 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 		}
 	}
 	return nil
+}
+
+func (c *ClusterQueueSnapshot) QuotaFor(fr resources.FlavorResource) *ResourceQuota {
+	return c.Quotas[fr]
 }
 
 // The methods below implement several interfaces. See

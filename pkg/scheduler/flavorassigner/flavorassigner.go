@@ -401,18 +401,18 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psID, resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
-		flvQuotas := resourceGroup.Flavors[idx]
-		flavor, exist := a.resourceFlavors[flvQuotas.Name]
+		fName := resourceGroup.Flavors[idx]
+		flavor, exist := a.resourceFlavors[fName]
 		if !exist {
-			log.Error(nil, "Flavor not found", "Flavor", flvQuotas.Name)
-			status.append(fmt.Sprintf("flavor %s not found", flvQuotas.Name))
+			log.Error(nil, "Flavor not found", "Flavor", fName)
+			status.append(fmt.Sprintf("flavor %s not found", fName))
 			continue
 		}
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, podSpec.Tolerations, func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
-			status.append(fmt.Sprintf("untolerated taint %s in flavor %s", taint, flvQuotas.Name))
+			status.append(fmt.Sprintf("untolerated taint %s in flavor %s", taint, fName))
 			continue
 		}
 		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
@@ -420,7 +420,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 				status.err = err
 				return nil, status
 			}
-			status.append(fmt.Sprintf("flavor %s doesn't match node affinity", flvQuotas.Name))
+			status.append(fmt.Sprintf("flavor %s doesn't match node affinity", fName))
 			continue
 		}
 		needsBorrowing := false
@@ -428,9 +428,9 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		// Calculate representativeMode for this assignment as the worst mode among all requests.
 		representativeMode := Fit
 		for rName, val := range requests {
-			resQuota := flvQuotas.Resources[rName]
+			resQuota := a.cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 			// Check considering the flavor usage by previous pod sets.
-			mode, borrow, s := a.fitsResourceQuota(flvQuotas.Name, rName, val+assignmentUsage[flvQuotas.Name][rName], resQuota)
+			mode, borrow, s := a.fitsResourceQuota(fName, rName, val+assignmentUsage[fName][rName], resQuota)
 			if s != nil {
 				status.reasons = append(status.reasons, s.reasons...)
 			}
@@ -444,7 +444,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			}
 
 			assignments[rName] = &FlavorAssignment{
-				Name:   flvQuotas.Name,
+				Name:   fName,
 				Mode:   mode,
 				borrow: borrow,
 			}
