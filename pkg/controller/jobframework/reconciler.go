@@ -293,7 +293,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isStandaloneJob {
 		_, _, finished := job.Finished()
 		if !finished && !job.IsSuspended() {
-			if parentWorkload, err := r.getParentWorkload(ctx, job, object); err != nil {
+			if parentWorkload, err := r.getParentWorkload(ctx, object); err != nil {
 				log.Error(err, "couldn't get the parent job workload")
 				return ctrl.Result{}, err
 			} else if parentWorkload == nil || !workload.IsAdmitted(parentWorkload) {
@@ -539,7 +539,7 @@ func (r *JobReconciler) IsParentJobManaged(ctx context.Context, jobObj client.Ob
 	return QueueNameForObject(parentJob) != "", nil
 }
 
-func (r *JobReconciler) getParentWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+func (r *JobReconciler) getParentWorkload(ctx context.Context, object client.Object) (*kueue.Workload, error) {
 	owner := metav1.GetControllerOf(object)
 	if owner == nil {
 		return nil, nil
