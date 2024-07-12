@@ -131,6 +131,7 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 		NamespaceSelector:             c.NamespaceSelector,
 		Status:                        c.Status,
 		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
+		Quotas:                        c.quotas,
 	}
 
 	for fName, rUsage := range c.Usage {
@@ -166,13 +167,14 @@ func (c *ClusterQueueSnapshot) accumulateResources(cohort *CohortSnapshot) {
 		cohort.RequestableResources = make(resources.FlavorResourceQuantities, len(c.ResourceGroups))
 	}
 	for _, rg := range c.ResourceGroups {
-		for _, flvQuotas := range rg.Flavors {
-			res := cohort.RequestableResources[flvQuotas.Name]
+		for _, fName := range rg.Flavors {
+			res := cohort.RequestableResources[fName]
 			if res == nil {
-				res = make(map[corev1.ResourceName]int64, len(flvQuotas.Resources))
-				cohort.RequestableResources[flvQuotas.Name] = res
+				res = make(map[corev1.ResourceName]int64, len(rg.CoveredResources))
+				cohort.RequestableResources[fName] = res
 			}
-			for rName, rQuota := range flvQuotas.Resources {
+			for rName := range rg.CoveredResources {
+				rQuota := c.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 				// When feature LendingLimit enabled, cohort.RequestableResources indicates
 				// the sum of cq.NominalQuota and other cqs' LendingLimit (if not nil).
 				// If LendingLimit is not nil, we should count the lendingLimit as the requestable

@@ -601,9 +601,9 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	stats := &ClusterQueueUsageStats{
-		ReservedResources:  getUsage(cq.Usage, cq.ResourceGroups, cq.Cohort),
+		ReservedResources:  getUsage(cq.Usage, cq, cq.Cohort),
 		ReservingWorkloads: len(cq.Workloads),
-		AdmittedResources:  getUsage(cq.AdmittedUsage, cq.ResourceGroups, cq.Cohort),
+		AdmittedResources:  getUsage(cq.AdmittedUsage, cq, cq.Cohort),
 		AdmittedWorkloads:  cq.admittedWorkloadsCount,
 	}
 
@@ -615,16 +615,17 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	return stats, nil
 }
 
-func getUsage(frq resources.FlavorResourceQuantities, rgs []ResourceGroup, cohort *cohort) []kueue.FlavorUsage {
+func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue, cohort *cohort) []kueue.FlavorUsage {
 	usage := make([]kueue.FlavorUsage, 0, len(frq))
-	for _, rg := range rgs {
-		for _, flvQuotas := range rg.Flavors {
-			flvUsage := frq[flvQuotas.Name]
+	for _, rg := range cq.ResourceGroups {
+		for _, fName := range rg.Flavors {
+			flvUsage := frq[fName]
 			outFlvUsage := kueue.FlavorUsage{
-				Name:      flvQuotas.Name,
-				Resources: make([]kueue.ResourceUsage, 0, len(flvQuotas.Resources)),
+				Name:      fName,
+				Resources: make([]kueue.ResourceUsage, 0, len(rg.CoveredResources)),
 			}
-			for rName, rQuota := range flvQuotas.Resources {
+			for rName := range rg.CoveredResources {
+				rQuota := cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 				used := flvUsage[rName]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
@@ -680,13 +681,13 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
 	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
 	for _, rg := range resourceGroups {
-		for _, flvQuotas := range rg.Flavors {
-			flvUsage := orig[flvQuotas.Name]
+		for _, fName := range rg.Flavors {
+			flvUsage := orig[fName]
 			outFlvUsage := kueue.LocalQueueFlavorUsage{
-				Name:      flvQuotas.Name,
-				Resources: make([]kueue.LocalQueueResourceUsage, 0, len(flvQuotas.Resources)),
+				Name:      fName,
+				Resources: make([]kueue.LocalQueueResourceUsage, 0, len(rg.CoveredResources)),
 			}
-			for rName := range flvQuotas.Resources {
+			for rName := range rg.CoveredResources {
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
 					Total: resources.ResourceQuantity(rName, flvUsage[rName]),

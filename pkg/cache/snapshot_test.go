@@ -227,22 +227,13 @@ func TestSnapshot(t *testing.T) {
 							ResourceGroups: []ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{
-										{
-											Name: "demand",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {Nominal: 100_000},
-											},
-										},
-										{
-											Name: "spot",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {Nominal: 200_000},
-											},
-										},
-									},
-									LabelKeys: sets.New("instance"),
+									Flavors:          []kueue.ResourceFlavorReference{"demand", "spot"},
+									LabelKeys:        sets.New("instance"),
 								},
+							},
+							Quotas: map[resources.FlavorResource]*ResourceQuota{
+								{Flavor: "demand", Resource: corev1.ResourceCPU}: {Nominal: 100_000},
+								{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: 200_000},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
 							Usage: resources.FlavorResourceQuantitiesFlat{
@@ -271,23 +262,17 @@ func TestSnapshot(t *testing.T) {
 							ResourceGroups: []ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{{
-										Name: "spot",
-										Resources: map[corev1.ResourceName]*ResourceQuota{
-											corev1.ResourceCPU: {Nominal: 100_000},
-										},
-									}},
-									LabelKeys: sets.New("instance"),
+									Flavors:          []kueue.ResourceFlavorReference{"spot"},
+									LabelKeys:        sets.New("instance"),
 								},
 								{
 									CoveredResources: sets.New[corev1.ResourceName]("example.com/gpu"),
-									Flavors: []FlavorQuotas{{
-										Name: "default",
-										Resources: map[corev1.ResourceName]*ResourceQuota{
-											"example.com/gpu": {Nominal: 50},
-										},
-									}},
+									Flavors:          []kueue.ResourceFlavorReference{"default"},
 								},
+							},
+							Quotas: map[resources.FlavorResource]*ResourceQuota{
+								{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: 100_000},
+								{Flavor: "default", Resource: "example.com/gpu"}: {Nominal: 50},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
 							Usage: resources.FlavorResourceQuantitiesFlat{
@@ -330,13 +315,11 @@ func TestSnapshot(t *testing.T) {
 							ResourceGroups: []ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{{
-										Name: "default",
-										Resources: map[corev1.ResourceName]*ResourceQuota{
-											corev1.ResourceCPU: {Nominal: 100_000},
-										},
-									}},
+									Flavors:          []kueue.ResourceFlavorReference{"default"},
 								},
+							},
+							Quotas: map[resources.FlavorResource]*ResourceQuota{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: {Nominal: 100_000},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
 							Usage: resources.FlavorResourceQuantitiesFlat{
@@ -471,30 +454,13 @@ func TestSnapshot(t *testing.T) {
 							ResourceGroups: []ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{
-										{
-											Name: "arm",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {
-													Nominal:        10_000,
-													BorrowingLimit: nil,
-													LendingLimit:   ptr.To[int64](5_000),
-												},
-											},
-										},
-										{
-											Name: "x86",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {
-													Nominal:        20_000,
-													BorrowingLimit: nil,
-													LendingLimit:   ptr.To[int64](10_000),
-												},
-											},
-										},
-									},
-									LabelKeys: sets.New("arch"),
+									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+									LabelKeys:        sets.New("arch"),
 								},
+							},
+							Quotas: map[resources.FlavorResource]*ResourceQuota{
+								{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](5_000)},
+								{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](10_000)},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
 							FairWeight:        oneQuantity,
@@ -540,30 +506,13 @@ func TestSnapshot(t *testing.T) {
 							ResourceGroups: []ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors: []FlavorQuotas{
-										{
-											Name: "arm",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {
-													Nominal:        10_000,
-													BorrowingLimit: nil,
-													LendingLimit:   ptr.To[int64](5_000),
-												},
-											},
-										},
-										{
-											Name: "x86",
-											Resources: map[corev1.ResourceName]*ResourceQuota{
-												corev1.ResourceCPU: {
-													Nominal:        20_000,
-													BorrowingLimit: nil,
-													LendingLimit:   ptr.To[int64](10_000),
-												},
-											},
-										},
-									},
-									LabelKeys: sets.New("arch"),
+									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+									LabelKeys:        sets.New("arch"),
 								},
+							},
+							Quotas: map[resources.FlavorResource]*ResourceQuota{
+								{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](5_000)},
+								{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](10_000)},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
 							FairWeight:        oneQuantity,
@@ -863,7 +812,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		},
 	}
 	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status"),
+		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "Quotas"),
 		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
@@ -1313,7 +1262,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		},
 	}
 	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status"),
+		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "Quotas"),
 		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {

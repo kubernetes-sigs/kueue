@@ -49,6 +49,7 @@ type clusterQueue struct {
 	Name              string
 	Cohort            *cohort
 	ResourceGroups    []ResourceGroup
+	quotas            map[resources.FlavorResource]*ResourceQuota
 	Usage             resources.FlavorResourceQuantities
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
@@ -89,17 +90,20 @@ type cohort struct {
 
 type ResourceGroup struct {
 	CoveredResources sets.Set[corev1.ResourceName]
-	Flavors          []FlavorQuotas
+	Flavors          []kueue.ResourceFlavorReference
 	// The set of key labels from all flavors.
 	// Those keys define the affinity terms of a workload
 	// that can be matched against the flavors.
 	LabelKeys sets.Set[string]
 }
 
-// FlavorQuotas holds a processed ClusterQueue flavor quota.
-type FlavorQuotas struct {
-	Name      kueue.ResourceFlavorReference
-	Resources map[corev1.ResourceName]*ResourceQuota
+func (r *ResourceGroup) FlavorResources() (frs []resources.FlavorResource) {
+	for _, f := range r.Flavors {
+		for r := range r.CoveredResources {
+			frs = append(frs, resources.FlavorResource{Flavor: f, Resource: r})
+		}
+	}
+	return frs
 }
 
 type ResourceQuota struct {
@@ -127,11 +131,12 @@ func newCohort(name string, size int) *cohort {
 func (c *cohort) CalculateLendable() map[corev1.ResourceName]int64 {
 	lendable := make(map[corev1.ResourceName]int64)
 	for member := range c.Members {
-		for _, frq := range flavorResourceQuotas(member) {
-			if features.Enabled(features.LendingLimit) && frq.quota.LendingLimit != nil {
-				lendable[frq.fr.Resource] += *frq.quota.LendingLimit
+		for _, fr := range flavorResources(member) {
+			quota := member.QuotaFor(fr)
+			if features.Enabled(features.LendingLimit) && quota.LendingLimit != nil {
+				lendable[fr.Resource] += *quota.LendingLimit
 			} else {
-				lendable[frq.fr.Resource] += frq.quota.Nominal
+				lendable[fr.Resource] += quota.Nominal
 			}
 		}
 	}
@@ -208,16 +213,17 @@ func (c *clusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	if features.Enabled(features.LendingLimit) {
 		var guaranteedQuota resources.FlavorResourceQuantities
 		for _, rg := range c.ResourceGroups {
-			for _, flvQuotas := range rg.Flavors {
-				for rName, rQuota := range flvQuotas.Resources {
+			for _, fName := range rg.Flavors {
+				for rName := range rg.CoveredResources {
+					rQuota := c.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 					if rQuota.LendingLimit != nil {
 						if guaranteedQuota == nil {
 							guaranteedQuota = make(resources.FlavorResourceQuantities)
 						}
-						if guaranteedQuota[flvQuotas.Name] == nil {
-							guaranteedQuota[flvQuotas.Name] = make(map[corev1.ResourceName]int64)
+						if guaranteedQuota[fName] == nil {
+							guaranteedQuota[fName] = make(map[corev1.ResourceName]int64)
 						}
-						guaranteedQuota[flvQuotas.Name][rName] = rQuota.Nominal - *rQuota.LendingLimit
+						guaranteedQuota[fName][rName] = rQuota.Nominal - *rQuota.LendingLimit
 					}
 				}
 			}
@@ -245,19 +251,18 @@ func filterFlavorQuantities(orig resources.FlavorResourceQuantities, resourceGro
 
 func (c *clusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 	oldRG := c.ResourceGroups
+	oldQuotas := c.quotas
+
 	c.ResourceGroups = make([]ResourceGroup, len(in))
+	c.quotas = make(map[resources.FlavorResource]*ResourceQuota, 0)
 	for i, rgIn := range in {
 		rg := &c.ResourceGroups[i]
 		*rg = ResourceGroup{
 			CoveredResources: sets.New(rgIn.CoveredResources...),
-			Flavors:          make([]FlavorQuotas, 0, len(rgIn.Flavors)),
+			Flavors:          make([]kueue.ResourceFlavorReference, 0, len(rgIn.Flavors)),
 		}
 		for i := range rgIn.Flavors {
 			fIn := &rgIn.Flavors[i]
-			fQuotas := FlavorQuotas{
-				Name:      fIn.Name,
-				Resources: make(map[corev1.ResourceName]*ResourceQuota, len(fIn.Resources)),
-			}
 			for _, rIn := range fIn.Resources {
 				nominal := resources.ResourceValue(rIn.Name, rIn.NominalQuota)
 				rQuota := ResourceQuota{
@@ -269,13 +274,15 @@ func (c *clusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 				if features.Enabled(features.LendingLimit) && rIn.LendingLimit != nil {
 					rQuota.LendingLimit = ptr.To(resources.ResourceValue(rIn.Name, *rIn.LendingLimit))
 				}
-				fQuotas.Resources[rIn.Name] = &rQuota
+				c.quotas[resources.FlavorResource{Flavor: fIn.Name, Resource: rIn.Name}] = &rQuota
 			}
-			rg.Flavors = append(rg.Flavors, fQuotas)
+			rg.Flavors = append(rg.Flavors, fIn.Name)
 		}
 	}
 	// Start at 1, for backwards compatibility.
-	if c.AllocatableResourceGeneration == 0 || !equality.Semantic.DeepEqual(oldRG, c.ResourceGroups) {
+	if c.AllocatableResourceGeneration == 0 ||
+		!equality.Semantic.DeepEqual(oldRG, c.ResourceGroups) ||
+		!equality.Semantic.DeepEqual(oldQuotas, c.quotas) {
 		c.AllocatableResourceGeneration++
 	}
 }
@@ -343,8 +350,8 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 			continue
 		}
 		keys := sets.New[string]()
-		for _, rf := range rg.Flavors {
-			if flv, exist := flavors[rf.Name]; exist {
+		for _, fName := range rg.Flavors {
+			if flv, exist := flavors[fName]; exist {
 				for k := range flv.Spec.NodeLabels {
 					keys.Insert(k)
 				}
@@ -543,8 +550,8 @@ func (c *clusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 
 func (c *clusterQueue) flavorInUse(flavor string) bool {
 	for _, rg := range c.ResourceGroups {
-		for _, f := range rg.Flavors {
-			if kueue.ResourceFlavorReference(flavor) == f.Name {
+		for _, fName := range rg.Flavors {
+			if kueue.ResourceFlavorReference(flavor) == fName {
 				return true
 			}
 		}
@@ -645,6 +652,10 @@ func (c *clusterQueue) lendableResourcesInCohort() map[corev1.ResourceName]int64
 
 func (c *clusterQueue) usageFor(fr resources.FlavorResource) int64 {
 	return c.Usage.For(fr)
+}
+
+func (c *clusterQueue) QuotaFor(fr resources.FlavorResource) *ResourceQuota {
+	return c.quotas[fr]
 }
 
 func (c *clusterQueue) resourceGroups() []ResourceGroup {
