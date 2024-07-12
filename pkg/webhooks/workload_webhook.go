@@ -91,7 +91,7 @@ func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj run
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *WorkloadWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *WorkloadWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 

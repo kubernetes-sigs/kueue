@@ -194,7 +194,7 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 			// PRs relevant for the admission check
 			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
 				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
-				if err == nil && c.reqIsNeeded(ctx, wl, prc) && provReqSyncedWithConfig(req, prc) {
+				if err == nil && c.reqIsNeeded(wl, prc) && provReqSyncedWithConfig(req, prc) {
 					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
 					}
@@ -233,7 +233,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			// the check is not active
 			continue
 		}
-		if !c.reqIsNeeded(ctx, wl, prc) {
+		if !c.reqIsNeeded(wl, prc) {
 			continue
 		}
 		if ac := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName); ac != nil && ac.State == kueue.CheckStateReady {
@@ -414,7 +414,7 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 	return nil
 }
 
-func (c *Controller) reqIsNeeded(ctx context.Context, wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) bool {
+func (c *Controller) reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) bool {
 	return len(requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)) > 0
 }
 
@@ -486,7 +486,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			// the check is not active
 			updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 			updated = updateCheckMessage(&checkState, CheckInactiveMessage) || updated
-		} else if !c.reqIsNeeded(ctx, wl, prc) {
+		} else if !c.reqIsNeeded(wl, prc) {
 			if updateCheckState(&checkState, kueue.CheckStateReady) {
 				updated = true
 				checkState.Message = NoRequestNeeded

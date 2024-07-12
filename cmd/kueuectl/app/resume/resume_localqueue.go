@@ -74,7 +74,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 		ValidArgsFunction:     completion.LocalQueueNameFunc(clientGetter, ptr.To(false)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter, cmd, args)
+			err := o.Complete(clientGetter, args)
 			if err != nil {
 				return err
 			}
@@ -88,7 +88,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 }
 
 // Complete completes all the required options
-func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *LocalQueueOptions) Complete(clientGetter util.ClientGetter, args []string) error {
 	o.LocalQueueName = args[0]
 
 	namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()

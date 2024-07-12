@@ -102,7 +102,7 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 		Example:               wlExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter, cmd, args)
+			err := o.Complete(clientGetter, cmd)
 			if err != nil {
 				return err
 			}
@@ -153,7 +153,7 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 }
 
 // Complete completes all the required options
-func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command) error {
 	var err error
 
 	o.Limit, err = listRequestLimit()

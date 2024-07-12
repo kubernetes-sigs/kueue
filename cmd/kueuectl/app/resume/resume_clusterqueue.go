@@ -70,7 +70,7 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 		ValidArgsFunction:     completion.ClusterQueueNameFunc(clientGetter, ptr.To(false)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter, cmd, args)
+			err := o.Complete(clientGetter, args)
 			if err != nil {
 				return err
 			}
@@ -84,7 +84,7 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 }
 
 // Complete completes all the required options
-func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, args []string) error {
 	o.ClusterQueueName = args[0]
 
 	clientset, err := clientGetter.KueueClientSet()

@@ -493,10 +493,10 @@ type cqNamespaceHandler struct {
 	cache    *cache.Cache
 }
 
-func (h *cqNamespaceHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.RateLimitingInterface) {
 }
 
-func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ workqueue.RateLimitingInterface) {
 	oldNs := e.ObjectOld.(*corev1.Namespace)
 	oldMatchingCqs := h.cache.MatchingClusterQueues(oldNs.Labels)
 	newNs := e.ObjectNew.(*corev1.Namespace)
@@ -725,7 +725,7 @@ func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
 	return nil
 }
 
-func (r *ClusterQueueReconciler) enqueueTakeSnapshot(ctx context.Context) {
+func (r *ClusterQueueReconciler) enqueueTakeSnapshot(_ context.Context) {
 	for _, cq := range r.qManager.GetClusterQueueNames() {
 		r.snapshotsQueue.Add(cq)
 	}

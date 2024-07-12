@@ -70,7 +70,7 @@ func (p *Pod) Suspend() {
 	// Not used, see Stop()
 }
 
-func (p *Pod) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo) error {
+func (p *Pod) Stop(ctx context.Context, c client.Client, _ []jobframework.PodSetInfo) error {
 	if err := client.IgnoreNotFound(c.Delete(ctx, p.Object())); err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (j *Pod) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 	}
 }
 
-func (p *Pod) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
+func (p *Pod) RestorePodSetsInfo(_ []jobframework.PodSetInfo) {
 	// Existing Pod tolerations cannot be removed.
 	// Restoring is not needed anyways b/c suspending == deleting for Pods.
 }

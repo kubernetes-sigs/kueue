@@ -47,7 +47,7 @@ var (
 	errCannotWatch   = errors.New("client cannot watch")
 )
 
-func fakeClientBuilder(kubeconfig []byte, options client.Options) (client.WithWatch, error) {
+func fakeClientBuilder(kubeconfig []byte, _ client.Options) (client.WithWatch, error) {
 	if string(kubeconfig) == "invalid" {
 		return nil, errInvalidConfig
 	}
