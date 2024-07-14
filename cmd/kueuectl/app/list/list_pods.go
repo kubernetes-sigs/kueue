@@ -19,10 +19,13 @@ package list
 import (
 	"context"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1beta1 "k8s.io/apimachinery/pkg/apis/meta/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -30,6 +33,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/cli-runtime/pkg/resource"
 	k8s "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -72,7 +76,6 @@ var jobControllersWithPodLabelSelector = []jobControllerWithPodLabelSelector{
 type PodOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
-	Limit                  int64
 	AllNamespaces          bool
 	Namespace              string
 	LabelSelector          string
@@ -114,7 +117,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 		Run: func(cmd *cobra.Command, args []string) {
 			cobra.CheckErr(o.Complete(clientGetter))
 			if o.ForObject != nil {
-				cobra.CheckErr(o.Run(cmd.Context()))
+				cobra.CheckErr(o.Run(cmd.Context(), clientGetter))
 			}
 		},
 	}
@@ -135,10 +138,6 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 	var err error
 
-	o.Limit, err = listRequestLimit()
-	if err != nil {
-		return err
-	}
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return err
@@ -224,79 +223,6 @@ func (o *PodOptions) getForObject(infos []*resource.Info) (*unstructured.Unstruc
 	return job, nil
 }
 
-func (o *PodOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, error) {
-	if !o.PrintFlags.OutputFlagSpecified() {
-		printer := newPodTablePrinter().
-			WithNamespace(o.AllNamespaces).
-			WithNoHeaders(headers)
-		return printer.PrintObj, nil
-	}
-
-	printer, err := o.PrintFlags.ToPrinter()
-	if err != nil {
-		return nil, err
-	}
-
-	return printer.PrintObj, nil
-}
-
-// Run prints the pods for a specific Job
-func (o *PodOptions) Run(ctx context.Context) error {
-	var totalCount int
-
-	namespace := o.Namespace
-	if o.AllNamespaces {
-		namespace = ""
-	}
-
-	if len(o.LabelSelector) != 0 {
-		o.PodLabelSelector = "," + o.PodLabelSelector
-	}
-
-	opts := metav1.ListOptions{
-		LabelSelector: o.LabelSelector + o.PodLabelSelector,
-		FieldSelector: o.FieldSelector,
-		Limit:         o.Limit,
-	}
-
-	tabWriter := printers.GetNewTabWriter(o.Out)
-	for {
-		podList, err := o.Clientset.CoreV1().Pods(namespace).List(ctx, opts)
-		if err != nil {
-			return err
-		}
-
-		totalCount += len(podList.Items)
-		headers := totalCount == 0
-
-		printer, err := o.ToPrinter(headers)
-		if err != nil {
-			return err
-		}
-
-		if err = printer.PrintObj(podList, tabWriter); err != nil {
-			return err
-		}
-
-		if podList.Continue != "" {
-			opts.Continue = podList.Continue
-			continue
-		}
-
-		// handle if no filtered podList found
-		if totalCount == 0 {
-			o.printNoResourcesFound()
-			return nil
-		}
-
-		if err = tabWriter.Flush(); err != nil {
-			return err
-		}
-
-		return nil
-	}
-}
-
 func (o *PodOptions) getJobController() jobControllerWithPodLabelSelector {
 	for _, jobController := range jobControllersWithPodLabelSelector {
 		if jobController.GVK() == o.ForGVK {
@@ -321,6 +247,106 @@ func (o *PodOptions) getPodLabelSelector() (string, error) {
 	return jobController.PodLabelSelector(), nil
 }
 
+type trackingWriterWrapper struct {
+	Delegate io.Writer
+	Written  int
+}
+
+func (t *trackingWriterWrapper) Write(p []byte) (n int, err error) {
+	t.Written += len(p)
+	return t.Delegate.Write(p)
+}
+
+// Run prints the pods for a specific Job
+func (o *PodOptions) Run(ctx context.Context, clientGetter util.ClientGetter) error {
+	trackingWriter := &trackingWriterWrapper{Delegate: o.Out}
+	tabWriter := printers.GetNewTabWriter(trackingWriter)
+
+	infos, err := o.getPodsUsingAPI(clientGetter)
+	if err != nil {
+		return err
+	}
+
+	printer, err := o.ToPrinter()
+	if err != nil {
+		return err
+	}
+
+	for _, pod := range infos {
+		if err = printer.PrintObj(pod.Object, tabWriter); err != nil {
+			return err
+		}
+	}
+
+	if err = tabWriter.Flush(); err != nil {
+		return err
+	}
+
+	if trackingWriter.Written == 0 {
+		o.printNoResourcesFound()
+	}
+
+	return nil
+}
+
+func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {
+	tablePrinter := printers.NewTablePrinter(printers.PrintOptions{
+		NoHeaders:     false,
+		WithNamespace: o.AllNamespaces,
+		WithKind:      false,
+		Wide:          *o.PrintFlags.OutputFormat == "wide",
+		ShowLabels:    false,
+		ColumnLabels:  nil,
+	})
+
+	printer := &TablePrinter{Delegate: tablePrinter}
+
+	return printer.PrintObj, nil
+}
+
+// getPodsUsingAPI gets the pods raw infos directly from the API server
+func (o *PodOptions) getPodsUsingAPI(clientGetter util.ClientGetter) ([]*resource.Info, error) {
+	namespace := o.Namespace
+	if o.AllNamespaces {
+		namespace = ""
+	}
+
+	if len(o.LabelSelector) != 0 {
+		o.PodLabelSelector = "," + o.PodLabelSelector
+	}
+
+	r := clientGetter.NewResourceBuilder().Unstructured().
+		NamespaceParam(namespace).DefaultNamespace().AllNamespaces(o.AllNamespaces).
+		FieldSelectorParam(o.FieldSelector).
+		LabelSelectorParam(o.LabelSelector+o.PodLabelSelector).
+		ResourceTypeOrNameArgs(true, "pods").
+		ContinueOnError().
+		Latest().
+		Flatten().
+		TransformRequests(o.transformRequests).
+		Do()
+
+	if err := r.Err(); err != nil {
+		return nil, err
+	}
+
+	infos, err := r.Infos()
+	if err != nil {
+		return nil, err
+	}
+
+	return infos, nil
+}
+
+func (o *PodOptions) transformRequests(req *rest.Request) {
+	req.SetHeader("Accept", strings.Join([]string{
+		fmt.Sprintf("application/json;as=Table;v=%s;g=%s", metav1.SchemeGroupVersion.Version, metav1.GroupName),
+		fmt.Sprintf("application/json;as=Table;v=%s;g=%s", metav1beta1.SchemeGroupVersion.Version, metav1beta1.GroupName),
+		"application/json",
+	}, ","))
+}
+
+// printNoResourcesFound handles output when there is no object found in any namespaces
 func (o *PodOptions) printNoResourcesFound() {
 	if !o.AllNamespaces {
 		fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
