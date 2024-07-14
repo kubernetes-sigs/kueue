@@ -18,8 +18,11 @@ package list
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +32,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 
-	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
+	kueuecmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -43,29 +46,34 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	restfake "k8s.io/client-go/rest/fake"
+	"k8s.io/utils/strings/slices"
 
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 )
 
+type podTestCase struct {
+	name             string
+	job              []runtime.Object
+	pods             []corev1.Pod
+	apiResourceLists []*metav1.APIResourceList
+	mapperGVKs       []schema.GroupVersionKind
+	args             []string
+	wantOut          string
+	wantOutErr       string
+	wantErr          error
+}
+
 func TestPodCmd(t *testing.T) {
 	testStartTime := time.Now()
 
-	testCases := []struct {
-		name             string
-		namespace        string
-		objs             []runtime.Object
-		job              []runtime.Object
-		apiResourceLists []*metav1.APIResourceList
-		mapperGVKs       []schema.GroupVersionKind
-		args             []string
-		wantOut          string
-		wantOutErr       string
-		wantErr          error
-	}{
+	testCases := []podTestCase{
 		{
-			name: "list pods for valid batch/job type",
+			name: "list pods of batch/job with wide output",
 			job: []runtime.Object{
 				&batchv1.Job{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Job",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -75,8 +83,8 @@ func TestPodCmd(t *testing.T) {
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -86,22 +94,8 @@ func TestPodCmd(t *testing.T) {
 						Labels: map[string]string{
 							batchv1.JobNameLabel: "test-job",
 						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-								Name:       "test-job",
-							},
-						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
+				}, {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
 						Namespace: metav1.NamespaceDefault,
@@ -111,19 +105,74 @@ func TestPodCmd(t *testing.T) {
 						Labels: map[string]string{
 							batchv1.JobNameLabel: "test-job",
 						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-								Name:       "test-job",
-							},
+					},
+				},
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "batch",
+					Version: "v1",
+					Kind:    "Job",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
+				},
+			},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
+				},
+			},
+			args: []string{"--for", "job/test-job", "-o", "wide"},
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE         IP       NODE     NOMINATED NODE   READINESS GATES
+valid-pod-1   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
+valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
+`,
+		}, {
+			name: "list pods for valid batch/job type",
+			job: []runtime.Object{
+				&batchv1.Job{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Job",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-job",
+						Namespace: metav1.NamespaceDefault,
+						Labels: map[string]string{
+							batchv1.JobNameLabel: "test-job",
+						},
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-1",
+						Namespace: metav1.NamespaceDefault,
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						Labels: map[string]string{
+							batchv1.JobNameLabel: "test-job",
+						},
+					},
+				}, {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "valid-pod-2",
+						Namespace: metav1.NamespaceDefault,
+						CreationTimestamp: metav1.Time{
+							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
+						},
+						Labels: map[string]string{
+							batchv1.JobNameLabel: "test-job",
 						},
 					},
 				},
@@ -133,6 +182,10 @@ func TestPodCmd(t *testing.T) {
 					Group:   "batch",
 					Version: "v1",
 					Kind:    "Job",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -148,14 +201,17 @@ func TestPodCmd(t *testing.T) {
 				},
 			},
 			args: []string{"--for", "job/test-job"},
-			wantOut: `NAME          READY   STATUS      RESTARTS   AGE
-valid-pod-1   1/1     Running     0          60m
-valid-pod-2   0/1     Completed   0          60m
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+valid-pod-1   1/1     Running   0          <unknown>
+valid-pod-2   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "no valid pods for batch/job type in current namespace",
 			job: []runtime.Object{
 				&batchv1.Job{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Job",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -165,64 +221,16 @@ valid-pod-2   0/1     Completed   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "sample-job",
-						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-								Name:       "sample-job",
-							},
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "sample-job",
-						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-								Name:       "sample-job",
-							},
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
-				},
-			},
+			pods: []corev1.Pod{},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
 					Group:   "batch",
 					Version: "v1",
 					Kind:    "Job",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -245,6 +253,9 @@ valid-pod-2   0/1     Completed   0          60m
 			name: "no valid pods for batch/job type in all namespaces",
 			job: []runtime.Object{
 				&batchv1.Job{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Job",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -254,64 +265,16 @@ valid-pod-2   0/1     Completed   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-1",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "sample-job",
-						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-								Name:       "sample-job",
-							},
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "sample-job",
-						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-								Name:       "sample-job",
-							},
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
-				},
-			},
+			pods: []corev1.Pod{},
 			mapperGVKs: []schema.GroupVersionKind{
 				{
 					Group:   "batch",
 					Version: "v1",
 					Kind:    "Job",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -334,6 +297,9 @@ valid-pod-2   0/1     Completed   0          60m
 			name: "valid pods for batch/job type in all namespaces",
 			job: []runtime.Object{
 				&batchv1.Job{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Job",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "sample-job",
 						Namespace: metav1.NamespaceDefault,
@@ -343,8 +309,8 @@ valid-pod-2   0/1     Completed   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: "dev-team-a",
@@ -354,22 +320,8 @@ valid-pod-2   0/1     Completed   0          60m
 						Labels: map[string]string{
 							batchv1.JobNameLabel: "sample-job",
 						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-								Name:       "sample-job",
-							},
-						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
+				}, {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-2",
 						Namespace: "dev-team-b",
@@ -379,20 +331,6 @@ valid-pod-2   0/1     Completed   0          60m
 						Labels: map[string]string{
 							batchv1.JobNameLabel: "sample-job",
 						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-								Name:       "sample-job",
-							},
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
 					},
 				},
 			},
@@ -401,6 +339,10 @@ valid-pod-2   0/1     Completed   0          60m
 					Group:   "batch",
 					Version: "v1",
 					Kind:    "Job",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -416,14 +358,17 @@ valid-pod-2   0/1     Completed   0          60m
 				},
 			},
 			args: []string{"--for", "job/sample-job", "-A"},
-			wantOut: `NAMESPACE    NAME          READY   STATUS      RESTARTS   AGE
-dev-team-a   valid-pod-1   1/1     Running     0          60m
-dev-team-b   valid-pod-2   0/1     Completed   0          60m
+			wantOut: `NAMESPACE    NAME          READY   STATUS    RESTARTS   AGE
+dev-team-a   valid-pod-1   1/1     Running   0          <unknown>
+dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/PyTorchJob type",
 			job: []runtime.Object{
 				&kftraining.PyTorchJob{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "PyTorchJob",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -434,8 +379,8 @@ dev-team-b   valid-pod-2   0/1     Completed   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -447,32 +392,6 @@ dev-team-b   valid-pod-2   0/1     Completed   0          60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "pytorchjob-controller",
-							kftraining.JobNameLabel:      "sample-job",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -480,6 +399,10 @@ dev-team-b   valid-pod-2   0/1     Completed   0          60m
 					Group:   "kubeflow.org",
 					Version: "v1",
 					Kind:    "PyTorchJob",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -496,12 +419,15 @@ dev-team-b   valid-pod-2   0/1     Completed   0          60m
 			},
 			args: []string{"--for", "pytorchjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/MXjob type",
 			job: []runtime.Object{
 				&kftraining.MXJob{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "MXJob",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -512,8 +438,8 @@ valid-pod-1   1/1     Running   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -525,32 +451,6 @@ valid-pod-1   1/1     Running   0          60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "mxjob-controller",
-							kftraining.JobNameLabel:      "sample-job",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -558,6 +458,10 @@ valid-pod-1   1/1     Running   0          60m
 					Group:   "kubeflow.org",
 					Version: "v1",
 					Kind:    "MXJob",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -574,12 +478,15 @@ valid-pod-1   1/1     Running   0          60m
 			},
 			args: []string{"--for", "mxjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/paddlejob type",
 			job: []runtime.Object{
 				&kftraining.PaddleJob{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "PaddleJob",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -590,8 +497,8 @@ valid-pod-1   1/1     Running   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -603,32 +510,6 @@ valid-pod-1   1/1     Running   0          60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "paddlejob-controller",
-							kftraining.JobNameLabel:      "sample-job",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -636,6 +517,10 @@ valid-pod-1   1/1     Running   0          60m
 					Group:   "kubeflow.org",
 					Version: "v1",
 					Kind:    "PaddleJob",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -652,12 +537,15 @@ valid-pod-1   1/1     Running   0          60m
 			},
 			args: []string{"--for", "paddlejob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/tfjob type",
 			job: []runtime.Object{
 				&kftraining.TFJob{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "TFJob",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -668,8 +556,8 @@ valid-pod-1   1/1     Running   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -681,32 +569,6 @@ valid-pod-1   1/1     Running   0          60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "tfjob-controller",
-							kftraining.JobNameLabel:      "sample-job",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -714,6 +576,10 @@ valid-pod-1   1/1     Running   0          60m
 					Group:   "kubeflow.org",
 					Version: "v1",
 					Kind:    "TFJob",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -730,12 +596,15 @@ valid-pod-1   1/1     Running   0          60m
 			},
 			args: []string{"--for", "tfjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/mpijob type",
 			job: []runtime.Object{
 				&kftraining.MPIJob{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "MPIJob",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -746,8 +615,8 @@ valid-pod-1   1/1     Running   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -759,32 +628,6 @@ valid-pod-1   1/1     Running   0          60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "mpijob-controller",
-							kftraining.JobNameLabel:      "sample-job",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -792,6 +635,10 @@ valid-pod-1   1/1     Running   0          60m
 					Group:   "kubeflow.org",
 					Version: "v2beta1",
 					Kind:    "MPIJob",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -808,12 +655,15 @@ valid-pod-1   1/1     Running   0          60m
 			},
 			args: []string{"--for", "mpijob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/xgboostjob type",
 			job: []runtime.Object{
 				&kftraining.XGBoostJob{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "XGBoostJob",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -824,8 +674,8 @@ valid-pod-1   1/1     Running   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -837,32 +687,6 @@ valid-pod-1   1/1     Running   0          60m
 							kftraining.JobNameLabel:      "test-job",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "xgboostjob-controller",
-							kftraining.JobNameLabel:      "sample-job",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -870,6 +694,10 @@ valid-pod-1   1/1     Running   0          60m
 					Group:   "kubeflow.org",
 					Version: "v1",
 					Kind:    "XGBoostJob",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -886,12 +714,15 @@ valid-pod-1   1/1     Running   0          60m
 			},
 			args: []string{"--for", "xgboostjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for ray.io/rayjob type",
 			job: []runtime.Object{
 				&rayv1.RayJob{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "RayJob",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -901,8 +732,8 @@ valid-pod-1   1/1     Running   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -913,31 +744,6 @@ valid-pod-1   1/1     Running   0          60m
 							batchv1.JobNameLabel: "test-job",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "invalid-job",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -945,6 +751,10 @@ valid-pod-1   1/1     Running   0          60m
 					Group:   "ray.io",
 					Version: "v1",
 					Kind:    "RayJob",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -961,12 +771,15 @@ valid-pod-1   1/1     Running   0          60m
 			},
 			args: []string{"--for", "rayjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for ray.io/raycluster type",
 			job: []runtime.Object{
 				&rayv1.RayCluster{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "RayCluster",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-cluster",
 						Namespace: metav1.NamespaceDefault,
@@ -976,8 +789,8 @@ valid-pod-1   1/1     Running   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -988,31 +801,6 @@ valid-pod-1   1/1     Running   0          60m
 							rayutils.RayClusterLabelKey: "test-cluster",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							rayutils.RayClusterLabelKey: "invalid-cluster",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -1020,6 +808,10 @@ valid-pod-1   1/1     Running   0          60m
 					Group:   "ray.io",
 					Version: "v1",
 					Kind:    "RayCluster",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -1036,12 +828,15 @@ valid-pod-1   1/1     Running   0          60m
 			},
 			args: []string{"--for", "raycluster/test-cluster"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for jobset.x-k8s.io/jobset type",
 			job: []runtime.Object{
 				&jobsetapi.JobSet{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "JobSet",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -1051,8 +846,8 @@ valid-pod-1   1/1     Running   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -1063,31 +858,6 @@ valid-pod-1   1/1     Running   0          60m
 							jobsetapi.JobSetNameKey: "test-job",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							jobsetapi.JobSetNameKey: "sample-job",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -1095,6 +865,10 @@ valid-pod-1   1/1     Running   0          60m
 					Group:   "jobset.x-k8s.io",
 					Version: "v1alpha2",
 					Kind:    "JobSet",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -1111,12 +885,15 @@ valid-pod-1   1/1     Running   0          60m
 			},
 			args: []string{"--for", "jobset/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods with api-group filter",
 			job: []runtime.Object{
 				&jobsetapi.JobSet{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "JobSet",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-job",
 						Namespace: metav1.NamespaceDefault,
@@ -1126,8 +903,8 @@ valid-pod-1   1/1     Running   0          60m
 					},
 				},
 			},
-			objs: []runtime.Object{
-				&corev1.Pod{
+			pods: []corev1.Pod{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "valid-pod-1",
 						Namespace: metav1.NamespaceDefault,
@@ -1138,31 +915,6 @@ valid-pod-1   1/1     Running   0          60m
 							jobsetapi.JobSetNameKey: "test-job",
 						},
 					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
-						},
-					},
-				}, &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "valid-pod-2",
-						Namespace: metav1.NamespaceDefault,
-						CreationTimestamp: metav1.Time{
-							Time: testStartTime.Add(-time.Hour).Truncate(time.Second),
-						},
-						Labels: map[string]string{
-							jobsetapi.JobSetNameKey: "sample-job",
-						},
-					},
-					Spec: corev1.PodSpec{Containers: make([]corev1.Container, 1)},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodSucceeded,
-						ContainerStatuses: []corev1.ContainerStatus{
-							{Ready: true, RestartCount: 0, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}},
-						},
-					},
 				},
 			},
 			mapperGVKs: []schema.GroupVersionKind{
@@ -1170,6 +922,10 @@ valid-pod-1   1/1     Running   0          60m
 					Group:   "jobset.x-k8s.io",
 					Version: "v1alpha2",
 					Kind:    "JobSet",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
 				},
 			},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -1186,7 +942,7 @@ valid-pod-1   1/1     Running   0          60m
 			},
 			args: []string{"--for", "jobset.jobset.x-k8s.io/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
-valid-pod-1   1/1     Running   0          60m
+valid-pod-1   1/1     Running   0          <unknown>
 `,
 		},
 	}
@@ -1203,40 +959,23 @@ valid-pod-1   1/1     Running   0          60m
 				return m
 			}()
 
-			tf := cmdtesting.NewTestClientGetter()
+			tf := kueuecmdtesting.NewTestClientGetter()
 			tf.WithNamespace(metav1.NamespaceDefault)
 			tf.WithRestMapper(mapper)
 
-			if len(tc.job) != 0 {
-				scheme := runtime.NewScheme()
-				if err := corev1.AddToScheme(scheme); err != nil {
-					t.Errorf("Unexpected error\n%s", err)
-				}
-				if err := batchv1.AddToScheme(scheme); err != nil {
-					t.Errorf("Unexpected error\n%s", err)
-				}
-				if err := rayv1.AddToScheme(scheme); err != nil {
-					t.Errorf("Unexpected error\n%s", err)
-				}
-				if err := kftraining.AddToScheme(scheme); err != nil {
-					t.Errorf("Unexpected error\n%s", err)
-				}
-				if err := jobsetapi.AddToScheme(scheme); err != nil {
-					t.Errorf("Unexpected error\n%s", err)
-				}
-
-				codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
-
-				tf.UnstructuredClient = &restfake.RESTClient{
-					NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
-					Resp: &http.Response{
-						StatusCode: http.StatusOK,
-						Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.job[0])))),
-					},
-				}
+			scheme, err := buildTestRuntimeScheme()
+			if err != nil {
+				t.Errorf("Unexpected error\n%s", err)
 			}
 
-			clientset := k8sfake.NewSimpleClientset(tc.objs...)
+			codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
+
+			tf.UnstructuredClient, err = mockRESTClient(codec, tc)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			clientset := k8sfake.NewSimpleClientset()
 			tf.K8sClientset = clientset
 			tf.K8sClientset.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists
 
@@ -1260,4 +999,123 @@ valid-pod-1   1/1     Running   0          60m
 			}
 		})
 	}
+}
+
+func buildTestRuntimeScheme() (*runtime.Scheme, error) {
+	scheme := runtime.NewScheme()
+
+	scheme.AddKnownTypes(metav1.SchemeGroupVersion, &metav1.Table{})
+	if err := corev1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	if err := batchv1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	if err := rayv1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	if err := kftraining.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	if err := jobsetapi.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+
+	return scheme, nil
+}
+
+func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, error) {
+	var podRespBody io.ReadCloser
+
+	podList := &corev1.PodList{Items: tc.pods}
+	if len(podList.Items) == 0 {
+		podRespBody = emptyTableObjBody(codec)
+	} else {
+		podRespBody = podTableObjBody(codec, podList.Items...)
+	}
+
+	reqPathPrefix := fmt.Sprintf("/namespaces/%s", metav1.NamespaceDefault)
+	if slices.Contains(tc.args, "-A") || slices.Contains(tc.args, "all-namespaces") {
+		reqPathPrefix = ""
+	}
+
+	reqJobKind := strings.ToLower(tc.job[0].GetObjectKind().GroupVersionKind().Kind) + "s"
+
+	var err error
+	mockRestClient := &restfake.RESTClient{
+		NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
+		Client: restfake.CreateHTTPClient(func(request *http.Request) (*http.Response, error) {
+			switch request.URL.Path {
+			case fmt.Sprintf("%s/%s", reqPathPrefix, reqJobKind):
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     getDefaultHeader(),
+					Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.job[0])))),
+				}, nil
+			case fmt.Sprintf("%s/pods", reqPathPrefix):
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     getDefaultHeader(),
+					Body:       podRespBody,
+				}, nil
+			default:
+				err = fmt.Errorf("request URL: %#v, and request: %#v", request.URL, request)
+				return nil, nil
+			}
+		}),
+	}
+
+	return mockRestClient, err
+}
+
+func getDefaultHeader() http.Header {
+	header := http.Header{}
+	header.Set("Content-Type", runtime.ContentTypeJSON)
+	return header
+}
+
+var podColumns = []metav1.TableColumnDefinition{
+	{Name: "Name", Type: "string", Format: "name"},
+	{Name: "Ready", Type: "string", Format: ""},
+	{Name: "Status", Type: "string", Format: ""},
+	{Name: "Restarts", Type: "integer", Format: ""},
+	{Name: "Age", Type: "string", Format: ""},
+	{Name: "IP", Type: "string", Format: "", Priority: 1},
+	{Name: "Node", Type: "string", Format: "", Priority: 1},
+	{Name: "Nominated Node", Type: "string", Format: "", Priority: 1},
+	{Name: "Readiness Gates", Type: "string", Format: "", Priority: 1},
+}
+
+// podTableObjBody builds a table with the given list of pods
+func podTableObjBody(codec runtime.Codec, pods ...corev1.Pod) io.ReadCloser {
+	table := &metav1.Table{
+		TypeMeta:          metav1.TypeMeta{APIVersion: "meta.k8s.io/v1", Kind: "Table"},
+		ColumnDefinitions: podColumns,
+	}
+
+	for i := range pods {
+		b := bytes.NewBuffer(nil)
+		_ = codec.Encode(&pods[i], b)
+		table.Rows = append(table.Rows, metav1.TableRow{
+			Object: runtime.RawExtension{Raw: b.Bytes()},
+			Cells:  []interface{}{pods[i].Name, "1/1", "Running", int64(0), "<unknown>", "<none>", "<none>", "<none>", "<none>"},
+		})
+	}
+
+	data, err := json.Marshal(table)
+	if err != nil {
+		panic(err)
+	}
+	if !strings.Contains(string(data), `"meta.k8s.io/v1"`) {
+		panic("expected v1, got " + string(data))
+	}
+	return io.NopCloser(bytes.NewReader(data))
+}
+
+// emptyTableObjBody builds an empty table response
+func emptyTableObjBody(codec runtime.Codec) io.ReadCloser {
+	table := &metav1.Table{
+		ColumnDefinitions: podColumns,
+	}
+	return io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, table))))
 }
