@@ -492,6 +492,14 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, clusterRoleBinding)).Should(gomega.Succeed())
+			ginkgo.By("Wait for ResourceNotFound error instead of Forbidden to make sure the role bindings work", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					_, err := impersonatedVisibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
+					statusErr, ok := err.(*errors.StatusError)
+					g.Expect(ok).To(gomega.BeTrue())
+					g.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonNotFound))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.AfterEach(func() {
@@ -526,6 +534,14 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, roleBinding)).Should(gomega.Succeed())
+			ginkgo.By("Wait for ResourceNotFound error instead of Forbidden to make sure the role bindings work", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					_, err := impersonatedVisibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
+					statusErr, ok := err.(*errors.StatusError)
+					g.Expect(ok).To(gomega.BeTrue())
+					g.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonNotFound))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.AfterEach(func() {
