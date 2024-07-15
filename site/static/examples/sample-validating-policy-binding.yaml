@@ -7,7 +7,5 @@ spec:
   validationActions: [Deny]
   matchResources:
     namespaceSelector:
-      matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values: ["admin-namespace"]
+      matchLabels:
+        kueue-managed: "true"

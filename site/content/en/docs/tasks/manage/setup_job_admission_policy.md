@@ -19,10 +19,10 @@ Ensure the following conditions are met:
 ## Example
 
 The example below shows you how to set up the Job Admission Policy to reject early all Job or JobSets
-without the queue-name if sent to a namespace other than `admin-namespace`.
+without the queue-name if sent to a namespace labeled as a `kueue-managed` namespace.
 
 You should set `manageJobsWithoutQueueName` to `false` in the Kueue Configuration to let an admin
-to execute Jobs in the `admin-namespace`. Jobs sent to this namespace aren't rejected, or managed
+to execute Jobs in any namespace that is not labeled as `kueue-managed`. Jobs sent to unlabeled namespaces aren't rejected, or managed
 by Kueue.
 
 {{< include "examples/sample-validating-policy.yaml" "yaml" >}}
@@ -45,8 +45,14 @@ To create the binding, download the above file and run the following command:
 kubectl create -f sample-validating-policy-binding.yaml
 ```
 
-Now, when you try to create a `Job` or a `JobSet` without the `kueue.x-k8s.io/queue-name` label or value in any namespace other than `admin-namespace`,
-the error message will be similar to the following:
+Run the following command to label each namespace where you want this policy to be enforced:
+
+```shell
+kubectl label namespace my-user-namespace 'kueue-managed=true'
+```
+
+Now, when you try to create a `Job` or a `JobSet` without the `kueue.x-k8s.io/queue-name` label or value in any namespace
+that is labeled as `kueue-managed`, the error message will be similar to the following:
 
 ```
 ValidatingAdmissionPolicy 'sample-validating-admission-policy' with binding 'sample-validating-admission-policy-binding' denied request: The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set.

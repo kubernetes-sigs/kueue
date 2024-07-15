@@ -15,5 +15,5 @@ spec:
       operations:  ["CREATE", "UPDATE"]
       resources:   ["jobsets"]
   validations:
-    - expression: "'kueue.x-k8s.io/queue-name' in object.metadata.labels && object.metadata.labels['kueue.x-k8s.io/queue-name'] != ''"
+    - expression: "has(object.metadata.labels) && 'kueue.x-k8s.io/queue-name' in object.metadata.labels && object.metadata.labels['kueue.x-k8s.io/queue-name'] != ''"
       message: "The label 'kueue.x-k8s.io/queue-name' is either missing or does not have a value set."
