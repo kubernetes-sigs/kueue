@@ -18,6 +18,7 @@ package util
 
 import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 )
