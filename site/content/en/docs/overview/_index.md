@@ -32,7 +32,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **System insight:** Built-in [prometheus metrics](/docs/reference/metrics/) to help monitor the state of the system, as well as Conditions.
 - **AdmissionChecks:** A mechanism for internal or external components to influence whether a workload can be [admitted](/docs/concepts/admission_check/).
 - **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](/docs/admission-check-controllers/provisioning/#job-using-a-provisioningrequest) via admissionChecks.
-- **All-or-nothing with ready Pods:** A timeout-based implementation of [All-or-nothing scheduling](/docs/tasks/setup_wait_for_pods_ready/).
+- **All-or-nothing with ready Pods:** A timeout-based implementation of [All-or-nothing scheduling](/docs/tasks/manage/setup_wait_for_pods_ready/).
 - **Partial admission:** Allows jobs to run with a [smaller parallelism](/docs/tasks/run/jobs/#partial-admission), based on available quota, if the application supports it.
 
 ## High-level Kueue operation
