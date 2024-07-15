@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"sync"
@@ -2646,7 +2647,7 @@ func TestResourcesToReserve(t *testing.T) {
 		assignmentMode  flavorassigner.FlavorAssignmentMode
 		borrowing       bool
 		assignmentUsage resources.FlavorResourceQuantities
-		cqUsage         resources.FlavorResourceQuantities
+		cqUsage         resources.FlavorResourceQuantitiesFlat
 		wantReserved    resources.FlavorResourceQuantities
 	}{
 		{
@@ -2661,7 +2662,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      50,
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   6,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,
-			}.Unflatten(),
+			},
 			wantReserved: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 40,
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   4,
@@ -2679,7 +2680,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      50,
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,
-			}.Unflatten(),
+			},
 			wantReserved: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 30,
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
@@ -2697,7 +2698,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      50,
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,
-			}.Unflatten(),
+			},
 			wantReserved: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 50,
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
@@ -2715,7 +2716,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      60,
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   10,
-			}.Unflatten(),
+			},
 			wantReserved: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}: 0,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              0,
@@ -2734,7 +2735,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      60,
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   10,
-			}.Unflatten(),
+			},
 			wantReserved: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}: 40,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:              2,
@@ -2753,7 +2754,7 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("spot"), Resource: corev1.ResourceMemory}:      60,
 				{Flavor: kueue.ResourceFlavorReference("model-a"), Resource: "gpu"}:                   2,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   10,
-			}.Unflatten(),
+			},
 			wantReserved: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: 50,
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   2,
@@ -2790,10 +2791,18 @@ func TestResourcesToReserve(t *testing.T) {
 			if err != nil {
 				t.Errorf("Error when adding ClusterQueue to the cache: %v", err)
 			}
-			cachedCQ := cqCache.Snapshot().ClusterQueues["cq"]
-			cachedCQ.Usage = tc.cqUsage
 
-			got := resourcesToReserve(e, cachedCQ)
+			i := 0
+			for fr, v := range tc.cqUsage {
+				quantity := resources.ResourceQuantity(fr.Resource, v)
+				admission := utiltesting.MakeAdmission("cq").Assignment(fr.Resource, fr.Flavor, quantity.String())
+				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
+				cqCache.AddOrUpdateWorkload(wl)
+				i += 1
+			}
+			cqSnapshot := cqCache.Snapshot().ClusterQueues["cq"]
+
+			got := resourcesToReserve(e, cqSnapshot)
 			if !reflect.DeepEqual(tc.wantReserved, got) {
 				t.Errorf("%s failed\n: Want reservedMem: %v, got: %v", tc.name, tc.wantReserved, got)
 			}
