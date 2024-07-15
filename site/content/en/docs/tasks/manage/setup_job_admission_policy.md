@@ -45,7 +45,7 @@ To create the binding, download the above file and run the following command:
 kubectl create -f sample-validating-policy-binding.yaml
 ```
 
-Label each namespace where you want this policy to be enforced by doing:
+Run the following command to label each namespace where you want this policy to be enforced:
 
 ```shell
 kubectl label namespace my-user-namespace 'kueue-managed=true'
