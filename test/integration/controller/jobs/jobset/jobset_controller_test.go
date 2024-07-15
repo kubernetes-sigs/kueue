@@ -1093,9 +1093,9 @@ var _ = ginkgo.Describe("Enhanced JobSet controller tests", ginkgo.Ordered, gink
 	})
 
 	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.It("Should finish the preemption when the jobset becomes inactive", func() {
