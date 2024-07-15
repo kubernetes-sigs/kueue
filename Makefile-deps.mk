@@ -129,9 +129,3 @@ cluster-autoscaler-crd: ## Copy the CRDs from the cluster-autoscaler to the dep-
 .PHONY: dep-crds
 dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
-
-.PHONY: kueuectl-docs
-kueuectl-docs:
-	cd $(PROJECT_DIR)/hack/internal/tools && \
-	go mod download && \
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kueuectl-docs ./kueuectl-docs/main.go
