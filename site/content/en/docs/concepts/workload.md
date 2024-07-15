@@ -131,7 +131,7 @@ The `count` can only increase while the workload holds a Quota Reservation.
 ## All-or-nothing semantics for Job Resource Assignment
 
 This mechanism allows a Job to be evicted and re-queued if the job doesn't become ready.
-Please refer to the [All-or-nothing with ready Pods](/docs/tasks/setup_wait_for_pods_ready) for more details.
+Please refer to the [All-or-nothing with ready Pods](/docs/tasks/manage/setup_wait_for_pods_ready/) for more details.
 
 ### Exponential Backoff Requeueing
 
