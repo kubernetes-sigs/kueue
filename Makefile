@@ -171,7 +171,7 @@ shell-lint: ## Run shell linting.
 	$(PROJECT_DIR)/hack/verify-shellcheck.sh
 
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref generate-kueuectl-docs prepare-release-branch
+verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref prepare-release-branch
 	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/
 
 ##@ Build
@@ -320,15 +320,8 @@ importer-image: importer-image-build
 
 .PHONY: kueuectl
 kueuectl:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kubectl-kueue cmd/kueuectl/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kueue cmd/kueuectl/main.go
 
 .PHONY: generate-apiref
 generate-apiref: genref
 	cd $(PROJECT_DIR)/hack/genref/ && $(GENREF) -o $(PROJECT_DIR)/site/content/en/docs/reference
-
-.PHONY: generate-kueuectl-docs
-generate-kueuectl-docs: kueuectl-docs
-	rm -Rf $(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands/kueuectl*
-	$(PROJECT_DIR)/bin/kueuectl-docs \
-		$(PROJECT_DIR)/hack/internal/tools/kueuectl-docs/templates \
-		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands
