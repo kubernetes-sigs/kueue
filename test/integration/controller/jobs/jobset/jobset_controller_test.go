@@ -1052,7 +1052,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 	})
 })
 
-var _ = ginkgo.Describe("Enhanced JobSet controller tests", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("JobSet controller preemption tests for workloads", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
 			CRDPath:     crdPath,
