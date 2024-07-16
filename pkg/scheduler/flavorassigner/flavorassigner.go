@@ -46,7 +46,7 @@ type Assignment struct {
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned.
-	Usage resources.FlavorResourceQuantities
+	Usage resources.FlavorResourceQuantitiesFlat
 
 	// representativeMode is the cached representative mode for this assignment.
 	representativeMode *FlavorAssignmentMode
@@ -296,7 +296,7 @@ func (a *FlavorAssigner) Assign(log logr.Logger, counts []int32) Assignment {
 func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodSetResources) Assignment {
 	assignment := Assignment{
 		PodSets: make([]PodSetAssignment, 0, len(requests)),
-		Usage:   make(resources.FlavorResourceQuantities),
+		Usage:   make(resources.FlavorResourceQuantitiesFlat),
 		LastState: workload.AssignmentClusterQueueState{
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
 			CohortGeneration:       0,
@@ -360,10 +360,8 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		if flvAssignment.borrow {
 			a.Borrowing = true
 		}
-		if a.Usage[flvAssignment.Name] == nil {
-			a.Usage[flvAssignment.Name] = make(map[corev1.ResourceName]int64)
-		}
-		a.Usage[flvAssignment.Name][resource] += requests[resource]
+		fr := resources.FlavorResource{Flavor: flvAssignment.Name, Resource: resource}
+		a.Usage[fr] += requests[resource]
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
 	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
@@ -379,7 +377,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	psID int,
 	requests resources.Requests,
 	resName corev1.ResourceName,
-	assignmentUsage resources.FlavorResourceQuantities,
+	assignmentUsage resources.FlavorResourceQuantitiesFlat,
 ) (ResourceAssignment, *Status) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
@@ -430,7 +428,8 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 		for rName, val := range requests {
 			resQuota := a.cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 			// Check considering the flavor usage by previous pod sets.
-			mode, borrow, s := a.fitsResourceQuota(fName, rName, val+assignmentUsage[fName][rName], resQuota)
+			fr := resources.FlavorResource{Flavor: fName, Resource: rName}
+			mode, borrow, s := a.fitsResourceQuota(fName, rName, val+assignmentUsage[fr], resQuota)
 			if s != nil {
 				status.reasons = append(status.reasons, s.reasons...)
 			}

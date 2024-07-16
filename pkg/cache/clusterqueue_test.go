@@ -96,13 +96,13 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 func TestFitInCohort(t *testing.T) {
 	cases := map[string]struct {
-		request            resources.FlavorResourceQuantities
+		request            resources.FlavorResourceQuantitiesFlat
 		wantFit            bool
 		cq                 *ClusterQueueSnapshot
 		enableLendingLimit bool
 	}{
 		"full cohort, empty request": {
-			request: resources.FlavorResourceQuantities{},
+			request: resources.FlavorResourceQuantitiesFlat{},
 			wantFit: true,
 			cq: &ClusterQueueSnapshot{
 				Name: "CQ",
@@ -128,7 +128,7 @@ func TestFitInCohort(t *testing.T) {
 			request: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
-			}.Unflatten(),
+			},
 			wantFit: true,
 			cq: &ClusterQueueSnapshot{
 				Name: "CQ",
@@ -156,7 +156,7 @@ func TestFitInCohort(t *testing.T) {
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
-			}.Unflatten(),
+			},
 			wantFit: false,
 			cq: &ClusterQueueSnapshot{
 				Name: "CQ",
@@ -184,7 +184,7 @@ func TestFitInCohort(t *testing.T) {
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    2,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
-			}.Unflatten(),
+			},
 			wantFit: false,
 			cq: &ClusterQueueSnapshot{
 				Name: "CQ",
@@ -210,7 +210,7 @@ func TestFitInCohort(t *testing.T) {
 			request: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
-			}.Unflatten(),
+			},
 			wantFit: false,
 			cq: &ClusterQueueSnapshot{
 				Name: "CQ",
@@ -232,7 +232,7 @@ func TestFitInCohort(t *testing.T) {
 			request: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
-			}.Unflatten(),
+			},
 			wantFit: false,
 			cq: &ClusterQueueSnapshot{
 				Name: "CQ",
@@ -251,7 +251,7 @@ func TestFitInCohort(t *testing.T) {
 		"lendingLimit enabled can't fit": {
 			request: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3,
-			}.Unflatten(),
+			},
 			wantFit: false,
 			cq: &ClusterQueueSnapshot{
 				Name: "CQ-A",
@@ -276,7 +276,7 @@ func TestFitInCohort(t *testing.T) {
 		"lendingLimit enabled can fit": {
 			request: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3,
-			}.Unflatten(),
+			},
 			wantFit: true,
 			cq: &ClusterQueueSnapshot{
 				Name: "CQ-A",
