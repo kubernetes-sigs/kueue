@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,6 +48,7 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	utilruntime.Must(jobset.AddToScheme(scheme))
+	utilruntime.Must(kftraining.AddToScheme(scheme))
 
 	ctx := context.Background()
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Namespace{

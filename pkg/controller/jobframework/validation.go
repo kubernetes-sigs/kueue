@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -35,8 +36,10 @@ var (
 	labelsPath                    = field.NewPath("metadata", "labels")
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
-	supportedPrebuiltWlJobGVKs    = sets.New(batchv1.SchemeGroupVersion.WithKind("Job").String(),
-		jobset.SchemeGroupVersion.WithKind("JobSet").String())
+	supportedPrebuiltWlJobGVKs    = sets.New(
+		batchv1.SchemeGroupVersion.WithKind("Job").String(),
+		jobset.SchemeGroupVersion.WithKind("JobSet").String(),
+		kftraining.SchemeGroupVersion.WithKind("TFJob").String())
 )
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
