@@ -38,7 +38,7 @@ var (
 )
 
 // APIRetryInterval is the duration to wait before retrying the API request.
-const APIRetryInterval = time.Second * 20
+var APIRetryInterval = time.Second * 20
 
 // SetupControllers setups all controllers and webhooks for integrations.
 // When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
