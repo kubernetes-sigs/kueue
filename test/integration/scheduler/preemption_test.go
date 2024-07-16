@@ -282,7 +282,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 			ginkgo.By("Verify the Preempted condition", func() {
 				util.ExpectPreemptedCondition(ctx, k8sClient, preemption.InClusterQueueReason, metav1.ConditionTrue, alphaLowWl, alphaMidWl)
-				util.ExpectPreemptedCondition(ctx, k8sClient, preemption.InCohortReclaimWhileBorrowingReason, metav1.ConditionTrue, betaMidWl, alphaMidWl)
+				util.ExpectPreemptedCondition(ctx, k8sClient, preemption.InCohortReclamationReason, metav1.ConditionTrue, betaMidWl, alphaMidWl)
 			})
 
 			ginkgo.By("Verify the Preempted condition on re-admission, as the preemptor is finished", func() {
@@ -306,7 +306,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[preemption.InCohortReclaimWhileBorrowingReason]),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[preemption.InCohortReclamationReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

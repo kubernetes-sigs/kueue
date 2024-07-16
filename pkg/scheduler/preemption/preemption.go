@@ -57,7 +57,7 @@ type Preemptor struct {
 	fsStrategies      []fsStrategy
 
 	// stubs
-	applyPreemption func(context.Context, *kueue.Workload, string, string) error
+	applyPreemption func(ctx context.Context, w *kueue.Workload, reason, message string) error
 }
 
 func New(cl client.Client, workloadOrdering workload.Ordering, recorder record.EventRecorder, fs config.FairSharing) *Preemptor {
@@ -247,22 +247,24 @@ func minimalPreemptions(log logr.Logger, wlReq resources.FlavorResourceQuantitie
 		}
 		if !sameCq {
 			reason = InCohortReclamationReason
-			if allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) >= *allowBorrowingBelowPriority {
-				// We set allowBorrowing=false if there is a candidate with priority
-				// exceeding allowBorrowingBelowPriority added to targets.
-				//
-				// We need to be careful mutating allowBorrowing. We rely on the
-				// fact that once there is a candidate exceeding the priority added
-				// to targets, then at least one such candidate is present in the
-				// final set of targets (after the second phase of the function).
-				//
-				// This is true, because the candidates are ordered according
-				// to priorities (from lowest to highest, using candidatesOrdering),
-				// and the last added target is not removed in the second phase of
-				// the function.
-				allowBorrowing = false
-			} else {
-				reason = InCohortReclaimWhileBorrowingReason
+			if allowBorrowingBelowPriority != nil {
+				if priority.Priority(candWl.Obj) >= *allowBorrowingBelowPriority {
+					// We set allowBorrowing=false if there is a candidate with priority
+					// exceeding allowBorrowingBelowPriority added to targets.
+					//
+					// We need to be careful mutating allowBorrowing. We rely on the
+					// fact that once there is a candidate exceeding the priority added
+					// to targets, then at least one such candidate is present in the
+					// final set of targets (after the second phase of the function).
+					//
+					// This is true, because the candidates are ordered according
+					// to priorities (from lowest to highest, using candidatesOrdering),
+					// and the last added target is not removed in the second phase of
+					// the function.
+					allowBorrowing = false
+				} else {
+					reason = InCohortReclaimWhileBorrowingReason
+				}
 			}
 		}
 		snapshot.RemoveWorkload(candWl)
