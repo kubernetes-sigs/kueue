@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +42,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = jobset.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kftraining.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
@@ -100,6 +104,11 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 }
 
 func WaitForJobSetAvailability(ctx context.Context, k8sClient client.Client) {
-	kcmKey := types.NamespacedName{Namespace: "jobset-system", Name: "jobset-controller-manager"}
-	waitForOperatorAvailability(ctx, k8sClient, kcmKey)
+	jcmKey := types.NamespacedName{Namespace: "jobset-system", Name: "jobset-controller-manager"}
+	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
+}
+
+func WaitForKubeFlowAvailability(ctx context.Context, k8sClient client.Client) {
+	kftoKey := types.NamespacedName{Namespace: "kubeflow", Name: "training-operator"}
+	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
 }

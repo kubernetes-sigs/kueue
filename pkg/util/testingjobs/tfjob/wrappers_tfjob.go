@@ -17,7 +17,6 @@ limitations under the License.
 package testing
 
 import (
-	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,6 +24,8 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 )
 
 // TFJobWrapper wraps a Job.
@@ -150,6 +151,20 @@ func (j *TFJobWrapper) Obj() *kftraining.TFJob {
 	return &j.TFJob
 }
 
+// Clone returns deep copy of the TFJobWrapper.
+func (j *TFJobWrapper) Clone() *TFJobWrapper {
+	return &TFJobWrapper{TFJob: *j.DeepCopy()}
+}
+
+// Label sets the label key and value
+func (j *TFJobWrapper) Label(key, value string) *TFJobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[key] = value
+	return j
+}
+
 // Queue updates the queue name of the job.
 func (j *TFJobWrapper) Queue(queue string) *TFJobWrapper {
 	if j.Labels == nil {
@@ -181,5 +196,17 @@ func (j *TFJobWrapper) Suspend(s bool) *TFJobWrapper {
 // UID updates the uid of the job.
 func (j *TFJobWrapper) UID(uid string) *TFJobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
+	return j
+}
+
+// Condition adds a condition
+func (j *TFJobWrapper) StatusConditions(c kftraining.JobCondition) *TFJobWrapper {
+	j.Status.Conditions = append(j.Status.Conditions, c)
+	return j
+}
+
+func (j *TFJobWrapper) Image(replicaType kftraining.ReplicaType, image string, args []string) *TFJobWrapper {
+	j.Spec.TFReplicaSpecs[replicaType].Template.Spec.Containers[0].Image = image
+	j.Spec.TFReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
 	return j
 }

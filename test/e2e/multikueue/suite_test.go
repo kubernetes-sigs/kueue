@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -86,6 +87,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(jobset.SchemeGroupVersion.Group, "jobsets/status", "get"),
 			policyRule(kueue.SchemeGroupVersion.Group, "workloads", resourceVerbs...),
 			policyRule(kueue.SchemeGroupVersion.Group, "workloads/status", "get", "patch", "update"),
+			policyRule(kftraining.SchemeGroupVersion.Group, "tfjobs", resourceVerbs...),
+			policyRule(kftraining.SchemeGroupVersion.Group, "tfjobs/status", "get"),
 		},
 	}
 	err := c.Create(ctx, cr)
@@ -222,6 +225,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForJobSetAvailability(ctx, k8sManagerClient)
 	util.WaitForJobSetAvailability(ctx, k8sWorker1Client)
 	util.WaitForJobSetAvailability(ctx, k8sWorker2Client)
+
+	// there should not be a kubeflow operator in manager cluster
+	util.WaitForKubeFlowAvailability(ctx, k8sWorker1Client)
+	util.WaitForKubeFlowAvailability(ctx, k8sWorker2Client)
 
 	ginkgo.GinkgoLogr.Info("Kueue and JobSet operators are available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
 
