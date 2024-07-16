@@ -44,7 +44,7 @@ import (
 )
 
 func TestSetupControllers(t *testing.T) {
-	APIRetryInterval = 10 * time.Millisecond
+	APIRetryInterval = 20 * time.Millisecond
 	availableIntegrations := map[string]IntegrationCallbacks{
 		"batch/job": {
 			NewReconciler:         testNewReconciler,
@@ -164,10 +164,13 @@ func TestSetupControllers(t *testing.T) {
 			if name == "mapper doesn't have ray.io/raycluster when Controllers have been setup, but eventually does" {
 				rayGVK := schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
 				mgr.GetRESTMapper().(*apimeta.DefaultRESTMapper).Add(rayGVK, apimeta.RESTScopeNamespace)
-				if _, err := mgr.GetRESTMapper().RESTMapping(rayv1.SchemeGroupVersion.WithKind("RayCluster").GroupKind(), rayv1.SchemeGroupVersion.Version); err != nil {
-					t.Errorf("ray.io/raycluster should be available now but got error: %v", err)
+				// Wait for setup to complete
+				for {
+					if _, ok := manager.enabledIntegrations["ray.io/raycluster"]; ok {
+						break // Exit loop if RayCluster is enabled
+					}
+					time.Sleep(10 * time.Millisecond)
 				}
-				time.Sleep(20 * time.Millisecond) // Allow time for the controller to start and enable the integration
 			}
 
 			if diff := cmp.Diff(tc.wantEnabledIntegrations, manager.enabledIntegrations.SortedList()); len(diff) != 0 {
