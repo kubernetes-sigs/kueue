@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -43,6 +44,7 @@ import (
 )
 
 func TestSetupControllers(t *testing.T) {
+	APIRetryInterval = 10 * time.Millisecond
 	availableIntegrations := map[string]IntegrationCallbacks{
 		"batch/job": {
 			NewReconciler:         testNewReconciler,
@@ -64,6 +66,14 @@ func TestSetupControllers(t *testing.T) {
 			NewReconciler:         testNewReconciler,
 			SetupWebhook:          testSetupWebhook,
 			JobType:               &corev1.Pod{},
+			SetupIndexes:          testSetupIndexes,
+			AddToScheme:           testAddToScheme,
+			CanSupportIntegration: testCanSupportIntegration,
+		},
+		"ray.io/raycluster": {
+			NewReconciler:         testNewReconciler,
+			SetupWebhook:          testSetupWebhook,
+			JobType:               &rayv1.RayCluster{},
 			SetupIndexes:          testSetupIndexes,
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
@@ -98,6 +108,17 @@ func TestSetupControllers(t *testing.T) {
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 			},
 			wantEnabledIntegrations: []string{"batch/job"},
+		},
+		"mapper doesn't have ray.io/raycluster when Controllers have been setup, but eventually does": {
+			opts: []Option{
+				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"}),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+				kubeflow.SchemeGroupVersionKind,
+				// Not including RayCluster
+			},
+			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
 		},
 	}
 	for name, tc := range cases {
@@ -138,6 +159,15 @@ func TestSetupControllers(t *testing.T) {
 			gotError := manager.setupControllers(mgr, logger, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
+			}
+
+			if name == "mapper doesn't have ray.io/raycluster when Controllers have been setup, but eventually does" {
+				rayGVK := schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
+				mgr.GetRESTMapper().(*apimeta.DefaultRESTMapper).Add(rayGVK, apimeta.RESTScopeNamespace)
+				if _, err := mgr.GetRESTMapper().RESTMapping(rayv1.SchemeGroupVersion.WithKind("RayCluster").GroupKind(), rayv1.SchemeGroupVersion.Version); err != nil {
+					t.Errorf("ray.io/raycluster should be available now but got error: %v", err)
+				}
+				time.Sleep(20 * time.Millisecond) // Allow time for the controller to start and enable the integration
 			}
 
 			if diff := cmp.Diff(tc.wantEnabledIntegrations, manager.enabledIntegrations.SortedList()); len(diff) != 0 {
