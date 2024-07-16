@@ -143,16 +143,10 @@ func (c *cohort) CalculateLendable() map[corev1.ResourceName]int64 {
 	return lendable
 }
 
-func (c *ClusterQueueSnapshot) FitInCohort(q resources.FlavorResourceQuantities) bool {
-	for flavor, qResources := range q {
-		if _, flavorFound := c.Cohort.RequestableResources[flavor]; flavorFound {
-			for resource, value := range qResources {
-				available := c.RequestableCohortQuota(flavor, resource) - c.UsedCohortQuota(flavor, resource)
-				if available < value {
-					return false
-				}
-			}
-		} else {
+func (c *ClusterQueueSnapshot) FitInCohort(q resources.FlavorResourceQuantitiesFlat) bool {
+	for fr, value := range q {
+		available := c.RequestableCohortQuota(fr.Flavor, fr.Resource) - c.UsedCohortQuota(fr.Flavor, fr.Resource)
+		if available < value {
 			return false
 		}
 	}

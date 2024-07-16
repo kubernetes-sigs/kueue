@@ -19,7 +19,6 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -144,42 +143,30 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
-type cohortsUsage map[string]resources.FlavorResourceQuantities
+type cohortsUsage map[string]resources.FlavorResourceQuantitiesFlat
 
-func (cu *cohortsUsage) add(cohort string, assignment resources.FlavorResourceQuantities) {
-	cohortUsage := (*cu)[cohort]
-	if cohortUsage == nil {
-		cohortUsage = make(resources.FlavorResourceQuantities, len(assignment))
+func (cu cohortsUsage) add(cohort string, assignment resources.FlavorResourceQuantitiesFlat) {
+	if cu[cohort] == nil {
+		cu[cohort] = make(resources.FlavorResourceQuantitiesFlat, len(assignment))
 	}
 
-	for flavor, resources := range assignment {
-		if _, found := cohortUsage[flavor]; found {
-			cohortUsage[flavor] = utilmaps.Merge(cohortUsage[flavor], resources, func(a, b int64) int64 { return a + b })
-		} else {
-			cohortUsage[flavor] = maps.Clone(resources)
-		}
+	for fr, v := range assignment {
+		cu[cohort][fr] += v
 	}
-	(*cu)[cohort] = cohortUsage
 }
 
-func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
-	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b resources.Requests) resources.Requests {
-		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
-	})
+func (cu cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantitiesFlat) resources.FlavorResourceQuantitiesFlat {
+	return utilmaps.Intersect(cu[cohort], assignment, func(a, b int64) int64 { return a + b })
 }
 
-func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) bool {
-	cohortUsage, cohortFound := (*cu)[cohort]
+func (cu cohortsUsage) hasCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantitiesFlat) bool {
+	cohortUsage, cohortFound := cu[cohort]
 	if !cohortFound {
 		return false
 	}
-	for flavor, assignmentResources := range assignment {
-		if cohortResources, found := cohortUsage[flavor]; found {
-			for resName := range assignmentResources {
-				if _, found := cohortResources[resName]; found {
-					return true
-				}
-			}
+	for fr := range assignment {
+		if cohortUsage[fr] > 0 {
+			return true
 		}
 	}
 	return false
@@ -377,24 +364,21 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
-func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
+func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantitiesFlat {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
 		return e.assignment.Usage
 	}
-	reservedUsage := make(resources.FlavorResourceQuantities)
-	for flavor, resourceUsage := range e.assignment.Usage {
-		reservedUsage[flavor] = make(map[corev1.ResourceName]int64)
-		for resource, usage := range resourceUsage {
-			cqQuota := cq.QuotaFor(resources.FlavorResource{Flavor: flavor, Resource: resource})
-			if !e.assignment.Borrowing {
-				reservedUsage[flavor][resource] = max(0, min(usage, cqQuota.Nominal-cq.Usage[flavor][resource]))
+	reservedUsage := make(resources.FlavorResourceQuantitiesFlat)
+	for fr, usage := range e.assignment.Usage {
+		cqQuota := cq.QuotaFor(fr)
+		if e.assignment.Borrowing {
+			if cqQuota.BorrowingLimit == nil {
+				reservedUsage[fr] = usage
 			} else {
-				if cqQuota.BorrowingLimit == nil {
-					reservedUsage[flavor][resource] = usage
-				} else {
-					reservedUsage[flavor][resource] = min(usage, cqQuota.Nominal+*cqQuota.BorrowingLimit-cq.Usage[flavor][resource])
-				}
+				reservedUsage[fr] = min(usage, cqQuota.Nominal+*cqQuota.BorrowingLimit-cq.Usage.For(fr))
 			}
+		} else {
+			reservedUsage[fr] = max(0, min(usage, cqQuota.Nominal-cq.Usage.For(fr)))
 		}
 	}
 	return reservedUsage
