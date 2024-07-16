@@ -44,6 +44,10 @@ spec:
       jsonPath: .status.conditions[?(@.type=='Admitted')].status
       name: Admitted
       type: string
+    - description: Workload finished
+      jsonPath: .status.conditions[?(@.type=='Finished')].status
+      name: Finished
+      type: string
     - description: Time this workload was created
       jsonPath: .metadata.creationTimestamp
       name: Age
