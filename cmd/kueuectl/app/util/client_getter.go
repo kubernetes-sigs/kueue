@@ -21,6 +21,7 @@ import (
 	"k8s.io/cli-runtime/pkg/resource"
 	k8s "k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 )
 

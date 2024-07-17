@@ -25,7 +25,6 @@ import (
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	metav1beta1 "k8s.io/apimachinery/pkg/apis/meta/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -53,10 +52,10 @@ import (
 
 const (
 	podLong = `Lists all pods that matches the given criteria: Should be part of the specified Job kind,
-	belonging to the specified namespace, matching
-	the label selector or the field selector.`
+belonging to the specified namespace, matching
+the label selector or the field selector.`
 	podExample = `  # List Pods
-  kueuectl list pods --for job/job-name`
+kueuectl list pods --for job/job-name`
 )
 
 var jobControllersWithPodLabelSelector = []jobControllerWithPodLabelSelector{
@@ -76,6 +75,7 @@ var jobControllersWithPodLabelSelector = []jobControllerWithPodLabelSelector{
 type PodOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
+	Limit                  int64
 	AllNamespaces          bool
 	Namespace              string
 	LabelSelector          string
@@ -114,11 +114,16 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 		Short:                 "List Pods belong to a Job Kind",
 		Long:                  podLong,
 		Example:               podExample,
-		Run: func(cmd *cobra.Command, args []string) {
-			cobra.CheckErr(o.Complete(clientGetter))
-			if o.ForObject != nil {
-				cobra.CheckErr(o.Run(cmd.Context(), clientGetter))
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			err := o.Complete(clientGetter)
+			if err != nil {
+				return err
 			}
+			if o.ForObject == nil {
+				return nil
+			}
+			return o.Run(cmd.Context(), clientGetter)
 		},
 	}
 
@@ -137,6 +142,11 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 // Complete takes the command arguments and infers any remaining options.
 func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 	var err error
+
+	o.Limit, err = listRequestLimit()
+	if err != nil {
+		return err
+	}
 
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
@@ -161,7 +171,7 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 		return fmt.Errorf("invalid value '%s' used in --for flag; value must be in the format TYPE[.API-GROUP]/NAME", o.UserSpecifiedForObject)
 	}
 
-	infos, err := o.fetchDynamicResourceInfos(clientGetter)
+	infos, err := o.getForObjectInfos(clientGetter)
 	if err != nil {
 		return err
 	}
@@ -184,8 +194,8 @@ func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 	return nil
 }
 
-// fetchDynamicResourceInfos builds and executes a dynamic client query for a resource specified in --for
-func (o *PodOptions) fetchDynamicResourceInfos(clientGetter util.ClientGetter) ([]*resource.Info, error) {
+// getForObjectInfos builds and executes a dynamic client query for a resource specified in --for
+func (o *PodOptions) getForObjectInfos(clientGetter util.ClientGetter) ([]*resource.Info, error) {
 	r := clientGetter.NewResourceBuilder().
 		Unstructured().
 		NamespaceParam(o.Namespace).
@@ -262,7 +272,7 @@ func (o *PodOptions) Run(ctx context.Context, clientGetter util.ClientGetter) er
 	trackingWriter := &trackingWriterWrapper{Delegate: o.Out}
 	tabWriter := printers.GetNewTabWriter(trackingWriter)
 
-	infos, err := o.getPodsUsingAPI(clientGetter)
+	infos, err := o.getPodsInfos(clientGetter)
 	if err != nil {
 		return err
 	}
@@ -304,23 +314,25 @@ func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {
 	return printer.PrintObj, nil
 }
 
-// getPodsUsingAPI gets the pods raw infos directly from the API server
-func (o *PodOptions) getPodsUsingAPI(clientGetter util.ClientGetter) ([]*resource.Info, error) {
+// getPodsInfos gets the pods raw infos directly from the API server
+func (o *PodOptions) getPodsInfos(clientGetter util.ClientGetter) ([]*resource.Info, error) {
 	namespace := o.Namespace
 	if o.AllNamespaces {
 		namespace = ""
 	}
 
+	podLabelSelector := o.PodLabelSelector
 	if len(o.LabelSelector) != 0 {
-		o.PodLabelSelector = "," + o.PodLabelSelector
+		podLabelSelector = "," + o.PodLabelSelector
 	}
 
 	r := clientGetter.NewResourceBuilder().Unstructured().
 		NamespaceParam(namespace).DefaultNamespace().AllNamespaces(o.AllNamespaces).
 		FieldSelectorParam(o.FieldSelector).
-		LabelSelectorParam(o.LabelSelector+o.PodLabelSelector).
+		LabelSelectorParam(o.LabelSelector+podLabelSelector).
 		ResourceTypeOrNameArgs(true, "pods").
 		ContinueOnError().
+		RequestChunksOf(o.Limit).
 		Latest().
 		Flatten().
 		TransformRequests(o.transformRequests).
@@ -341,7 +353,6 @@ func (o *PodOptions) getPodsUsingAPI(clientGetter util.ClientGetter) ([]*resourc
 func (o *PodOptions) transformRequests(req *rest.Request) {
 	req.SetHeader("Accept", strings.Join([]string{
 		fmt.Sprintf("application/json;as=Table;v=%s;g=%s", metav1.SchemeGroupVersion.Version, metav1.GroupName),
-		fmt.Sprintf("application/json;as=Table;v=%s;g=%s", metav1beta1.SchemeGroupVersion.Version, metav1beta1.GroupName),
 		"application/json",
 	}, ","))
 }
