@@ -22,6 +22,7 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -71,6 +72,8 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	// +kubebuilder:scaffold:imports
 )
+
+const retryInterval = time.Second * 20
 
 var (
 	scheme   = runtime.NewScheme()
@@ -182,7 +185,7 @@ func main() {
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
+	go setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
 
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
@@ -229,7 +232,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	cert.WaitForCertsReady(setupLog, certsReady)
@@ -282,7 +285,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 	}
-	if err := jobframework.SetupControllers(mgr, setupLog, opts...); err != nil {
+	if err := jobframework.SetupControllers(ctx, mgr, setupLog, retryInterval, opts...); err != nil {
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
 		os.Exit(1)
 	}
