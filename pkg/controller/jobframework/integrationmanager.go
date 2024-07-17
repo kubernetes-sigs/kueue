@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -76,6 +77,7 @@ type integrationManager struct {
 	integrations         map[string]IntegrationCallbacks
 	enabledIntegrations  set.Set[string]
 	externalIntegrations map[string]runtime.Object
+	mu                   sync.RWMutex
 }
 
 var manager integrationManager
@@ -147,7 +149,15 @@ func (m *integrationManager) getExternal(kindArg string) (runtime.Object, bool) 
 	return jt, f
 }
 
+func (m *integrationManager) getEnabledIntegrations() set.Set[string] {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.enabledIntegrations.Clone()
+}
+
 func (m *integrationManager) enableIntegration(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.enabledIntegrations == nil {
 		m.enabledIntegrations = set.New(name)
 	} else {
@@ -163,7 +173,7 @@ func (m *integrationManager) getList() []string {
 }
 
 func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
-	for jobKey := range m.enabledIntegrations {
+	for jobKey := range m.getEnabledIntegrations() {
 		cbs, found := m.integrations[jobKey]
 		if found && cbs.IsManagingObjectsOwner != nil && cbs.IsManagingObjectsOwner(ownerRef) {
 			return cbs.JobType
@@ -207,12 +217,14 @@ func EnableIntegration(name string) {
 // Mark the frameworks identified by names and return a revert function.
 func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
 	tb.Helper()
-	old := manager.enabledIntegrations.Clone()
+	old := manager.getEnabledIntegrations()
 	for _, name := range names {
 		manager.enableIntegration(name)
 	}
 	return func() {
+		manager.mu.Lock()
 		manager.enabledIntegrations = old
+		manager.mu.Unlock()
 	}
 }
 

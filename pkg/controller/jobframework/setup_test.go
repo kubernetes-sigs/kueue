@@ -39,12 +39,11 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/util/slices"
+	kslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestSetupControllers(t *testing.T) {
-	APIRetryInterval = 20 * time.Millisecond
 	availableIntegrations := map[string]IntegrationCallbacks{
 		"batch/job": {
 			NewReconciler:         testNewReconciler,
@@ -85,6 +84,7 @@ func TestSetupControllers(t *testing.T) {
 		mapperGVKs              []schema.GroupVersionKind
 		wantError               error
 		wantEnabledIntegrations []string
+		afterSetup              func(mgr ctrlmgr.Manager, manager *integrationManager)
 	}{
 		"setup controllers succeed": {
 			opts: []Option{
@@ -119,11 +119,12 @@ func TestSetupControllers(t *testing.T) {
 				// Not including RayCluster
 			},
 			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
+			afterSetup:              testDelayedIntegration,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manager := integrationManager{}
+			manager := &integrationManager{}
 			for name, cbs := range availableIntegrations {
 				err := manager.register(name, cbs)
 				if err != nil {
@@ -156,27 +157,35 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			gotError := manager.setupControllers(mgr, logger, tc.opts...)
+			gotError := manager.setupControllers(context.Background(), mgr, logger, time.Millisecond*20, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
 
-			if name == "mapper doesn't have ray.io/raycluster when Controllers have been setup, but eventually does" {
-				rayGVK := schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
-				mgr.GetRESTMapper().(*apimeta.DefaultRESTMapper).Add(rayGVK, apimeta.RESTScopeNamespace)
-				// Wait for setup to complete
-				for {
-					if _, ok := manager.enabledIntegrations["ray.io/raycluster"]; ok {
-						break // Exit loop if RayCluster is enabled
-					}
-					time.Sleep(10 * time.Millisecond)
-				}
+			if tc.afterSetup != nil {
+				tc.afterSetup(mgr, manager)
 			}
 
-			if diff := cmp.Diff(tc.wantEnabledIntegrations, manager.enabledIntegrations.SortedList()); len(diff) != 0 {
+			diff := cmp.Diff(tc.wantEnabledIntegrations, manager.getEnabledIntegrations().SortedList())
+			if len(diff) != 0 {
 				t.Errorf("Unexpected enabled integrations (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func testDelayedIntegration(mgr ctrlmgr.Manager, manager *integrationManager) {
+	rayGVK := schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
+	restMapperMutex.Lock()
+	mgr.GetRESTMapper().(*apimeta.DefaultRESTMapper).Add(rayGVK, apimeta.RESTScopeNamespace)
+	restMapperMutex.Unlock()
+	// Wait for setup to complete
+	for {
+		_, ok := manager.getEnabledIntegrations()["ray.io/raycluster"]
+		if ok {
+			break // Exit loop if RayCluster is enabled
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -244,8 +253,8 @@ func TestSetupIndexes(t *testing.T) {
 			if gotListErr := k8sClient.List(ctx, gotWls, client.InNamespace(testNamespace)); gotListErr != nil {
 				t.Fatalf("Failed to list workloads without a fieldMatcher: %v", gotListErr)
 			}
-			deployedWlNames := slices.Map(tc.workloads, func(j *kueue.Workload) string { return j.Name })
-			gotWlNames := slices.Map(gotWls.Items, func(j *kueue.Workload) string { return j.Name })
+			deployedWlNames := kslices.Map(tc.workloads, func(j *kueue.Workload) string { return j.Name })
+			gotWlNames := kslices.Map(gotWls.Items, func(j *kueue.Workload) string { return j.Name })
 			if diff := cmp.Diff(deployedWlNames, gotWlNames, cmpopts.EquateEmpty(),
 				cmpopts.SortSlices(func(a, b string) bool { return a < b })); len(diff) != 0 {
 				t.Errorf("Unexpected list workloads (-want,+got):\n%s", diff)
@@ -258,7 +267,7 @@ func TestSetupIndexes(t *testing.T) {
 			}
 
 			if !tc.wantFieldMatcherError {
-				gotWlNames = slices.Map(gotWls.Items, func(j *kueue.Workload) string { return j.Name })
+				gotWlNames = kslices.Map(gotWls.Items, func(j *kueue.Workload) string { return j.Name })
 				if diff := cmp.Diff(tc.wantWorkloads, gotWlNames, cmpopts.EquateEmpty(),
 					cmpopts.SortSlices(func(a, b string) bool { return a < b })); len(diff) != 0 {
 					t.Errorf("Unexpected list workloads (-want,+got):\n%s", diff)
