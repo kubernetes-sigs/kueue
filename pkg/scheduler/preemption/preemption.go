@@ -467,21 +467,17 @@ func cqHeapFromCandidates(candidates []*workload.Info, firstOnly bool, snapshot 
 	return cqHeap
 }
 
-type resourcesPerFlavor map[kueue.ResourceFlavorReference]sets.Set[corev1.ResourceName]
+type resourcesPerFlavor = sets.Set[resources.FlavorResource]
 
 func resourcesRequiringPreemption(assignment flavorassigner.Assignment) resourcesPerFlavor {
-	resPerFlavor := make(resourcesPerFlavor)
+	resPerFlavor := sets.New[resources.FlavorResource]()
 	for _, ps := range assignment.PodSets {
 		for res, flvAssignment := range ps.Flavors {
 			// assignments with NoFit mode wouldn't enter the preemption path.
 			if flvAssignment.Mode != flavorassigner.Preempt {
 				continue
 			}
-			if resPerFlavor[flvAssignment.Name] == nil {
-				resPerFlavor[flvAssignment.Name] = sets.New(res)
-			} else {
-				resPerFlavor[flvAssignment.Name].Insert(res)
-			}
+			resPerFlavor.Insert(resources.FlavorResource{Flavor: flvAssignment.Name, Resource: res})
 		}
 	}
 	return resPerFlavor
@@ -543,15 +539,9 @@ func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, resPerFlv resourcesPerFlavor)
 	if cq.Cohort == nil {
 		return false
 	}
-	for _, rg := range cq.ResourceGroups {
-		for _, fName := range rg.Flavors {
-			fUsage := cq.Usage[fName]
-			for rName := range resPerFlv[fName] {
-				quota := cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
-				if fUsage[rName] > quota.Nominal {
-					return true
-				}
-			}
+	for fr := range resPerFlv {
+		if cq.Borrowing(fr) {
+			return true
 		}
 	}
 	return false
@@ -560,7 +550,7 @@ func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, resPerFlv resourcesPerFlavor)
 func workloadUsesResources(wl *workload.Info, resPerFlv resourcesPerFlavor) bool {
 	for _, ps := range wl.TotalRequests {
 		for res, flv := range ps.Flavors {
-			if resPerFlv[flv].Has(res) {
+			if resPerFlv.Has(resources.FlavorResource{Flavor: flv, Resource: res}) {
 				return true
 			}
 		}
@@ -572,58 +562,21 @@ func workloadUsesResources(wl *workload.Info, resPerFlv resourcesPerFlavor) bool
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
 func workloadFits(wlReq resources.FlavorResourceQuantitiesFlat, cq *cache.ClusterQueueSnapshot, allowBorrowing bool) bool {
-	for _, rg := range cq.ResourceGroups {
-		for _, fName := range rg.Flavors {
-			cqResUsage := cq.Usage[fName]
-			for rName := range rg.CoveredResources {
-				resource := cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
-				rReq, found := wlReq[resources.FlavorResource{Flavor: fName, Resource: rName}]
-				if !found {
-					// Workload doesn't request this FlavorResource.
-					continue
-				}
-
-				if cq.Cohort == nil || !allowBorrowing {
-					if cqResUsage[rName]+rReq > resource.Nominal {
-						return false
-					}
-				} else {
-					// When resource.BorrowingLimit == nil there is no borrowing
-					// limit, so we can skip the check.
-					if resource.BorrowingLimit != nil {
-						if cqResUsage[rName]+rReq > resource.Nominal+*resource.BorrowingLimit {
-							return false
-						}
-					}
-				}
-
-				if cq.Cohort != nil {
-					cohortResUsage := cq.UsedCohortQuota(fName, rName)
-					requestableQuota := cq.RequestableCohortQuota(fName, rName)
-					if cohortResUsage+rReq > requestableQuota {
-						return false
-					}
-				}
-			}
+	for fr, v := range wlReq {
+		if !allowBorrowing && cq.BorrowingWith(fr, v) {
+			return false
+		}
+		if v > cq.Available(fr) {
+			return false
 		}
 	}
 	return true
 }
 
 func queueUnderNominalInResourcesNeedingPreemption(resPerFlv resourcesPerFlavor, cq *cache.ClusterQueueSnapshot) bool {
-	for _, rg := range cq.ResourceGroups {
-		for _, fName := range rg.Flavors {
-			flvReq, found := resPerFlv[fName]
-			if !found {
-				// Workload doesn't request this flavor.
-				continue
-			}
-			cqResUsage := cq.Usage[fName]
-			for rName := range flvReq {
-				if cqResUsage[rName] >= cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName}).Nominal {
-					return false
-				}
-			}
+	for fr := range resPerFlv {
+		if cq.Usage.For(fr) >= cq.QuotaFor(fr).Nominal {
+			return false
 		}
 	}
 	return true

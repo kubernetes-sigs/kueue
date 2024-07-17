@@ -52,6 +52,42 @@ func (c *ClusterQueueSnapshot) QuotaFor(fr resources.FlavorResource) *ResourceQu
 	return c.Quotas[fr]
 }
 
+func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
+	return c.BorrowingWith(fr, 0)
+}
+
+func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
+	return c.usageFor(fr)+val > c.nominal(fr)
+}
+
+func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) int64 {
+	if c.Cohort == nil {
+		return max(0, c.nominal(fr)-c.usageFor(fr))
+	}
+	capacityAvailable := c.RequestableCohortQuota(fr.Flavor, fr.Resource) - c.UsedCohortQuota(fr.Flavor, fr.Resource)
+
+	// if the borrowing limit exists, we cap our available capacity by the borrowing limit.
+	if borrowingLimit := c.borrowingLimit(fr); borrowingLimit != nil {
+		withBorrowingRemaining := c.nominal(fr) + *borrowingLimit - c.usageFor(fr)
+		capacityAvailable = min(capacityAvailable, withBorrowingRemaining)
+	}
+	return max(0, capacityAvailable)
+}
+
+func (c *ClusterQueueSnapshot) nominal(fr resources.FlavorResource) int64 {
+	if quota := c.QuotaFor(fr); quota != nil {
+		return quota.Nominal
+	}
+	return 0
+}
+
+func (c *ClusterQueueSnapshot) borrowingLimit(fr resources.FlavorResource) *int64 {
+	if quota := c.QuotaFor(fr); quota != nil {
+		return quota.BorrowingLimit
+	}
+	return nil
+}
+
 // The methods below implement several interfaces. See
 // dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
 
