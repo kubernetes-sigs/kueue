@@ -41,11 +41,6 @@ func NewTestClientGetter() *TestClientGetter {
 	}
 }
 
-func (f *TestClientGetter) WithRestMapper(mapper meta.RESTMapper) *TestClientGetter {
-	f.configFlags.WithRESTMapper(mapper)
-	return f
-}
-
 func (f *TestClientGetter) WithNamespace(ns string) *TestClientGetter {
 	f.configFlags.WithNamespace(ns)
 	return f

@@ -43,8 +43,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/resource"
-	fakediscovery "k8s.io/client-go/discovery/fake"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
 	restfake "k8s.io/client-go/rest/fake"
 	"k8s.io/utils/strings/slices"
 
@@ -961,7 +959,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 
 			tf := kueuecmdtesting.NewTestClientGetter()
 			tf.WithNamespace(metav1.NamespaceDefault)
-			tf.WithRestMapper(mapper)
+			tf.WithRESTMapper(mapper)
 
 			scheme, err := buildTestRuntimeScheme()
 			if err != nil {
@@ -974,10 +972,6 @@ valid-pod-1   1/1     Running   0          <unknown>
 			if err != nil {
 				t.Fatal(err)
 			}
-
-			clientset := k8sfake.NewSimpleClientset()
-			tf.K8sClientset = clientset
-			tf.K8sClientset.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists
 
 			cmd := NewPodCmd(tf, streams)
 			cmd.SetArgs(tc.args)
