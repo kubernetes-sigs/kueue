@@ -53,8 +53,7 @@ The webhook server in kueue uses an internal cert management for provisioning ce
 To install a released version of Kueue in your cluster, run the following command:
 
 ```shell
-VERSION={{< param "version" >}}
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
 ```
 
 ### Add metrics scraping for prometheus-operator
@@ -69,7 +68,7 @@ We can follow `https://prometheus-operator.dev/docs/prologue/quick-start/` to in
 {{% /alert %}}
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/prometheus.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/prometheus.yaml
 ```
 
 ### Add visibility API to monitor pending workloads
@@ -80,7 +79,7 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 To add the visibility API that enables monitoring pending workloads, change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`, and run the following command
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/visibility-api.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-api.yaml
 ```
 
 See [the visibility API](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand) for more details.
@@ -91,8 +90,7 @@ See [the visibility API](/docs/tasks/manage/monitor_pending_workloads/pending_wo
 To uninstall a released version of Kueue from your cluster, run the following command:
 
 ```shell
-VERSION={{< param "version" >}}
-kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
 ```
 
 ## Install a custom-configured released version
@@ -101,10 +99,9 @@ To install a custom-configured released version of Kueue in your cluster, execut
 
 1. Download the release's `manifests.yaml` file:
 
-    ```shell
-    VERSION={{< param "version" >}}
-    wget https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
-    ```
+```shell
+wget https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
+```
 
 2. With an editor of your preference, open `manifests.yaml`.
 3. In the `kueue-manager-config` ConfigMap manifest, edit the
