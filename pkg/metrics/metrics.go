@@ -148,6 +148,19 @@ The label 'reason' can have the following values:
 		}, []string{"cluster_queue", "reason"},
 	)
 
+	PreemptedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "preempted_workloads_total",
+			Help: `The number of preempted workloads per 'preempting_cluster_queue',
+The label 'reason' can have the following values:
+- "InClusterQueue" means that the workload was preempted by a workload in the same ClusterQueue.
+- "InCohortReclamation" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota.
+- "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort due to fair sharing.
+- "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.`,
+		}, []string{"preempting_cluster_queue", "reason"},
+	)
+
 	// Metrics tied to the cache.
 
 	ReservingActiveWorkloads = prometheus.NewGaugeVec(
@@ -263,6 +276,11 @@ func ReportEvictedWorkloads(cqName, reason string) {
 	EvictedWorkloadsTotal.WithLabelValues(cqName, reason).Inc()
 }
 
+func ReportPreemption(preemptingCqName, preemptingReason, targetCqName string) {
+	PreemptedWorkloadsTotal.WithLabelValues(preemptingCqName, preemptingReason).Inc()
+	ReportEvictedWorkloads(targetCqName, kueue.WorkloadEvictedByPreemption)
+}
+
 func ClearQueueSystemMetrics(cqName string) {
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
@@ -272,6 +290,7 @@ func ClearQueueSystemMetrics(cqName string) {
 	admissionWaitTime.DeleteLabelValues(cqName)
 	admissionChecksWaitTime.DeleteLabelValues(cqName)
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 }
 
 func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
@@ -379,6 +398,7 @@ func Register() {
 		quotaReservedWaitTime,
 		AdmittedWorkloadsTotal,
 		EvictedWorkloadsTotal,
+		PreemptedWorkloadsTotal,
 		admissionWaitTime,
 		admissionChecksWaitTime,
 		ClusterQueueResourceUsage,
