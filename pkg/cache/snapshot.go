@@ -42,7 +42,7 @@ type Snapshot struct {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	cq.addOrRemoveWorkload(wl, -1)
+	cq.addOrRemoveUsage(wl.FlavorResourceUsage(), -1)
 }
 
 // AddWorkload adds a workload from its corresponding ClusterQueue and
@@ -50,16 +50,16 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	cq.addOrRemoveWorkload(wl, 1)
+	cq.addOrRemoveUsage(wl.FlavorResourceUsage(), 1)
 }
 
-func (c *ClusterQueueSnapshot) addOrRemoveWorkload(wl *workload.Info, m int64) {
-	updateFlavorUsage(wl, c.Usage, m)
+func (c *ClusterQueueSnapshot) addOrRemoveUsage(usage resources.FlavorResourceQuantitiesFlat, m int64) {
+	updateFlavorUsage(usage, c.Usage, m)
 	if c.Cohort != nil {
 		if features.Enabled(features.LendingLimit) {
-			updateCohortUsage(wl, c, m)
+			updateCohortUsage(usage, c, m)
 		} else {
-			updateFlavorUsage(wl, c.Cohort.Usage, m)
+			updateFlavorUsage(usage, c.Cohort.Usage, m)
 		}
 	}
 }
