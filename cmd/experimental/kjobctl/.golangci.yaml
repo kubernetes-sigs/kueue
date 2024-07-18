@@ -24,6 +24,7 @@ linters-settings:
     rules:
       - name: empty-lines
       - name: var-naming
+      - name: redundant-import-alias
 
 # Settings for enabling and disabling linters
 linters:

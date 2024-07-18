@@ -22,7 +22,7 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8s "k8s.io/client-go/kubernetes"
 
@@ -141,7 +141,7 @@ func (b *Builder) complete(ctx context.Context) error {
 		return err
 	}
 
-	b.profile, err = b.kjobctlClientset.KjobctlV1alpha1().ApplicationProfiles(b.namespace).Get(ctx, b.profileName, v1.GetOptions{})
+	b.profile, err = b.kjobctlClientset.KjobctlV1alpha1().ApplicationProfiles(b.namespace).Get(ctx, b.profileName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func (b *Builder) complete(ctx context.Context) error {
 		return applicationProfileModeNotConfiguredErr
 	}
 
-	volumeBundlesList, err := b.kjobctlClientset.KjobctlV1alpha1().VolumeBundles(b.profile.Namespace).List(ctx, v1.ListOptions{})
+	volumeBundlesList, err := b.kjobctlClientset.KjobctlV1alpha1().VolumeBundles(b.profile.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}

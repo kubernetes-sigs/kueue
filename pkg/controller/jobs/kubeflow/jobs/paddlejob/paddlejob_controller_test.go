@@ -22,7 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -55,15 +55,15 @@ func TestPriorityClass(t *testing.T) {
 					},
 					PaddleReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.PaddleJobReplicaTypeMaster: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "master-priority",
 								},
 							},
 						},
 						kftraining.PaddleJobReplicaTypeWorker: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "worker-priority",
 								},
 							},
@@ -81,8 +81,8 @@ func TestPriorityClass(t *testing.T) {
 					},
 					PaddleReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.PaddleJobReplicaTypeMaster: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "master-priority",
 								},
 							},
@@ -97,15 +97,15 @@ func TestPriorityClass(t *testing.T) {
 				Spec: kftraining.PaddleJobSpec{
 					PaddleReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.PaddleJobReplicaTypeMaster: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "master-priority",
 								},
 							},
 						},
 						kftraining.PaddleJobReplicaTypeWorker: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "worker-priority",
 								},
 							},
@@ -120,13 +120,13 @@ func TestPriorityClass(t *testing.T) {
 				Spec: kftraining.PaddleJobSpec{
 					PaddleReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.PaddleJobReplicaTypeMaster: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{},
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{},
 							},
 						},
 						kftraining.PaddleJobReplicaTypeWorker: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "worker-priority",
 								},
 							},
@@ -142,8 +142,8 @@ func TestPriorityClass(t *testing.T) {
 					PaddleReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.PaddleJobReplicaTypeMaster: {},
 						kftraining.PaddleJobReplicaTypeWorker: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "worker-priority",
 								},
 							},
@@ -159,8 +159,8 @@ func TestPriorityClass(t *testing.T) {
 					PaddleReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.PaddleJobReplicaTypeMaster: {},
 						kftraining.PaddleJobReplicaTypeWorker: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{},
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{},
 							},
 						},
 					},
@@ -281,8 +281,8 @@ func TestReconciler(t *testing.T) {
 				Queue("foo").
 				Suspend(false).
 				Parallelism(10).
-				Request(kftraining.PaddleJobReplicaTypeMaster, v1.ResourceCPU, "1").
-				Request(kftraining.PaddleJobReplicaTypeWorker, v1.ResourceCPU, "5").
+				Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceCPU, "1").
+				Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceCPU, "5").
 				NodeSelector("provisioning", "spot").
 				Active(kftraining.PaddleJobReplicaTypeMaster, 1).
 				Active(kftraining.PaddleJobReplicaTypeWorker, 10).
@@ -290,22 +290,22 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("master", 1).Request(v1.ResourceCPU, "1").Obj(),
-						*utiltesting.MakePodSet("worker", 10).Request(v1.ResourceCPU, "5").Obj(),
+						*utiltesting.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltesting.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
 					).
 					ReserveQuota(utiltesting.MakeAdmission("cq").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "master",
-								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
-									v1.ResourceCPU: "default",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "default",
 								},
 								Count: ptr.To[int32](1),
 							},
 							kueue.PodSetAssignment{
 								Name: "worker",
-								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
-									v1.ResourceCPU: "default",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "default",
 								},
 								Count: ptr.To[int32](10),
 							},
@@ -324,30 +324,30 @@ func TestReconciler(t *testing.T) {
 				Queue("foo").
 				Suspend(true).
 				Parallelism(10).
-				Request(kftraining.PaddleJobReplicaTypeMaster, v1.ResourceCPU, "1").
-				Request(kftraining.PaddleJobReplicaTypeWorker, v1.ResourceCPU, "5").
+				Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceCPU, "1").
+				Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceCPU, "5").
 				Active(kftraining.PaddleJobReplicaTypeMaster, 1).
 				Active(kftraining.PaddleJobReplicaTypeWorker, 10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("master", 1).Request(v1.ResourceCPU, "1").Obj(),
-						*utiltesting.MakePodSet("worker", 10).Request(v1.ResourceCPU, "5").Obj(),
+						*utiltesting.MakePodSet("master", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltesting.MakePodSet("worker", 10).Request(corev1.ResourceCPU, "5").Obj(),
 					).
 					ReserveQuota(utiltesting.MakeAdmission("cq").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "master",
-								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
-									v1.ResourceCPU: "default",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "default",
 								},
 								Count: ptr.To[int32](1),
 							},
 							kueue.PodSetAssignment{
 								Name: "worker",
-								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
-									v1.ResourceCPU: "default",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "default",
 								},
 								Count: ptr.To[int32](10),
 							},
@@ -384,7 +384,7 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not create Workload: %v", err)
 				}
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), v1.EventSource{Component: "test"})
+			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 
 			jobKey := client.ObjectKeyFromObject(tc.job)

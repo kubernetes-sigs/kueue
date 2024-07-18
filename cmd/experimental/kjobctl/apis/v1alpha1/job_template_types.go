@@ -17,7 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/batch/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -31,7 +31,7 @@ type JobTemplateSpec struct {
 	// Specification of the desired behavior of the job.
 	//
 	// +kubebuilder:validation:Required
-	Spec v1.JobSpec `json:"spec"`
+	Spec batchv1.JobSpec `json:"spec"`
 }
 
 // +genclient
