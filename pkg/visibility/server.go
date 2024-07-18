@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
@@ -37,10 +38,6 @@ var (
 	setupLog = ctrl.Log.WithName("visibility-server")
 )
 
-type server struct {
-	*genericapiserver.GenericAPIServer
-}
-
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=prioritylevelconfigurations,verbs=list;watch
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas,verbs=list;watch
 // +kubebuilder:rbac:groups=flowcontrol.apiserver.k8s.io,resources=flowschemas/status,verbs=patch
@@ -50,20 +47,23 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager
 	config := newVisibilityServerConfig()
 	if err := applyVisibilityServerOptions(config); err != nil {
 		setupLog.Error(err, "Unable to apply VisibilityServerOptions")
+		os.Exit(1)
 	}
 
 	visibilityServer, err := config.Complete().New("visibility-server", genericapiserver.NewEmptyDelegate())
 	if err != nil {
 		setupLog.Error(err, "Unable to create visibility server")
+		os.Exit(1)
 	}
 
 	if err := api.Install(visibilityServer, kueueMgr); err != nil {
 		setupLog.Error(err, "Unable to install visibility.kueue.x-k8s.io/v1alpha1 API")
+		os.Exit(1)
 	}
 
-	s := &server{visibilityServer}
-	if err := s.GenericAPIServer.PrepareRun().Run(ctx.Done()); err != nil {
+	if err := visibilityServer.PrepareRun().Run(ctx.Done()); err != nil {
 		setupLog.Error(err, "Error running visibility server")
+		os.Exit(1)
 	}
 }
 
