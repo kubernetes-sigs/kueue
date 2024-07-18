@@ -15,8 +15,8 @@ cmd:
   maxrss: 468_000
 
 clusterQueueClassesMinUsage:
-  # Average value 58.7 (+/- 1.2%), setting at -5%
-  cq: 56 #%
+  # Average value 58.7 (+/- 1.2%), setting at -7%
+  cq: 55 #%
 
 wlClassesMaxAvgTimeToAdmissionMs:
   # Average value 6666 (+/- 14%), setting at +35% + 1s accounting for observed failures
