@@ -184,12 +184,8 @@ func main() {
 	// Controllers who register after manager starts will start directly.
 	go setupControllers(mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
 
-	go func() {
-		queues.CleanUpOnContext(ctx)
-	}()
-	go func() {
-		cCache.CleanUpOnContext(ctx)
-	}()
+	go queues.CleanUpOnContext(ctx)
+	go cCache.CleanUpOnContext(ctx)
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go visibility.CreateAndStartVisibilityServer(ctx, queues)
