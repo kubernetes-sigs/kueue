@@ -43,8 +43,17 @@ func (f FlavorResourceQuantitiesFlat) Unflatten() FlavorResourceQuantities {
 
 // For attempts to access nested value, returning 0 if absent.
 func (f FlavorResourceQuantities) For(fr FlavorResource) int64 {
-	if f == nil || f[fr.Flavor] == nil {
-		return 0
-	}
 	return f[fr.Flavor][fr.Resource]
+}
+
+// Add adds the Quantity v for the FlavorResource fr, allocating
+// as needed.
+func (f *FlavorResourceQuantities) Add(fr FlavorResource, v int64) {
+	if *f == nil {
+		*f = make(FlavorResourceQuantities)
+	}
+	if (*f)[fr.Flavor] == nil {
+		(*f)[fr.Flavor] = make(Requests)
+	}
+	(*f)[fr.Flavor][fr.Resource] += v
 }

@@ -455,55 +455,40 @@ func (c *clusterQueue) reportActiveWorkloads() {
 // and the number of admitted workloads for local queues.
 func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
-	updateFlavorUsage(wi, c.Usage, m)
+	frUsage := wi.FlavorResourceUsage()
+	updateFlavorUsage(frUsage, c.Usage, m)
 	if admitted {
-		updateFlavorUsage(wi, c.AdmittedUsage, m)
+		updateFlavorUsage(frUsage, c.AdmittedUsage, m)
 		c.admittedWorkloadsCount += int(m)
 	}
 	qKey := workload.QueueKey(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
-		updateFlavorUsage(wi, lq.usage, m)
+		updateFlavorUsage(frUsage, lq.usage, m)
 		lq.reservingWorkloads += int(m)
 		if admitted {
-			updateFlavorUsage(wi, lq.admittedUsage, m)
+			updateFlavorUsage(frUsage, lq.admittedUsage, m)
 			lq.admittedWorkloads += int(m)
 		}
 	}
 }
 
-func updateFlavorUsage(wi *workload.Info, flvUsage resources.FlavorResourceQuantities, m int64) {
-	for _, ps := range wi.TotalRequests {
-		for wlRes, wlResFlv := range ps.Flavors {
-			v, wlResExist := ps.Requests[wlRes]
-			flv, flvExist := flvUsage[wlResFlv]
-			if flvExist && wlResExist {
-				if _, exists := flv[wlRes]; exists {
-					flv[wlRes] += v * m
-				}
-			}
-		}
+func updateFlavorUsage(newUsage resources.FlavorResourceQuantitiesFlat, oldUsage resources.FlavorResourceQuantities, m int64) {
+	for fr, q := range newUsage {
+		oldUsage.Add(fr, q*m)
 	}
 }
 
-func updateCohortUsage(wi *workload.Info, cq *ClusterQueueSnapshot, m int64) {
-	for _, ps := range wi.TotalRequests {
-		for wlRes, wlResFlv := range ps.Flavors {
-			v, wlResExist := ps.Requests[wlRes]
-			flv, flvExist := cq.Cohort.Usage[wlResFlv]
-			if flvExist && wlResExist {
-				if _, exists := flv[wlRes]; exists {
-					after := cq.Usage[wlResFlv][wlRes] - cq.guaranteedQuota(wlResFlv, wlRes)
-					// rollback update cq.Usage
-					before := after - v*m
-					if before > 0 {
-						flv[wlRes] -= before
-					}
-					// simulate updating cq.Usage
-					if after > 0 {
-						flv[wlRes] += after
-					}
-				}
-			}
+func updateCohortUsage(newUsage resources.FlavorResourceQuantitiesFlat, cq *ClusterQueueSnapshot, m int64) {
+	for fr, v := range newUsage {
+		after := cq.Usage.For(fr) - cq.guaranteedQuota(fr.Flavor, fr.Resource)
+		// rollback update cq.Usage
+		before := after - v*m
+		if before > 0 {
+			cq.Cohort.Usage.Add(fr, -before)
+		}
+		// simulate updating cq.Usage
+		if after > 0 {
+			cq.Cohort.Usage.Add(fr, after)
 		}
 	}
 }
@@ -525,10 +510,11 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	}
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
-			updateFlavorUsage(wl, qImpl.usage, 1)
+			frq := wl.FlavorResourceUsage()
+			updateFlavorUsage(frq, qImpl.usage, 1)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
-				updateFlavorUsage(wl, qImpl.admittedUsage, 1)
+				updateFlavorUsage(frq, qImpl.admittedUsage, 1)
 				qImpl.admittedWorkloads++
 			}
 		}
