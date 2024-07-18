@@ -90,6 +90,13 @@ const (
 	//
 	// Enable the usage of batch.Job spec.managedBy field its MultiKueue integration.
 	MultiKueueBatchJobWithManagedBy featuregate.Feature = "MultiKueueBatchJobWithManagedBy"
+
+	// owner: @gabesaba
+	// alpha: v0.8
+	//
+	// Enable more than one workload sharing flavors to preempt within a Cohort,
+	// as long as the preemption targets don't overlap.
+	MultiplePreemptions featuregate.Feature = "MultiplePreemptions"
 )
 
 func init() {
@@ -112,6 +119,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
 	LendingLimit:                    {Default: false, PreRelease: featuregate.Alpha},
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
+	MultiplePreemptions:             {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {

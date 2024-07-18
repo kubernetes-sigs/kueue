@@ -60,6 +60,29 @@ var cmpDump = []cmp.Option{
 	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
 }
 
+// Indicates under which configuration of the MultiplePreemptions flag the test passes.
+type multiplePreemptionsCompatibility int
+
+func (mode multiplePreemptionsCompatibility) runTest(baseName string, t *testing.T, f func(t *testing.T)) {
+	if mode == Both || mode == Legacy {
+		defer features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, false)()
+		t.Run(baseName+" LegacyMode", f)
+	}
+	if mode == Both || mode == MultiplePremptions {
+		defer features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, true)()
+		t.Run(baseName+" MultiplePreemptionsMode", f)
+	}
+}
+
+const (
+	// Default. Run test with both Legacy and MultiplePreemptions code.
+	Both multiplePreemptionsCompatibility = iota
+	// Run test only with Legacy code.
+	Legacy
+	// Run test only with MultiplePreemptions code.
+	MultiplePremptions
+)
+
 func TestSchedule(t *testing.T) {
 	now := time.Now()
 	resourceFlavors := []*kueue.ResourceFlavor{
@@ -232,6 +255,8 @@ func TestSchedule(t *testing.T) {
 		enableLendingLimit      bool
 		disablePartialAdmission bool
 		enableFairSharing       bool
+
+		multiplePreemptions multiplePreemptionsCompatibility
 
 		workloads      []kueue.Workload
 		admissionError error
@@ -896,6 +921,12 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"no overadmission while borrowing": {
+			// we disable this test for MultiplePreemption
+			// logic, as the new logic considers this
+			// unschedulable, while the old logic considers
+			// it skipped. Duplicate test for MultiplePreemptions
+			// directly below.
+			multiplePreemptions: Legacy,
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-beta").
 					Queue("main").
@@ -1008,6 +1039,126 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"eng-beta/new", "eng-alpha/new-alpha"},
 			wantLeft: map[string][]string{
+				"eng-gamma": {"eng-gamma/new-gamma"},
+			},
+		},
+		"no overadmission while borrowing (duplicated from above)": {
+			// duplicate of test case above, as new logic
+			// considers workload unschedulable, while old
+			// logic considers it skipped.
+			multiplePreemptions: MultiplePremptions,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Creation(now.Add(-2 * time.Second)).
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new-alpha", "eng-alpha").
+					Queue("main").
+					Creation(now.Add(-time.Second)).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new-gamma", "eng-gamma").
+					Queue("main").
+					Creation(now).
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("existing", "eng-gamma").
+					PodSets(
+						*utiltesting.MakePodSet("borrow-on-demand", 51).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("use-all-spot", 100).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuota(utiltesting.MakeAdmission("eng-gamma").
+						PodSets(
+							kueue.PodSetAssignment{
+								Name: "borrow-on-demand",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "on-demand",
+								},
+								ResourceUsage: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("51"),
+								},
+								Count: ptr.To[int32](51),
+							},
+							kueue.PodSetAssignment{
+								Name: "use-all-spot",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "spot",
+								},
+								ResourceUsage: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("100"),
+								},
+								Count: ptr.To[int32](100),
+							},
+						).
+						Obj()).
+					Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("eng-gamma").
+					Cohort("eng").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50", "10").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "0", "100").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-gamma",
+						Name:      "main",
+					},
+					Spec: kueue.LocalQueueSpec{
+						ClusterQueue: "eng-gamma",
+					},
+				},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-gamma/existing": *utiltesting.MakeAdmission("eng-gamma").
+					PodSets(
+						kueue.PodSetAssignment{
+							Name: "borrow-on-demand",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("51"),
+							},
+							Count: ptr.To[int32](51),
+						},
+						kueue.PodSetAssignment{
+							Name: "use-all-spot",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "spot",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("100"),
+							},
+							Count: ptr.To[int32](100),
+						},
+					).Obj(),
+				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
+				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "1").AssignmentPodCount(1).Obj(),
+			},
+			wantScheduled: []string{"eng-beta/new", "eng-alpha/new-alpha"},
+			wantInadmissibleLeft: map[string][]string{
 				"eng-gamma": {"eng-gamma/new-gamma"},
 			},
 		},
@@ -1651,6 +1802,428 @@ func TestSchedule(t *testing.T) {
 				"eng-gamma/gamma4":   *utiltesting.MakeAdmission("eng-gamma").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 			},
 		},
+		"multiple preemptions without borrowing": {
+			// While requiring the same shared FlavorResource (Default, cpu),
+			// multiple workloads are able to issue preemptions on workloads within
+			// their own CQs in a single scheduling cycle.
+			multiplePreemptions: MultiplePremptions,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-alpha/a1", "eng-beta/b1"),
+			wantLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+				"other-beta":  {"eng-beta/preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+			},
+		},
+		"multiple preemptions preemption possible after earlier workload fits": {
+			// When one workload is assigned Fit,
+			// and another Preempt, the Fit workload doesn't block
+			// the preempting workload in the same cycle.
+			multiplePreemptions: MultiplePremptions,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("fit", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Priority(99).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-beta/b1"),
+			wantLeft: map[string][]string{
+				"other-beta": {"eng-beta/preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/fit": *utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "default", "1").Obj(),
+				"eng-beta/b1":   *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+			},
+			wantScheduled: []string{"eng-alpha/fit"},
+		},
+		"multiple preemptions skip preemption when shared limited resource": {
+			// The two preempting workloads, each requesting 3 CPU,
+			// require capacity in the Cohort in addition to preemption. We make sure
+			// that we don't do a wasteful preemption, as only one of the
+			// workloads can fit even after two preemptions.
+			//
+			// Evicted workloads: request 4
+			// Preempting workloads: request 6
+			// Cohort has capacity 5
+			multiplePreemptions: MultiplePremptions,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("resource-bank").
+					Cohort("other").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "1").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+				*utiltesting.MakeWorkload("pretending-preemptor", "eng-beta").
+					Priority(99).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-alpha/a1"),
+			wantLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+				"other-beta":  {"eng-beta/pretending-preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+			},
+		},
+		"multiple preemptions within cq when fair sharing": {
+			// Multiple CQs can preempt within their CQs, with
+			// fair sharing enabled.
+			multiplePreemptions: MultiplePremptions,
+			enableFairSharing:   true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-gamma").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").
+							Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("resource-bank").
+					Cohort("other").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "3").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-gamma").ClusterQueue("other-gamma").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						Assignment(corev1.ResourceCPU, "default", "3").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-gamma").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuota(utiltesting.MakeAdmission("other-gamma").
+						Assignment(corev1.ResourceCPU, "default", "3").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-gamma").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-alpha/a1", "eng-beta/b1", "eng-gamma/c1"),
+			wantLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+				"other-beta":  {"eng-beta/preemptor"},
+				"other-gamma": {"eng-gamma/preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").
+					Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+				"eng-beta/b1": *utiltesting.MakeAdmission("other-beta").
+					Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+				"eng-gamma/c1": *utiltesting.MakeAdmission("other-gamma").
+					Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+			},
+		},
+		"multiple preemptions skip overlapping preemption targets": {
+			// Gamma cq is using more than fair share of CPU.
+			// alpha and beta need CPU to run incoming workload.
+			//
+			// Alpha workload is higher priority, so sorted first.
+			//
+			// We ensure only alpha (and not beta) workload is preempted,
+			// as we disallow overlapping preemption targets
+			// in the same cycle
+			multiplePreemptions: MultiplePremptions,
+			enableFairSharing:   true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").
+							Resource("alpha-resource", "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").
+							Resource("beta-resource", "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-gamma").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").
+							Resource("gamma-resource", "1").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("resource-bank").
+					Cohort("other").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "9").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-gamma").ClusterQueue("other-gamma").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request("alpha-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-alpha").
+						Assignment("alpha-resource", "default", "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request("beta-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-beta").
+						Assignment("beta-resource", "default", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("c1", "eng-gamma").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "9").
+					Request("gamma-resource", "1").
+					ReserveQuota(utiltesting.MakeAdmission("other-gamma").
+						Assignment(corev1.ResourceCPU, "default", "9").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Request("alpha-resource", "1").
+					Obj(),
+				*utiltesting.MakeWorkload("pretending-preemptor", "eng-beta").
+					Priority(99).
+					Queue("other").
+					Request(corev1.ResourceCPU, "3").
+					Request("beta-resource", "1").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-alpha/a1", "eng-gamma/c1"),
+			wantLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+				"other-beta":  {"eng-beta/pretending-preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").
+					Assignment("alpha-resource", "default", "1").Obj(),
+				"eng-beta/b1": *utiltesting.MakeAdmission("other-beta").
+					Assignment("beta-resource", "default", "1").Obj(),
+				"eng-gamma/c1": *utiltesting.MakeAdmission("other-gamma").
+					Assignment(corev1.ResourceCPU, "default", "9").Obj(),
+			},
+		},
 		"not enough resources": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "sales").
@@ -1679,6 +2252,7 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"multiple preemptions blocked when overlapping FlavorResource in cohort": {
+			multiplePreemptions: Legacy,
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltesting.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -1742,7 +2316,7 @@ func TestSchedule(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
+		tc.multiplePreemptions.runTest(name, t, func(t *testing.T) {
 			if tc.enableLendingLimit {
 				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
 			}
@@ -2426,7 +3000,7 @@ func TestLastSchedulingContext(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		Both.runTest(tc.name, t, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
@@ -2616,7 +3190,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		Both.runTest(tc.name, t, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
