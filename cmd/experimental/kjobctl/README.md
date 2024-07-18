@@ -2,7 +2,9 @@
 ML/AI/Batch Jobs Made Easy
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+The `kubectl-kjob` plugin, `kjobctl`, allows you to list, describe and create jobs.
+
+Read the [overview](docs/_index.md) to learn more.
 
 ## Getting Started
 
