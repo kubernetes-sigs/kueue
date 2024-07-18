@@ -4,7 +4,7 @@ timeout: 3000s
 # For each build step, Prow executes a job.
 steps:
   # see https://github.com/kubernetes/test-infra/tree/master/config/jobs/image-pushing
-  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20240523-a15ad90fc9'
+  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20240718-5ef92b5c36'
     entrypoint: make
     args:
       - image-push
