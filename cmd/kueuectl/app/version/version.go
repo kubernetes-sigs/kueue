@@ -21,7 +21,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	k8s "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -93,7 +93,7 @@ func (o *VersionOptions) Complete(clientGetter util.ClientGetter) error {
 func (o *VersionOptions) Run(ctx context.Context) error {
 	fmt.Fprintf(o.Out, "Client Version: %s\n", version.GitVersion)
 
-	deployment, err := o.K8sClientset.AppsV1().Deployments(kueueNamespace).Get(ctx, kueueControllerManagerName, v1.GetOptions{})
+	deployment, err := o.K8sClientset.AppsV1().Deployments(kueueNamespace).Get(ctx, kueueControllerManagerName, metav1.GetOptions{})
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}

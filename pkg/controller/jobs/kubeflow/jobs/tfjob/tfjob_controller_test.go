@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func TestPriorityClass(t *testing.T) {
@@ -43,15 +43,15 @@ func TestPriorityClass(t *testing.T) {
 					},
 					TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.TFJobReplicaTypeChief: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "chief-priority",
 								},
 							},
 						},
 						kftraining.TFJobReplicaTypeWorker: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "worker-priority",
 								},
 							},
@@ -69,8 +69,8 @@ func TestPriorityClass(t *testing.T) {
 					},
 					TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.TFJobReplicaTypeChief: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "chief-priority",
 								},
 							},
@@ -85,29 +85,29 @@ func TestPriorityClass(t *testing.T) {
 				Spec: kftraining.TFJobSpec{
 					TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.TFJobReplicaTypeChief: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "chief-priority",
 								},
 							},
 						},
 						kftraining.TFJobReplicaTypePS: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "ps-priority",
 								},
 							},
 						},
 						kftraining.TFJobReplicaTypeWorker: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "worker-priority",
 								},
 							},
 						},
 						kftraining.TFJobReplicaTypeEval: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "eval-priority",
 								},
 							},
@@ -122,13 +122,13 @@ func TestPriorityClass(t *testing.T) {
 				Spec: kftraining.TFJobSpec{
 					TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.TFJobReplicaTypeChief: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{},
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{},
 							},
 						},
 						kftraining.TFJobReplicaTypeEval: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "eval-priority",
 								},
 							},
@@ -144,8 +144,8 @@ func TestPriorityClass(t *testing.T) {
 					TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.TFJobReplicaTypeChief: {},
 						kftraining.TFJobReplicaTypeWorker: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
 									PriorityClassName: "worker-priority",
 								},
 							},
@@ -161,8 +161,8 @@ func TestPriorityClass(t *testing.T) {
 					TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
 						kftraining.TFJobReplicaTypeChief: {},
 						kftraining.TFJobReplicaTypeEval: {
-							Template: v1.PodTemplateSpec{
-								Spec: v1.PodSpec{},
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{},
 							},
 						},
 					},

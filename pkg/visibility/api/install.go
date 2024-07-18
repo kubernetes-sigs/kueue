@@ -23,7 +23,7 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 
-	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/queue"
 	apirest "sigs.k8s.io/kueue/pkg/visibility/api/rest"
 )
