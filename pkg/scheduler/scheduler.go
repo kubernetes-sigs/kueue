@@ -252,7 +252,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 			usage := e.netUsage()
 			if !cq.Fits(usage) {
-				setSkipped(e, "Workload no longer fits after processing other workloads")
+				setSkipped(e, "Workload no longer fits after processing another workload")
 				continue
 			}
 			preemptedWorkloads.Insert(pendingPreemptions...)
@@ -262,11 +262,15 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// Check whether there was an assignment in this cycle that could render the next assignments invalid:
 			// - If the workload no longer fits in the cohort.
 			// - If there was another assignment in the cohort, then the preemption calculation is no longer valid.
-			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) &&
-				((mode == flavorassigner.Fit && !cq.FitInCohort(sum)) ||
-					(mode == flavorassigner.Preempt && cycleCohortsSkipPreemption.Has(cq.Cohort.Name))) {
-				setSkipped(e, "other workloads in the cohort were prioritized")
-				continue
+			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) {
+				if mode == flavorassigner.Fit && !cq.FitInCohort(sum) {
+					setSkipped(e, "Workload no longer fits after processing another workload")
+					continue
+				}
+				if mode == flavorassigner.Preempt && cycleCohortsSkipPreemption.Has(cq.Cohort.Name) {
+					setSkipped(e, "Workload skipped because its premption calculations were invalidated by another workload")
+					continue
+				}
 			}
 			// Even if the workload will not be admitted after this point, due to preemption pending or other failures,
 			// we should still account for its usage.
