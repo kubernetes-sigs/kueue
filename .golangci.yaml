@@ -43,6 +43,7 @@ linters:
     - perfsprint
     - revive
     - unconvert
+    - makezero
 
 # Settings related to issues
 issues:
