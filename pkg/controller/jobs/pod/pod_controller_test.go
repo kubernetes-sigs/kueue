@@ -3956,7 +3956,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodRunning).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -3967,7 +3967,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -3977,7 +3977,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now()).
+					CreationTimestamp(now).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4005,7 +4005,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodRunning).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4014,7 +4014,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now()).
+					CreationTimestamp(now).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -4058,7 +4058,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4068,7 +4068,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4095,7 +4095,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4105,7 +4105,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -4133,7 +4133,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4143,7 +4143,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4170,7 +4170,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4180,7 +4180,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -4214,7 +4214,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4225,7 +4225,7 @@ func TestReconciler(t *testing.T) {
 					Group("test-group").
 					Delete().
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4252,7 +4252,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4263,7 +4263,7 @@ func TestReconciler(t *testing.T) {
 					Delete().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -4297,7 +4297,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4308,7 +4308,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4342,7 +4342,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4352,7 +4352,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -4394,7 +4394,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4405,7 +4405,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4444,7 +4444,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4454,7 +4454,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -4494,7 +4494,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4504,7 +4504,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4545,7 +4545,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodFailed).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4555,7 +4555,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -4597,7 +4597,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4607,7 +4607,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -4640,7 +4640,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -4650,7 +4650,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Now().Add(-time.Hour)).
+					CreationTimestamp(now.Add(-time.Hour)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
