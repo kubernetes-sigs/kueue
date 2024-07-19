@@ -1678,6 +1678,67 @@ func TestSchedule(t *testing.T) {
 				"sales": {"sales/new"},
 			},
 		},
+		"multiple preemptions blocked when overlapping FlavorResource in cohort": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					SimpleReserveQuota("other-alpha", "default", now).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(0).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					SimpleReserveQuota("other-beta", "default", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+				*utiltesting.MakeWorkload("pretending-preemptor", "eng-beta").
+					Priority(99).
+					Queue("other").
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-alpha/a1"),
+			wantLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+				"other-beta":  {"eng-beta/pretending-preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {

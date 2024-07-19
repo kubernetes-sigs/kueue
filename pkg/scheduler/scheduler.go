@@ -165,7 +165,7 @@ func (cu cohortsUsage) hasCommonFlavorResources(cohort string, assignment resour
 		return false
 	}
 	for fr := range assignment {
-		if cohortUsage[fr] > 0 {
+		if _, found := cohortUsage[fr]; found {
 			return true
 		}
 	}
