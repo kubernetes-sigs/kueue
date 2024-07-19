@@ -97,15 +97,6 @@ type ResourceGroup struct {
 	LabelKeys sets.Set[string]
 }
 
-func (r *ResourceGroup) FlavorResources() (frs []resources.FlavorResource) {
-	for _, f := range r.Flavors {
-		for r := range r.CoveredResources {
-			frs = append(frs, resources.FlavorResource{Flavor: f, Resource: r})
-		}
-	}
-	return frs
-}
-
 type ResourceQuota struct {
 	Nominal        int64
 	BorrowingLimit *int64
