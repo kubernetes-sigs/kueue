@@ -277,7 +277,7 @@ artifacts: kustomize yq helm ## Generate release artifacts.
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
-	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml
+	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/experimental/kjobctl/docs/installation.md
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
 	@$(call clean-manifests)
 

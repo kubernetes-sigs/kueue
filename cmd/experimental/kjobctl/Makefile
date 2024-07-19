@@ -56,8 +56,8 @@ generate: gomod-download controller-gen ## Generate code containing DeepCopy, De
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
 
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify manifests generate
-	git --no-pager diff --exit-code config/crd apis client-go
+verify: gomod-verify ci-lint fmt-verify manifests generate generate-kjobctl-docs
+	git --no-pager diff --exit-code config/crd apis client-go docs
 
 .PHONY: gomod-verify
 gomod-verify:
@@ -119,6 +119,19 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 .PHONY: kubectl-kjob
 kubectl-kjob: ## Build kubectl-kjob binary file to bin directory.
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kjob cmd/main.go
+
+.PHONY: kjobctl-docs
+kjobctl-docs: ## Build kjobctl-docs binary file to bin directory.
+	cd $(PROJECT_DIR)/hack/tools && \
+	go mod download && \
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kjobctl-docs ./kjobctl-docs/main.go
+
+.PHONY: generate-kjobctl-docs
+generate-kjobctl-docs: kjobctl-docs ## Generate kjobctl docs.
+	rm -Rf $(PROJECT_DIR)/docs/commands/*
+	$(PROJECT_DIR)/bin/kjobctl-docs \
+		$(PROJECT_DIR)/hack/tools/kjobctl-docs/templates \
+		$(PROJECT_DIR)/docs/commands
 
 ##@ Dependencies
 
