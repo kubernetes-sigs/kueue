@@ -489,6 +489,36 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 	return wrap
 }
 
+func MakeAdmissionScaleDown(r corev1.ResourceName, q string, podSetAssignmentCount int32, cq string, podSetNames ...string) *AdmissionWrapper {
+	wrap := &AdmissionWrapper{kueue.Admission{
+		ClusterQueue: kueue.ClusterQueueReference(cq),
+	}}
+
+	if len(podSetNames) == 0 {
+		wrap.PodSetAssignments = []kueue.PodSetAssignment{
+			{
+				Name:          kueue.DefaultPodSetName,
+				Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+				ResourceUsage: make(corev1.ResourceList),
+				Count:         ptr.To[int32](1),
+			},
+		}
+		return wrap
+	}
+
+	var psFlavors []kueue.PodSetAssignment
+	for _, name := range podSetNames {
+		psFlavors = append(psFlavors, kueue.PodSetAssignment{
+			Name:          name,
+			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+			ResourceUsage: corev1.ResourceList{r: resource.MustParse(q)},
+			Count:         ptr.To[int32](podSetAssignmentCount),
+		})
+	}
+	wrap.PodSetAssignments = psFlavors
+	return wrap
+}
+
 func (w *AdmissionWrapper) Obj() *kueue.Admission {
 	return &w.Admission
 }

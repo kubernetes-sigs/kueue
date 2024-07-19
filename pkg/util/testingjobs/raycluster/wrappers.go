@@ -80,6 +80,12 @@ func (j *ClusterWrapper) NodeSelectorHeadGroup(k, v string) *ClusterWrapper {
 	return j
 }
 
+// Set replica count
+func (j *ClusterWrapper) WorkerCount(c int32) *ClusterWrapper {
+	j.Spec.WorkerGroupSpecs[0].Replicas = ptr.To(c)
+	return j
+}
+
 // Obj returns the inner Job.
 func (j *ClusterWrapper) Obj() *rayv1.RayCluster {
 	return &j.RayCluster
