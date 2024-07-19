@@ -932,25 +932,25 @@ func TestPreemption(t *testing.T) {
 					Obj(),
 				*utiltesting.MakeWorkload("wl2", "").
 					Priority(1).
-					Creation(time.Now()).
+					Creation(now).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.NewTime(time.Now().Add(time.Second)),
+						LastTransitionTime: metav1.NewTime(now.Add(time.Second)),
 					}).
 					Obj(),
 				*utiltesting.MakeWorkload("wl3", "").
 					Priority(1).
-					Creation(time.Now()).
+					Creation(now).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
 				Priority(1).
-				Creation(time.Now().Add(-15 * time.Second)).
+				Creation(now.Add(-15 * time.Second)).
 				PodSets(
 					*utiltesting.MakePodSet("launcher", 1).
 						Request(corev1.ResourceCPU, "2").Obj(),

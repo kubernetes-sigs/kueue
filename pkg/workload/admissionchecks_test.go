@@ -227,8 +227,9 @@ func TestSyncAdmittedCondition(t *testing.T) {
 }
 
 func TestSetCheckState(t *testing.T) {
-	t0 := metav1.NewTime(time.Now().Add(-5 * time.Second))
-	t1 := metav1.NewTime(time.Now())
+	now := time.Now()
+	t0 := metav1.NewTime(now.Add(-5 * time.Second))
+	t1 := metav1.NewTime(now)
 	ps1Updates := kueue.PodSetUpdate{
 		Name: "ps1",
 		Labels: map[string]string{
@@ -387,7 +388,7 @@ func TestSetCheckState(t *testing.T) {
 				if updatedCheck := FindAdmissionCheck(gotStates, tc.state.Name); updatedCheck == nil {
 					t.Error("Cannot find the updated check state")
 				} else {
-					if diff := cmp.Diff(metav1.NewTime(time.Now()), updatedCheck.LastTransitionTime, opts...); diff != "" {
+					if diff := cmp.Diff(metav1.NewTime(now), updatedCheck.LastTransitionTime, opts...); diff != "" {
 						t.Errorf("Unexpected LastTransitionTime (- want/+ got):\n%s", diff)
 					}
 				}

@@ -306,7 +306,7 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 	)
 
 	creationTime := metav1.Now()
-	conditionTime := metav1.NewTime(time.Now().Add(time.Hour))
+	conditionTime := metav1.NewTime(creationTime.Add(time.Hour))
 
 	cases := map[string]struct {
 		wl   *kueue.Workload
