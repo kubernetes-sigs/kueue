@@ -31,10 +31,7 @@ function generate_platform {
         arch: "${2}"
     uri: https://github.com/kubernetes-sigs/kueue/releases/download/v${VERSION}/kubectl-kueue-${1}-${2}.tar.gz
     sha256: $(curl -L https://github.com/kubernetes-sigs/kueue/releases/download/v${VERSION}/kubectl-kueue-${1}-${2}.tar.gz | shasum -a 256 - | awk '{print $1}')
-    bin: "${3}"
-    files:
-    - from: "*"
-      to: "."
+    bin: "./kubectl-kueue-${1}-${2}/${3}"
 EOF
 }
 
@@ -59,9 +56,9 @@ spec:
   platforms:
 EOF
 
-generate_platform linux amd64 ./kubectl-kueue >> kueue.yaml
-generate_platform linux arm64 ./kubectl-kueue >> kueue.yaml
-generate_platform darwin amd64 ./kubectl-kueue >> kueue.yaml
-generate_platform darwin arm64 ./kubectl-kueue >> kueue.yaml
+generate_platform linux amd64 kubectl-kueue >> kueue.yaml
+generate_platform linux arm64 kubectl-kueue >> kueue.yaml
+generate_platform darwin amd64 kubectl-kueue >> kueue.yaml
+generate_platform darwin arm64 kubectl-kueue >> kueue.yaml
 
 echo "To publish to the krew index, create a pull request on https://github.com/kubernetes-sigs/krew-index/tree/master/plugins to update kueue.yaml with the newly generated kueue.yaml."
