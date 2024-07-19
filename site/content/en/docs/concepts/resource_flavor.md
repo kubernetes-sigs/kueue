@@ -16,8 +16,10 @@ Resources in a cluster are typically not homogeneous. Resources could differ in:
 A ResourceFlavor is an object that represents these resource variations and
 allows you to associate them with cluster nodes through labels, taints and tolerations.
 
-**Note**: If the resources in your cluster are homogeneous, you can use 
+{{% alert title="Note" color="primary" %}}
+If the resources in your cluster are homogeneous, you can use 
 an [empty ResourceFlavor](#empty-resourceflavor) instead of adding labels to custom ResourceFlavors.
+{{% /alert %}}
 
 A sample ResourceFlavor looks like the following:
 

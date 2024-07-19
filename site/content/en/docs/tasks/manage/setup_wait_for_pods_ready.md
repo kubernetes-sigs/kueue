@@ -115,9 +115,10 @@ We create two jobs which both require all their pods to be running at the same
 time to complete. The cluster has enough resources to support running one of the
 jobs at the same time, but not both.
 
-> **Note**
-> In this example we use a cluster with autoscaling disabled in order to simulate
+{{% alert title="Note" color="primary" %}}
+In this example we use a cluster with autoscaling disabled in order to simulate
 issues with resource provisioning to satisfy the configured cluster quota.
+{{% /alert %}}
 
 ### 1. Preparation
 
