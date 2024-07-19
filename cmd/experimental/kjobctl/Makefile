@@ -14,6 +14,7 @@ GO_FMT ?= gofmt
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ARTIFACTS ?= $(PROJECT_DIR)/bin
 TOOLS_DIR ?= $(PROJECT_DIR)/hack/tools
+CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 
 # Number of processes to use during integration tests to run specs within a
 # suite in parallel. Suites still run sequentially. User may set this value to 1
@@ -43,6 +44,14 @@ SHELL = /usr/bin/env bash -o pipefail
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
+##@ Release
+.PHONY: artifacts
+artifacts: kustomize ## Generate release artifacts.
+	if [ -d artifacts ]; then rm -rf artifacts; fi
+	mkdir -p artifacts
+	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
+	GO_BUILD_ENV="$(GO_BUILD_ENV)" GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kjob PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/main.go
 
 ##@ Development
 

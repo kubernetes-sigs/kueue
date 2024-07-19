@@ -274,6 +274,10 @@ artifacts: kustomize yq helm ## Generate release artifacts.
 	# Revert the image changes
 	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REGISTRY)/$(IMAGE_NAME)" | .controllerManager.manager.image.tag = "main" | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
 	GO_BUILD_ENV="$(GO_BUILD_ENV)" GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+	# Include kjobctl artifacts
+	cd cmd/experimental/kjobctl && make artifacts
+	mv cmd/experimental/kjobctl/artifacts/kubectl-kjob-* artifacts/
+	mv cmd/experimental/kjobctl/artifacts/manifests.yaml artifacts/kubectl-kjob-manifests.yaml
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
