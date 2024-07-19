@@ -1,9 +1,12 @@
 /*
 Copyright 2023 The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -45,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/maps"
@@ -289,13 +293,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isStandaloneJob {
 		_, _, finished := job.Finished()
 		if !finished && !job.IsSuspended() {
-			if parentWorkload, err := r.getParentWorkload(ctx, job, object); err != nil {
+			if parentWorkload, err := r.getParentWorkload(ctx, object); err != nil {
 				log.Error(err, "couldn't get the parent job workload")
 				return ctrl.Result{}, err
 			} else if parentWorkload == nil || !workload.IsAdmitted(parentWorkload) {
-				// suspend it
-				job.Suspend()
-				if err := r.client.Update(ctx, object); err != nil {
+				if err := clientutil.Patch(ctx, r.client, object, true, func() (bool, error) {
+					job.Suspend()
+					return true, nil
+				}); err != nil {
 					log.Error(err, "suspending child job failed")
 					return ctrl.Result{}, err
 				}
@@ -429,13 +434,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				if evCond.Reason == kueue.WorkloadEvictedByDeactivation ||
-					evCond.Reason == kueue.WorkloadEvictedByPodsReadyTimeout ||
-					evCond.Reason == kueue.WorkloadEvictedByClusterQueueStopped {
-					workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, false)
-				} else {
-					workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, true)
-				}
+				// The requeued condition status set to true only on EvictedByPreemption or EvictedByAdmissionCheck
+				setRequeued := evCond.Reason == kueue.WorkloadEvictedByPreemption || evCond.Reason == kueue.WorkloadEvictedByAdmissionCheck
+				workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
 				_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
 				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 				if err != nil {
@@ -538,7 +539,7 @@ func (r *JobReconciler) IsParentJobManaged(ctx context.Context, jobObj client.Ob
 	return QueueNameForObject(parentJob) != "", nil
 }
 
-func (r *JobReconciler) getParentWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+func (r *JobReconciler) getParentWorkload(ctx context.Context, object client.Object) (*kueue.Workload, error) {
 	owner := metav1.GetControllerOf(object)
 	if owner == nil {
 		return nil, nil
@@ -802,11 +803,9 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 			return err
 		}
 	} else {
-		if runErr := job.RunWithPodSetsInfo(info); runErr != nil {
-			return runErr
-		}
-
-		if err := r.client.Update(ctx, object); err != nil {
+		if err := clientutil.Patch(ctx, r.client, object, true, func() (bool, error) {
+			return true, job.RunWithPodSetsInfo(info)
+		}); err != nil {
 			return err
 		}
 		r.record.Event(object, corev1.EventTypeNormal, ReasonStarted, msg)
@@ -848,11 +847,13 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return nil
 	}
 
-	job.Suspend()
-	if info != nil {
-		job.RestorePodSetsInfo(info)
-	}
-	if err := r.client.Update(ctx, object); err != nil {
+	if err := clientutil.Patch(ctx, r.client, object, true, func() (bool, error) {
+		job.Suspend()
+		if info != nil {
+			job.RestorePodSetsInfo(info)
+		}
+		return true, nil
+	}); err != nil {
 		return err
 	}
 

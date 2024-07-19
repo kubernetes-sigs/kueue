@@ -38,6 +38,7 @@ func NewStopCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStrea
 	util.AddDryRunFlag(cmd)
 
 	cmd.AddCommand(NewWorkloadCmd(clientGetter, streams))
+	cmd.AddCommand(NewLocalQueueCmd(clientGetter, streams))
 	cmd.AddCommand(NewClusterQueueCmd(clientGetter, streams))
 
 	return cmd

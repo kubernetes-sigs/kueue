@@ -28,6 +28,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -58,7 +59,7 @@ var (
 
 var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.When("manageJobsWithoutQueueName is disabled", func() {
-		var defaultFlavor = testing.MakeResourceFlavor("default").Label("kubernetes.io/arch", "arm64").Obj()
+		var defaultFlavor = testing.MakeResourceFlavor("default").NodeLabel("kubernetes.io/arch", "arm64").Obj()
 		var clusterQueue = testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*testing.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "1").Obj(),
@@ -92,8 +93,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 		})
 		ginkgo.AfterAll(func() {
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 			fwk.Teardown()
 		})
 
@@ -132,8 +133,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, fl, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 		})
 
 		ginkgo.When("Using single pod", func() {
@@ -425,7 +426,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Expect(k8sClient.Create(ctx, clusterQueueAc)).Should(gomega.Succeed())
 					localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueueAc.Name).Obj()
 					gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
-					testFlavor = testing.MakeResourceFlavor("test-flavor").Label(instanceKey, "test-flavor").Obj()
+					testFlavor = testing.MakeResourceFlavor("test-flavor").NodeLabel(instanceKey, "test-flavor").Obj()
 					gomega.Expect(k8sClient.Create(ctx, testFlavor)).Should(gomega.Succeed())
 
 					podLookupKey = &types.NamespacedName{Name: podName, Namespace: ns.Name}
@@ -433,9 +434,9 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				ginkgo.AfterEach(func() {
 					gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-					util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueueAc, true)
-					util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, testFlavor, true)
-					util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, admissionCheck, true)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueueAc, true)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, testFlavor, true)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 				})
 
 				ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
@@ -1070,7 +1071,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				pod1LookupKey := client.ObjectKeyFromObject(pod1)
 				pod2LookupKey := client.ObjectKeyFromObject(pod2)
-				excessPodLookupKey := client.ObjectKeyFromObject(excessBasePod.Obj())
 
 				gomega.Expect(k8sClient.Create(ctx, pod1)).Should(gomega.Succeed())
 				gomega.Expect(k8sClient.Create(ctx, pod2)).Should(gomega.Succeed())
@@ -1090,7 +1090,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.PodSets[1].Count).To(gomega.Equal(int32(1)))
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
-				createdPod := &corev1.Pod{}
 				ginkgo.By("checking that excess pod is deleted before admission", func() {
 					// Make sure that at least a second passes between
 					// creation of pods to avoid flaky behavior.
@@ -1099,9 +1098,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					excessPod := excessBasePod.Clone().Obj()
 					gomega.Expect(k8sClient.Create(ctx, excessPod)).Should(gomega.Succeed())
 
-					gomega.Eventually(func() error {
-						return k8sClient.Get(ctx, excessPodLookupKey, createdPod)
-					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, excessPod, false)
 				})
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
@@ -1141,9 +1138,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					excessPod := excessBasePod.Clone().Obj()
 					gomega.Expect(k8sClient.Create(ctx, excessPod)).Should(gomega.Succeed())
 
-					gomega.Eventually(func() error {
-						return k8sClient.Get(ctx, excessPodLookupKey, createdPod)
-					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, excessPod, false)
 				})
 			})
 
@@ -1411,7 +1406,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 				},
 			}),
 		))
-		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").Label(instanceKey, "spot-untainted").Obj()
+		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).Should(gomega.Succeed())
 
 		clusterQueue = testing.MakeClusterQueue("dev-clusterqueue").
@@ -1421,8 +1416,8 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 	})
 	ginkgo.AfterAll(func() {
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 		fwk.Teardown()
 	})
 
@@ -1612,7 +1607,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 			})
 
 			ginkgo.By("deleting the localQueue to prevent readmission", func() {
-				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("clearing the workload's admission to stop the job", func() {
@@ -1696,8 +1691,8 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, fl, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 	})
 
 	ginkgo.When("pod group not ready", func() {
@@ -1742,7 +1737,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 			ginkgo.By("checking the workload is evicted due to pods ready timeout")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeTrue())
+				g.Expect(workload.IsActive(wl)).Should(gomega.BeTrue())
 				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
 				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(ptr.To[int32](1)))
 				g.Expect(wl.Status.RequeueState.RequeueAt).Should(gomega.BeNil())
@@ -1794,7 +1789,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 			ginkgo.By("checking the workload is deactivated and evicted")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
+				g.Expect(workload.IsActive(wl)).Should(gomega.BeFalse())
 				g.Expect(wl.Status.RequeueState).Should(gomega.BeNil())
 				g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
 					gomega.BeComparableTo(metav1.Condition{
@@ -1812,7 +1807,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadEvictedByDeactivation,
+						Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -1824,10 +1819,11 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    podcontroller.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadEvictedByDeactivation,
+						Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
+				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)).Should(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

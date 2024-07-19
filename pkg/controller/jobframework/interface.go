@@ -1,9 +1,12 @@
 /*
 Copyright 2023 The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -107,13 +110,13 @@ type ComposableJob interface {
 	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r record.EventRecorder, msg string) error
 	// ConstructComposableWorkload returns a new Workload that's assembled out of all members of the ComposableJob.
 	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error)
-	// ListChildWorkloads returns all workloads related to the composable job
+	// ListChildWorkloads returns all workloads related to the composable job.
 	ListChildWorkloads(ctx context.Context, c client.Client, parent types.NamespacedName) (*kueue.WorkloadList, error)
 	// FindMatchingWorkloads returns all related workloads, workload that matches the ComposableJob and duplicates that has to be deleted.
 	FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (match *kueue.Workload, toDelete []*kueue.Workload, err error)
-	// Stop implements the custom stop procedure for ComposableJob
+	// Stop implements the custom stop procedure for ComposableJob.
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) ([]client.Object, error)
-	// Calls f on each member of the ComposableJob
+	// ForEach calls f on each member of the ComposableJob.
 	ForEach(f func(obj runtime.Object))
 }
 
@@ -147,4 +150,36 @@ func workloadPriorityClassName(job GenericJob) string {
 func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
 	name, found := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]
 	return name, found
+}
+
+// MultiKueueAdapter interface needed for MultiKueue job delegation.
+type MultiKueueAdapter interface {
+	// SyncJob creates the Job object in the worker cluster using remote client, if not already created.
+	// Copy the status from the remote job if already exists.
+	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
+	// DeleteRemoteObject deletes the Job in the worker cluster.
+	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
+	// IsJobManagedByKueue returns:
+	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
+	// - a reason indicating why the job is not managed by Kueue
+	// - any API error encountered during the check
+	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
+	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
+	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
+	// suspended and not start the execution locally.
+	KeepAdmissionCheckPending() bool
+	// GVK returns GVK (Group Version Kind) for the job.
+	GVK() schema.GroupVersionKind
+}
+
+// MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter
+// to receive job related watch events from the worker cluster.
+// If not implemented, MultiKueue will only receive events related to the job's workload.
+type MultiKueueWatcher interface {
+	// GetEmptyList returns an empty list of objects
+	GetEmptyList() client.ObjectList
+	// WorkloadKeyFor returns the key of the workload of interest
+	// - the object name for workloads
+	// - the prebuilt workload for job types
+	WorkloadKeyFor(runtime.Object) (types.NamespacedName, error)
 }

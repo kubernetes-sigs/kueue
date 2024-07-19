@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	testingclock "k8s.io/utils/clock/testing"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -76,7 +77,8 @@ func TestLocalQueuePrint(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			out := printLocalQueueList(tc.in)
+			p := newLocalQueueTablePrinter().WithClock(testingclock.NewFakeClock(testStartTime))
+			out := p.printLocalQueueList(tc.in)
 			if diff := cmp.Diff(tc.out, out); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}

@@ -37,6 +37,7 @@ IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
+HELM_CHART_REPO := $(IMAGE_REGISTRY)/charts
 
 ifdef EXTRA_TAG
 IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
@@ -76,7 +77,7 @@ LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.7.1
+RELEASE_VERSION=v0.8.0
 RELEASE_BRANCH=main
 
 .PHONY: all
@@ -130,7 +131,7 @@ fmt: ## Run go fmt against code.
 
 .PHONY: fmt-verify
 fmt-verify:
-	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go')`; \
+	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go' | grep -v /vendor/)`; \
 	if [ -n "$$out" ]; then \
 	    echo "$$out"; \
 	    exit 1; \
@@ -170,7 +171,7 @@ shell-lint: ## Run shell linting.
 	$(PROJECT_DIR)/hack/verify-shellcheck.sh
 
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref prepare-release-branch
+verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref generate-kueuectl-docs prepare-release-branch
 	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/
 
 ##@ Build
@@ -208,6 +209,10 @@ image-build:
 .PHONY: image-push
 image-push: PUSH=--push
 image-push: image-build
+
+.PHONY: helm-chart-push
+helm-chart-push: yq helm
+	EXTRA_TAG="$(EXTRA_TAG)" GIT_TAG="$(GIT_TAG)" HELM_CHART_REPO="$(HELM_CHART_REPO)" IMAGE_REPO="$(IMAGE_REPO)" HELM="$(HELM)" YQ="$(YQ)" ./hack/push-chart.sh
 
 # Build an amd64 image that can be used for Kind E2E tests.
 .PHONY: kind-image-build
@@ -315,8 +320,15 @@ importer-image: importer-image-build
 
 .PHONY: kueuectl
 kueuectl:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kueue cmd/kueuectl/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kubectl-kueue cmd/kueuectl/main.go
 
 .PHONY: generate-apiref
 generate-apiref: genref
 	cd $(PROJECT_DIR)/hack/genref/ && $(GENREF) -o $(PROJECT_DIR)/site/content/en/docs/reference
+
+.PHONY: generate-kueuectl-docs
+generate-kueuectl-docs: kueuectl-docs
+	rm -Rf $(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands/kueuectl*
+	$(PROJECT_DIR)/bin/kueuectl-docs \
+		$(PROJECT_DIR)/hack/internal/tools/kueuectl-docs/templates \
+		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands

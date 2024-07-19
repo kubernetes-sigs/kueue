@@ -18,6 +18,7 @@ package preemption
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"testing"
@@ -47,10 +48,10 @@ import (
 
 var snapCmpOpts = []cmp.Option{
 	cmpopts.EquateEmpty(),
-	cmpopts.IgnoreUnexported(cache.ClusterQueue{}),
-	cmpopts.IgnoreFields(cache.Cohort{}, "AllocatableResourceGeneration"),
-	cmpopts.IgnoreFields(cache.ClusterQueue{}, "AllocatableResourceGeneration"),
-	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueue]) sets.Set[string] {
+	cmpopts.IgnoreUnexported(cache.ClusterQueueSnapshot{}),
+	cmpopts.IgnoreFields(cache.CohortSnapshot{}, "AllocatableResourceGeneration"),
+	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "AllocatableResourceGeneration"),
+	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueueSnapshot]) sets.Set[string] {
 		result := make(sets.Set[string], len(s))
 		for cq := range s {
 			result.Insert(cq.Name)
@@ -60,6 +61,7 @@ var snapCmpOpts = []cmp.Option{
 }
 
 func TestPreemption(t *testing.T) {
+	now := time.Now()
 	flavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
 		utiltesting.MakeResourceFlavor("alpha").Obj(),
@@ -86,8 +88,8 @@ func TestPreemption(t *testing.T) {
 		utiltesting.MakeClusterQueue("c1").
 			Cohort("cohort").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "6", "12").
-				Resource(corev1.ResourceMemory, "3Gi", "6Gi").
+				Resource(corev1.ResourceCPU, "6", "6").
+				Resource(corev1.ResourceMemory, "3Gi", "3Gi").
 				Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -98,8 +100,8 @@ func TestPreemption(t *testing.T) {
 		utiltesting.MakeClusterQueue("c2").
 			Cohort("cohort").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "6", "12").
-				Resource(corev1.ResourceMemory, "3Gi", "6Gi").
+				Resource(corev1.ResourceCPU, "6", "6").
+				Resource(corev1.ResourceMemory, "3Gi", "3Gi").
 				Obj(),
 			).
 			Preemption(kueue.ClusterQueuePreemption{
@@ -308,7 +310,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/low"),
+			wantPreempted: sets.New(targetKeyReason("/low", InClusterQueueReason)),
 		},
 		"preempt multiple": {
 			admitted: []kueue.Workload{
@@ -338,7 +340,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/low", "/mid"),
+			wantPreempted: sets.New(targetKeyReason("/low", InClusterQueueReason), targetKeyReason("/mid", InClusterQueueReason)),
 		},
 
 		"no preemption for low priority": {
@@ -416,7 +418,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/low"),
+			wantPreempted: sets.New(targetKeyReason("/low", InClusterQueueReason)),
 		},
 		"minimal set excludes low priority": {
 			admitted: []kueue.Workload{
@@ -446,7 +448,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/mid"),
+			wantPreempted: sets.New(targetKeyReason("/mid", InClusterQueueReason)),
 		},
 		"only preempt workloads using the chosen flavor": {
 			admitted: []kueue.Workload{
@@ -481,7 +483,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/mid"),
+			wantPreempted: sets.New(targetKeyReason("/mid", InClusterQueueReason)),
 		},
 		"reclaim quota from borrower": {
 			admitted: []kueue.Workload{
@@ -511,7 +513,43 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/c2-mid"),
+			wantPreempted: sets.New(targetKeyReason("/c2-mid", InCohortReclamationReason)),
+		},
+		"reclaim quota if workload requests 0 resources for a resource at nominal quota": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("c1-low", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "3").
+					Request(corev1.ResourceMemory, "3Gi").
+					SimpleReserveQuota("c1", "default", now).
+					Obj(),
+				*utiltesting.MakeWorkload("c2-mid", "").
+					Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("c2", "default", now).
+					Obj(),
+				*utiltesting.MakeWorkload("c2-high", "").
+					Priority(1).
+					Request(corev1.ResourceCPU, "6").
+					SimpleReserveQuota("c2", "default", now).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Priority(1).
+				Request(corev1.ResourceCPU, "3").
+				Request(corev1.ResourceMemory, "0").
+				Obj(),
+			targetCQ: "c1",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Fit,
+				},
+			}),
+			wantPreempted: sets.New(targetKeyReason("/c2-mid", InCohortReclamationReason)),
 		},
 		"no workloads borrowing": {
 			admitted: []kueue.Workload{
@@ -598,11 +636,11 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
-					Name: "alpha",
+					Name: "default",
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/c1-low"),
+			wantPreempted: sets.New(targetKeyReason("/c1-low", InClusterQueueReason)),
 		},
 		"preempting locally and borrowing same resource in cohort": {
 			admitted: []kueue.Workload{
@@ -633,7 +671,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/c1-low"),
+			wantPreempted: sets.New(targetKeyReason("/c1-low", InClusterQueueReason)),
 		},
 		"preempting locally and borrowing same resource in cohort; no borrowing limit in the cohort": {
 			admitted: []kueue.Workload{
@@ -664,7 +702,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/d1-low"),
+			wantPreempted: sets.New(targetKeyReason("/d1-low", InClusterQueueReason)),
 		},
 		"preempting locally and borrowing other resources in cohort, with cohort candidates": {
 			admitted: []kueue.Workload{
@@ -705,7 +743,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/c1-med"),
+			wantPreempted: sets.New(targetKeyReason("/c1-med", InClusterQueueReason)),
 		},
 		"preempting locally and not borrowing same resource in 1-queue cohort": {
 			admitted: []kueue.Workload{
@@ -731,7 +769,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/l1-med"),
+			wantPreempted: sets.New(targetKeyReason("/l1-med", InClusterQueueReason)),
 		},
 		"do not reclaim borrowed quota from same priority for withinCohort=ReclaimFromLowerPriority": {
 			admitted: []kueue.Workload{
@@ -785,7 +823,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/c1-1"),
+			wantPreempted: sets.New(targetKeyReason("/c1-1", InCohortReclamationReason)),
 		},
 		"preempt from all ClusterQueues in cohort": {
 			admitted: []kueue.Workload{
@@ -818,7 +856,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/c1-low", "/c2-low"),
+			wantPreempted: sets.New(targetKeyReason("/c1-low", InClusterQueueReason), targetKeyReason("/c2-low", InCohortReclamationReason)),
 		},
 		"can't preempt workloads in ClusterQueue for withinClusterQueue=Never": {
 			admitted: []kueue.Workload{
@@ -884,7 +922,7 @@ func TestPreemption(t *testing.T) {
 					},
 				},
 			},
-			wantPreempted: sets.New("/low-alpha", "/low-beta"),
+			wantPreempted: sets.New(targetKeyReason("/low-alpha", InClusterQueueReason), targetKeyReason("/low-beta", InClusterQueueReason)),
 		},
 		"preempt newer workloads with the same priority": {
 			admitted: []kueue.Workload{
@@ -895,25 +933,25 @@ func TestPreemption(t *testing.T) {
 					Obj(),
 				*utiltesting.MakeWorkload("wl2", "").
 					Priority(1).
-					Creation(time.Now()).
+					Creation(now).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
 					SetOrReplaceCondition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.NewTime(time.Now().Add(time.Second)),
+						LastTransitionTime: metav1.NewTime(now.Add(time.Second)),
 					}).
 					Obj(),
 				*utiltesting.MakeWorkload("wl3", "").
 					Priority(1).
-					Creation(time.Now()).
+					Creation(now).
 					Request(corev1.ResourceCPU, "2").
 					ReserveQuota(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
 				Priority(1).
-				Creation(time.Now().Add(-15 * time.Second)).
+				Creation(now.Add(-15 * time.Second)).
 				PodSets(
 					*utiltesting.MakePodSet("launcher", 1).
 						Request(corev1.ResourceCPU, "2").Obj(),
@@ -933,7 +971,7 @@ func TestPreemption(t *testing.T) {
 					},
 				},
 			},
-			wantPreempted: sets.New("/wl2"),
+			wantPreempted: sets.New(targetKeyReason("/wl2", InClusterQueueReason)),
 		},
 		"use BorrowWithinCohort; allow preempting a lower-priority workload from another ClusterQueue while borrowing": {
 			admitted: []kueue.Workload{
@@ -958,7 +996,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/a_best_effort_low"),
+			wantPreempted: sets.New(targetKeyReason("/a_best_effort_low", InCohortReclaimWhileBorrowingReason)),
 		},
 		"use BorrowWithinCohort; don't allow preempting a lower-priority workload with priority above MaxPriorityThreshold, if borrowing is required even after the preemption": {
 			admitted: []kueue.Workload{
@@ -1001,7 +1039,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/b_standard"),
+			wantPreempted: sets.New(targetKeyReason("/b_standard", InCohortReclamationReason)),
 		},
 		"use BorrowWithinCohort; don't allow for preemption of lower-priority workload from the same ClusterQueue": {
 			admitted: []kueue.Workload{
@@ -1057,7 +1095,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/b_standard_1"),
+			wantPreempted: sets.New(targetKeyReason("/b_standard_1", InClusterQueueReason)),
 		},
 		"use BorrowWithinCohort; preempt from CQ and from other CQs with workloads below threshold": {
 			admitted: []kueue.Workload{
@@ -1093,7 +1131,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/b_standard_mid", "/a_best_effort_lower"),
+			wantPreempted: sets.New(targetKeyReason("/b_standard_mid", InClusterQueueReason), targetKeyReason("/a_best_effort_lower", InCohortReclaimWhileBorrowingReason)),
 		},
 		"reclaim quota from lender": {
 			admitted: []kueue.Workload{
@@ -1123,7 +1161,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted:      sets.New("/lend2-mid"),
+			wantPreempted:      sets.New(targetKeyReason("/lend2-mid", InCohortReclamationReason)),
 			enableLendingLimit: true,
 		},
 		"preempt from all ClusterQueues in cohort-lend": {
@@ -1157,7 +1195,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted:      sets.New("/lend1-low", "/lend2-low"),
+			wantPreempted:      sets.New(targetKeyReason("/lend1-low", InClusterQueueReason), targetKeyReason("/lend2-low", InCohortReclamationReason)),
 			enableLendingLimit: true,
 		},
 		"cannot preempt from other ClusterQueues if exceeds requestable quota including lending limit": {
@@ -1225,7 +1263,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/a1", "/a2"),
+			wantPreempted: sets.New(targetKeyReason("/a1", InClusterQueueReason), targetKeyReason("/a2", InClusterQueueReason)),
 		},
 		"preemptions from cq when target queue is exhausted for two requested resources": {
 			admitted: []kueue.Workload{
@@ -1282,7 +1320,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/a1", "/a2"),
+			wantPreempted: sets.New(targetKeyReason("/a1", InClusterQueueReason), targetKeyReason("/a2", InClusterQueueReason)),
 		},
 		"preemptions from cq when target queue is exhausted for one requested resource, but not the other": {
 			admitted: []kueue.Workload{
@@ -1333,7 +1371,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/a1", "/a2"),
+			wantPreempted: sets.New(targetKeyReason("/a1", InClusterQueueReason), targetKeyReason("/a2", InClusterQueueReason)),
 		},
 		"allow preemption from other cluster queues if target cq is not exhausted for the requested resource": {
 			admitted: []kueue.Workload{
@@ -1378,13 +1416,13 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted: sets.New("/a1", "/b5"),
+			wantPreempted: sets.New(targetKeyReason("/a1", InClusterQueueReason), targetKeyReason("/b5", InCohortReclamationReason)),
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
@@ -1403,11 +1441,14 @@ func TestPreemption(t *testing.T) {
 			gotPreempted := sets.New[string]()
 			broadcaster := record.NewBroadcaster()
 			scheme := runtime.NewScheme()
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{})
-			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload, _, _ string) error {
+			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload, reason, _ string) error {
 				lock.Lock()
-				gotPreempted.Insert(workload.Key(w))
+				gotPreempted.Insert(targetKeyReason(workload.Key(w), reason))
 				lock.Unlock()
 				return nil
 			}
@@ -1417,9 +1458,8 @@ func TestPreemption(t *testing.T) {
 			snapshot := cqCache.Snapshot()
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targetClusterQueue := snapshot.ClusterQueues[wlInfo.ClusterQueue]
-			targets := preemptor.GetTargets(*wlInfo, tc.assignment, &snapshot)
-			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets, targetClusterQueue)
+			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, &snapshot)
+			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
 			}
@@ -1511,7 +1551,7 @@ func TestFairPreemptions(t *testing.T) {
 			},
 			incoming:      unitWl.Clone().Name("c_incoming").Obj(),
 			targetCQ:      "c",
-			wantPreempted: sets.New("/b1"),
+			wantPreempted: sets.New(targetKeyReason("/b1", InCohortFairSharingReason)),
 		},
 		"can reclaim from queue using less, if taking the latest workload from user using the most isn't enough": {
 			clusterQueues: baseCQs,
@@ -1523,7 +1563,7 @@ func TestFairPreemptions(t *testing.T) {
 			},
 			incoming:      utiltesting.MakeWorkload("c_incoming", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("a", "default", now).Obj(),
 			targetCQ:      "c",
-			wantPreempted: sets.New("/a1"), // attempts to preempt b1, but it's not enough.
+			wantPreempted: sets.New(targetKeyReason("/a1", InCohortFairSharingReason)), // attempts to preempt b1, but it's not enough.
 		},
 		"reclaim borrowable quota from user using the most": {
 			clusterQueues: baseCQs,
@@ -1540,7 +1580,7 @@ func TestFairPreemptions(t *testing.T) {
 			},
 			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
 			targetCQ:      "a",
-			wantPreempted: sets.New("/b1"),
+			wantPreempted: sets.New(targetKeyReason("/b1", InCohortFairSharingReason)),
 		},
 		"preempt one from each CQ borrowing": {
 			clusterQueues: baseCQs,
@@ -1552,9 +1592,12 @@ func TestFairPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "0.5").SimpleReserveQuota("b", "default", now).Obj(),
 				*utiltesting.MakeWorkload("b3", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			incoming:      utiltesting.MakeWorkload("c_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
-			targetCQ:      "c",
-			wantPreempted: sets.New("/a1", "/b1"),
+			incoming: utiltesting.MakeWorkload("c_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ: "c",
+			wantPreempted: sets.New(
+				targetKeyReason("/a1", InCohortFairSharingReason),
+				targetKeyReason("/b1", InCohortFairSharingReason),
+			),
 		},
 		"can't preempt when everyone under nominal": {
 			clusterQueues: baseCQs,
@@ -1600,9 +1643,12 @@ func TestFairPreemptions(t *testing.T) {
 				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).Obj(),
 				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
-			targetCQ:      "a",
-			wantPreempted: sets.New("/a1_low", "/a2_low"),
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/a1_low", InClusterQueueReason),
+				targetKeyReason("/a2_low", InClusterQueueReason),
+			),
 		},
 		"can preempt a combination of same CQ and highest user": {
 			clusterQueues: baseCQs,
@@ -1617,9 +1663,12 @@ func TestFairPreemptions(t *testing.T) {
 				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).Obj(),
 				*unitWl.Clone().Name("b6").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
-			targetCQ:      "a",
-			wantPreempted: sets.New("/a_low", "/b1"),
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/a_low", InClusterQueueReason),
+				targetKeyReason("/b1", InCohortFairSharingReason),
+			),
 		},
 		"preempt huge workload if there is no other option, as long as the target CQ gets a lower share": {
 			clusterQueues: baseCQs,
@@ -1628,7 +1677,7 @@ func TestFairPreemptions(t *testing.T) {
 			},
 			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
 			targetCQ:      "a",
-			wantPreempted: sets.New("/b1"),
+			wantPreempted: sets.New(targetKeyReason("/b1", InCohortFairSharingReason)),
 		},
 		"can't preempt huge workload if the incoming is also huge": {
 			clusterQueues: baseCQs,
@@ -1657,9 +1706,12 @@ func TestFairPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
 				*utiltesting.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "3").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
-			targetCQ:      "a",
-			wantPreempted: sets.New("/a1_low", "/b1"),
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/a1_low", InClusterQueueReason),
+				targetKeyReason("/b1", InCohortFairSharingReason),
+			),
 		},
 		"prefer to preempt workloads that don't make the target CQ have the biggest share": {
 			clusterQueues: baseCQs,
@@ -1672,7 +1724,7 @@ func TestFairPreemptions(t *testing.T) {
 			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "3.5").Obj(),
 			targetCQ: "a",
 			// It would have been possible to preempt "/b1" under rule S2-b, but S2-a was possible first.
-			wantPreempted: sets.New("/b2"),
+			wantPreempted: sets.New(targetKeyReason("/b2", InCohortFairSharingReason)),
 		},
 		"preempt from different cluster queues if the end result has a smaller max share": {
 			clusterQueues: baseCQs,
@@ -1682,9 +1734,12 @@ func TestFairPreemptions(t *testing.T) {
 				*utiltesting.MakeWorkload("c1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("c", "default", now).Obj(),
 				*utiltesting.MakeWorkload("c2", "").Request(corev1.ResourceCPU, "2.5").SimpleReserveQuota("c", "default", now).Obj(),
 			},
-			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "3.5").Obj(),
-			targetCQ:      "a",
-			wantPreempted: sets.New("/b1", "/c1"),
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "3.5").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/b1", InCohortFairSharingReason),
+				targetKeyReason("/c1", InCohortFairSharingReason),
+			),
 		},
 		"scenario above does not flap": {
 			clusterQueues: baseCQs,
@@ -1719,9 +1774,12 @@ func TestFairPreemptions(t *testing.T) {
 				*unitWl.Clone().Name("preemptible2").Priority(-3).SimpleReserveQuota("preemptible", "default", now).Obj(),
 				*unitWl.Clone().Name("preemptible3").Priority(-3).SimpleReserveQuota("preemptible", "default", now).Obj(),
 			},
-			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
-			targetCQ:      "a",
-			wantPreempted: sets.New("/preemptible1", "/preemptible2"),
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/preemptible1", InCohortFairSharingReason),
+				targetKeyReason("/preemptible2", InCohortReclaimWhileBorrowingReason),
+			),
 		},
 		"preempt lower priority first, even if big": {
 			clusterQueues: baseCQs,
@@ -1733,7 +1791,7 @@ func TestFairPreemptions(t *testing.T) {
 			},
 			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "1").Obj(),
 			targetCQ:      "a",
-			wantPreempted: sets.New("/b_low"),
+			wantPreempted: sets.New(targetKeyReason("/b_low", InCohortFairSharingReason)),
 		},
 		"preempt workload that doesn't transfer the imbalance, even if high priority": {
 			clusterQueues: baseCQs,
@@ -1745,7 +1803,7 @@ func TestFairPreemptions(t *testing.T) {
 			},
 			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "1").Obj(),
 			targetCQ:      "a",
-			wantPreempted: sets.New("/b_high"),
+			wantPreempted: sets.New(targetKeyReason("/b_high", InCohortFairSharingReason)),
 		},
 		"CQ with higher weight can preempt more": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -1789,9 +1847,12 @@ func TestFairPreemptions(t *testing.T) {
 				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).Obj(),
 				*unitWl.Clone().Name("b6").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
-			targetCQ:      "a",
-			wantPreempted: sets.New("/b1", "/b2"),
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/b1", InCohortFairSharingReason),
+				targetKeyReason("/b2", InCohortFairSharingReason),
+			),
 		},
 		"can preempt anything borrowing from CQ with 0 weight": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -1835,9 +1896,13 @@ func TestFairPreemptions(t *testing.T) {
 				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).Obj(),
 				*unitWl.Clone().Name("b6").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			incoming:      utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "3").Obj(),
-			targetCQ:      "a",
-			wantPreempted: sets.New("/b1", "/b2", "/b3"),
+			incoming: utiltesting.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "3").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/b1", InCohortFairSharingReason),
+				targetKeyReason("/b2", InCohortFairSharingReason),
+				targetKeyReason("/b3", InCohortFairSharingReason),
+			),
 		},
 		"can't preempt nominal from CQ with 0 weight": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -1875,7 +1940,7 @@ func TestFairPreemptions(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			// Set name as UID so that candidates sorting is predictable.
 			for i := range tc.admitted {
 				tc.admitted[i].UID = types.UID(tc.admitted[i].Name)
@@ -1904,21 +1969,25 @@ func TestFairPreemptions(t *testing.T) {
 			snapshot := cqCache.Snapshot()
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(*wlInfo, singlePodSetAssignment(
+			targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: "default", Mode: flavorassigner.Preempt,
 					},
 				},
 			), &snapshot)
-			gotTargets := sets.New(slices.Map(targets, func(w **workload.Info) string {
-				return workload.Key((*w).Obj)
+			gotTargets := sets.New(slices.Map(targets, func(t **Target) string {
+				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)
 			if diff := cmp.Diff(tc.wantPreempted, gotTargets, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
 			}
 		})
 	}
+}
+
+func targetKeyReason(key, reason string) string {
+	return fmt.Sprintf("%s:%s", key, reason)
 }
 
 func TestCandidatesOrdering(t *testing.T) {

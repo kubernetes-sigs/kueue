@@ -18,6 +18,9 @@ package util
 
 import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/cli-runtime/pkg/resource"
+	k8s "k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
 )
@@ -26,6 +29,8 @@ type ClientGetter interface {
 	genericclioptions.RESTClientGetter
 
 	KueueClientSet() (versioned.Interface, error)
+	K8sClientSet() (k8s.Interface, error)
+	NewResourceBuilder() *resource.Builder
 }
 
 type clientGetterImpl struct {
@@ -52,4 +57,22 @@ func (f *clientGetterImpl) KueueClientSet() (versioned.Interface, error) {
 	}
 
 	return clientset, nil
+}
+
+func (f *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
+	config, err := f.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := k8s.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset, nil
+}
+
+func (f *clientGetterImpl) NewResourceBuilder() *resource.Builder {
+	return resource.NewBuilder(f.RESTClientGetter)
 }

@@ -127,7 +127,7 @@ type ClusterQueueSpec struct {
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
 }
 
-// AdmissionCheckStrategy defines a strategy for a AdmissionCheck.
+// AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
 type AdmissionChecksStrategy struct {
 	// admissionChecks is a list of strategies for AdmissionChecks
 	AdmissionChecks []AdmissionCheckStrategyRule `json:"admissionChecks,omitempty"`
@@ -156,14 +156,6 @@ const (
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
 	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"
-)
-
-type StopPolicy string
-
-const (
-	None         StopPolicy = "None"
-	HoldAndDrain StopPolicy = "HoldAndDrain"
-	Hold         StopPolicy = "Hold"
 )
 
 // +kubebuilder:validation:XValidation:rule="self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"
@@ -357,7 +349,7 @@ type FairSharingStatus struct {
 	// If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 	// If the ClusterQueue has a weight of zero, this will return 9223372036854775807,
 	// the maximum possible share value.
-	WeightedShare int64 `json:"weightedShare,omitempty"`
+	WeightedShare int64 `json:"weightedShare"`
 }
 
 const (

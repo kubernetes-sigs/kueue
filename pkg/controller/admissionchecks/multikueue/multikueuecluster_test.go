@@ -35,6 +35,8 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -45,7 +47,7 @@ var (
 	errCannotWatch   = errors.New("client cannot watch")
 )
 
-func fakeClientBuilder(kubeconfig []byte, options client.Options) (client.WithWatch, error) {
+func fakeClientBuilder(kubeconfig []byte, _ client.Options) (client.WithWatch, error) {
 	if string(kubeconfig) == "invalid" {
 		return nil, errInvalidConfig
 	}
@@ -76,7 +78,7 @@ func newTestClient(config string, watchCancel func()) *remoteClient {
 
 func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 	rc.failedConnAttempts = a
-	rc.pendingReconnect.Store(true)
+	rc.connecting.Store(true)
 	return rc
 }
 
@@ -374,7 +376,8 @@ func TestUpdateConfig(t *testing.T) {
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueuealpha.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil)
+			adapters, _ := jobframework.GetMultiKueueAdapters()
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters)
 			reconciler.rootContext = ctx
 
 			if len(tc.remoteClients) > 0 {
@@ -533,8 +536,10 @@ func TestRemoteClientGC(t *testing.T) {
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
 			worker1Client := worker1Builder.Build()
 
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "")
+			adapters, _ := jobframework.GetMultiKueueAdapters()
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
+			w1remoteClient.connecting.Store(false)
 
 			w1remoteClient.runGC(ctx)
 

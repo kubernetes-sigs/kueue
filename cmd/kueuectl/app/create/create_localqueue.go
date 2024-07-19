@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
@@ -79,11 +80,18 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 		Long:                  lqLong,
 		Example:               lqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
-			cobra.CheckErr(o.Validate(ctx))
-			cobra.CheckErr(o.Run(ctx))
+			cmd.SilenceUsage = true
+			err := o.Complete(clientGetter, cmd, args)
+			if err != nil {
+				return err
+			}
+			err = o.Validate(ctx)
+			if err != nil {
+				return err
+			}
+			return o.Run(cmd.Context())
 		},
 	}
 
@@ -93,6 +101,8 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 		"The cluster queue name which will be associated with the local queue (required).")
 	cmd.Flags().BoolVarP(&o.IgnoreUnknownCq, "ignore-unknown-cq", "i", false,
 		"Ignore unknown cluster queue.")
+
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("clusterqueue", completion.ClusterQueueNameFunc(clientGetter, nil)))
 
 	_ = cmd.MarkFlagRequired("clusterqueue")
 

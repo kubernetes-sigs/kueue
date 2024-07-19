@@ -42,6 +42,54 @@ func TestLocalQueueReconcile(t *testing.T) {
 		wantLocalQueue *kueue.LocalQueue
 		wantError      error
 	}{
+		"local queue with Hold StopPolicy": {
+			clusterQueue: utiltesting.MakeClusterQueue("test-cluster-queue").
+				Obj(),
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				PendingWorkloads(1).
+				StopPolicy(kueue.Hold).
+				Generation(1).
+				Obj(),
+			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				PendingWorkloads(0).
+				StopPolicy(kueue.Hold).
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					StoppedReason,
+					localQueueIsInactiveMsg,
+					1,
+				).
+				Obj(),
+			wantError: nil,
+		},
+		"local queue with HoldAndDrain StopPolicy": {
+			clusterQueue: utiltesting.MakeClusterQueue("test-cluster-queue").
+				Obj(),
+			localQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				PendingWorkloads(1).
+				StopPolicy(kueue.HoldAndDrain).
+				Generation(1).
+				Obj(),
+			wantLocalQueue: utiltesting.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				PendingWorkloads(0).
+				StopPolicy(kueue.HoldAndDrain).
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					StoppedReason,
+					localQueueIsInactiveMsg,
+					1,
+				).
+				Obj(),
+			wantError: nil,
+		},
 		"cluster queue is inactive": {
 			clusterQueue: utiltesting.MakeClusterQueue("test-cluster-queue").
 				Obj(),
@@ -58,7 +106,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					kueue.LocalQueueActive,
 					metav1.ConditionFalse,
 					clusterQueueIsInactiveReason,
-					queueIsInactiveMsg,
+					clusterQueueIsInactiveMsg,
 					1,
 				).
 				Obj(),

@@ -1,0 +1,101 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.15.0
+  name: applicationprofiles.kjobctl.x-k8s.io
+spec:
+  group: kjobctl.x-k8s.io
+  names:
+    kind: ApplicationProfile
+    listKind: ApplicationProfileList
+    plural: applicationprofiles
+    singular: applicationprofile
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ApplicationProfile is the Schema for the applicationprofiles
+          API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ApplicationProfileSpec defines the desired state of ApplicationProfile
+            properties:
+              supportedModes:
+                items:
+                  properties:
+                    name:
+                      description: |-
+                        name determines which template will be used and which object will eventually be created.
+                        Possible values are Interactive and Job.
+                      enum:
+                      - Interactive
+                      - Job
+                      type: string
+                    requiredFlags:
+                      description: |-
+                        requiredFlags point which cli flags are required to be passed in order to fill the gaps in the templates.
+                        Possible values are cmd, parallelism, completions, request, localqueue.
+
+
+                        cmd and requests values are going to be added only to the first primary container.
+                      items:
+                        enum:
+                        - cmd
+                        - parallelism
+                        - completions
+                        - request
+                        - localqueue
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    template:
+                      description: |-
+                        template is the name of the template.
+                        Template type depends on ApplicationProfileMode:
+                          - on Interactive mode it must be v1/PodTemplate
+                          - on Job mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                  required:
+                  - name
+                  - template
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              volumeBundles:
+                items:
+                  description: VolumeBundleReference is the name of the VolumeBundle.
+                  maxLength: 253
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+            required:
+            - supportedModes
+            type: object
+        type: object
+    served: true
+    storage: true

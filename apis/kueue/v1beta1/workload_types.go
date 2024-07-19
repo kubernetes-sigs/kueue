@@ -328,9 +328,17 @@ const (
 
 	// WorkloadRequeued means that the Workload was requeued due to eviction.
 	WorkloadRequeued = "Requeued"
+
+	// WorkloadDeactivationTarget means that the Workload should be deactivated.
+	// This condition is temporary, so it should be removed after deactivation.
+	WorkloadDeactivationTarget = "DeactivationTarget"
 )
 
 const (
+	// WorkloadInadmissible means that the Workload can't reserve quota
+	// due to LocalQueue or ClusterQueue doesn't exist or inactive.
+	WorkloadInadmissible = "Inadmissible"
+
 	// WorkloadEvictedByPreemption indicates that the workload was evicted
 	// in order to free resources for a workload with a higher priority.
 	WorkloadEvictedByPreemption = "Preempted"
@@ -347,6 +355,10 @@ const (
 	// because the ClusterQueue is Stopped.
 	WorkloadEvictedByClusterQueueStopped = "ClusterQueueStopped"
 
+	// WorkloadEvictedByLocalQueueStopped indicates that the workload was evicted
+	// because the LocalQueue is Stopped.
+	WorkloadEvictedByLocalQueueStopped = "LocalQueueStopped"
+
 	// WorkloadEvictedByDeactivation indicates that the workload was evicted
 	// because spec.active is set to false.
 	WorkloadEvictedByDeactivation = "InactiveWorkload"
@@ -362,6 +374,14 @@ const (
 	// WorkloadClusterQueueRestarted indicates that the workload was requeued because
 	// cluster queue was restarted after being stopped.
 	WorkloadClusterQueueRestarted = "ClusterQueueRestarted"
+
+	// WorkloadLocalQueueRestarted indicates that the workload was requeued because
+	// local queue was restarted after being stopped.
+	WorkloadLocalQueueRestarted = "LocalQueueRestarted"
+
+	// WorkloadRequeuingLimitExceeded indicates that the workload exceeded max number
+	// of re-queuing retries.
+	WorkloadRequeuingLimitExceeded = "RequeuingLimitExceeded"
 )
 
 const (
@@ -385,6 +405,7 @@ const (
 // +kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type="string",description="Name of the queue this workload was submitted to"
 // +kubebuilder:printcolumn:name="Reserved in",JSONPath=".status.admission.clusterQueue",type="string",description="Name of the ClusterQueue where the workload is reserving quota"
 // +kubebuilder:printcolumn:name="Admitted",JSONPath=".status.conditions[?(@.type=='Admitted')].status",type="string",description="Admission status"
+// +kubebuilder:printcolumn:name="Finished",JSONPath=".status.conditions[?(@.type=='Finished')].status",type="string",description="Workload finished"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
 // +kubebuilder:resource:shortName={wl}
 

@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
@@ -67,9 +68,14 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 		Long:                  cqLong,
 		Example:               cqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		Run: func(cmd *cobra.Command, args []string) {
-			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
-			cobra.CheckErr(o.Run(cmd.Context()))
+		ValidArgsFunction:     completion.ClusterQueueNameFunc(clientGetter, ptr.To(true)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			err := o.Complete(clientGetter, args)
+			if err != nil {
+				return err
+			}
+			return o.Run(cmd.Context())
 		},
 	}
 
@@ -81,7 +87,7 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 }
 
 // Complete completes all the required options
-func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *ClusterQueueOptions) Complete(clientGetter util.ClientGetter, args []string) error {
 	o.ClusterQueueName = args[0]
 
 	clientset, err := clientGetter.KueueClientSet()

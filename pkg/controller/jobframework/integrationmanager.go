@@ -21,11 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/set"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -65,11 +67,14 @@ type IntegrationCallbacks struct {
 	// CanSupportIntegration returns true if the integration meets any additional condition
 	// like the Kubernetes version.
 	CanSupportIntegration func(opts ...Option) (bool, error)
+	// The job's MultiKueue adapter (optional)
+	MultiKueueAdapter MultiKueueAdapter
 }
 
 type integrationManager struct {
 	names                []string
 	integrations         map[string]IntegrationCallbacks
+	enabledIntegrations  set.Set[string]
 	externalIntegrations map[string]runtime.Object
 }
 
@@ -142,6 +147,14 @@ func (m *integrationManager) getExternal(kindArg string) (runtime.Object, bool) 
 	return jt, f
 }
 
+func (m *integrationManager) enableIntegration(name string) {
+	if m.enabledIntegrations == nil {
+		m.enabledIntegrations = set.New(name)
+	} else {
+		m.enabledIntegrations.Insert(name)
+	}
+}
+
 func (m *integrationManager) getList() []string {
 	ret := make([]string, len(m.names))
 	copy(ret, m.names)
@@ -150,8 +163,9 @@ func (m *integrationManager) getList() []string {
 }
 
 func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
-	for _, cbs := range m.integrations {
-		if cbs.IsManagingObjectsOwner != nil && cbs.IsManagingObjectsOwner(ownerRef) {
+	for jobKey := range m.enabledIntegrations {
+		cbs, found := m.integrations[jobKey]
+		if found && cbs.IsManagingObjectsOwner != nil && cbs.IsManagingObjectsOwner(ownerRef) {
 			return cbs.JobType
 		}
 	}
@@ -184,6 +198,24 @@ func ForEachIntegration(f func(name string, cb IntegrationCallbacks) error) erro
 	return manager.forEach(f)
 }
 
+// EnableIntegration marks the integration identified by name as enabled.
+func EnableIntegration(name string) {
+	manager.enableIntegration(name)
+}
+
+// EnableIntegrationsForTest - should be used only in tests
+// Mark the frameworks identified by names and return a revert function.
+func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
+	tb.Helper()
+	old := manager.enabledIntegrations.Clone()
+	for _, name := range names {
+		manager.enableIntegration(name)
+	}
+	return func() {
+		manager.enabledIntegrations = old
+	}
+}
+
 // GetIntegration looks-up the framework identified by name in the currently registered
 // list of frameworks returning its callbacks and true if found.
 func GetIntegration(name string) (IntegrationCallbacks, bool) {
@@ -208,4 +240,24 @@ func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
 		return jt.DeepCopyObject().(client.Object)
 	}
 	return nil
+}
+
+// GetMultiKueueAdapters returns the map containing the MultiKueue adapters for the
+// registered integrations.
+// An error is returned if more then one adapter is registers for one object type.
+func GetMultiKueueAdapters() (map[string]MultiKueueAdapter, error) {
+	ret := map[string]MultiKueueAdapter{}
+	if err := manager.forEach(func(_ string, cb IntegrationCallbacks) error {
+		if cb.MultiKueueAdapter != nil {
+			gvk := cb.MultiKueueAdapter.GVK().String()
+			if _, found := ret[gvk]; found {
+				return fmt.Errorf("multiple adapters for GVK: %q", gvk)
+			}
+			ret[gvk] = cb.MultiKueueAdapter
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return ret, nil
 }

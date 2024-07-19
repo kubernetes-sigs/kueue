@@ -18,15 +18,20 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
+	zaplog "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,76 +43,51 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func DeleteAdmissionCheck(ctx context.Context, c client.Client, ac *kueue.AdmissionCheck) error {
-	if ac != nil {
-		if err := c.Delete(ctx, ac); err != nil && !apierrors.IsNotFound(err) {
+type objAsPtr[T any] interface {
+	client.Object
+	*T
+}
+
+func DeleteObject[PtrT objAsPtr[T], T any](ctx context.Context, c client.Client, o PtrT) error {
+	if o != nil {
+		if err := c.Delete(ctx, o); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
 	return nil
 }
 
-func DeleteProvisioningRequestConfig(ctx context.Context, c client.Client, ac *kueue.ProvisioningRequestConfig) error {
-	if ac != nil {
-		if err := c.Delete(ctx, ac); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
+func ExpectObjectToBeDeleted[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool) {
+	if o == nil {
+		return
 	}
-	return nil
-}
-
-func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
-	if wl != nil {
-		if err := c.Delete(ctx, wl); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
+	if deleteNow {
+		gomega.Expect(client.IgnoreNotFound(DeleteObject(ctx, k8sClient, o))).To(gomega.Succeed())
 	}
-	return nil
-}
-
-func DeleteClusterQueue(ctx context.Context, c client.Client, cq *kueue.ClusterQueue) error {
-	if cq == nil {
-		return nil
-	}
-	if err := c.Delete(ctx, cq); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
-}
-
-func DeleteResourceFlavor(ctx context.Context, c client.Client, rf *kueue.ResourceFlavor) error {
-	if rf == nil {
-		return nil
-	}
-	if err := c.Delete(ctx, rf); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
-}
-
-func DeleteLocalQueue(ctx context.Context, c client.Client, q *kueue.LocalQueue) error {
-	if q == nil {
-		return nil
-	}
-	if err := c.Delete(ctx, q); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
+	gomega.EventuallyWithOffset(1, func() error {
+		newObj := PtrT(new(T))
+		return k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)
+	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
 // DeleteNamespace deletes all objects the tests typically create in the namespace.
 func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	if ns == nil {
 		return nil
+	}
+	if err := DeleteAllJobsetsInNamespace(ctx, c, ns); err != nil {
+		return err
 	}
 	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
 		return err
@@ -141,7 +121,7 @@ func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 
 func DeleteAllJobsetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	err := c.DeleteAllOf(ctx, &jobset.JobSet{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) {
+	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
 		return err
 	}
 	return nil
@@ -202,17 +182,7 @@ func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1
 	return nil
 }
 
-func DeleteRuntimeClass(ctx context.Context, c client.Client, runtimeClass *nodev1.RuntimeClass) error {
-	if runtimeClass == nil {
-		return nil
-	}
-	if err := c.Delete(ctx, runtimeClass); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
-}
-
-func UnholdQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
+func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var cqCopy kueue.ClusterQueue
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
@@ -221,6 +191,18 @@ func UnholdQueue(ctx context.Context, k8sClient client.Client, cq *kueue.Cluster
 		}
 		cqCopy.Spec.StopPolicy = ptr.To(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var lqCopy kueue.LocalQueue
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &lqCopy)).To(gomega.Succeed())
+		if ptr.Deref(lqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
+			return
+		}
+		lqCopy.Spec.StopPolicy = ptr.To(kueue.None)
+		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -471,28 +453,29 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
 
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name)
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		count, err := testutil.GetCounterMetricValue(metric)
-		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int(count)).Should(gomega.Equal(v))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	expectCounterMetric(metric, v)
 }
 
-func ExpectEvictedWorkloadsTotalMetric(cqName string, reason string, v int) {
+func ExpectEvictedWorkloadsTotalMetric(cqName, reason string, v int) {
 	metric := metrics.EvictedWorkloadsTotal.WithLabelValues(cqName, reason)
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		count, err := testutil.GetCounterMetricValue(metric)
-		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int(count)).Should(gomega.Equal(v))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	expectCounterMetric(metric, v)
+}
+
+func ExpectPreemptedWorkloadsTotalMetric(preemptorCqName, reason string, v int) {
+	metric := metrics.PreemptedWorkloadsTotal.WithLabelValues(preemptorCqName, reason)
+	expectCounterMetric(metric, v)
 }
 
 func ExpectQuotaReservedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	metric := metrics.QuotaReservedWorkloadsTotal.WithLabelValues(cq.Name)
+	expectCounterMetric(metric, v)
+}
+
+func expectCounterMetric(metric prometheus.Counter, count int) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		count, err := testutil.GetCounterMetricValue(metric)
+		v, err := testutil.GetCounterMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int(count)).Should(gomega.Equal(v))
+		g.Expect(int(v)).Should(gomega.Equal(count))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -518,55 +501,6 @@ func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, v int64) {
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int64(count)).Should(gomega.Equal(v))
 	}, Timeout, Interval).Should(gomega.Succeed())
-}
-
-func ExpectAdmissionCheckToBeDeleted(ctx context.Context, k8sClient client.Client, ac *kueue.AdmissionCheck, deleteAC bool) {
-	if ac == nil {
-		return
-	}
-	if deleteAC {
-		gomega.Expect(client.IgnoreNotFound(DeleteAdmissionCheck(ctx, k8sClient, ac))).To(gomega.Succeed())
-	}
-	gomega.EventuallyWithOffset(1, func() error {
-		var newAC kueue.AdmissionCheck
-		return k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &newAC)
-	}, Timeout, Interval).Should(testing.BeNotFoundError())
-}
-
-func ExpectProvisioningRequestConfigToBeDeleted(ctx context.Context, k8sClient client.Client, prc *kueue.ProvisioningRequestConfig, deleteAC bool) {
-	if prc == nil {
-		return
-	}
-	if deleteAC {
-		gomega.ExpectWithOffset(1, client.IgnoreNotFound(DeleteProvisioningRequestConfig(ctx, k8sClient, prc))).To(gomega.Succeed())
-	}
-	gomega.EventuallyWithOffset(1, func() error {
-		var newAC kueue.AdmissionCheck
-		return k8sClient.Get(ctx, client.ObjectKeyFromObject(prc), &newAC)
-	}, Timeout, Interval).Should(testing.BeNotFoundError())
-}
-
-func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {
-	if deleteCq {
-		gomega.Expect(DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
-	}
-	gomega.EventuallyWithOffset(1, func() error {
-		var newCQ kueue.ClusterQueue
-		return k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
-	}, Timeout, Interval).Should(testing.BeNotFoundError())
-}
-
-func ExpectResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Client, rf *kueue.ResourceFlavor, deleteRf bool) {
-	if rf == nil {
-		return
-	}
-	if deleteRf {
-		gomega.Expect(DeleteResourceFlavor(ctx, k8sClient, rf)).To(gomega.Succeed())
-	}
-	gomega.EventuallyWithOffset(1, func() error {
-		var newRF kueue.ResourceFlavor
-		return k8sClient.Get(ctx, client.ObjectKeyFromObject(rf), &newRF)
-	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
 func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
@@ -769,4 +703,29 @@ readCh:
 		}
 	}
 	gomega.ExpectWithOffset(1, gotObjs).To(gomega.Equal(objs))
+}
+
+func ExpectPreemptedCondition(ctx context.Context, k8sClient client.Client, reason string, status metav1.ConditionStatus, preemptedWl, preempteeWl *kueue.Workload) {
+	conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptedWl), preemptedWl)).To(gomega.Succeed())
+		g.Expect(preemptedWl.Status.Conditions).To(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
+			Type:    kueue.WorkloadPreempted,
+			Status:  status,
+			Reason:  reason,
+			Message: fmt.Sprintf("Preempted to accommodate a workload (UID: %s) due to %s", preempteeWl.UID, preemption.HumanReadablePreemptionReasons[reason]),
+		}, conditionCmpOpts)))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func NewTestingLogger(writer io.Writer, level int) logr.Logger {
+	opts := func(o *zap.Options) {
+		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
+		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
+	}
+	return zap.New(
+		zap.WriteTo(writer),
+		zap.UseDevMode(true),
+		zap.Level(zapcore.Level(level)),
+		opts)
 }

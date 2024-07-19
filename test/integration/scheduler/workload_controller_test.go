@@ -120,13 +120,13 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check3, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check2, true)
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check1, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, flavor1, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, flavor2, true)
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check3, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
 		})
 
 		ginkgo.It("the workload should have appropriate AdditionalChecks added", func() {
@@ -202,9 +202,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
@@ -259,8 +259,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {
@@ -316,8 +316,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should use the range defined default requests, if provided", func() {
@@ -418,8 +418,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("The limits should be used as request values", func() {
@@ -484,9 +484,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should sync the resource requests with the new overhead", func() {
@@ -580,8 +580,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should sync the resource requests with the limit", func() {
@@ -688,8 +688,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.When("When the workload is admissible", func() {

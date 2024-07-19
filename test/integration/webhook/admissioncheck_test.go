@@ -18,7 +18,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 		ginkgo.DescribeTable("Defaulting on creating", func(ac, wantAC kueue.AdmissionCheck) {
 			gomega.Expect(k8sClient.Create(ctx, &ac)).Should(gomega.Succeed())
 			defer func() {
-				util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, &ac, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &ac, true)
 			}()
 			gomega.Expect(ac).To(gomega.BeComparableTo(wantAC,
 				cmpopts.IgnoreTypes(kueue.AdmissionCheckStatus{}),
@@ -49,7 +49,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			err := k8sClient.Create(ctx, &ac)
 			if err == nil {
 				defer func() {
-					util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, &ac, true)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &ac, true)
 				}()
 			}
 
@@ -186,7 +186,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 		gomega.Expect(k8sClient.Create(ctx, ac)).Should(gomega.Succeed())
 
 		defer func() {
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		}()
 
 		gomega.Eventually(func() error {
@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 		gomega.Expect(k8sClient.Create(ctx, ac)).Should(gomega.Succeed())
 
 		defer func() {
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		}()
 
 		gomega.Eventually(func() error {
@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 		gomega.Expect(k8sClient.Create(ctx, ac)).Should(gomega.Succeed())
 
 		defer func() {
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		}()
 
 		gomega.Eventually(func() error {
@@ -248,7 +248,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 		gomega.Expect(k8sClient.Create(ctx, ac)).Should(gomega.Succeed())
 
 		defer func() {
-			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		}()
 
 		gomega.Eventually(func() error {

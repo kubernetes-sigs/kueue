@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,20 +35,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/api"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	adapters = map[string]jobAdapter{
-		batchv1.SchemeGroupVersion.WithKind("Job").String():   &batchJobAdapter{},
-		jobset.SchemeGroupVersion.WithKind("JobSet").String(): &jobsetAdapter{},
-	}
-
 	errNoActiveClusters = errors.New("no active clusters")
 )
 
@@ -59,43 +55,29 @@ type wlReconciler struct {
 	clusters          *clustersReconciler
 	origin            string
 	workerLostTimeout time.Duration
+	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
+	eventsBatchPeriod time.Duration
+	adapters          map[string]jobframework.MultiKueueAdapter
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
-
-type jobAdapter interface {
-	// Creates the Job object in the worker cluster using remote client, if not already created.
-	// Copy the status from the remote job if already exists.
-	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
-	// Deletes the Job in the worker cluster.
-	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
-	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
-	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
-	// suspended and not start the execution locally.
-	KeepAdmissionCheckPending() bool
-	// IsJobManagedByKueue returns:
-	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
-	// - a reason indicating why the job is not managed by Kueue
-	// - any API error encountered during the check
-	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
-}
 
 type wlGroup struct {
 	local         *kueue.Workload
 	remotes       map[string]*kueue.Workload
 	remoteClients map[string]*remoteClient
 	acName        string
-	jobAdapter    jobAdapter
+	jobAdapter    jobframework.MultiKueueAdapter
 	controllerKey types.NamespacedName
 }
 
-// the local wl is finished
+// IsFinished returns true if the local workload is finished.
 func (g *wlGroup) IsFinished() bool {
 	return apimeta.IsStatusConditionTrue(g.local.Status.Conditions, kueue.WorkloadFinished)
 }
 
-// returns true if there is a wl reserving quota
-// the string identifies the remote, ("" - local)
+// FirstReserving returns true if there is a workload reserving quota,
+// the string identifies the remote cluster.
 func (g *wlGroup) FirstReserving() (bool, string) {
 	found := false
 	bestMatch := ""
@@ -156,13 +138,22 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 	wl := &kueue.Workload{}
-	if err := w.client.Get(ctx, req.NamespacedName, wl); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+	isDeleted := false
+	err := w.client.Get(ctx, req.NamespacedName, wl)
+	switch {
+	case client.IgnoreNotFound(err) != nil:
+		return reconcile.Result{}, err
+	case err != nil:
+		oldWl, found := w.deletedWlCache.Get(req.String())
+		if !found {
+			return reconcile.Result{}, nil
+		}
+		wl = oldWl
+		isDeleted = true
+
+	default:
+		isDeleted = !wl.DeletionTimestamp.IsZero()
 	}
-	// NOTE: the not found needs to be treated and should result in the deletion of all the remote workloads.
-	// since the list of remotes can only be taken from its list of admission check stats we need to either
-	// 1. use a finalizer
-	// 2. try to trigger the remote deletion from an event filter.
 
 	mkAc, err := w.multikueueAC(ctx, wl)
 	if err != nil {
@@ -186,18 +177,33 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
 	}
 
-	managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
-	if err != nil {
-		return reconcile.Result{}, err
-	}
+	// If the workload is deleted there is a chance that it's owner is also deleted. In that case
+	// we skip calling `IsJobManagedByKueue` as its output would not be reliable.
+	if !isDeleted {
+		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
+		if err != nil {
+			return reconcile.Result{}, err
+		}
 
-	if !managed {
-		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+		if !managed {
+			return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+		}
 	}
 
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
 	if err != nil {
 		return reconcile.Result{}, err
+	}
+
+	if isDeleted {
+		for cluster := range grp.remotes {
+			err := grp.RemoveRemoteObjects(ctx, cluster)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+		}
+		w.deletedWlCache.Delete(req.String())
+		return reconcile.Result{}, nil
 	}
 
 	return w.reconcileGroup(ctx, grp)
@@ -209,7 +215,7 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	acs.LastTransitionTime = metav1.NewTime(time.Now())
 	wlPatch := workload.BaseSSAWorkload(wl)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
+	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName), client.ForceOwnership)
 }
 
 func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (map[string]*remoteClient, error) {
@@ -221,7 +227,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (m
 	for _, clusterName := range cfg.Spec.Clusters {
 		if client, found := w.clusters.controllerFor(clusterName); found {
 			// Skip the client if its reconnect is ongoing.
-			if !client.pendingReconnect.Load() {
+			if !client.connecting.Load() {
 				clients[clusterName] = client
 			}
 		}
@@ -233,7 +239,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (m
 }
 
 func (w *wlReconciler) multikueueAC(ctx context.Context, local *kueue.Workload) (*kueue.AdmissionCheckState, error) {
-	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, local.Status.AdmissionChecks, ControllerName)
+	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, local.Status.AdmissionChecks, kueuealpha.MultiKueueControllerName)
 	if err != nil {
 		return nil, err
 	}
@@ -244,15 +250,15 @@ func (w *wlReconciler) multikueueAC(ctx context.Context, local *kueue.Workload) 
 	return workload.FindAdmissionCheck(local.Status.AdmissionChecks, relevantChecks[0]), nil
 }
 
-func (w *wlReconciler) adapter(local *kueue.Workload) (jobAdapter, *metav1.OwnerReference) {
+func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAdapter, *metav1.OwnerReference) {
 	if controller := metav1.GetControllerOf(local); controller != nil {
 		adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
-		return adapters[adapterKey], controller
+		return w.adapters[adapterKey], controller
 	}
 	return nil, nil
 }
 
-func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName string, adapter jobAdapter, controllerName string) (*wlGroup, error) {
+func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName string, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
 	rClients, err := w.remoteClientsForAC(ctx, acName)
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
@@ -326,7 +332,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			Reason:  remoteFinishedCond.Reason,
 			Message: remoteFinishedCond.Message,
 		})
-		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName+"-finish"), client.ForceOwnership)
+		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName+"-finish"), client.ForceOwnership)
 	}
 
 	// 2. delete all workloads that are out of sync or are not in the chosen worker
@@ -374,7 +380,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
+			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName), client.ForceOwnership)
 			if err != nil {
 				return reconcile.Result{}, err
 			}
@@ -393,7 +399,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			acs.LastTransitionTime = metav1.NewTime(time.Now())
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
+			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName), client.ForceOwnership)
 		}
 	}
 
@@ -413,46 +419,58 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	return reconcile.Result{}, errors.Join(errs...)
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout time.Duration) *wlReconciler {
+func (w *wlReconciler) Create(_ event.CreateEvent) bool {
+	return true
+}
+
+func (w *wlReconciler) Delete(de event.DeleteEvent) bool {
+	if wl, isWl := de.Object.(*kueue.Workload); isWl && !de.DeleteStateUnknown {
+		w.deletedWlCache.Add(client.ObjectKeyFromObject(wl).String(), wl)
+	}
+	return true
+}
+
+func (w *wlReconciler) Update(_ event.UpdateEvent) bool {
+	return true
+}
+
+func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
+	return true
+}
+
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter) *wlReconciler {
 	return &wlReconciler{
 		client:            c,
 		helper:            helper,
 		clusters:          cRec,
 		origin:            origin,
 		workerLostTimeout: workerLostTimeout,
+		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
+		eventsBatchPeriod: eventsBatchPeriod,
+		adapters:          adapters,
 	}
 }
 
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
-			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: e.Object.GetNamespace(),
 				Name:      e.Object.GetName(),
-			}})
+			}}, w.eventsBatchPeriod)
 		},
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
 		WatchesRawSource(&source.Channel{Source: w.clusters.wlUpdateCh}, syncHndl).
+		WithEventFilter(w).
 		Complete(w)
-}
-
-func cleanObjectMeta(orig *metav1.ObjectMeta) metav1.ObjectMeta {
-	// to clone the labels and annotations
-	clone := orig.DeepCopy()
-	return metav1.ObjectMeta{
-		Name:        clone.Name,
-		Namespace:   clone.Namespace,
-		Labels:      clone.Labels,
-		Annotations: clone.Annotations,
-	}
 }
 
 func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl := &kueue.Workload{}
-	remoteWl.ObjectMeta = cleanObjectMeta(&orig.ObjectMeta)
+	remoteWl.ObjectMeta = api.CloneObjectMetaForCreation(&orig.ObjectMeta)
 	if remoteWl.Labels == nil {
 		remoteWl.Labels = make(map[string]string)
 	}

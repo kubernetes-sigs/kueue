@@ -14,13 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// replacing this with `https://pkg.go.dev/golang.org/x/exp/maps` should be considered
-// when `x/exp/maps` graduates to stable.
 package maps
 
 import (
 	"fmt"
 	"maps"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -97,7 +96,17 @@ func Keys[K comparable, V any, M ~map[K]V](m M) []K {
 	return ret
 }
 
-// Filter returns a sub-map containing only keys from the given list
+// Values returns the values of the map m.
+// The values will be in an indeterminate order.
+func Values[M ~map[K]V, K comparable, V any](m M) []V {
+	r := make([]V, 0, len(m))
+	for _, v := range m {
+		r = append(r, v)
+	}
+	return r
+}
+
+// FilterKeys returns a sub-map containing only keys from the given list
 func FilterKeys[K comparable, V any, M ~map[K]V](m M, k []K) M {
 	if m == nil || len(k) == 0 {
 		return nil
@@ -118,4 +127,41 @@ func DeepCopySets[T comparable](src map[string]sets.Set[T]) map[string]sets.Set[
 		copy[key] = set.Clone()
 	}
 	return copy
+}
+
+// SyncMap - generic RWMutex protected map.
+type SyncMap[K comparable, V any] struct {
+	lock sync.RWMutex
+	m    map[K]V
+}
+
+func NewSyncMap[K comparable, V any](size int) *SyncMap[K, V] {
+	return &SyncMap[K, V]{
+		m: make(map[K]V, size),
+	}
+}
+
+func (dwc *SyncMap[K, V]) Add(k K, v V) {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	dwc.m[k] = v
+}
+
+func (dwc *SyncMap[K, V]) Get(k K) (V, bool) {
+	dwc.lock.RLock()
+	defer dwc.lock.RUnlock()
+	v, found := dwc.m[k]
+	return v, found
+}
+
+func (dwc *SyncMap[K, V]) Len() int {
+	dwc.lock.RLock()
+	defer dwc.lock.RUnlock()
+	return len(dwc.m)
+}
+
+func (dwc *SyncMap[K, V]) Delete(k K) {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	delete(dwc.m, k)
 }

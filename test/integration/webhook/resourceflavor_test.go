@@ -52,7 +52,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 
 	ginkgo.When("Creating a ResourceFlavor", func() {
 		ginkgo.It("Should be valid", func() {
-			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Label("foo", "bar").
+			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").NodeLabel("foo", "bar").
 				Taint(corev1.Taint{
 					Key:    "spot",
 					Value:  "true",
@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).Should(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 		})
 		ginkgo.It("Should have a finalizer", func() {
@@ -76,7 +76,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).Should(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 
 			var created kueue.ResourceFlavor
@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 			})
 		}
 		for i := 0; i < nodeSelectorCount; i++ {
-			rf = rf.Label(fmt.Sprintf("l%d", i), "")
+			rf = rf.NodeLabel(fmt.Sprintf("l%d", i), "")
 		}
 		resourceFlavor := rf.Obj()
 		err := k8sClient.Create(ctx, resourceFlavor)
@@ -108,7 +108,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 		}
 	},
@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 
 			var created kueue.ResourceFlavor
@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		err := k8sClient.Create(ctx, rf)
 		if err == nil {
 			defer func() {
-				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, rf, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 			}()
 		}
 		switch errorType {
@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 				}).Obj(),
 			isInvalid),
 		ginkgo.Entry("Should fail to create with invalid label name",
-			testing.MakeResourceFlavor("resource-flavor").Label("@abc", "foo").Obj(),
+			testing.MakeResourceFlavor("resource-flavor").NodeLabel("@abc", "foo").Obj(),
 			isForbidden),
 		ginkgo.Entry("Should fail to create with invalid tolerations",
 			testing.MakeResourceFlavor("resource-flavor").

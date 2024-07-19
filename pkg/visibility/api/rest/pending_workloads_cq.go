@@ -57,7 +57,7 @@ func (m *pendingWorkloadsInCqREST) Destroy() {}
 
 // Get implements rest.GetterWithOptions interface
 // It fetches information about pending workloads and returns according to query params
-func (m *pendingWorkloadsInCqREST) Get(ctx context.Context, name string, opts runtime.Object) (runtime.Object, error) {
+func (m *pendingWorkloadsInCqREST) Get(_ context.Context, name string, opts runtime.Object) (runtime.Object, error) {
 	pendingWorkloadOpts, ok := opts.(*v1alpha1.PendingWorkloadOptions)
 	if !ok {
 		return nil, fmt.Errorf("invalid options object: %#v", opts)

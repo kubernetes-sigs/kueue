@@ -28,13 +28,13 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueConfig)).Should(gomega.Succeed())
 
 		multiKueueAc = utiltesting.MakeAdmissionCheck("ac1").
-			ControllerName(multikueue.ControllerName).
+			ControllerName(kueuealpha.MultiKueueControllerName).
 			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueAc)).Should(gomega.Succeed())
@@ -169,47 +169,72 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sWorker1Client, worker1Cq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sWorker1Client, worker1Flavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1Cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1Flavor, true)
 
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sWorker2Client, worker2Cq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sWorker2Client, worker2Flavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2Cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2Flavor, true)
 
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sManagerClient, managerCq, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sManagerClient, managerFlavor, true)
-		util.ExpectAdmissionCheckToBeDeleted(ctx, k8sManagerClient, multiKueueAc, true)
-		gomega.Expect(k8sManagerClient.Delete(ctx, multiKueueConfig)).To(gomega.Succeed())
-		gomega.Expect(k8sManagerClient.Delete(ctx, workerCluster1)).To(gomega.Succeed())
-		gomega.Expect(k8sManagerClient.Delete(ctx, workerCluster2)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, managerCq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, managerFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, multiKueueAc, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, multiKueueConfig, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster1, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, workerCluster2, true)
 	})
 
 	ginkgo.When("Creating a multikueue admission check", func() {
 		ginkgo.It("Should run a job on worker if admitted", func() {
+			if managerK8SVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
+				ginkgo.Skip("the managers kubernetes version is less then 1.30")
+			}
 			// Since it requires 2 CPU, this job can only be admitted in worker 1.
 			job := testingjob.MakeJob("job", managerNs.Name).
 				Queue(managerLq.Name).
 				Request("cpu", "2").
 				Request("memory", "1G").
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				// Give it the time to be observed Active in the live status update step.
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
 				gomega.Expect(k8sManagerClient.Create(ctx, job)).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJob := &batchv1.Job{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueuealpha.MultiKueueControllerName))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
-			ginkgo.By("Waiting to be admitted in worker1", func() {
+			ginkgo.By("Waiting to be admitted in worker1, and the manager's job unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 					g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
 						Name:    multiKueueAc.Name,
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJob := &batchv1.Job{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the job to get status updates", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJob := batchv1.Job{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+					g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
+					g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(1)))
+					g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for the job to finish", func() {
@@ -236,7 +261,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				createdJob := &batchv1.Job{}
 				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-				gomega.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
 				gomega.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
 					batchv1.JobCondition{
 						Type:   batchv1.JobComplete,
@@ -249,7 +273,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 2 CPU in total, this jobset can only be admitted in worker 1.
 			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 				Queue(managerLq.Name).
-				ManagedBy(multikueue.ControllerName).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
@@ -388,7 +411,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 				gomega.Eventually(func() error {
-					return util.DeleteClusterQueue(ctx, k8sWorker1Client, worker1Cq2)
+					return util.DeleteObject(ctx, k8sWorker1Client, worker1Cq2)
 				}, util.LongTimeout, util.Interval).ShouldNot(gomega.HaveOccurred())
 
 				// After reconnecting the container to the network, when we try to get pods,

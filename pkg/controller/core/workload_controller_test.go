@@ -18,13 +18,14 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -317,6 +318,8 @@ var (
 
 func TestReconcile(t *testing.T) {
 	testStartTime := time.Now()
+	fakeClock := testingclock.NewFakeClock(testStartTime)
+
 	cases := map[string]struct {
 		workload       *kueue.Workload
 		cq             *kueue.ClusterQueue
@@ -376,7 +379,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"admit": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				ReserveQuotaAt(utiltesting.MakeAdmission("q1").Obj(), testStartTime).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
@@ -400,6 +403,8 @@ func TestReconcile(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
 					EventType: "Normal",
 					Reason:    "Admitted",
+					Message: fmt.Sprintf("Admitted by ClusterQueue q1, wait time since reservation was %.0fs",
+						fakeClock.Since(metav1.NewTime(testStartTime).Time.Truncate(time.Second)).Seconds()),
 				},
 			},
 		},
@@ -449,9 +454,10 @@ func TestReconcile(t *testing.T) {
 				DeletionTimestamp(testStartTime).
 				Obj(),
 		},
-		"unadmitted workload with rejected checks": {
+		"unadmitted workload with rejected checks gets deactivated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
@@ -459,26 +465,23 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Active(false).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
-				}).
-				Condition(metav1.Condition{
-					Type:    "Finished",
-					Status:  "True",
-					Reason:  kueue.WorkloadFinishedReasonAdmissionChecksRejected,
-					Message: "Admission checks [check] are rejected",
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "ownername"},
-					EventType: "Normal",
-					Reason:    "WorkloadFinished",
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Warning",
+					Reason:    "AdmissionCheckRejected",
+					Message:   "Deactivating workload because AdmissionCheck for check was Rejected: ",
 				},
 			},
 		},
-		"admitted workload with rejected checks": {
+		"admitted workload with rejected checks gets deactivated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
@@ -491,10 +494,51 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
+				Active(false).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
+				}).
+				Conditions(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionTrue,
+					Reason:  "AdmittedByTest",
+					Message: "Admitted by ClusterQueue q1",
+				},
+					metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "ByTest",
+						Message: "Admitted by ClusterQueue q1",
+					}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Warning",
+					Reason:    "AdmissionCheckRejected",
+					Message:   "Deactivating workload because AdmissionCheck for check was Rejected: ",
+				},
+			},
+		},
+		"admitted workload with retry checks": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRetry,
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRetry,
 				}).
 				Condition(metav1.Condition{
 					Type:    "Evicted",
@@ -503,6 +547,14 @@ func TestReconcile(t *testing.T) {
 					Message: "At least one admission check is false",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Normal",
+					Reason:    "EvictedDueToAdmissionCheck",
+					Message:   "At least one admission check is false",
+				},
+			},
 		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
@@ -549,8 +601,16 @@ func TestReconcile(t *testing.T) {
 				// 10s * 2^(4-1) = 80s
 				RequeueState(ptr.To[int32](4), ptr.To(metav1.NewTime(testStartTime.Add(80*time.Second).Truncate(time.Second)))).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
 		},
-		"deactivate workload when reaching backoffLimitCount": {
+		"trigger deactivation of workload when reaching backoffLimitCount": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                    3 * time.Second,
@@ -575,21 +635,20 @@ func TestReconcile(t *testing.T) {
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				Active(false).
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{{
-				Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-				EventType: v1.EventTypeNormal,
-				Reason:    kueue.WorkloadEvictedByDeactivation,
-				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffLimitCount",
-			}},
 		},
 		"wait time should be limited to backoffMaxSeconds": {
 			reconcilerOpts: []Option{
@@ -636,6 +695,14 @@ func TestReconcile(t *testing.T) {
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
 				RequeueState(ptr.To[int32](11), ptr.To(metav1.NewTime(testStartTime.Add(7200*time.Second).Truncate(time.Second)))).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
 		},
 		"should set the WorkloadRequeued condition to true on re-activated": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -759,6 +826,30 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"should set the WorkloadRequeued condition to true on LocalQueue started": {
+			cq: utiltesting.MakeClusterQueue("cq").Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByLocalQueueStopped,
+					Message: "The LocalQueue is stopped",
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadLocalQueueRestarted,
+					Message: "The LocalQueue was restarted after being stopped",
+				}).
+				Obj(),
+		},
 		"should set the Evicted condition with InactiveWorkload reason when the .spec.active=False": {
 			workload: utiltesting.MakeWorkload("wl", "ns").Active(false).Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
@@ -788,6 +879,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToInactiveWorkload",
+					Message:   "The workload is deactivated",
+				},
+			},
 		},
 		"should set the Evicted condition with InactiveWorkload reason when the .spec.active is False, Admitted, and the Workload has Evicted=False condition": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -812,9 +911,17 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload is deactivated",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToInactiveWorkload",
+					Message:   "The workload is deactivated",
+				},
+			},
 		},
-		"[backoffLimitCount: 0] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
-			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition": {
+		"should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
@@ -833,6 +940,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  "PodsReady",
 					Message: "Not all pods are ready or succeeded",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				Active(false).
@@ -847,13 +960,28 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
 				}).
+				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToInactiveWorkloadRequeuingLimitExceeded",
+					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				},
+			},
 		},
 		"[backoffLimitCount: 100] should set the Evicted condition with InactiveWorkload reason, exceeded the maximum number of requeue retries" +
-			"when the .spec.active is False, Admitted, the Workload has Evicted=False and PodsReady=False condition, and the requeueState.count equals to backoffLimitCount": {
+			"when the .spec.active is False, Admitted, the Workload has Evicted=False and DeactivationTarget=True condition, and the requeueState.count equals to backoffLimitCount": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
@@ -872,6 +1000,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  "PodsReady",
 					Message: "Not all pods are ready or succeeded",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
 				RequeueState(ptr.To[int32](100), nil).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
@@ -887,12 +1021,27 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByDeactivation,
+					Reason:  "InactiveWorkloadRequeuingLimitExceeded",
 					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				// DeactivationTarget condition should be deleted in the real cluster, but the fake client doesn't allow us to do it.
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  "RequeuingLimitExceeded",
+					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
 				RequeueState(ptr.To[int32](100), nil).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToInactiveWorkloadRequeuingLimitExceeded",
+					Message:   "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				},
+			},
 		},
 		"should keep the previous eviction reason when the Workload is already evicted by other reason even though the Workload is deactivated.": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -918,6 +1067,253 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"should set the Evicted condition with ClusterQueueStopped reason when the StopPolicy is HoldAndDrain": {
+			cq: utiltesting.MakeClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				Admitted(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				Admitted(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
+					Message: "The ClusterQueue is stopped",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToClusterQueueStopped",
+					Message:   "The ClusterQueue is stopped",
+				},
+			},
+		},
+		"should set the Evicted condition with LocalQueueStopped reason when the StopPolicy is HoldAndDrain": {
+			cq: utiltesting.MakeClusterQueue("cq").Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				Admitted(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				Admitted(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByLocalQueueStopped,
+					Message: "The LocalQueue is stopped",
+				}).
+				Obj(),
+		},
+		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was deleted": {
+			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is terminating or missing",
+				}).
+				Obj(),
+		},
+		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
+			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is stopped",
+				}).
+				Obj(),
+		},
+		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was deleted": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is terminating or missing",
+				}).
+				Obj(),
+		},
+		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was Hold": {
+			cq: utiltesting.MakeClusterQueue("cq").AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltesting.MakeAdmission("cq", "main").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is stopped",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved LocalQueue is not created": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq doesn't exist",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved LocalQueue StopPolicy=Hold": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").StopPolicy(kueue.Hold).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is inactive",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved LocalQueue StopPolicy=HoldAndDrain": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").StopPolicy(kueue.HoldAndDrain).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is inactive",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved ClusterQueue is not created": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq doesn't exist",
+				}).
+				Obj(),
+		},
+		"should set status QuotaReserved conditions to False with reason Inadmissible if quota not reserved ClusterQueue StopPolicy=Hold": {
+			lq: utiltesting.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
+			cq: utiltesting.MakeClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is inactive",
+				}).
+				Obj(),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -930,7 +1326,7 @@ func TestReconcile(t *testing.T) {
 			qManager := queue.NewManager(cl, cqCache)
 			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
 			// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
-			reconciler.clock = testingclock.NewFakeClock(testStartTime)
+			reconciler.clock = fakeClock
 
 			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
@@ -942,6 +1338,12 @@ func TestReconcile(t *testing.T) {
 				}
 				if err := qManager.AddClusterQueue(ctx, tc.cq); err != nil {
 					t.Errorf("couldn't add the cluster queue to the cache: %v", err)
+				}
+			}
+
+			if tc.lq != nil {
+				if err := cl.Create(ctx, tc.lq); err != nil {
+					t.Errorf("couldn't create the local queue: %v", err)
 				}
 				if err := qManager.AddLocalQueue(ctx, tc.lq); err != nil {
 					t.Errorf("couldn't add the local queue to the cache: %v", err)
@@ -964,7 +1366,7 @@ func TestReconcile(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})

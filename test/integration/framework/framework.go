@@ -21,6 +21,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -28,14 +31,11 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	zaplog "go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -44,29 +44,22 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/test/util"
 )
 
-type ManagerSetup func(manager.Manager, context.Context)
+type ManagerSetup func(context.Context, manager.Manager)
 
 type Framework struct {
-	CRDPath     string
-	DepCRDPaths []string
-	WebhookPath string
-	testEnv     *envtest.Environment
-	cancel      context.CancelFunc
+	CRDPath               string
+	DepCRDPaths           []string
+	WebhookPath           string
+	APIServerFeatureGates []string
+	testEnv               *envtest.Environment
+	cancel                context.CancelFunc
 }
 
 func (f *Framework) Init() *rest.Config {
-	opts := func(o *zap.Options) {
-		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
-		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
-	}
-	ctrl.SetLogger(zap.New(
-		zap.WriteTo(ginkgo.GinkgoWriter),
-		zap.UseDevMode(true),
-		zap.Level(zapcore.Level(-3)),
-		opts),
-	)
+	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
 
 	ginkgo.By("bootstrapping test environment")
 	f.testEnv = &envtest.Environment{
@@ -75,6 +68,16 @@ func (f *Framework) Init() *rest.Config {
 	}
 	if len(f.WebhookPath) > 0 {
 		f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
+	}
+
+	if len(f.APIServerFeatureGates) > 0 {
+		f.testEnv.ControlPlane.GetAPIServer().Configure().Append("feature-gates", strings.Join(f.APIServerFeatureGates, ","))
+	}
+
+	if level, err := strconv.Atoi(os.Getenv("API_LOG_LEVEL")); err == nil && level > 0 {
+		f.testEnv.ControlPlane.GetAPIServer().Configure().Append("v", strconv.Itoa(level))
+		f.testEnv.ControlPlane.GetAPIServer().Out = ginkgo.GinkgoWriter
+		f.testEnv.ControlPlane.GetAPIServer().Err = ginkgo.GinkgoWriter
 	}
 
 	cfg, err := f.testEnv.Start()
@@ -138,7 +141,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 	mgr, err := ctrl.NewManager(cfg, mgrOpts)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-	managerSetup(mgr, ctx)
+	managerSetup(ctx, mgr)
 
 	go func() {
 		defer ginkgo.GinkgoRecover()

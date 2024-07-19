@@ -18,22 +18,29 @@ package list
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -52,8 +59,10 @@ const (
 )
 
 type WorkloadOptions struct {
+	Clock      clock.Clock
 	PrintFlags *genericclioptions.PrintFlags
 
+	Limit              int64
 	AllNamespaces      bool
 	Namespace          string
 	FieldSelector      string
@@ -61,34 +70,43 @@ type WorkloadOptions struct {
 	ClusterQueueFilter string
 	LocalQueueFilter   string
 	StatusesFilter     sets.Set[int]
+	forGVK             schema.GroupVersionKind
+	forName            string
+	forObject          *unstructured.Unstructured
+
+	UserSpecifiedForObject string
 
 	ClientSet clientset.Interface
-
-	ToPrinter func(r *listWorkloadResources) (printers.ResourcePrinterFunc, error)
 
 	genericiooptions.IOStreams
 }
 
-func NewWorkloadOptions(streams genericiooptions.IOStreams) *WorkloadOptions {
+func NewWorkloadOptions(streams genericiooptions.IOStreams, clock clock.Clock) *WorkloadOptions {
 	return &WorkloadOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
+		Clock:      clock,
 	}
 }
 
-func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
-	o := NewWorkloadOptions(streams)
+func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
+	o := NewWorkloadOptions(streams, clock)
 
 	cmd := &cobra.Command{
-		Use:                   "workload [-–clusterqueue CLUSTER_QUEUE_NAME] [-–localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]",
+		Use: "workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces] [--for TYPE[.API-GROUP]/NAME]",
+		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"wl"},
 		Short:                 "List Workload",
 		Long:                  wlLong,
 		Example:               wlExample,
-		Run: func(cmd *cobra.Command, args []string) {
-			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
-			cobra.CheckErr(o.Run(cmd.Context()))
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			err := o.Complete(clientGetter, cmd)
+			if err != nil {
+				return err
+			}
+			return o.Run(cmd.Context())
 		},
 	}
 
@@ -99,6 +117,10 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)
 	addLocalQueueFilterFlagVar(cmd, &o.LocalQueueFilter)
+	addForObjectFlagVar(cmd, &o.UserSpecifiedForObject)
+
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("clusterqueue", completion.ClusterQueueNameFunc(clientGetter, nil)))
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter, nil)))
 
 	cmd.Flags().StringArray("status", nil, `Filter workloads by status. Must be "all", "pending", "admitted" or "finished"`)
 
@@ -131,8 +153,13 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 }
 
 // Complete completes all the required options
-func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
+func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command) error {
 	var err error
+
+	o.Limit, err = listRequestLimit()
+	if err != nil {
+		return err
+	}
 
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
@@ -149,80 +176,178 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 		return err
 	}
 
-	o.ToPrinter = func(r *listWorkloadResources) (printers.ResourcePrinterFunc, error) {
-		if !o.PrintFlags.OutputFlagSpecified() {
-			printer := newWorkloadTablePrinter().WithResources(r)
-			if o.AllNamespaces {
-				printer.WithNamespace()
-			}
-			return printer.PrintObj, nil
-		}
-		printer, err := o.PrintFlags.ToPrinter()
+	if o.UserSpecifiedForObject != "" {
+		mapper, err := clientGetter.ToRESTMapper()
 		if err != nil {
-			return nil, err
+			return err
 		}
-		return printer.PrintObj, nil
+		var found bool
+		o.forGVK, o.forName, found, err = decodeResourceTypeName(mapper, o.UserSpecifiedForObject)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return errors.New("--for must be in resource/name form")
+		}
+
+		r := clientGetter.NewResourceBuilder().
+			Unstructured().
+			NamespaceParam(o.Namespace).
+			DefaultNamespace().
+			AllNamespaces(o.AllNamespaces).
+			FieldSelectorParam(fmt.Sprintf("metadata.name=%s", o.forName)).
+			ResourceTypeOrNameArgs(true, o.forGVK.Kind).
+			ContinueOnError().
+			Latest().
+			Flatten().
+			Do()
+		if err := r.Err(); err != nil {
+			return err
+		}
+		infos, err := r.Infos()
+		if err != nil {
+			return err
+		}
+
+		if len(infos) == 0 {
+			if !o.AllNamespaces {
+				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+			} else {
+				fmt.Fprintln(o.ErrOut, "No resources found")
+			}
+			return nil
+		}
+
+		job, ok := infos[0].Object.(*unstructured.Unstructured)
+		if !ok {
+			fmt.Fprintf(o.ErrOut, "Invalid object %+v. Unexpected type %T", job, infos[0].Object)
+			return nil
+		}
+		o.forObject = job
 	}
 
 	return nil
 }
 
+func (o *WorkloadOptions) ToPrinter(r *listWorkloadResources, headers bool) (printers.ResourcePrinterFunc, error) {
+	if !o.PrintFlags.OutputFlagSpecified() {
+		printer := newWorkloadTablePrinter().
+			WithResources(r).
+			WithNamespace(o.AllNamespaces).
+			WithHeaders(headers).
+			WithClock(o.Clock)
+		return printer.PrintObj, nil
+	}
+	printer, err := o.PrintFlags.ToPrinter()
+	if err != nil {
+		return nil, err
+	}
+	return printer.PrintObj, nil
+}
+
 // Run performs the list operation.
 func (o *WorkloadOptions) Run(ctx context.Context) error {
+	var totalCount int
+
 	namespace := o.Namespace
 	if o.AllNamespaces {
 		namespace = ""
 	}
 
-	opts := metav1.ListOptions{LabelSelector: o.LabelSelector, FieldSelector: o.FieldSelector}
-	list, err := o.ClientSet.KueueV1beta1().Workloads(namespace).List(ctx, opts)
-	if err != nil {
-		return err
+	var jobUID types.UID
+	var jobUIDLabelSelector string
+	if o.forObject != nil {
+		jobUID = o.forObject.GetUID()
+
+		if len(o.LabelSelector) != 0 {
+			jobUIDLabelSelector += ","
+		}
+		jobUIDLabelSelector += fmt.Sprintf("%s=%s", constants.JobUIDLabel, jobUID)
 	}
 
-	o.filterList(list)
+	opts := metav1.ListOptions{
+		LabelSelector: o.LabelSelector + jobUIDLabelSelector,
+		FieldSelector: o.FieldSelector,
+		Limit:         o.Limit,
+	}
 
-	if len(list.Items) == 0 {
-		if !o.AllNamespaces {
-			fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
-		} else {
-			fmt.Fprintln(o.ErrOut, "No resources found")
+	tabWriter := printers.GetNewTabWriter(o.Out)
+
+	var enableOwnerReferenceFilter bool
+	for {
+		headers := totalCount == 0
+
+		list, err := o.ClientSet.KueueV1beta1().Workloads(namespace).List(ctx, opts)
+		if err != nil {
+			return err
 		}
+
+		if o.forObject != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
+			opts.LabelSelector = o.LabelSelector
+			enableOwnerReferenceFilter = true
+			continue
+		}
+
+		o.filterList(list, enableOwnerReferenceFilter, jobUID)
+
+		totalCount += len(list.Items)
+
+		r := newListWorkloadResources()
+
+		r.localQueues, err = o.localQueues(ctx, list)
+		if err != nil {
+			return err
+		}
+
+		r.pendingWorkloads, err = o.pendingWorkloads(ctx, list, r.localQueues)
+		if err != nil {
+			return err
+		}
+
+		r.apiResourceLists, err = o.apiResources(list)
+		if err != nil {
+			return err
+		}
+
+		printer, err := o.ToPrinter(r, headers)
+		if err != nil {
+			return err
+		}
+
+		if err := printer.PrintObj(list, tabWriter); err != nil {
+			return err
+		}
+
+		if list.Continue != "" {
+			opts.Continue = list.Continue
+			continue
+		}
+
+		if totalCount == 0 {
+			if !o.AllNamespaces {
+				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+			} else {
+				fmt.Fprintln(o.ErrOut, "No resources found")
+			}
+			return nil
+		}
+
+		if err := tabWriter.Flush(); err != nil {
+			return err
+		}
+
 		return nil
 	}
-
-	r := newListWorkloadResources()
-
-	r.localQueues, err = o.localQueues(ctx, list)
-	if err != nil {
-		return err
-	}
-
-	r.pendingWorkloads, err = o.pendingWorkloads(ctx, list, r.localQueues)
-	if err != nil {
-		return err
-	}
-
-	r.apiResourceLists, err = o.apiResources(list)
-	if err != nil {
-		return err
-	}
-
-	printer, err := o.ToPrinter(r)
-	if err != nil {
-		return err
-	}
-
-	return printer.PrintObj(list, o.Out)
 }
 
-func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList) {
+func (o *WorkloadOptions) filterList(list *v1beta1.WorkloadList, enableOwnerReferenceFilter bool, uid types.UID) {
 	if len(list.Items) == 0 {
 		return
 	}
 	filteredItems := make([]v1beta1.Workload, 0, len(o.LocalQueueFilter))
 	for _, wl := range list.Items {
-		if o.filterByLocalQueue(&wl) && o.filterByClusterQueue(&wl) && o.filterByStatuses(&wl) {
+		if o.filterByLocalQueue(&wl) && o.filterByClusterQueue(&wl) && o.filterByStatuses(&wl) &&
+			o.filterByOwnerReference(&wl, enableOwnerReferenceFilter, uid) {
 			filteredItems = append(filteredItems, wl)
 		}
 	}
@@ -264,6 +389,20 @@ func (o *WorkloadOptions) filterByStatuses(wl *v1beta1.Workload) bool {
 	return false
 }
 
+func (o *WorkloadOptions) filterByOwnerReference(wl *v1beta1.Workload, isEnabled bool, uid types.UID) bool {
+	if !isEnabled {
+		return true
+	}
+
+	for _, ow := range wl.OwnerReferences {
+		if ow.UID == uid {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (o *WorkloadOptions) localQueues(ctx context.Context, list *v1beta1.WorkloadList) (map[string]*v1beta1.LocalQueue, error) {
 	localQueues := make(map[string]*v1beta1.LocalQueue)
 	for _, wl := range list.Items {
@@ -300,6 +439,9 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.Wo
 			clusterQueueName = string(wl.Status.Admission.ClusterQueue)
 		} else if lq := localQueues[localQueueKeyForWorkload(&wl)]; lq != nil {
 			clusterQueueName = string(lq.Spec.ClusterQueue)
+		}
+		if len(clusterQueueName) == 0 {
+			continue
 		}
 		pendingWorkloadsSummary, ok := pendingWorkloadsSummaries[clusterQueueName]
 		if !ok {

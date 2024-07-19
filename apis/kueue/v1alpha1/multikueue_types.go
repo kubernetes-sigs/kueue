@@ -27,15 +27,19 @@ const (
 	// MultiKueueOriginLabel is a label used to track the creator
 	// of multikueue remote objects.
 	MultiKueueOriginLabel = "kueue.x-k8s.io/multikueue-origin"
+
+	// MultiKueueControllerName is the name used by the MultiKueue
+	// admission check controller.
+	MultiKueueControllerName = "kueue.x-k8s.io/multikueue"
 )
 
 type LocationType string
 
 const (
-	// Location is the path on the disk of kueue-controller-manager.
+	// PathLocationType is the path on the disk of kueue-controller-manager.
 	PathLocationType LocationType = "Path"
 
-	// Location is the name of the secret inside the namespace in which the kueue controller
+	// SecretLocationType is the name of the secret inside the namespace in which the kueue controller
 	// manager is running. The config should be stored in the "kubeconfig" key.
 	SecretLocationType LocationType = "Secret"
 )

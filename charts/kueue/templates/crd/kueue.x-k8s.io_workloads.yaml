@@ -8,7 +8,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.15.0
   name: workloads.kueue.x-k8s.io
 spec:
   conversion:
@@ -43,6 +43,10 @@ spec:
     - description: Admission status
       jsonPath: .status.conditions[?(@.type=='Admitted')].status
       name: Admitted
+      type: string
+    - description: Workload finished
+      jsonPath: .status.conditions[?(@.type=='Finished')].status
+      name: Finished
       type: string
     - description: Time this workload was created
       jsonPath: .metadata.creationTimestamp

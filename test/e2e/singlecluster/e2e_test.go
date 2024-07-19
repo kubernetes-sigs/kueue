@@ -95,10 +95,10 @@ var _ = ginkgo.Describe("Kueue", func() {
 		)
 		ginkgo.BeforeEach(func() {
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
-				Label("instance-type", "on-demand").Obj()
+				NodeLabel("instance-type", "on-demand").Obj()
 			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
 			spotRF = testing.MakeResourceFlavor("spot").
-				Label("instance-type", "spot").Obj()
+				NodeLabel("instance-type", "spot").Obj()
 			gomega.Expect(k8sClient.Create(ctx, spotRF)).Should(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
@@ -120,11 +120,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandRF, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotRF, true)
+			// Force remove workloads to be sure that cluster queue can be removed.
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotRF, true)
 		})
 
 		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {
@@ -336,7 +338,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, check)).Should(gomega.Succeed())
 			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
-				Label("instance-type", "on-demand").Obj()
+				NodeLabel("instance-type", "on-demand").Obj()
 			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
@@ -352,11 +354,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandRF, true)
-			gomega.Expect(k8sClient.Delete(ctx, check)).Should(gomega.Succeed())
+			// Force remove workloads to be sure that cluster queue can be removed.
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check, true)
 		})
 
 		ginkgo.It("Should unsuspend a job only after all checks are cleared", func() {

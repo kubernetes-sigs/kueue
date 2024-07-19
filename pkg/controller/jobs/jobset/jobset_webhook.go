@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -73,14 +73,15 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		if !found {
 			return nil
 		}
-		clusterQueueName, err := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(jobSet.ObjectMeta.Namespace, localQueueName))
-		if err != nil {
-			return err
+		clusterQueueName, ok := w.queues.ClusterQueueFromLocalQueue(queue.QueueKey(jobSet.ObjectMeta.Namespace, localQueueName))
+		if !ok {
+			log.V(5).Info("Cluster queue for local queue not found", "jobset", klog.KObj(jobSet), "localQueue", localQueueName)
+			return nil
 		}
 		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
-			if admissionCheck.Controller == multikueue.ControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", multikueue.ControllerName)
-				jobSet.Spec.ManagedBy = ptr.To(multikueue.ControllerName)
+			if admissionCheck.Controller == v1alpha1.MultiKueueControllerName {
+				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", v1alpha1.MultiKueueControllerName)
+				jobSet.Spec.ManagedBy = ptr.To(v1alpha1.MultiKueueControllerName)
 				return nil
 			}
 		}
@@ -118,6 +119,6 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobSetWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *JobSetWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }

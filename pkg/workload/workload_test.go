@@ -32,6 +32,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -51,7 +52,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "main",
-						Requests: Requests{
+						Requests: resources.Requests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
@@ -79,7 +80,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "main",
-						Requests: Requests{
+						Requests: resources.Requests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 512 * 1024,
 						},
@@ -131,7 +132,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "driver",
-						Requests: Requests{
+						Requests: resources.Requests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
@@ -142,7 +143,7 @@ func TestNewInfo(t *testing.T) {
 					},
 					{
 						Name: "workers",
-						Requests: Requests{
+						Requests: resources.Requests{
 							corev1.ResourceCPU:    15,
 							corev1.ResourceMemory: 3 * 1024 * 1024,
 							"ex.com/gpu":          3,
@@ -182,7 +183,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: Requests{
+						Requests: resources.Requests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 10 * 1024,
 						},
@@ -202,7 +203,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "main",
-						Requests: Requests{
+						Requests: resources.Requests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
@@ -306,7 +307,7 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 	)
 
 	creationTime := metav1.Now()
-	conditionTime := metav1.NewTime(time.Now().Add(time.Hour))
+	conditionTime := metav1.NewTime(creationTime.Add(time.Hour))
 
 	cases := map[string]struct {
 		wl   *kueue.Workload
@@ -592,29 +593,29 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 func TestFlavorResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info
-		want map[kueue.ResourceFlavorReference]Requests
+		want resources.FlavorResourceQuantitiesFlat
 	}{
-		"nil": {},
+		"nil": {
+			want: resources.FlavorResourceQuantitiesFlat{},
+		},
 		"one podset, no flavors": {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
-					Requests: Requests{
+					Requests: resources.Requests{
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  3,
 					},
 				}},
 			},
-			want: map[kueue.ResourceFlavorReference]Requests{
-				"": {
-					corev1.ResourceCPU: 1_000,
-					"example.com/gpu":  3,
-				},
+			want: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "", Resource: "cpu"}:             1_000,
+				{Flavor: "", Resource: "example.com/gpu"}: 3,
 			},
 		},
 		"one podset, multiple flavors": {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
-					Requests: Requests{
+					Requests: resources.Requests{
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  3,
 					},
@@ -624,20 +625,16 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				}},
 			},
-			want: map[kueue.ResourceFlavorReference]Requests{
-				"default": {
-					corev1.ResourceCPU: 1_000,
-				},
-				"gpu": {
-					"example.com/gpu": 3,
-				},
+			want: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: "cpu"}:         1_000,
+				{Flavor: "gpu", Resource: "example.com/gpu"}: 3,
 			},
 		},
 		"multiple podsets, multiple flavors": {
 			info: &Info{
 				TotalRequests: []PodSetResources{
 					{
-						Requests: Requests{
+						Requests: resources.Requests{
 							corev1.ResourceCPU: 1_000,
 							"example.com/gpu":  3,
 						},
@@ -647,7 +644,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 						},
 					},
 					{
-						Requests: Requests{
+						Requests: resources.Requests{
 							corev1.ResourceCPU:    2_000,
 							corev1.ResourceMemory: 2 * utiltesting.Gi,
 						},
@@ -657,7 +654,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 						},
 					},
 					{
-						Requests: Requests{
+						Requests: resources.Requests{
 							"example.com/gpu": 1,
 						},
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -666,17 +663,11 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				},
 			},
-			want: map[kueue.ResourceFlavorReference]Requests{
-				"default": {
-					corev1.ResourceCPU:    3_000,
-					corev1.ResourceMemory: 2 * utiltesting.Gi,
-				},
-				"model_a": {
-					"example.com/gpu": 3,
-				},
-				"model_b": {
-					"example.com/gpu": 1,
-				},
+			want: resources.FlavorResourceQuantitiesFlat{
+				{Flavor: "default", Resource: "cpu"}:             3_000,
+				{Flavor: "default", Resource: "memory"}:          2 * utiltesting.Gi,
+				{Flavor: "model_a", Resource: "example.com/gpu"}: 3,
+				{Flavor: "model_b", Resource: "example.com/gpu"}: 1,
 			},
 		},
 	}

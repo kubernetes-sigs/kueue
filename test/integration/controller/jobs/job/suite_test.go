@@ -60,7 +60,7 @@ func TestAPIs(t *testing.T) {
 }
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
-	return func(mgr manager.Manager, ctx context.Context) {
+	return func(ctx context.Context, mgr manager.Manager) {
 		reconciler := job.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
@@ -73,11 +73,12 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		jobframework.EnableIntegration(job.FrameworkName)
 	}
 }
 
 func managerAndControllersSetup(enableScheduler bool, configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
-	return func(mgr manager.Manager, ctx context.Context) {
+	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -99,6 +100,7 @@ func managerAndControllersSetup(enableScheduler bool, configuration *config.Conf
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		jobframework.EnableIntegration(job.FrameworkName)
 
 		if enableScheduler {
 			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))

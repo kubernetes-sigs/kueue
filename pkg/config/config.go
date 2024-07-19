@@ -38,7 +38,7 @@ func fromFile(path string, scheme *runtime.Scheme, cfg *configapi.Configuration)
 		return err
 	}
 
-	codecs := serializer.NewCodecFactory(scheme)
+	codecs := serializer.NewCodecFactory(scheme, serializer.EnableStrict)
 
 	// Regardless of if the bytes are of any external version,
 	// it will be read successfully and converted into the internal version

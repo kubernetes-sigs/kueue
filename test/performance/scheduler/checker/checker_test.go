@@ -92,13 +92,13 @@ func TestScalability(t *testing.T) {
 	})
 
 	t.Run("ClusterQueueClasses", func(t *testing.T) {
-		for c, cqcSummarry := range summary.ClusterQueueClasses {
+		for c, cqcSummary := range summary.ClusterQueueClasses {
 			t.Run(c, func(t *testing.T) {
 				expected, found := rangeSpec.ClusterQueueClassesMinUsage[c]
 				if !found {
 					t.Fatalf("Unexpected class")
 				}
-				actual := float64(cqcSummarry.CPUUsed) * 100 / (float64(cqcSummarry.NominalQuota) * float64(cqcSummarry.LastEventTime.Sub(cqcSummarry.FirstEventTime).Milliseconds()))
+				actual := float64(cqcSummary.CPUUsed) * 100 / (float64(cqcSummary.NominalQuota) * float64(cqcSummary.LastEventTime.Sub(cqcSummary.FirstEventTime).Milliseconds()))
 				if actual < expected {
 					t.Errorf("Usage %.2f%% is less then expected %.2f%%", actual, expected)
 				}

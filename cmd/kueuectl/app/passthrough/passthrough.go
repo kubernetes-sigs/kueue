@@ -35,7 +35,8 @@ var (
 	passThroughTypes = []passThroughType{
 		{name: "workload", aliases: []string{"wl"}},
 		{name: "clusterqueue", aliases: []string{"cq"}},
-		{name: "localqueue", aliases: []string{"lq"}}}
+		{name: "localqueue", aliases: []string{"lq"}},
+		{name: "resourceflavor", aliases: []string{"rf"}}}
 )
 
 func NewCommands() ([]*cobra.Command, error) {
@@ -70,7 +71,9 @@ func newSubcommand(kubectlPath string, command string, ptType passThroughType) *
 		Aliases:            ptType.aliases,
 		Short:              fmt.Sprintf("Pass-through \"%s  %s\" to kubectl", command, ptType),
 		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
+
 			// prepare the args
 			args := os.Args
 			args[0] = kubectlPath

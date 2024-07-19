@@ -146,10 +146,9 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		return false
 	}
 
-	changed := false
 	// head
 	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
-	changed = podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0]) || changed
+	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {

@@ -63,7 +63,7 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamesp
 	if err := indexer.IndexField(ctx, &kueuealpha.MultiKueueConfig{}, UsingMultiKueueClusters, indexUsingMultiKueueClusters); err != nil {
 		return fmt.Errorf("setting index on configs using clusters: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(ControllerName, configGVK)); err != nil {
+	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueuealpha.MultiKueueControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
 	return nil

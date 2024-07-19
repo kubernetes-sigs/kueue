@@ -49,8 +49,16 @@ function startup {
         if [ ! -d "$ARTIFACTS" ]; then
             mkdir -p "$ARTIFACTS"
         fi
+	
+	KIND_VERSION=${E2E_KIND_VERSION/"kindest/node:v"/} 
+	MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind-${KIND_VERSION}.yaml"
+	if [ !  -f $MANAGER_KIND_CONFIG ]; then
+	    MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml"
+	fi
 
-        cluster_create "$MANAGER_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/manager-cluster.kind.yaml"
+	echo "Using manager config: $MANAGER_KIND_CONFIG"
+
+        cluster_create "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KIND_CONFIG"
         cluster_create $WORKER1_KIND_CLUSTER_NAME "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
         cluster_create $WORKER2_KIND_CLUSTER_NAME "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
     fi
@@ -81,24 +89,9 @@ function kueue_deploy {
     cluster_kueue_deploy $WORKER2_KIND_CLUSTER_NAME
 }
 
-function prepare_secrets {
-    kubectl config use-context kind-${WORKER1_KIND_CLUSTER_NAME}
-    source ${SOURCE_DIR}/create-multikueue-kubeconfig.sh ${ARTIFACTS}/worker1.kubeconfig
-    $YQ e ".clusters[0].cluster.server = \"https://${WORKER1_KIND_CLUSTER_NAME}-control-plane:6443\"" ${ARTIFACTS}/worker1.kubeconfig > ${ARTIFACTS}/worker1.kubeconfig.internal
-
-    kubectl config use-context kind-${WORKER2_KIND_CLUSTER_NAME}
-    source ${SOURCE_DIR}/create-multikueue-kubeconfig.sh ${ARTIFACTS}/worker2.kubeconfig
-    $YQ e ".clusters[0].cluster.server = \"https://${WORKER2_KIND_CLUSTER_NAME}-control-plane:6443\"" ${ARTIFACTS}/worker2.kubeconfig > ${ARTIFACTS}/worker2.kubeconfig.internal
-
-    kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
-    kubectl create secret generic multikueue1 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker1.kubeconfig.internal
-    kubectl create secret generic multikueue2 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker2.kubeconfig.internal
-}
-
 trap cleanup EXIT
 startup
 kind_load
 kueue_deploy
-prepare_secrets
 
 $GINKGO $GINKGO_ARGS --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/e2e/multikueue/...

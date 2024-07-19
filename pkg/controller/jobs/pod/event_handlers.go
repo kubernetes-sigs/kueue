@@ -76,7 +76,7 @@ func (h *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q wor
 	q.Add(reconcileRequestForPod(p))
 }
 
-func (h *podEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *podEventHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
 }
 
 func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {
@@ -111,7 +111,7 @@ func (h *workloadHandler) Update(ctx context.Context, e event.UpdateEvent, q wor
 func (h *workloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *workloadHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
 }
 
 func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {

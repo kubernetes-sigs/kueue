@@ -332,18 +332,17 @@ when this workloadPriorityClass should be used.</p>
 <code>string</code>
 </td>
 <td>
-   <p>controllerName is name of the controller which will actually perform
-the checks. This is the name with which controller identifies with,
-not necessarily a K8S Pod or Deployment name. Cannot be empty.</p>
+   <p>controllerName identifies the controller that processes the AdmissionCheck,
+not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.</p>
 </td>
 </tr>
 <tr><td><code>retryDelayMinutes</code><br/>
 <code>int64</code>
 </td>
 <td>
-   <p>RetryDelayMinutes specifies how long to keep the workload suspended
-after a failed check (after it transitioned to False).
-After that the check state goes to &quot;Unknown&quot;.
+   <p>RetryDelayMinutes <strong>deprecated</strong> specifies how long to keep the workload suspended after
+a failed check (after it transitioned to False). When the delay period has passed, the check
+state goes to &quot;Unknown&quot;. The default is 15 min.
 The default is 15 min.</p>
 </td>
 </tr>
@@ -351,7 +350,8 @@ The default is 15 min.</p>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference"><code>AdmissionCheckParametersReference</code></a>
 </td>
 <td>
-   <p>Parameters identifies the resource providing additional check parameters.</p>
+   <p>Parameters identifies a configuration with additional parameters for the
+check.</p>
 </td>
 </tr>
 </tbody>
@@ -479,7 +479,7 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
 
-<p>AdmissionCheckStrategy defines a strategy for a AdmissionCheck.</p>
+<p>AdmissionChecksStrategy defines a strategy for a AdmissionCheck.</p>
 
 
 <table class="table">
@@ -1206,6 +1206,20 @@ There could be up to 16 resources.</p>
    <p>clusterQueue is a reference to a clusterQueue that backs this localQueue.</p>
 </td>
 </tr>
+<tr><td><code>stopPolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-StopPolicy"><code>StopPolicy</code></a>
+</td>
+<td>
+   <p>stopPolicy - if set to a value different from None, the LocalQueue is considered Inactive,
+no new reservation being made.</p>
+<p>Depending on its value, its associated workloads will:</p>
+<ul>
+<li>None - Workloads are admitted</li>
+<li>HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.</li>
+<li>Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.</li>
+</ul>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1827,6 +1841,8 @@ words, it's the used quota that is over the nominalQuota.</p>
 **Appears in:**
 
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+
+- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
 
 

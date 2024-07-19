@@ -68,7 +68,7 @@ func managerSetup(configuration *config.Configuration, opts ...jobframework.Opti
 	if configuration.WaitForPodsReady != nil {
 		opts = append(opts, jobframework.WithWaitForPodsReady(configuration.WaitForPodsReady))
 	}
-	return func(mgr manager.Manager, ctx context.Context) {
+	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -92,6 +92,7 @@ func managerSetup(configuration *config.Configuration, opts ...jobframework.Opti
 			opts...)
 		err = jobReconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		jobframework.EnableIntegration(job.FrameworkName)
 
 		cCache := cache.New(mgr.GetClient())
 		queues := queue.NewManager(mgr.GetClient(), cCache)
@@ -116,7 +117,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration, opts ...jobfr
 	if configuration.Resources != nil && len(configuration.Resources.ExcludeResourcePrefixes) > 0 {
 		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(configuration.Resources.ExcludeResourcePrefixes))
 	}
-	return func(mgr manager.Manager, ctx context.Context) {
+	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

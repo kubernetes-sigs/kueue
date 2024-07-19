@@ -91,7 +91,7 @@ func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
@@ -112,7 +112,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	return allErrs
 }
 
-func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorList {
+func ValidateClusterQueueUpdate(newObj, _ *kueue.ClusterQueue) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateClusterQueue(newObj)...)
 	return allErrs

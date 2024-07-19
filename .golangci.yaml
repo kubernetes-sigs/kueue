@@ -22,8 +22,10 @@ linters-settings:
   revive:
     enable-all-rules: false
     rules:
+      - name: context-as-argument
       - name: empty-lines
       - name: var-naming
+      - name: redundant-import-alias
 
 # Settings for enabling and disabling linters
 linters:
@@ -31,6 +33,7 @@ linters:
     - copyloopvar
     - dupword
     - durationcheck
+    - fatcontext
     - ginkgolinter
     - gocritic
     - goimports
@@ -46,6 +49,7 @@ issues:
   # Which dirs to exclude: issues from them won't be reported
   exclude-dirs:
     - bin
+    - vendor
   # Excluding configuration per-path, per-linter, per-text and per-source
   exclude-rules:
     - linters:

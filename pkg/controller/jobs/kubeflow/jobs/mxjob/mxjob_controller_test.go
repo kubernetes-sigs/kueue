@@ -479,8 +479,8 @@ func TestReconciler(t *testing.T) {
 		"when workload is admitted, job gets node selectors": {
 			flavors: []kueue.ResourceFlavor{
 				*utiltesting.MakeResourceFlavor("default").Obj(),
-				*utiltesting.MakeResourceFlavor("on-demand").Label("provisioning", "on-demand").Obj(),
-				*utiltesting.MakeResourceFlavor("spot").Label("provisioning", "spot").Obj(),
+				*utiltesting.MakeResourceFlavor("on-demand").NodeLabel("provisioning", "on-demand").Obj(),
+				*utiltesting.MakeResourceFlavor("spot").NodeLabel("provisioning", "spot").Obj(),
 			},
 			job: testingmxjob.MakeMXJob("mxjob", "ns").
 				Image("").

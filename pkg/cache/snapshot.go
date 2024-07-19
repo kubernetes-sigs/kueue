@@ -26,12 +26,13 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Snapshot struct {
-	ClusterQueues            map[string]*ClusterQueue
+	ClusterQueues            map[string]*ClusterQueueSnapshot
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[string]
 }
@@ -41,7 +42,7 @@ type Snapshot struct {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	cq.addOrRemoveWorkload(wl, -1)
+	cq.addOrRemoveUsage(wl.FlavorResourceUsage(), -1)
 }
 
 // AddWorkload adds a workload from its corresponding ClusterQueue and
@@ -49,27 +50,27 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	cq.addOrRemoveWorkload(wl, 1)
+	cq.addOrRemoveUsage(wl.FlavorResourceUsage(), 1)
 }
 
-func (c *ClusterQueue) addOrRemoveWorkload(wl *workload.Info, m int64) {
-	updateFlavorUsage(wl, c.Usage, m)
+func (c *ClusterQueueSnapshot) addOrRemoveUsage(usage resources.FlavorResourceQuantitiesFlat, m int64) {
+	updateFlavorUsage(usage, c.Usage, m)
 	if c.Cohort != nil {
 		if features.Enabled(features.LendingLimit) {
-			updateCohortUsage(wl, c, m)
+			updateCohortUsage(usage, c, m)
 		} else {
-			updateFlavorUsage(wl, c.Cohort.Usage, m)
+			updateFlavorUsage(usage, c.Cohort.Usage, m)
 		}
 	}
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
-	cohorts := make(map[string]*Cohort)
+	cohorts := make(map[string]*CohortSnapshot)
 	for name, cq := range s.ClusterQueues {
 		cohortName := "<none>"
 		if cq.Cohort != nil {
-			cohorts[cq.Name] = cq.Cohort
 			cohortName = cq.Cohort.Name
+			cohorts[cohortName] = cq.Cohort
 		}
 
 		log.Info("Found ClusterQueue",
@@ -94,7 +95,7 @@ func (c *Cache) Snapshot() Snapshot {
 	defer c.RUnlock()
 
 	snap := Snapshot{
-		ClusterQueues:            make(map[string]*ClusterQueue, len(c.clusterQueues)),
+		ClusterQueues:            make(map[string]*ClusterQueueSnapshot, len(c.clusterQueues)),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[string](),
 	}
@@ -110,39 +111,27 @@ func (c *Cache) Snapshot() Snapshot {
 		snap.ResourceFlavors[name] = rf
 	}
 	for _, cohort := range c.cohorts {
-		cohortCopy := newCohort(cohort.Name, cohort.Members.Len())
-		cohortCopy.AllocatableResourceGeneration = 0
-		for cq := range cohort.Members {
-			if cq.Active() {
-				cqCopy := snap.ClusterQueues[cq.Name]
-				cqCopy.accumulateResources(cohortCopy)
-				cqCopy.Cohort = cohortCopy
-				cohortCopy.Members.Insert(cqCopy)
-				cohortCopy.AllocatableResourceGeneration += cqCopy.AllocatableResourceGeneration
-				cohortCopy.Lendable = cohortCopy.CalculateLendable()
-			}
-		}
+		cohort.snapshotInto(snap.ClusterQueues)
 	}
 	return snap
 }
 
 // snapshot creates a copy of ClusterQueue that includes references to immutable
 // objects and deep copies of changing ones. A reference to the cohort is not included.
-func (c *ClusterQueue) snapshot() *ClusterQueue {
-	cc := &ClusterQueue{
+func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
+	cc := &ClusterQueueSnapshot{
 		Name:                          c.Name,
 		ResourceGroups:                c.ResourceGroups, // Shallow copy is enough.
-		RGByResource:                  c.RGByResource,   // Shallow copy is enough.
 		FlavorFungibility:             c.FlavorFungibility,
 		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
-		Usage:                         make(FlavorResourceQuantities, len(c.Usage)),
-		Lendable:                      maps.Clone(c.Lendable),
+		Usage:                         make(resources.FlavorResourceQuantities, len(c.Usage)),
 		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
 		Status:                        c.Status,
 		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
+		Quotas:                        c.quotas,
 	}
 
 	for fName, rUsage := range c.Usage {
@@ -155,18 +144,37 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 	return cc
 }
 
-func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
+func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
+	cohortSnap := &CohortSnapshot{
+		Name:     c.Name,
+		Members:  make(sets.Set[*ClusterQueueSnapshot], c.Members.Len()),
+		Lendable: c.CalculateLendable(),
+	}
+	cohortSnap.AllocatableResourceGeneration = 0
+	for cq := range c.Members {
+		if cq.Active() {
+			cqSnap := cqs[cq.Name]
+			cqSnap.accumulateResources(cohortSnap)
+			cqSnap.Cohort = cohortSnap
+			cohortSnap.Members.Insert(cqSnap)
+			cohortSnap.AllocatableResourceGeneration += cqSnap.AllocatableResourceGeneration
+		}
+	}
+}
+
+func (c *ClusterQueueSnapshot) accumulateResources(cohort *CohortSnapshot) {
 	if cohort.RequestableResources == nil {
-		cohort.RequestableResources = make(FlavorResourceQuantities, len(c.ResourceGroups))
+		cohort.RequestableResources = make(resources.FlavorResourceQuantities, len(c.ResourceGroups))
 	}
 	for _, rg := range c.ResourceGroups {
-		for _, flvQuotas := range rg.Flavors {
-			res := cohort.RequestableResources[flvQuotas.Name]
+		for _, fName := range rg.Flavors {
+			res := cohort.RequestableResources[fName]
 			if res == nil {
-				res = make(map[corev1.ResourceName]int64, len(flvQuotas.Resources))
-				cohort.RequestableResources[flvQuotas.Name] = res
+				res = make(map[corev1.ResourceName]int64, len(rg.CoveredResources))
+				cohort.RequestableResources[fName] = res
 			}
-			for rName, rQuota := range flvQuotas.Resources {
+			for rName := range rg.CoveredResources {
+				rQuota := c.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 				// When feature LendingLimit enabled, cohort.RequestableResources indicates
 				// the sum of cq.NominalQuota and other cqs' LendingLimit (if not nil).
 				// If LendingLimit is not nil, we should count the lendingLimit as the requestable
@@ -180,7 +188,7 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 		}
 	}
 	if cohort.Usage == nil {
-		cohort.Usage = make(FlavorResourceQuantities, len(c.Usage))
+		cohort.Usage = make(resources.FlavorResourceQuantities, len(c.Usage))
 	}
 	for fName, resUsages := range c.Usage {
 		used := cohort.Usage[fName]

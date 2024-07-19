@@ -23,7 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -77,7 +77,7 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 			priorityClassList: &schedulingv1.PriorityClassList{
 				Items: []schedulingv1.PriorityClass{
 					{
-						ObjectMeta: v1.ObjectMeta{Name: "test"},
+						ObjectMeta: metav1.ObjectMeta{Name: "test"},
 						Value:      50,
 					},
 				},
@@ -98,7 +98,7 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 			priorityClassList: &schedulingv1.PriorityClassList{
 				Items: []schedulingv1.PriorityClass{
 					{
-						ObjectMeta:    v1.ObjectMeta{Name: "globalDefault"},
+						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault"},
 						GlobalDefault: true,
 						Value:         40,
 					},
@@ -112,17 +112,17 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 			priorityClassList: &schedulingv1.PriorityClassList{
 				Items: []schedulingv1.PriorityClass{
 					{
-						ObjectMeta:    v1.ObjectMeta{Name: "globalDefault1"},
+						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault1"},
 						GlobalDefault: true,
 						Value:         90,
 					},
 					{
-						ObjectMeta:    v1.ObjectMeta{Name: "globalDefault2"},
+						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault2"},
 						GlobalDefault: true,
 						Value:         20,
 					},
 					{
-						ObjectMeta:    v1.ObjectMeta{Name: "globalDefault3"},
+						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault3"},
 						GlobalDefault: true,
 						Value:         50,
 					},
@@ -179,7 +179,7 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
 				Items: []kueue.WorkloadPriorityClass{
 					{
-						ObjectMeta: v1.ObjectMeta{Name: "test"},
+						ObjectMeta: metav1.ObjectMeta{Name: "test"},
 						Value:      50,
 					},
 				},

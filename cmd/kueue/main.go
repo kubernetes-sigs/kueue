@@ -26,6 +26,7 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/util/flowcontrol"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -135,9 +136,11 @@ func main() {
 	if kubeConfig.UserAgent == "" {
 		kubeConfig.UserAgent = useragent.Default()
 	}
-	kubeConfig.QPS = *cfg.ClientConnection.QPS
-	kubeConfig.Burst = int(*cfg.ClientConnection.Burst)
-	setupLog.V(2).Info("K8S Client", "qps", kubeConfig.QPS, "burst", kubeConfig.Burst)
+
+	// Set the RateLimiter here, otherwise the controller-runtime's typedClient will use a different RateLimiter
+	// for each API type.
+	kubeConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*cfg.ClientConnection.QPS, int(*cfg.ClientConnection.Burst))
+	setupLog.V(2).Info("K8S Client", "qps", *cfg.ClientConnection.QPS, "burst", *cfg.ClientConnection.Burst)
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager")
@@ -160,6 +163,9 @@ func main() {
 		cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
+	if cfg.FairSharing != nil {
+		cacheOptions = append(cacheOptions, cache.WithFairSharing(cfg.FairSharing.Enable))
+	}
 	cCache := cache.New(mgr.GetClient(), cacheOptions...)
 	queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
@@ -178,15 +184,11 @@ func main() {
 	// Controllers who register after manager starts will start directly.
 	go setupControllers(mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
 
-	go func() {
-		queues.CleanUpOnContext(ctx)
-	}()
-	go func() {
-		cCache.CleanUpOnContext(ctx)
-	}()
+	go queues.CleanUpOnContext(ctx)
+	go cCache.CleanUpOnContext(ctx)
 
 	if features.Enabled(features.VisibilityOnDemand) {
-		go visibility.CreateAndStartVisibilityServer(queues, ctx)
+		go visibility.CreateAndStartVisibilityServer(ctx, queues)
 	}
 
 	setupScheduler(mgr, cCache, queues, &cfg)

@@ -42,8 +42,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		queue           *kueue.LocalQueue
 		clusterQueue    *kueue.ClusterQueue
 		resourceFlavors = []kueue.ResourceFlavor{
-			*testing.MakeResourceFlavor(flavorModelC).Label(resourceGPU.String(), flavorModelC).Obj(),
-			*testing.MakeResourceFlavor(flavorModelD).Label(resourceGPU.String(), flavorModelD).Obj(),
+			*testing.MakeResourceFlavor(flavorModelC).NodeLabel(resourceGPU.String(), flavorModelC).Obj(),
+			*testing.MakeResourceFlavor(flavorModelD).NodeLabel(resourceGPU.String(), flavorModelD).Obj(),
 		}
 		ac *kueue.AdmissionCheck
 	)
@@ -84,12 +84,12 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, queue)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		gomega.Expect(util.DeleteObject(ctx, k8sClient, queue)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		for _, rf := range resourceFlavors {
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, &rf, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
 		}
-		util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, ac, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 	})
 
 	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", func() {

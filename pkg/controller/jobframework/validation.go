@@ -1,9 +1,12 @@
 /*
 Copyright 2023 The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -87,16 +90,16 @@ func ValidateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList
 func validateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(newJob), QueueName(oldJob), queueNameLabelPath)...)
 	}
 
 	oldWlName, _ := PrebuiltWorkloadFor(oldJob)
 	newWlName, _ := PrebuiltWorkloadFor(newJob)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldWlName, newWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newWlName, oldWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	return allErrs
 }
 
 func validateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
-	allErrs := apivalidation.ValidateImmutableField(workloadPriorityClassName(oldJob), workloadPriorityClassName(newJob), workloadPriorityClassNamePath)
+	allErrs := apivalidation.ValidateImmutableField(workloadPriorityClassName(newJob), workloadPriorityClassName(oldJob), workloadPriorityClassNamePath)
 	return allErrs
 }
