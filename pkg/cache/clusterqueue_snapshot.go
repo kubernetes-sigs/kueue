@@ -48,6 +48,19 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 	return nil
 }
 
+func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantitiesFlat) {
+	c.addOrRemoveUsage(frq, 1)
+}
+
+func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantitiesFlat) bool {
+	for fr, q := range frq {
+		if c.Available(fr) < q {
+			return false
+		}
+	}
+	return true
+}
+
 func (c *ClusterQueueSnapshot) QuotaFor(fr resources.FlavorResource) *ResourceQuota {
 	return c.Quotas[fr]
 }
