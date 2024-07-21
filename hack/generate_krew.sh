@@ -18,50 +18,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# This script generates a Krew-compatible plugin manifest.
+# Resolve the absolute path of the directory containing the script
+SCRIPT_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
+REPO_ROOT="$SCRIPT_DIR/.."
 
-VERSION=${VERSION:-$(git describe --tags | sed 's/^v//g')}
-
-# Generate the manifest for a single platform.
-function generate_platform {
-    cat <<EOF
-  - selector:
-      matchLabels:
-        os: "${1}"
-        arch: "${2}"
-    uri: https://github.com/kubernetes-sigs/kueue/releases/download/v${VERSION}/kubectl-kueue-${1}-${2}.tar.gz
-    sha256: $(curl -L https://github.com/kubernetes-sigs/kueue/releases/download/v${VERSION}/kubectl-kueue-${1}-${2}.tar.gz | shasum -a 256 - | awk '{print $1}')
-    bin: "${3}"
-    files:
-    - from: "*"
-      to: "."
-EOF
-}
-
-# shellcheck disable=SC2129
-cat <<EOF > kueue.yaml
-apiVersion: krew.googlecontainertools.github.com/v1alpha2
-kind: Plugin
-metadata:
-  name: kueue
-spec:
-  version: "v${VERSION}"
-  shortDescription: Controls Kueue queueing manager.
-  homepage: https://kueue.sigs.k8s.io/docs/reference/kubectl-kueue/
-  description: |
-    The kubectl-kueue plugin, kueuectl, allows you to list, create, resume
-    and stop kueue resources such as clusterqueues, localqueues and workloads.
-
-    See the documentation for more information: https://kueue.sigs.k8s.io/docs/reference/kubectl-kueue/
-  caveats: |
-    Requires the Kueue operator to be installed:
-      https://kueue.sigs.k8s.io/docs/installation/
-  platforms:
-EOF
-
-generate_platform linux amd64 ./kubectl-kueue >> kueue.yaml
-generate_platform linux arm64 ./kubectl-kueue >> kueue.yaml
-generate_platform darwin amd64 ./kubectl-kueue >> kueue.yaml
-generate_platform darwin arm64 ./kubectl-kueue >> kueue.yaml
-
-echo "To publish to the krew index, create a pull request on https://github.com/kubernetes-sigs/krew-index/tree/master/plugins to update kueue.yaml with the newly generated kueue.yaml."
+docker run --rm -v "$REPO_ROOT":/home/app ghcr.io/rajatjindal/krew-release-bot:v0.0.46 krew-release-bot template --tag "$1" --template-file .krew.yaml > "$REPO_ROOT"/kueue.yaml
