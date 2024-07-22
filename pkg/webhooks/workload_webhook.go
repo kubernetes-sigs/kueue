@@ -249,7 +249,7 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 	for i := range obj.Spec.PodSets {
 		name := obj.Spec.PodSets[i].Name
 		knowPodSets[name] = &obj.Spec.PodSets[i]
-		knowPodSetNames = append(knowPodSetNames, name)
+		knowPodSetNames[i] = name
 	}
 
 	var ret field.ErrorList

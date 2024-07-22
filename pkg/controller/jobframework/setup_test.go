@@ -119,10 +119,9 @@ func TestSetupControllers(t *testing.T) {
 					return k8sClient, nil
 				},
 				MapperProvider: func(*rest.Config, *http.Client) (apimeta.RESTMapper, error) {
-					gvs := make([]schema.GroupVersion, len(tc.mapperGVKs))
-					for _, gvk := range tc.mapperGVKs {
-						gvs = append(gvs, gvk.GroupVersion())
-					}
+					gvs := slices.Map(tc.mapperGVKs, func(gvk *schema.GroupVersionKind) schema.GroupVersion {
+						return gvk.GroupVersion()
+					})
 					mapper := apimeta.NewDefaultRESTMapper(gvs)
 					for _, gvk := range tc.mapperGVKs {
 						mapper.Add(gvk, apimeta.RESTScopeNamespace)
