@@ -33,6 +33,7 @@ import (
 	"k8s.io/cli-runtime/pkg/resource"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -77,6 +78,7 @@ type PodOptions struct {
 
 	Limit                  int64
 	AllNamespaces          bool
+	ServerPrint            bool
 	Namespace              string
 	LabelSelector          string
 	FieldSelector          string
@@ -116,7 +118,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 		Example:               podExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter)
+			err := o.Complete(cmd, clientGetter)
 			if err != nil {
 				return err
 			}
@@ -140,12 +142,17 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 }
 
 // Complete takes the command arguments and infers any remaining options.
-func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
+func (o *PodOptions) Complete(cmd *cobra.Command, clientGetter util.ClientGetter) error {
 	var err error
 
 	o.Limit, err = listRequestLimit()
 	if err != nil {
 		return err
+	}
+
+	outputOption := cmd.Flags().Lookup("output").Value.String()
+	if strings.Contains(outputOption, "custom-columns") || outputOption == "yaml" || strings.Contains(outputOption, "json") {
+		o.ServerPrint = false
 	}
 
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
@@ -300,16 +307,25 @@ func (o *PodOptions) Run(ctx context.Context, clientGetter util.ClientGetter) er
 }
 
 func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {
-	tablePrinter := printers.NewTablePrinter(printers.PrintOptions{
-		NoHeaders:     false,
-		WithNamespace: o.AllNamespaces,
-		WithKind:      false,
-		Wide:          *o.PrintFlags.OutputFormat == "wide",
-		ShowLabels:    false,
-		ColumnLabels:  nil,
-	})
+	if o.ServerPrint {
+		tablePrinter := printers.NewTablePrinter(printers.PrintOptions{
+			NoHeaders:     false,
+			WithNamespace: o.AllNamespaces,
+			WithKind:      false,
+			Wide:          ptr.Deref(o.PrintFlags.OutputFormat, "") == "wide",
+			ShowLabels:    false,
+			ColumnLabels:  nil,
+		})
 
-	printer := &TablePrinter{Delegate: tablePrinter}
+		printer := &TablePrinter{Delegate: tablePrinter}
+
+		return printer.PrintObj, nil
+	}
+
+	printer, err := o.PrintFlags.ToPrinter()
+	if err != nil {
+		return nil, err
+	}
 
 	return printer.PrintObj, nil
 }
@@ -351,6 +367,9 @@ func (o *PodOptions) getPodsInfos(clientGetter util.ClientGetter) ([]*resource.I
 }
 
 func (o *PodOptions) transformRequests(req *rest.Request) {
+	if !o.ServerPrint {
+		return
+	}
 	req.SetHeader("Accept", strings.Join([]string{
 		fmt.Sprintf("application/json;as=Table;v=%s;g=%s", metav1.SchemeGroupVersion.Version, metav1.GroupName),
 		"application/json",
