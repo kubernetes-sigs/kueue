@@ -13,7 +13,7 @@ require (
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240717190548-1ed345090869
 	sigs.k8s.io/controller-tools v0.15.0
 	sigs.k8s.io/kueue/cmd/experimental/kjobctl v0.0.0-00010101000000-000000000000
-	sigs.k8s.io/kustomize/kustomize/v5 v5.4.2
+	sigs.k8s.io/kustomize/kustomize/v5 v5.4.3
 )
 
 replace sigs.k8s.io/kueue/cmd/experimental/kjobctl => ../..
@@ -89,8 +89,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.18.4 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/kueue v0.7.1 // indirect
-	sigs.k8s.io/kustomize/api v0.17.2 // indirect
-	sigs.k8s.io/kustomize/kyaml v0.17.1 // indirect
+	sigs.k8s.io/kustomize/api v0.17.3 // indirect
+	sigs.k8s.io/kustomize/kyaml v0.17.2 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
