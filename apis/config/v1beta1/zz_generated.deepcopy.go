@@ -270,6 +270,11 @@ func (in *Integrations) DeepCopyInto(out *Integrations) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.IntegrationRetryInterval != nil {
+		in, out := &in.IntegrationRetryInterval, &out.IntegrationRetryInterval
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	if in.ExternalFrameworks != nil {
 		in, out := &in.ExternalFrameworks, &out.ExternalFrameworks
 		*out = make([]string, len(*in))

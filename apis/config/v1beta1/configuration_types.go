@@ -319,6 +319,10 @@ type Integrations struct {
 	//  - "kubeflow.org/xgboostjob"
 	//  - "pod"
 	Frameworks []string `json:"frameworks,omitempty"`
+	// IntegrationRetryInterval refers to the duration to wait before retrying the API request.
+	// Defaults to 20 seconds if not set.
+	// +optional
+	IntegrationRetryInterval *metav1.Duration `json:"integrationRetryInterval,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`

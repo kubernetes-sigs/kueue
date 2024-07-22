@@ -22,7 +22,6 @@ import (
 	"flag"
 	"net/http"
 	"os"
-	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -72,8 +71,6 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	// +kubebuilder:scaffold:imports
 )
-
-const retryInterval = time.Second * 20
 
 var (
 	scheme   = runtime.NewScheme()
@@ -284,8 +281,9 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
+		jobframework.WithRetryInterval(cfg.Integrations.IntegrationRetryInterval),
 	}
-	if err := jobframework.SetupControllers(ctx, mgr, setupLog, retryInterval, opts...); err != nil {
+	if err := jobframework.SetupControllers(ctx, mgr, setupLog, opts...); err != nil {
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
 		os.Exit(1)
 	}

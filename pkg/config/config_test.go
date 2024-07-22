@@ -341,7 +341,8 @@ webhook:
 	}
 
 	defaultIntegrations := &configapi.Integrations{
-		Frameworks: []string{job.FrameworkName},
+		Frameworks:               []string{job.FrameworkName},
+		IntegrationRetryInterval: &metav1.Duration{Duration: configapi.DefaultIntegrationRetryInterval},
 		PodOptions: &configapi.PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -427,7 +428,8 @@ webhook:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
 				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
+					Frameworks:               []string{job.FrameworkName},
+					IntegrationRetryInterval: &metav1.Duration{Duration: configapi.DefaultIntegrationRetryInterval},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -687,8 +689,9 @@ webhook:
 				Integrations: &configapi.Integrations{
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
-					Frameworks:         []string{job.FrameworkName},
-					ExternalFrameworks: []string{"Foo.v1.example.com"},
+					Frameworks:               []string{job.FrameworkName},
+					IntegrationRetryInterval: &metav1.Duration{Duration: configapi.DefaultIntegrationRetryInterval},
+					ExternalFrameworks:       []string{"Foo.v1.example.com"},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -779,6 +782,7 @@ webhook:
 					Frameworks: []string{
 						"pod",
 					},
+					IntegrationRetryInterval: &metav1.Duration{Duration: configapi.DefaultIntegrationRetryInterval},
 					PodOptions: &configapi.PodIntegrationOptions{
 						NamespaceSelector: &metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -941,7 +945,8 @@ func TestEncode(t *testing.T) {
 				},
 				"manageJobsWithoutQueueName": false,
 				"integrations": map[string]any{
-					"frameworks": []any{"batch/job"},
+					"frameworks":               []any{"batch/job"},
+					"integrationRetryInterval": configapi.DefaultIntegrationRetryInterval.String(),
 					"podOptions": map[string]any{
 						"namespaceSelector": map[string]any{
 							"matchExpressions": []any{map[string]any{
