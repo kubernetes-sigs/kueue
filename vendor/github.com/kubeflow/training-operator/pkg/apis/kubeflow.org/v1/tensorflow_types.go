@@ -122,9 +122,14 @@ const (
 	TFJobReplicaTypeEval ReplicaType = "Evaluator"
 )
 
+// IsChiefOrMaster returns true if the type is Master or Chief.
+func IsChiefOrMaster(typ ReplicaType) bool {
+	return typ == TFJobReplicaTypeChief || typ == TFJobReplicaTypeMaster
+}
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +resource:path=tfjobs
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // TFJobList is a list of TFJobs.
 type TFJobList struct {

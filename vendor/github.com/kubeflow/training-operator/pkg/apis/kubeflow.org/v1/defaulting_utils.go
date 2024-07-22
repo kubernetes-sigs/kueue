@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 )
 
 func getDefaultContainerIndex(spec *corev1.PodSpec, defaultContainerName string) int {
@@ -41,7 +41,7 @@ func setDefaultRestartPolicy(replicaSpec *ReplicaSpec, defaultRestartPolicy Rest
 
 func setDefaultReplicas(replicaSpec *ReplicaSpec, replicas int32) {
 	if replicaSpec != nil && replicaSpec.Replicas == nil {
-		replicaSpec.Replicas = pointer.Int32(replicas)
+		replicaSpec.Replicas = ptr.To[int32](replicas)
 	}
 }
 

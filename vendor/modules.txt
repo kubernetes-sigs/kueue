@@ -177,8 +177,8 @@ github.com/json-iterator/go
 # github.com/kubeflow/mpi-operator v0.5.0
 ## explicit; go 1.22
 github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
-# github.com/kubeflow/training-operator v1.7.0
-## explicit; go 1.20
+# github.com/kubeflow/training-operator v1.8.0
+## explicit; go 1.22
 github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1
 # github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de
 ## explicit

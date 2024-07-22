@@ -226,7 +226,8 @@ type RunPolicy struct {
 // SchedulingPolicy encapsulates various scheduling policies of the distributed training
 // job, for example `minAvailable` for gang-scheduling.
 type SchedulingPolicy struct {
-	MinAvailable           *int32                                 `json:"minAvailable,omitempty"`
+	MinAvailable *int32 `json:"minAvailable,omitempty"`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="spec.runPolicy.schedulingPolicy.queue is immutable"
 	Queue                  string                                 `json:"queue,omitempty"`
 	MinResources           *map[v1.ResourceName]resource.Quantity `json:"minResources,omitempty"`
 	PriorityClass          string                                 `json:"priorityClass,omitempty"`
