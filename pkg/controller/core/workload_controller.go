@@ -33,7 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -104,11 +104,11 @@ type WorkloadReconciler struct {
 	client           client.Client
 	watchers         []WorkloadUpdateWatcher
 	waitForPodsReady *waitForPodsReadyConfig
-	recorder         record.EventRecorder
+	recorder         events.EventRecorder
 	clock            clock.Clock
 }
 
-func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
+func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder events.EventRecorder, opts ...Option) *WorkloadReconciler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -255,7 +255,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			queuedWaitTime := workload.QueuedWaitTime(&wl)
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
-			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
+			r.recorder.Eventf(&wl, nil, corev1.EventTypeNormal, "Admitted", "", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, quotaReservedWaitTime.Seconds())
 			metrics.AdmittedWorkload(kueue.ClusterQueueReference(cqName), queuedWaitTime)
 			metrics.AdmissionChecksWaitTime(kueue.ClusterQueueReference(cqName), quotaReservedWaitTime)
 		}
@@ -337,7 +337,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 			return false, err
 		}
 		rejectedCheck := workload.RejectedChecks(wl)[0]
-		r.recorder.Eventf(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", "Deactivating workload because AdmissionCheck for %v was Rejected: %s", rejectedCheck.Name, rejectedCheck.Message)
+		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, "AdmissionCheckRejected", "", "Deactivating workload because AdmissionCheck for %v was Rejected: %s", rejectedCheck.Name, rejectedCheck.Message)
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck

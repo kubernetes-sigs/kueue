@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -50,7 +50,7 @@ const parallelPreemptions = 8
 
 type Preemptor struct {
 	client   client.Client
-	recorder record.EventRecorder
+	recorder events.EventRecorder
 
 	workloadOrdering  workload.Ordering
 	enableFairSharing bool
@@ -60,7 +60,7 @@ type Preemptor struct {
 	applyPreemption func(ctx context.Context, w *kueue.Workload, reason, message string) error
 }
 
-func New(cl client.Client, workloadOrdering workload.Ordering, recorder record.EventRecorder, fs config.FairSharing) *Preemptor {
+func New(cl client.Client, workloadOrdering workload.Ordering, recorder events.EventRecorder, fs config.FairSharing) *Preemptor {
 	p := &Preemptor{
 		client:            cl,
 		recorder:          recorder,
@@ -206,7 +206,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 			}
 
 			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "reason", target.Reason, "message", message, "targetClusterQueue", klog.KRef("", target.WorkloadInfo.ClusterQueue))
-			p.recorder.Eventf(target.WorkloadInfo.Obj, corev1.EventTypeNormal, "Preempted", message)
+			p.recorder.Eventf(target.WorkloadInfo.Obj, nil, corev1.EventTypeNormal, "Preempted", "", message)
 			metrics.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue)
 		} else {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj))

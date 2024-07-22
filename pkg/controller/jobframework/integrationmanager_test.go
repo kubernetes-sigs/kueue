@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
@@ -48,7 +48,7 @@ func (t *testReconciler) SetupWithManager(mgr ctrlmgr.Manager) error {
 
 var _ JobReconcilerInterface = (*testReconciler)(nil)
 
-func testNewReconciler(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+func testNewReconciler(client.Client, events.EventRecorder, ...Option) JobReconcilerInterface {
 	return &testReconciler{}
 }
 
@@ -356,7 +356,7 @@ func TestForEach(t *testing.T) {
 
 func TestGetJobTypeForOwner(t *testing.T) {
 	dontManage := IntegrationCallbacks{
-		NewReconciler: func(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+		NewReconciler: func(client.Client, events.EventRecorder, ...Option) JobReconcilerInterface {
 			panic("not implemented")
 		},
 		SetupWebhook: func(ctrl.Manager, ...Option) error { panic("not implemented") },

@@ -38,7 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -133,7 +133,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func NewReconciler(c client.Client, record record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+func NewReconciler(c client.Client, record events.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
 	return &Reconciler{
 		JobReconciler:     jobframework.NewReconciler(c, record, opts...),
 		expectationsStore: newUIDExpectations("finalizedPods"),
@@ -245,7 +245,7 @@ func ungatePod(pod *corev1.Pod) bool {
 }
 
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder record.EventRecorder, msg string) error {
+func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if !p.isGroup {
@@ -265,7 +265,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if recorder != nil {
-			recorder.Event(&p.pod, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
+			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "", msg)
 		}
 
 		return nil
@@ -306,7 +306,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if recorder != nil {
-			recorder.Event(pod, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
+			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "", msg)
 		}
 		return nil
 	})
@@ -697,7 +697,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 }
 
 // validatePodGroupMetadata validates metadata of all members of the pod group
-func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []corev1.Pod) error {
+func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []corev1.Pod) error {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		return err
@@ -706,7 +706,7 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 
 	if len(activePods) < groupTotalCount {
 		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", podGroupName(p.pod))
-		r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, errMsg)
+		r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "", errMsg)
 		return jobframework.UnretryableError(errMsg)
 	}
 
@@ -828,7 +828,7 @@ func sortActivePods(activePods []corev1.Pod) {
 	})
 }
 
-func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.EventRecorder, extraPods []corev1.Pod) error {
+func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.EventRecorder, extraPods []corev1.Pod) error {
 	if len(extraPods) == 0 {
 		return nil
 	}
@@ -858,7 +858,7 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r record.Ev
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
-			r.Event(&pod, corev1.EventTypeNormal, ReasonExcessPodDeleted, "Excess pod deleted")
+			r.Eventf(&pod, nil, corev1.EventTypeNormal, ReasonExcessPodDeleted, "", "Excess pod deleted")
 		}
 		return nil
 	})
@@ -903,7 +903,7 @@ func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []cor
 	return nil
 }
 
-func (p *Pod) ensureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error {
+func (p *Pod) ensureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r events.EventRecorder, workload *kueue.Workload) error {
 	oldOwnersCnt := len(workload.GetOwnerReferences())
 	for _, pod := range p.list.Items {
 		if err := controllerutil.SetOwnerReference(&pod, workload, c.Scheme()); err != nil {
@@ -916,7 +916,7 @@ func (p *Pod) ensureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 		log.V(4).Info("Adding owner references for workload", "count", addedOwnersCnt)
 		err := c.Update(ctx, workload)
 		if err == nil {
-			r.Eventf(workload, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, fmt.Sprintf("Added %d owner reference(s)", addedOwnersCnt))
+			r.Eventf(workload, nil, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, "", fmt.Sprintf("Added %d owner reference(s)", addedOwnersCnt))
 		}
 		return err
 	}
@@ -946,7 +946,7 @@ func (p *Pod) getWorkloadLabels(labelKeysToCopy []string) (map[string]string, er
 	return workloadLabels, nil
 }
 
-func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error) {
+func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r events.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error) {
 	object := p.Object()
 	log := ctrl.LoggerFrom(ctx)
 
@@ -1025,7 +1025,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	wl.Spec.PodSets, err = p.constructGroupPodSets()
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
-			r.Eventf(object, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
+			r.Eventf(object, nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "", err.Error())
 		}
 		return nil, err
 	}
@@ -1078,7 +1078,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 	return workloads, nil
 }
 
-func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
+func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r events.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	groupName := podGroupName(p.pod)
 
