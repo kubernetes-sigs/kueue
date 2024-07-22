@@ -1,8 +1,8 @@
 ---
-title: kueuectl list
+title: kueuectl list pods
 content_type: tool-reference
 auto_generated: true
-no_list: true
+no_list: false
 ---
 
 <!--
@@ -13,14 +13,20 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Display resources
+Lists all pods that matches the given criteria: Should be part of the specified Job kind,
+belonging to the specified namespace, matching
+the label selector or the field selector.
+
+```
+kueuectl list pods --for TYPE[.API-GROUP]/NAME
+```
 
 
 ## Examples
 
 ```
-  # List LocalQueue
-  kueuectl list localqueue
+  # List Pods
+kueuectl list pods --for job/job-name
 ```
 
 
@@ -34,12 +40,84 @@ Display resources
     </colgroup>
     <tbody>
     <tr>
+        <td colspan="2">-A, --all-namespaces</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: true</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, ignore any errors in templates when a field or map key is missing in the template. Only applies to golang and jsonpath output formats.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--field-selector string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Selector (field query) to filter on, supports &#39;=&#39;, &#39;==&#39;, and &#39;!=&#39;.(e.g. --field-selector key1=value1,key2=value2). The server only supports a limited number of field queries per type.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--for string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Filter workloads to only those pertaining to the specified resource.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-h, --help</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for list</p>
+            <p>help for pods</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-o, --output string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-l, --selector string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Selector (label query) to filter on, supports &#39;=&#39;, &#39;==&#39;, and &#39;!=&#39;.(e.g. -l key1=value1,key2=value2). Matching objects must satisfy all of the specified label constraints.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--show-managed-fields</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--template string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
         </td>
     </tr>
     </tbody>
@@ -223,10 +301,5 @@ Display resources
 
 ## See Also
 
-* [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
-* [kueuectl list clusterqueue](kueuectl_list_clusterqueue/)	 - List ClusterQueues
-* [kueuectl list localqueue](kueuectl_list_localqueue/)	 - List LocalQueue
-* [kueuectl list pods](kueuectl_list_pods/)	 - List Pods belong to a Job Kind
-* [kueuectl list resourceflavor](kueuectl_list_resourceflavor/)	 - List ResourceFlavor
-* [kueuectl list workload](kueuectl_list_workload/)	 - List Workload
+* [kueuectl list](../)	 - Display resources
 
