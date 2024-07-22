@@ -214,4 +214,6 @@ For example, a Job defined by the following manifest:
 
 When queued in a ClusterQueue with only 9 CPUs available, it will be admitted with `parallelism=9`. Note that the number of completions doesn't change.
 
-**NOTE:** PartialAdmission is an `Alpha` feature disabled by default, check the [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) section of the [Installation](/docs/installation/) for details.
+{{% alert title="Note" color="primary" %}}
+PartialAdmission is an `Alpha` feature disabled by default, check the [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) section of the [Installation](/docs/installation/) for details.
+{{% /alert %}}

@@ -140,8 +140,10 @@ When a Kueue needs to preempt a workload that represents a Pod group, kueue send
 delete requests for all of the Pods in the group. It is the responsibility of the
 user or controller that created the original Pods to create replacement Pods.
 
-**NOTE:** We recommend using the kubernetes Job API or similar CRDs such as
+{{% alert title="Note" color="primary" %}}
+We recommend using the kubernetes Job API or similar CRDs such as
 JobSet, MPIJob, RayJob (see more [here](/docs/tasks/#batch-user)).
+{{% /alert %}}
 
 ### Termination
 
