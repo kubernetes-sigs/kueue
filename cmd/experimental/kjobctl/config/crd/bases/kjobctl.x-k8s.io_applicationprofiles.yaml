@@ -46,18 +46,20 @@ spec:
                     name:
                       description: |-
                         name determines which template will be used and which object will eventually be created.
-                        Possible values are Interactive, Job and RayJob.
+                        Possible values are Interactive, Job RayJob and RayCluster.
                       enum:
                       - Interactive
                       - Job
                       - RayJob
+                      - RayCluster
                       type: string
                     requiredFlags:
                       description: |-
                         requiredFlags point which cli flags are required to be passed in order to fill the gaps in the templates.
                         Possible values are cmd, parallelism, completions, replicas, min-replicas, max-replicas, request, localqueue.
-                        replicas, min-replicas and max-replicas flags used only for RayJob mode.
+                        replicas, min-replicas and max-replicas flags used only for RayJob and RayCluster mode.
                         request flag used only for Interactive and Job modes.
+                        cmd flag used only for Interactive, Job, RayJob
 
 
                         cmd and requests values are going to be added only to the first primary container.
@@ -82,6 +84,7 @@ spec:
                           - on Interactive mode it must be v1/PodTemplate
                           - on Job mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
                           - on RayJob mode it must be kjobctl.x-k8s.io/v1alpha1/RayJobTemplate
+                          - on RayCluster mode it must be kjobctl.x-k8s.io/v1alpha1/RayClusterTemplate
                       maxLength: 253
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
@@ -90,23 +93,31 @@ spec:
                   - template
                   type: object
                   x-kubernetes-validations:
-                  - message: replicas flag can be used only on RayJob mode
+                  - message: replicas flag can be used only on RayJob and RayCluster
+                      modes
                     rule: '!has(self.requiredFlags) || self.name == ''RayJob'' ||
-                      (self.name == ''Interactive'' || self.name == ''Job'') && !(''replicas''
-                      in self.requiredFlags)'
-                  - message: min-replicas flag can be used only on RayJob mode
+                      self.name == ''RayCluster'' || (self.name == ''Interactive''
+                      || self.name == ''Job'') && !(''replicas'' in self.requiredFlags)'
+                  - message: min-replicas flag can be used only on RayJob and RayCluster
+                      modes
                     rule: '!has(self.requiredFlags) || self.name == ''RayJob'' ||
-                      (self.name == ''Interactive'' || self.name == ''Job'') && !(''min-replicas''
-                      in self.requiredFlags)'
-                  - message: max-replicas flag can be used only on RayJob mode
+                      self.name == ''RayCluster'' || (self.name == ''Interactive''
+                      || self.name == ''Job'') && !(''min-replicas'' in self.requiredFlags)'
+                  - message: max-replicas flag can be used only on RayJob and RayCluster
+                      modes
                     rule: '!has(self.requiredFlags) || self.name == ''RayJob'' ||
-                      (self.name == ''Interactive'' || self.name == ''Job'') && !(''max-replicas''
-                      in self.requiredFlags)'
+                      self.name == ''RayCluster'' || (self.name == ''Interactive''
+                      || self.name == ''Job'') && !(''max-replicas'' in self.requiredFlags)'
                   - message: request flag can be used only on Job and Interactive
                       modes
-                    rule: '!has(self.requiredFlags) || (self.name == ''Interactive''
-                      || self.name == ''Job'') || self.name == ''RayJob'' && !(''request''
-                      in self.requiredFlags)'
+                    rule: '!has(self.requiredFlags) || self.name == ''Interactive''
+                      || self.name == ''Job'' || (self.name == ''RayJob'' || self.name
+                      == ''RayCluster'') && !(''request'' in self.requiredFlags)'
+                  - message: cmd flag can be used only on Job, Interactive and RayJob
+                      modes
+                    rule: '!has(self.requiredFlags) || self.name == ''Interactive''
+                      || self.name == ''Job'' || self.name == ''RayJob'' || self.name
+                      == ''RayCluster'' && !(''cmd'' in self.requiredFlags)'
                 type: array
                 x-kubernetes-list-map-keys:
                 - name

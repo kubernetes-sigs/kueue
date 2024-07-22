@@ -32,6 +32,7 @@ const (
 	InteractiveMode ApplicationProfileMode = "Interactive"
 	JobMode         ApplicationProfileMode = "Job"
 	RayJobMode      ApplicationProfileMode = "RayJob"
+	RayClusterMode  ApplicationProfileMode = "RayCluster"
 )
 
 // +kubebuilder:validation:Enum=cmd;parallelism;completions;replicas;min-replicas;max-replicas;request;localqueue
@@ -54,16 +55,17 @@ const (
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type TemplateReference string
 
-// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job') && !('replicas' in self.requiredFlags)", message="replicas flag can be used only on RayJob mode"
-// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job') && !('min-replicas' in self.requiredFlags)", message="min-replicas flag can be used only on RayJob mode"
-// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job') && !('max-replicas' in self.requiredFlags)", message="max-replicas flag can be used only on RayJob mode"
-// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || (self.name == 'Interactive' || self.name == 'Job') || self.name == 'RayJob' && !('request' in self.requiredFlags)", message="request flag can be used only on Job and Interactive modes"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || self.name == 'RayCluster' || (self.name == 'Interactive' || self.name == 'Job') && !('replicas' in self.requiredFlags)", message="replicas flag can be used only on RayJob and RayCluster modes"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || self.name == 'RayCluster' || (self.name == 'Interactive' || self.name == 'Job') && !('min-replicas' in self.requiredFlags)", message="min-replicas flag can be used only on RayJob and RayCluster modes"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || self.name == 'RayCluster' || (self.name == 'Interactive' || self.name == 'Job') && !('max-replicas' in self.requiredFlags)", message="max-replicas flag can be used only on RayJob and RayCluster modes"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Interactive' || self.name == 'Job' || (self.name == 'RayJob' || self.name == 'RayCluster') && !('request' in self.requiredFlags)", message="request flag can be used only on Job and Interactive modes"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Interactive' || self.name == 'Job' || self.name == 'RayJob' || self.name == 'RayCluster' && !('cmd' in self.requiredFlags)", message="cmd flag can be used only on Job, Interactive and RayJob modes"
 type SupportedMode struct {
 	// name determines which template will be used and which object will eventually be created.
-	// Possible values are Interactive, Job and RayJob.
+	// Possible values are Interactive, Job RayJob and RayCluster.
 	//
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=Interactive;Job;RayJob
+	// +kubebuilder:validation:Enum=Interactive;Job;RayJob;RayCluster
 	Name ApplicationProfileMode `json:"name"`
 
 	// template is the name of the template.
@@ -71,14 +73,16 @@ type SupportedMode struct {
 	//   - on Interactive mode it must be v1/PodTemplate
 	//   - on Job mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
 	//   - on RayJob mode it must be kjobctl.x-k8s.io/v1alpha1/RayJobTemplate
+	//   - on RayCluster mode it must be kjobctl.x-k8s.io/v1alpha1/RayClusterTemplate
 	//
 	// +kubebuilder:validation:Required
 	Template TemplateReference `json:"template"`
 
 	// requiredFlags point which cli flags are required to be passed in order to fill the gaps in the templates.
 	// Possible values are cmd, parallelism, completions, replicas, min-replicas, max-replicas, request, localqueue.
-	// replicas, min-replicas and max-replicas flags used only for RayJob mode.
+	// replicas, min-replicas and max-replicas flags used only for RayJob and RayCluster mode.
 	// request flag used only for Interactive and Job modes.
+	// cmd flag used only for Interactive, Job, RayJob
 	//
 	// cmd and requests values are going to be added only to the first primary container.
 	//
