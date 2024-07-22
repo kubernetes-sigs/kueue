@@ -51,8 +51,9 @@ Please do not remove items from the checklist
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] Update the below files with respective values in `main` branch :
   - Latest version in `README.md`
+  - Latest version in `cmd/experimental/kjobctl/docs/installation.md`
   - Release notes in the `CHANGELOG`
-  - `version` in `site/config.toml`
+  - `version` in `site/hugo.toml`
   - `appVersion` in `charts/kueue/Chart.yaml`
   - `last-updated`, `last-reviewed`, `commit-hash`, `project-release`, `distribution-points` and `sbom-file` in `SECURITY-INSIGHTS.yaml`
 - [ ] For a major or minor release, prepare the repo for the next version:
