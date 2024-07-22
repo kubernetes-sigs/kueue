@@ -60,10 +60,22 @@ const (
 	--profile my-application-profile  \
 	--pod-running-timeout 30s \
 	--rm`
+	createRayJobExample = `  # Create job 
+  kjobctl create rayjob \ 
+	--profile my-application-profile  \
+	--cmd "sleep 5" \
+	--request cpu=500m,ram=4Gi \
+	--replicas small-group=1 \
+	--min-replicas small-group=1 \ 
+	--max-replicas small-group=5 \ 
+	--localqueue my-local-queue-name`
 	profileFlagName     = "profile"
 	commandFlagName     = "cmd"
 	parallelismFlagName = "parallelism"
 	completionsFlagName = "completions"
+	replicasFlagName    = "replicas"
+	minReplicasFlagName = "min-replicas"
+	maxReplicasFlagName = "max-replicas"
 	requestFlagName     = "request"
 	localQueueFlagName  = "localqueue"
 	podRunningTimeout   = "pod-running-timeout"
@@ -90,6 +102,9 @@ type CreateOptions struct {
 	Command              []string
 	Parallelism          *int32
 	Completions          *int32
+	Replicas             map[string]int
+	MinReplicas          map[string]int
+	MaxReplicas          map[string]int
 	Requests             corev1.ResourceList
 	LocalQueue           string
 	PodRunningTimeout    time.Duration
@@ -147,6 +162,20 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"Remove pod when interactive session exits.")
 		},
 	},
+	"rayjob": {
+		ModeName: v1alpha1.RayJobMode,
+		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
+			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
+			subcmd.Short = "Create a rayjob"
+			subcmd.Example = createRayJobExample
+			subcmd.Flags().StringToIntVar(&o.Replicas, replicasFlagName, nil,
+				"Replicas is the number of desired Pods for this worker group.")
+			subcmd.Flags().StringToIntVar(&o.MinReplicas, minReplicasFlagName, nil,
+				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
+			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
+				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
+		},
+	},
 }
 
 func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
@@ -155,7 +184,7 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 	cmd := &cobra.Command{
 		Use:     "create",
 		Short:   "Create a task",
-		Example: fmt.Sprintf("%s\n\n%s", createJobExample, createInteractiveExample),
+		Example: fmt.Sprintf("%s\n\n%s\n\n%s", createJobExample, createInteractiveExample, createRayJobExample),
 	}
 
 	for modeName, modeSubcommand := range createModeSubcommands {
@@ -280,6 +309,9 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithCommand(o.Command).
 		WithParallelism(o.Parallelism).
 		WithCompletions(o.Completions).
+		WithReplicas(o.Replicas).
+		WithMinReplicas(o.MinReplicas).
+		WithMaxReplicas(o.MaxReplicas).
 		WithRequests(o.Requests).
 		WithLocalQueue(o.LocalQueue).
 		Do(ctx)

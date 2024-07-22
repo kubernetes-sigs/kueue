@@ -31,6 +31,7 @@ type ApplicationProfileMode string
 const (
 	InteractiveMode ApplicationProfileMode = "Interactive"
 	JobMode         ApplicationProfileMode = "Job"
+	RayJobMode      ApplicationProfileMode = "RayJob"
 )
 
 // +kubebuilder:validation:Enum=cmd;parallelism;completions;request;localqueue
@@ -52,16 +53,17 @@ type TemplateReference string
 
 type SupportedMode struct {
 	// name determines which template will be used and which object will eventually be created.
-	// Possible values are Interactive and Job.
+	// Possible values are Interactive, Job and RayJob.
 	//
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=Interactive;Job
+	// +kubebuilder:validation:Enum=Interactive;Job;RayJob
 	Name ApplicationProfileMode `json:"name"`
 
 	// template is the name of the template.
 	// Template type depends on ApplicationProfileMode:
 	//   - on Interactive mode it must be v1/PodTemplate
 	//   - on Job mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
+	//   - on RayJob mode it must be kjobctl.x-k8s.io/v1alpha1/RayJobTemplate
 	//
 	// +kubebuilder:validation:Required
 	Template TemplateReference `json:"template"`

@@ -3,33 +3,22 @@ The file is auto-generated from the Go source code of the component using the
 [generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
 -->
 
-# kjobctl create
+# kjobctl create rayjob
 
 
 ## Synopsis
 
 
-Create a task
+Create a rayjob
+
+```
+kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--localqueue LOCAL_QUEUE_NAME] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
+```
 
 
 ## Examples
 
 ```
-  # Create job 
-  kjobctl create job \ 
-	--profile my-application-profile  \
-	--cmd &#34;sleep 5&#34; \
-	--parallelism 4 \
-	--completions 4 \ 
-	--request cpu=500m,ram=4Gi \
-	--localqueue my-local-queue-name
-
-  # Create interactive 
-  kjobctl create interactive \ 
-	--profile my-application-profile  \
-	--pod-running-timeout 30s \
-	--rm
-
   # Create job 
   kjobctl create rayjob \ 
 	--profile my-application-profile  \
@@ -52,12 +41,120 @@ Create a task
     </colgroup>
     <tbody>
     <tr>
+        <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: true</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, ignore any errors in templates when a field or map key is missing in the template. Only applies to golang and jsonpath output formats.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--cmd string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Command which is associated with the resource.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--dry-run string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;none&#34;</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Must be &#34;none&#34;, &#34;server&#34;, or &#34;client&#34;. If client strategy, only print the object that would be sent, without sending it. If server strategy, submit server-side request without persisting the resource.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-h, --help</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for create</p>
+            <p>help for rayjob</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--localqueue string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Kueue localqueue name which is associated with the resource.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--max-replicas &lt;comma-separated &#39;key=int&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--min-replicas &lt;comma-separated &#39;key=int&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>MinReplicas denotes the minimum number of desired Pods for this worker group.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-o, --output string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-p, --profile string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Application profile contains a template (with defaults set) for running a specific type of application.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--replicas &lt;comma-separated &#39;key=int&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Replicas is the number of desired Pods for this worker group.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--request &lt;comma-separated &#39;key=value&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Request is a set of (resource name, quantity) pairs.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--show-managed-fields</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--template string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
         </td>
     </tr>
     </tbody>
@@ -241,8 +338,5 @@ Create a task
 
 ## See Also
 
-* [kjobctl](../kjobctl.md)	 - ML/AI/Batch Jobs Made Easy
-* [kjobctl create interactive](kjobctl_create_interactive.md)	 - Create an interactive shell
-* [kjobctl create job](kjobctl_create_job.md)	 - Create a job
-* [kjobctl create rayjob](kjobctl_create_rayjob.md)	 - Create a rayjob
+* [kjobctl_create](_index.md)	 - Create a task
 

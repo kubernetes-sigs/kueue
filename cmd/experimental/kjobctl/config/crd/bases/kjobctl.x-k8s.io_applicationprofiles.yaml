@@ -46,10 +46,11 @@ spec:
                     name:
                       description: |-
                         name determines which template will be used and which object will eventually be created.
-                        Possible values are Interactive and Job.
+                        Possible values are Interactive, Job and RayJob.
                       enum:
                       - Interactive
                       - Job
+                      - RayJob
                       type: string
                     requiredFlags:
                       description: |-
@@ -74,6 +75,7 @@ spec:
                         Template type depends on ApplicationProfileMode:
                           - on Interactive mode it must be v1/PodTemplate
                           - on Job mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
+                          - on RayJob mode it must be kjobctl.x-k8s.io/v1alpha1/RayJobTemplate
                       maxLength: 253
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string

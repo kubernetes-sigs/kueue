@@ -35,6 +35,10 @@ func (c *FakeKjobctlV1alpha1) JobTemplates(namespace string) v1alpha1.JobTemplat
 	return &FakeJobTemplates{c, namespace}
 }
 
+func (c *FakeKjobctlV1alpha1) RayJobTemplates(namespace string) v1alpha1.RayJobTemplateInterface {
+	return &FakeRayJobTemplates{c, namespace}
+}
+
 func (c *FakeKjobctlV1alpha1) VolumeBundles(namespace string) v1alpha1.VolumeBundleInterface {
 	return &FakeVolumeBundles{c, namespace}
 }

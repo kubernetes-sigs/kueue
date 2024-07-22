@@ -64,6 +64,9 @@ type Builder struct {
 	command     []string
 	parallelism *int32
 	completions *int32
+	replicas    map[string]int
+	minReplicas map[string]int
+	maxReplicas map[string]int
 	requests    corev1.ResourceList
 	localQueue  string
 
@@ -105,6 +108,21 @@ func (b *Builder) WithParallelism(parallelism *int32) *Builder {
 
 func (b *Builder) WithCompletions(completions *int32) *Builder {
 	b.completions = completions
+	return b
+}
+
+func (b *Builder) WithReplicas(replicas map[string]int) *Builder {
+	b.replicas = replicas
+	return b
+}
+
+func (b *Builder) WithMinReplicas(minReplicas map[string]int) *Builder {
+	b.minReplicas = minReplicas
+	return b
+}
+
+func (b *Builder) WithMaxReplicas(maxReplicas map[string]int) *Builder {
+	b.maxReplicas = maxReplicas
 	return b
 }
 
@@ -208,6 +226,8 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 		bImpl = newJobBuilder(b)
 	case v1alpha1.InteractiveMode:
 		bImpl = newInteractiveBuilder(b)
+	case v1alpha1.RayJobMode:
+		bImpl = newRayJobBuilder(b)
 	}
 
 	if bImpl == nil {
