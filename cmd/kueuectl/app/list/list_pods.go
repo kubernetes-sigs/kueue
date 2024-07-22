@@ -150,9 +150,9 @@ func (o *PodOptions) Complete(cmd *cobra.Command, clientGetter util.ClientGetter
 		return err
 	}
 
-	outputOption := cmd.Flags().Lookup("output").Value.String()
-	if strings.Contains(outputOption, "custom-columns") || outputOption == "yaml" || strings.Contains(outputOption, "json") {
-		o.ServerPrint = false
+	outputOption := ptr.Deref(o.PrintFlags.OutputFormat, "")
+	if outputOption == "" || strings.Contains(outputOption, "wide") {
+		o.ServerPrint = true
 	}
 
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
