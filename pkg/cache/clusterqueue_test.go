@@ -392,20 +392,10 @@ func TestFitInCohort(t *testing.T) {
 			}
 
 			snapshot := cache.Snapshot()
+			cq := snapshot.ClusterQueues["CQ"]
+			cq.AddUsage(tc.usage)
 
-			i := 0
-			for fr, v := range tc.usage {
-				admission := utiltesting.MakeAdmission("CQ")
-				quantity := resources.ResourceQuantity(fr.Resource, v)
-				admission.Assignment(fr.Resource, fr.Flavor, quantity.String())
-
-				wl := utiltesting.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuota(admission.Obj()).Obj()
-
-				snapshot.AddWorkload(workload.NewInfo(wl))
-				i += 1
-			}
-
-			got := snapshot.ClusterQueues["CQ"].FitInCohort(tc.request)
+			got := cq.FitInCohort(tc.request)
 			if got != tc.wantFit {
 				t.Errorf("Unexpected result, %v", got)
 			}
