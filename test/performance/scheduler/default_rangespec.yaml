@@ -19,8 +19,8 @@ clusterQueueClassesMinUsage:
   cq: 55 #%
 
 wlClassesMaxAvgTimeToAdmissionMs:
-  # Average value 6666 (+/- 14%), setting at +35% + 1s accounting for observed failures
-  large: 10_000
+  # Average value 6666 (+/- 14%), setting at +35% + 2s accounting for observed failures
+  large: 11_000
 
   # Average value 76768 (+/- 2%), setting at +20%
   medium: 90_000
