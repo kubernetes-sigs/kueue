@@ -334,6 +334,7 @@ kind: Configuration
 namespace: kueue-system
 objectRetentionPolicies:
   workloads: 
+    afterFinished: 30m
     afterDeactivatedByKueue: 30m
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
@@ -960,6 +961,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
 				},

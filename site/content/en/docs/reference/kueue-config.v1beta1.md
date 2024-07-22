@@ -1055,6 +1055,17 @@ If not set, there is no timeout.</p>
 <tbody>
     
   
+<tr><td><code>afterFinished</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>AfterFinished is the duration to wait after a Workload finishes
+before deleting it.
+A duration of 0 will delete immediately.
+A nil value disables automatic deletion.
+Represented using metav1.Duration (e.g. &quot;10m&quot;, &quot;1h30m&quot;).</p>
+</td>
+</tr>
 <tr><td><code>afterDeactivatedByKueue</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>

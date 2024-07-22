@@ -73,9 +73,14 @@ type waitForPodsReadyConfig struct {
 	requeuingBackoffJitter      float64
 }
 
+type workloadRetentionConfig struct {
+	afterFinished *time.Duration
+}
+
 type options struct {
-	watchers               []WorkloadUpdateWatcher
-	waitForPodsReadyConfig *waitForPodsReadyConfig
+	watchers                []WorkloadUpdateWatcher
+	waitForPodsReadyConfig  *waitForPodsReadyConfig
+	workloadRetentionConfig *workloadRetentionConfig
 }
 
 // Option configures the reconciler.
@@ -95,6 +100,13 @@ func WithWorkloadUpdateWatchers(value ...WorkloadUpdateWatcher) Option {
 	}
 }
 
+// WithWorkloadRetention allows to specify retention for workload resources
+func WithWorkloadRetention(value *workloadRetentionConfig) Option {
+	return func(o *options) {
+		o.workloadRetentionConfig = value
+	}
+}
+
 var defaultOptions = options{}
 
 type WorkloadUpdateWatcher interface {
@@ -103,14 +115,15 @@ type WorkloadUpdateWatcher interface {
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	log              logr.Logger
-	queues           *queue.Manager
-	cache            *cache.Cache
-	client           client.Client
-	watchers         []WorkloadUpdateWatcher
-	waitForPodsReady *waitForPodsReadyConfig
-	recorder         record.EventRecorder
-	clock            clock.Clock
+	log               logr.Logger
+	queues            *queue.Manager
+	cache             *cache.Cache
+	client            client.Client
+	watchers          []WorkloadUpdateWatcher
+	waitForPodsReady  *waitForPodsReadyConfig
+	recorder          record.EventRecorder
+	clock             clock.Clock
+	workloadRetention *workloadRetentionConfig
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
@@ -123,14 +136,15 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 	}
 
 	return &WorkloadReconciler{
-		log:              ctrl.Log.WithName("workload-reconciler"),
-		client:           client,
-		queues:           queues,
-		cache:            cache,
-		watchers:         options.watchers,
-		waitForPodsReady: options.waitForPodsReadyConfig,
-		recorder:         recorder,
-		clock:            realClock,
+		log:               ctrl.Log.WithName("workload-reconciler"),
+		client:            client,
+		queues:            queues,
+		cache:             cache,
+		watchers:          options.watchers,
+		waitForPodsReady:  options.waitForPodsReadyConfig,
+		recorder:          recorder,
+		clock:             realClock,
+		workloadRetention: options.workloadRetentionConfig,
 	}
 }
 
@@ -152,10 +166,29 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log.V(2).Info("Reconcile Workload")
 
 	if len(wl.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
+		// manual deletion triggered by the user
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, &wl)
 	}
 
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
+	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
+		if !features.Enabled(features.ObjectRetentionPolicies) || r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
+			return ctrl.Result{}, nil
+		}
+
+		now := r.clock.Now()
+		expirationTime := finishedCond.LastTransitionTime.Add(*r.workloadRetention.afterFinished)
+		if now.Before(expirationTime) {
+			remainingTime := expirationTime.Sub(now)
+			log.V(3).Info("Requeueing workload for deletion after retention period", "remainingTime", remainingTime)
+			return ctrl.Result{RequeueAfter: remainingTime}, nil
+		}
+
+		log.V(2).Info("Deleting workload because it has finished and the retention period has elapsed", "retention", *r.workloadRetention.afterFinished)
+		if err := r.client.Delete(ctx, &wl); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Deleted", "Deleted finished workload due to elapsed retention")
 		return ctrl.Result{}, nil
 	}
 

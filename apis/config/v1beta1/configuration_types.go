@@ -506,6 +506,14 @@ type ObjectRetentionPolicies struct {
 
 // WorkloadRetentionPolicy defines the policies for when Workloads should be deleted.
 type WorkloadRetentionPolicy struct {
+	// AfterFinished is the duration to wait after a Workload finishes
+	// before deleting it.
+	// A duration of 0 will delete immediately.
+	// A nil value disables automatic deletion.
+	// Represented using metav1.Duration (e.g. "10m", "1h30m").
+	// +optional
+	AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
+
 	// AfterDeactivatedByKueue is the duration to wait after *any* Kueue-managed Workload
 	// (such as a Job, JobSet, or other custom workload types) has been marked
 	// as deactivated by Kueue before automatically deleting it.

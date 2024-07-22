@@ -600,6 +600,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ObjectRetentionPolicies: &ObjectRetentionPolicies{
 					Workloads: &WorkloadRetentionPolicy{
+						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
 				},
@@ -617,6 +618,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				ObjectRetentionPolicies: &ObjectRetentionPolicies{
 					Workloads: &WorkloadRetentionPolicy{
+						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
 				},

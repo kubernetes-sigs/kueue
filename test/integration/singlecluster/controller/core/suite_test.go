@@ -64,26 +64,29 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
-	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	managerAndControllerSetup(nil)(ctx, mgr)
+}
 
-	failedWebhook, err := webhooks.Setup(mgr)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+func managerAndControllerSetup(controllersCfg *config.Configuration) framework.ManagerSetup {
+	return func(ctx context.Context, mgr manager.Manager) {
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	controllersCfg := &config.Configuration{}
-	mgr.GetScheme().Default(controllersCfg)
+		failedWebhook, err := webhooks.Setup(mgr)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-	controllersCfg.Metrics.EnableClusterQueueResources = true
-	controllersCfg.QueueVisibility = &config.QueueVisibility{
-		UpdateIntervalSeconds: 2,
-		ClusterQueues: &config.ClusterQueueVisibility{
-			MaxCount: 3,
-		},
+		if controllersCfg == nil {
+			controllersCfg = &config.Configuration{}
+		}
+
+		mgr.GetScheme().Default(controllersCfg)
+
+		controllersCfg.Metrics.EnableClusterQueueResources = true
+
+		cCache := cache.New(mgr.GetClient())
+		queues := queue.NewManager(mgr.GetClient(), cCache)
+
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 	}
-
-	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
-
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 }

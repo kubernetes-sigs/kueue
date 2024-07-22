@@ -797,6 +797,42 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative afterFinished in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterFinished: ptr.To(metav1.Duration{Duration: -1}),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "objectRetentionPolicies.workloads.afterFinished",
+				},
+			},
+		},
+		"zero afterFinished in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterFinished: ptr.To(metav1.Duration{Duration: 0}),
+					},
+				},
+			},
+		},
+		"positive afterFinished in .objectRetentionPolicies.workloads": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					Workloads: &configapi.WorkloadRetentionPolicy{
+						AfterFinished: ptr.To(metav1.Duration{Duration: 1}),
+					},
+				},
+			},
+		},
 		"negative afterDeactivatedByKueue in .objectRetentionPolicies.workloads": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
