@@ -50,9 +50,8 @@ E2E_K8S_VERSIONS ?= 1.27.13 1.28.9 1.29.4 1.30.0
 KIND_CLUSTER_NAME ?= kind
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
-# TODO(#52): Add kueue to k8s gcr registry
-STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
-IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
+STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images
+IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/kueue
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
