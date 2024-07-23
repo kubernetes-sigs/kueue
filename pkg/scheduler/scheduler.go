@@ -452,7 +452,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	cq := snap.ClusterQueues[wl.ClusterQueue]
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable)
 	fullAssignment := flvAssigner.Assign(log, nil)
-	var faPreemtionTargets []*preemption.Target
+	var faPreemptionTargets []*preemption.Target
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
@@ -460,12 +460,12 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	}
 
 	if arm == flavorassigner.Preempt {
-		faPreemtionTargets = s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
+		faPreemptionTargets = s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
 	}
 
 	// if the feature gate is not enabled or we can preempt
-	if !features.Enabled(features.PartialAdmission) || len(faPreemtionTargets) > 0 {
-		return fullAssignment, faPreemtionTargets
+	if !features.Enabled(features.PartialAdmission) || len(faPreemptionTargets) > 0 {
+		return fullAssignment, faPreemptionTargets
 	}
 
 	if wl.CanBePartiallyAdmitted() {
