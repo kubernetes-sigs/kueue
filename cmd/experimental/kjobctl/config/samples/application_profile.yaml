@@ -8,7 +8,7 @@ spec:
   supportedModes:
     - name: Interactive
       template: sample-pod-template
-      requiredFlags: ["cmd"]
+      requiredFlags: []
     - name: Job
       template: sample-job-template
       requiredFlags: ["cmd"]
@@ -22,12 +22,8 @@ template:
   spec:
     containers:
       - name: sample-container
-        image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
-        args: [ "30s" ]
-        resources:
-          requests:
-            cpu: "1"
-            memory: "200Mi"
+        image: busybox:1.28
+        command: ['/bin/sh']
 ---
 apiVersion: kjobctl.x-k8s.io/v1alpha1
 kind: JobTemplate

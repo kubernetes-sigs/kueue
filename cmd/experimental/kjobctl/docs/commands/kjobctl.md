@@ -199,6 +199,6 @@ ML/AI/Batch Jobs Made Easy
 
 ## See Also
 
-* [kjobctl create](kjobctl_create/_index.md)	 - Create a resource
+* [kjobctl create](kjobctl_create/_index.md)	 - Create a task
 * [kjobctl list](kjobctl_list/_index.md)	 - Display resources
 

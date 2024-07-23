@@ -19,7 +19,9 @@ package create
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -29,8 +31,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
-	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/client-go/kubernetes/scheme"
+	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/kubectl/pkg/cmd/attach"
+	"k8s.io/kubectl/pkg/cmd/exec"
+	"k8s.io/kubernetes/pkg/printers"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
@@ -40,7 +46,7 @@ import (
 )
 
 const (
-	createExample = `  # Create job 
+	createJobExample = `  # Create job 
   kjobctl create job \ 
 	--profile my-application-profile  \
 	--cmd "sleep 5" \
@@ -48,20 +54,30 @@ const (
 	--completions 4 \ 
 	--request cpu=500m,ram=4Gi \
 	--localqueue my-local-queue-name`
+	createInteractiveExample = `  # Create interactive 
+  kjobctl create interactive \ 
+	--profile my-application-profile  \
+	--pod-running-timeout 30s \
+	--rm`
 	profileFlagName     = "profile"
 	commandFlagName     = "cmd"
 	parallelismFlagName = "parallelism"
 	completionsFlagName = "completions"
 	requestFlagName     = "request"
 	localQueueFlagName  = "localqueue"
+	podRunningTimeout   = "pod-running-timeout"
 )
 
 var (
-	invalidApplicationProfileModeErr = errors.New("invalid application profile mode")
+	podRunningTimeoutDefault = 1 * time.Minute
 )
 
 type CreateOptions struct {
+	exec.StreamOptions
 	PrintFlags *genericclioptions.PrintFlags
+	Config     *restclient.Config
+	Attach     attach.RemoteAttach
+	AttachFunc func(*CreateOptions, *corev1.Container, remotecommand.TerminalSizeQueue, *corev1.Pod) func() error
 
 	DryRunStrategy util.DryRunStrategy
 
@@ -69,11 +85,13 @@ type CreateOptions struct {
 	ProfileName string
 	ModeName    v1alpha1.ApplicationProfileMode
 
-	Command     []string
-	Parallelism *int32
-	Completions *int32
-	Requests    corev1.ResourceList
-	LocalQueue  string
+	Command              []string
+	Parallelism          *int32
+	Completions          *int32
+	Requests             corev1.ResourceList
+	LocalQueue           string
+	PodRunningTimeout    time.Duration
+	RemoveInteractivePod bool
 
 	UserSpecifiedCommand     string
 	UserSpecifiedParallelism int32
@@ -89,66 +107,103 @@ func NewCreateOptions(streams genericiooptions.IOStreams) *CreateOptions {
 	return &CreateOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("created").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
+		StreamOptions: exec.StreamOptions{
+			IOStreams: streams,
+		},
+		Attach:     &attach.DefaultRemoteAttach{},
+		AttachFunc: defaultAttachFunc,
 	}
+}
+
+type modeSubcommand struct {
+	ModeName v1alpha1.ApplicationProfileMode
+	Setup    func(subcmd *cobra.Command, o *CreateOptions)
+}
+
+var createModeSubcommands = map[string]modeSubcommand{
+	"job": {
+		ModeName: v1alpha1.JobMode,
+		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
+			subcmd.Use += " [--parallelism PARALLELISM] [--completions COMPLETIONS]"
+			subcmd.Short = "Create a job"
+			subcmd.Example = createJobExample
+			subcmd.Flags().Int32Var(&o.UserSpecifiedParallelism, parallelismFlagName, 0,
+				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
+			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
+				"Completions specifies the desired number of successfully finished pods.")
+		},
+	},
+	"interactive": {
+		ModeName: v1alpha1.InteractiveMode,
+		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
+			subcmd.Use += " [--pod-running-timeout DURATION] [--rm]"
+			subcmd.Short = "Create an interactive shell"
+			subcmd.Example = createInteractiveExample
+			subcmd.Flags().DurationVar(&o.PodRunningTimeout, podRunningTimeout, podRunningTimeoutDefault,
+				"The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running.")
+			subcmd.Flags().BoolVar(&o.RemoveInteractivePod, "rm", false,
+				"Remove pod when interactive session exits.")
+		},
+	},
 }
 
 func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	o := NewCreateOptions(streams)
-
 	cmd := &cobra.Command{
-		Use: "create job|interactive" +
-			" --profile APPLICATION_PROFILE_NAME" +
-			" [--cmd COMMAND]" +
-			" [--parallelism PARALLELISM]" +
-			" [--completions COMPLETIONS]" +
-			" [--request RESOURCE_NAME=QUANTITY]" +
-			" [--localqueue LOCAL_QUEUE_NAME]" +
-			" [--dry-run STRATEGY]",
-		DisableFlagsInUseLine: true,
-		Short:                 "Create a resource",
-		Example:               createExample,
-		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgs:             []string{"job", "interactive"},
-		Run: func(cmd *cobra.Command, args []string) {
-			cobra.CheckErr(o.Complete(clientGetter, cmd, args))
-			cobra.CheckErr(o.Run(cmd.Context(), clientGetter))
-		},
+		Use:     "create",
+		Short:   "Create a task",
+		Example: fmt.Sprintf("%s\n\n%s", createJobExample, createInteractiveExample),
 	}
 
-	o.PrintFlags.AddFlags(cmd)
+	for modeName, modeSubcommand := range createModeSubcommands {
+		subcmd := &cobra.Command{
+			Use: fmt.Sprintf("%s"+
+				" --profile APPLICATION_PROFILE_NAME"+
+				" [--cmd COMMAND]"+
+				" [--request RESOURCE_NAME=QUANTITY]"+
+				" [--localqueue LOCAL_QUEUE_NAME]", modeName),
+			DisableFlagsInUseLine: true,
+			Args:                  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cmd.SilenceUsage = true
 
-	cmd.Flags().StringVarP(&o.ProfileName, profileFlagName, "p", "",
-		"Application profile contains a template (with defaults set) for running a specific type of application.")
-	cmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
-		"Command which is associated with the resource.")
-	cmd.Flags().Int32Var(&o.UserSpecifiedParallelism, parallelismFlagName, 0,
-		"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
-	cmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
-		"Completions specifies the desired number of successfully finished pods the.")
-	cmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
-		"Request is a set of (resource name, quantity) pairs.")
-	cmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
-		"Kueue localqueue name which is associated with the resource.")
+				err := o.Complete(clientGetter, cmd)
+				if err != nil {
+					return err
+				}
 
-	util.AddDryRunFlag(cmd)
+				return o.Run(cmd.Context(), clientGetter)
+			},
+		}
 
-	_ = cmd.MarkFlagRequired(profileFlagName)
+		o.PrintFlags.AddFlags(subcmd)
 
-	cobra.CheckErr(cmd.RegisterFlagCompletionFunc(profileFlagName, completion.ApplicationProfileNameFunc(clientGetter)))
-	cobra.CheckErr(cmd.RegisterFlagCompletionFunc(localQueueFlagName, completion.LocalQueueNameFunc(clientGetter)))
+		subcmd.Flags().StringVarP(&o.ProfileName, profileFlagName, "p", "",
+			"Application profile contains a template (with defaults set) for running a specific type of application.")
+		subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
+			"Command which is associated with the resource.")
+		subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
+			"Request is a set of (resource name, quantity) pairs.")
+		subcmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
+			"Kueue localqueue name which is associated with the resource.")
+		modeSubcommand.Setup(subcmd, o)
+
+		util.AddDryRunFlag(subcmd)
+
+		_ = cmd.MarkFlagRequired(profileFlagName)
+
+		cobra.CheckErr(subcmd.RegisterFlagCompletionFunc(profileFlagName, completion.ApplicationProfileNameFunc(clientGetter)))
+		cobra.CheckErr(subcmd.RegisterFlagCompletionFunc(localQueueFlagName, completion.LocalQueueNameFunc(clientGetter)))
+
+		cmd.AddCommand(subcmd)
+	}
 
 	return cmd
 }
 
-func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
-	switch args[0] {
-	case "job":
-		o.ModeName = v1alpha1.JobMode
-	case "interactive":
-		o.ModeName = v1alpha1.InteractiveMode
-	default:
-		return invalidApplicationProfileModeErr
-	}
+func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command) error {
+	currentSubcommand := createModeSubcommands[cmd.Name()]
+	o.ModeName = currentSubcommand.ModeName
 
 	var err error
 
@@ -161,11 +216,11 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		o.Command = strings.Fields(o.UserSpecifiedCommand)
 	}
 
-	if flag := cmd.Flags().Lookup(parallelismFlagName); flag.Changed {
+	if cmd.Flags().Changed(parallelismFlagName) {
 		o.Parallelism = ptr.To(o.UserSpecifiedParallelism)
 	}
 
-	if flag := cmd.Flags().Lookup(completionsFlagName); flag.Changed {
+	if cmd.Flags().Changed(completionsFlagName) {
 		o.Completions = ptr.To(o.UserSpecifiedCompletions)
 	}
 
@@ -178,6 +233,10 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 			}
 			o.Requests[corev1.ResourceName(key)] = quantity
 		}
+	}
+
+	if cmd.Flags().Changed(podRunningTimeout) && o.PodRunningTimeout <= 0 {
+		return errors.New("--pod-running-timeout must be higher than zero")
 	}
 
 	o.DryRunStrategy, err = util.GetDryRunStrategy(cmd)
@@ -196,6 +255,16 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	}
 
 	o.PrintObj = printer.PrintObj
+
+	o.Config, err = clientGetter.ToRESTConfig()
+	if err != nil {
+		return err
+	}
+
+	err = setKubernetesDefaults(o.Config)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -222,7 +291,17 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter)
 		}
 	}
 
-	return o.PrintObj(obj, o.Out)
+	err = o.PrintObj(obj, o.Out)
+	if err != nil {
+		return err
+	}
+
+	if o.ModeName == v1alpha1.InteractiveMode {
+		pod := obj.(*corev1.Pod)
+		return o.RunInteractivePod(ctx, clientGetter, pod.Name)
+	}
+
+	return nil
 }
 
 func (o *CreateOptions) createObject(ctx context.Context, clientGetter util.ClientGetter, obj runtime.Object) (runtime.Object, error) {
@@ -267,4 +346,85 @@ func (o *CreateOptions) createObject(ctx context.Context, clientGetter util.Clie
 	}
 
 	return createdObj, nil
+}
+
+func (o *CreateOptions) RunInteractivePod(ctx context.Context, clientGetter util.ClientGetter, podName string) error {
+	k8sclient, err := clientGetter.K8sClientset()
+	if err != nil {
+		return err
+	}
+
+	if o.RemoveInteractivePod {
+		defer func() {
+			err = k8sclient.CoreV1().Pods(o.Namespace).Delete(ctx, podName, metav1.DeleteOptions{})
+			if err != nil {
+				fmt.Fprintln(o.ErrOut, err.Error())
+			}
+			fmt.Fprintf(o.Out, "pod \"%s\" deleted\n", podName)
+		}()
+	}
+
+	fmt.Fprintf(o.Out, "waiting for pod \"%s\" to be running...\n", podName)
+	err = waitForPodRunning(ctx, k8sclient, o.Namespace, podName, o.PodRunningTimeout)
+	if err != nil {
+		return err
+	}
+
+	pod, err := k8sclient.CoreV1().Pods(o.Namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	err = attachTTY(o, pod)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func attachTTY(o *CreateOptions, pod *corev1.Pod) error {
+	o.Stdin = true
+	o.TTY = true
+	containerToAttach := &pod.Spec.Containers[0]
+	if !containerToAttach.TTY {
+		return fmt.Errorf("error: Unable to use a TTY - container %s did not allocate one", containerToAttach.Name)
+	}
+
+	tty := o.SetupTTY()
+
+	var sizeQueue remotecommand.TerminalSizeQueue
+	if tty.Raw {
+		// this call spawns a goroutine to monitor/update the terminal size
+		sizeQueue = tty.MonitorSize(tty.GetSize())
+
+		// unset p.Err if it was previously set because both stdout and stderr go over p.Out when tty is true
+		o.ErrOut = nil
+	}
+
+	return tty.Safe(o.AttachFunc(o, containerToAttach, sizeQueue, pod))
+}
+
+func defaultAttachFunc(o *CreateOptions, containerToAttach *corev1.Container, sizeQueue remotecommand.TerminalSizeQueue, pod *corev1.Pod) func() error {
+	return func() error {
+		restClient, err := restclient.RESTClientFor(o.Config)
+		if err != nil {
+			return err
+		}
+
+		req := restClient.Post().
+			Resource("pods").
+			Name(pod.Name).
+			Namespace(pod.Namespace).
+			SubResource("attach")
+		req.VersionedParams(&corev1.PodAttachOptions{
+			Container: containerToAttach.Name,
+			Stdin:     o.Stdin,
+			Stdout:    o.Out != nil,
+			Stderr:    o.ErrOut != nil,
+			TTY:       o.TTY,
+		}, scheme.ParameterCodec)
+
+		return o.Attach.Attach(req.URL(), o.Config, o.In, o.Out, o.ErrOut, o.TTY, sizeQueue)
+	}
 }
