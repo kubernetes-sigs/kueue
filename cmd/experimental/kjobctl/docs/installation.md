@@ -7,7 +7,7 @@ Installing the `kubectl-kjob` plugin, `kjobctl`.
 ### 1. Install Kubernetes CRDs
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{RELEASE_VERSION}}/kubectl-kjob-manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.8.0/kubectl-kjob-manifests.yaml
 ```
 
 ### 2. Download the latest release:
@@ -15,17 +15,17 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 On Linux:
 ```shell
 # For AMD64 / x86_64
-[ $(uname -m) = x86_64 ] && curl -Lo ./kubectl-kjob https://github.com/kubernetes-sigs/kjob/releases/download/v0.7.1/kubectl-kjob-linux-amd64
+[ $(uname -m) = x86_64 ] && curl -Lo ./kubectl-kjob https://github.com/kubernetes-sigs/kjob/releases/download/v0.8.0/kubectl-kjob-linux-amd64
 # For ARM64
-[ $(uname -m) = aarch64 ] && curl -Lo ./kubectl-kjob https://github.com/kubernetes-sigs/kjob/releases/download/v0.7.1/kubectl-kjob-linux-arm64
+[ $(uname -m) = aarch64 ] && curl -Lo ./kubectl-kjob https://github.com/kubernetes-sigs/kjob/releases/download/v0.8.0/kubectl-kjob-linux-arm64
 ```
 
 On Mac:
 ```shell
 # For Intel Macs
-[ $(uname -m) = x86_64 ] && curl -Lo ./kubectl-kjob https://github.com/kubernetes-sigs/kjob/releases/download/v0.7.1/kubectl-kjob-darwin-amd64
+[ $(uname -m) = x86_64 ] && curl -Lo ./kubectl-kjob https://github.com/kubernetes-sigs/kjob/releases/download/v0.8.0/kubectl-kjob-darwin-amd64
 # For M1 / ARM Macs
-[ $(uname -m) = arm64 ] && curl -Lo ./kubectl-kjob https://github.com/kubernetes-sigs/kjob/releases/download/v0.7.1/kubectl-kjob-darwin-arm64
+[ $(uname -m) = arm64 ] && curl -Lo ./kubectl-kjob https://github.com/kubernetes-sigs/kjob/releases/download/v0.8.0/kubectl-kjob-darwin-arm64
 ```
 
 ### 3. Make the kubectl-kjob binary executable.
