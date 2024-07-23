@@ -18,7 +18,7 @@ DEST_CHART_DIR=${DEST_CHART_DIR:-bin/}
 
 EXTRA_TAG=${EXTRA_TAG:-$(git branch --show-current)} 
 GIT_TAG=${GIT_TAG:-$(git describe --tags --dirty --always)}
-IMAGE_REGISTRY=${IMAGE_REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images}
+IMAGE_REGISTRY=${IMAGE_REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/kueue}
 HELM_CHART_REPO=${HELM_CHART_REPO:-${IMAGE_REGISTRY}/charts}
 IMAGE_REPO=${IMAGE_REPO:-${IMAGE_REGISTRY}/kueue}
 
