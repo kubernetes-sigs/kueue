@@ -18,6 +18,7 @@ package kjobctl
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -26,10 +27,12 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/test/framework"
 )
 
 var (
+	userID    string
 	cfg       *rest.Config
 	k8sClient client.Client
 	ctx       context.Context
@@ -38,6 +41,7 @@ var (
 )
 
 func TestKjobctl(t *testing.T) {
+	userID = os.Getenv(constants.SystemEnvVarNameUser)
 	gomega.RegisterFailHandler(ginkgo.Fail)
 	ginkgo.RunSpecs(t, "Kjobctl Suite")
 }

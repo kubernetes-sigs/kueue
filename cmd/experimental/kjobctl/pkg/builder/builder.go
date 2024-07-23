@@ -19,7 +19,10 @@ package builder
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"slices"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
 var (
@@ -66,10 +70,12 @@ type Builder struct {
 	profile       *v1alpha1.ApplicationProfile
 	mode          *v1alpha1.SupportedMode
 	volumeBundles []v1alpha1.VolumeBundle
+
+	buildTime time.Time
 }
 
-func NewBuilder(clientGetter util.ClientGetter) *Builder {
-	return &Builder{clientGetter: clientGetter}
+func NewBuilder(clientGetter util.ClientGetter, buildTime time.Time) *Builder {
+	return &Builder{clientGetter: clientGetter, buildTime: buildTime}
 }
 
 func (b *Builder) WithNamespace(namespace string) *Builder {
@@ -236,6 +242,7 @@ func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
 
 		container.VolumeMounts = append(container.VolumeMounts, bundle.Spec.ContainerVolumeMounts...)
 		container.Env = append(container.Env, bundle.Spec.EnvVars...)
+		container.Env = append(container.Env, b.additionalEnvironmentVariables()...)
 	}
 
 	for i := range templateSpec.InitContainers {
@@ -243,9 +250,26 @@ func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
 
 		initContainer.VolumeMounts = append(initContainer.VolumeMounts, bundle.Spec.ContainerVolumeMounts...)
 		initContainer.Env = append(initContainer.Env, bundle.Spec.EnvVars...)
+		initContainer.Env = append(initContainer.Env, b.additionalEnvironmentVariables()...)
 	}
 
 	return templateSpec
+}
+
+func (b *Builder) additionalEnvironmentVariables() []corev1.EnvVar {
+	userID := os.Getenv(constants.SystemEnvVarNameUser)
+	timestamp := b.buildTime.Format(time.RFC3339)
+	taskName := fmt.Sprintf("%s_%s", b.namespace, b.profileName)
+
+	envVars := []corev1.EnvVar{
+		{Name: constants.EnvVarNameUserID, Value: userID},
+		{Name: constants.EnvVarTaskName, Value: taskName},
+		{Name: constants.EnvVarTaskID, Value: fmt.Sprintf("%s_%s_%s", userID, timestamp, taskName)},
+		{Name: constants.EnvVarNameProfile, Value: fmt.Sprintf("%s_%s", b.namespace, b.profileName)},
+		{Name: constants.EnvVarNameTimestamp, Value: timestamp},
+	}
+
+	return envVars
 }
 
 func mergeBundles(bundles []v1alpha1.VolumeBundle) v1alpha1.VolumeBundle {

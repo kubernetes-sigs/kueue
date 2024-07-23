@@ -19,3 +19,15 @@ package constants
 const (
 	ProfileLabel = "kjobctl.x-k8s.io/profile"
 )
+
+const (
+	SystemEnvVarNameUser = "USER"
+)
+
+const (
+	EnvVarNameUserID    = "USER_ID"
+	EnvVarTaskName      = "TASK_NAME"
+	EnvVarTaskID        = "TASK_ID"
+	EnvVarNameProfile   = "PROFILE"
+	EnvVarNameTimestamp = "TIMESTAMP"
+)

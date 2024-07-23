@@ -18,6 +18,7 @@ package kjobctl
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -26,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -70,11 +72,17 @@ var _ = ginkgo.Describe("Kjobctl Create", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 
 		ginkgo.It("Should create job", func() {
+			testStartTime := time.Now()
+
 			ginkgo.By("Create a Job", func() {
 				streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
 
-				kjobctlCmd := cmd.NewKjobctlCmd(cmd.KjobctlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kjobctlCmd := cmd.NewKjobctlCmd(cmd.KjobctlOptions{
+					ConfigFlags: configFlags,
+					IOStreams:   streams,
+					Clock:       testingclock.NewFakeClock(testStartTime),
+				})
 				kjobctlCmd.SetOut(out)
 				kjobctlCmd.SetErr(outErr)
 				kjobctlCmd.SetArgs([]string{
@@ -96,6 +104,11 @@ var _ = ginkgo.Describe("Kjobctl Create", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.By("Check that Job created", func() {
+				timestamp := testStartTime.Format(time.RFC3339)
+				expectedTaskName := fmt.Sprintf("%s_%s", ns.Name, profile.Name)
+				expectedProfileName := fmt.Sprintf("%s_%s", ns.Name, profile.Name)
+				expectedTaskID := fmt.Sprintf("%s_%s_%s_%s", userID, timestamp, ns.Name, profile.Name)
+
 				jobList := &batchv1.JobList{}
 				gomega.Expect(k8sClient.List(ctx, jobList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				gomega.Expect(jobList.Items).To(gomega.HaveLen(1))
@@ -111,8 +124,22 @@ var _ = ginkgo.Describe("Kjobctl Create", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					corev1.ResourceCPU:    resource.MustParse("100m"),
 					corev1.ResourceMemory: resource.MustParse("4Gi"),
 				}))
+				gomega.Expect(jobList.Items[0].Spec.Template.Spec.Containers[0].Env).To(gomega.Equal([]corev1.EnvVar{
+					{Name: constants.EnvVarNameUserID, Value: userID},
+					{Name: constants.EnvVarTaskName, Value: expectedTaskName},
+					{Name: constants.EnvVarTaskID, Value: expectedTaskID},
+					{Name: constants.EnvVarNameProfile, Value: expectedProfileName},
+					{Name: constants.EnvVarNameTimestamp, Value: timestamp},
+				}))
 				gomega.Expect(jobList.Items[0].Spec.Template.Spec.Containers[1].Command).To(gomega.BeNil())
 				gomega.Expect(jobList.Items[0].Spec.Template.Spec.Containers[1].Resources.Requests).To(gomega.BeNil())
+				gomega.Expect(jobList.Items[0].Spec.Template.Spec.Containers[1].Env).To(gomega.Equal([]corev1.EnvVar{
+					{Name: constants.EnvVarNameUserID, Value: userID},
+					{Name: constants.EnvVarTaskName, Value: expectedTaskName},
+					{Name: constants.EnvVarTaskID, Value: expectedTaskID},
+					{Name: constants.EnvVarNameProfile, Value: expectedProfileName},
+					{Name: constants.EnvVarNameTimestamp, Value: timestamp},
+				}))
 			})
 		})
 

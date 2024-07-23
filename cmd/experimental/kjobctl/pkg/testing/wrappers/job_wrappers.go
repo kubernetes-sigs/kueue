@@ -57,13 +57,13 @@ func (j *JobWrapper) GenerateName(v string) *JobWrapper {
 
 // Completions updates job completions.
 func (j *JobWrapper) Completions(v int32) *JobWrapper {
-	j.Spec.Completions = ptr.To(v)
+	j.Job.Spec.Completions = ptr.To(v)
 	return j
 }
 
 // Parallelism updates job parallelism.
 func (j *JobWrapper) Parallelism(v int32) *JobWrapper {
-	j.Spec.Parallelism = ptr.To(v)
+	j.Job.Spec.Parallelism = ptr.To(v)
 	return j
 }
 
@@ -88,13 +88,26 @@ func (j *JobWrapper) Label(key, value string) *JobWrapper {
 
 // WithContainer add container on the pod template.
 func (j *JobWrapper) WithContainer(container corev1.Container) *JobWrapper {
-	j.Spec.Template.Spec.Containers = append(j.Spec.Template.Spec.Containers, container)
+	j.Job.Spec.Template.Spec.Containers = append(j.Job.Spec.Template.Spec.Containers, container)
+	return j
+}
+
+// WithEnvVar add volume to the pod template.
+func (j *JobWrapper) WithEnvVar(envVar corev1.EnvVar) *JobWrapper {
+	for index := range j.Job.Spec.Template.Spec.InitContainers {
+		j.Job.Spec.Template.Spec.InitContainers[index].Env =
+			append(j.Job.Spec.Template.Spec.InitContainers[index].Env, envVar)
+	}
+	for index := range j.Job.Spec.Template.Spec.Containers {
+		j.Job.Spec.Template.Spec.Containers[index].Env =
+			append(j.Job.Spec.Template.Spec.Containers[index].Env, envVar)
+	}
 	return j
 }
 
 // RestartPolicy updates the restartPolicy on the pod template.
 func (j *JobWrapper) RestartPolicy(restartPolicy corev1.RestartPolicy) *JobWrapper {
-	j.Spec.Template.Spec.RestartPolicy = restartPolicy
+	j.Job.Spec.Template.Spec.RestartPolicy = restartPolicy
 	return j
 }
 
@@ -119,5 +132,11 @@ func (j *JobWrapper) CompletionTime(t time.Time) *JobWrapper {
 // Succeeded sets the .status.succeeded
 func (j *JobWrapper) Succeeded(value int32) *JobWrapper {
 	j.Status.Succeeded = value
+	return j
+}
+
+// Spec set job spec.
+func (j *JobWrapper) Spec(spec batchv1.JobSpec) *JobWrapper {
+	j.Job.Spec = spec
 	return j
 }
