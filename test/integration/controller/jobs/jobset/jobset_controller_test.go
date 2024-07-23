@@ -1137,12 +1137,12 @@ var _ = ginkgo.Describe("JobSet controller preemption tests for workloads", gink
 		})
 
 		ginkgo.By("mark the jobset as active", func() {
-			gomega.Eventually(func() error {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
 				jobSet.Status.ReplicatedJobsStatus = make([]jobsetapi.ReplicatedJobStatus, 1)
 				jobSet.Status.ReplicatedJobsStatus[0].Active = 1
 				jobSet.Status.ReplicatedJobsStatus[0].Name = jobSet.Spec.ReplicatedJobs[0].Name
-				return k8sClient.Status().Update(ctx, jobSet)
+				g.Expect(k8sClient.Status().Update(ctx, jobSet)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
