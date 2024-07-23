@@ -7,6 +7,12 @@ description: >
   Installing the kubectl-kueue plugin, kueuectl.
 ---
 
+## Installing via Krew
+
+```shell
+kubectl krew install kueue
+```
+
 ## Installing From Release Binaries
 
 ### 1. Download the latest release:
