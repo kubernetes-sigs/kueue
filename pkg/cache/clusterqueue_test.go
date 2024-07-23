@@ -275,18 +275,23 @@ func TestFitInCohort(t *testing.T) {
 				utiltesting.
 					MakeClusterQueue("CQ").
 					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "2").
-							Obj(),
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("2").
+							Append().
+							FlavorQuotas,
 					).
 					Cohort("C").
 					Obj(),
 				utiltesting.
-					MakeClusterQueue("CQ-A").
+					MakeClusterQueue("CQ-B").
 					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "2").
-							Obj(),
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("3").
+							LendingLimit("2").
+							Append().
+							FlavorQuotas,
 					).
 					Cohort("C").
 					Obj(),
@@ -305,18 +310,23 @@ func TestFitInCohort(t *testing.T) {
 				utiltesting.
 					MakeClusterQueue("CQ").
 					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "1").
-							Obj(),
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("2").
+							Append().
+							FlavorQuotas,
 					).
 					Cohort("C").
 					Obj(),
 				utiltesting.
-					MakeClusterQueue("CQ-A").
+					MakeClusterQueue("CQ-B").
 					ResourceGroup(
-						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "3").
-							Obj(),
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("3").
+							LendingLimit("2").
+							Append().
+							FlavorQuotas,
 					).
 					Cohort("C").
 					Obj(),
