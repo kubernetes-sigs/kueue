@@ -50,6 +50,7 @@ func MakeTFJob(name, ns string) *TFJobWrapper {
 
 type TFReplicaSpecRequirement struct {
 	ReplicaType   kftraining.ReplicaType
+	Name          string
 	ReplicaCount  int32
 	Annotations   map[string]string
 	RestartPolicy kftraining.RestartPolicy
@@ -59,6 +60,7 @@ func (j *TFJobWrapper) TFReplicaSpecs(replicaSpecs ...TFReplicaSpecRequirement) 
 	j = j.TFReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
 		j.Spec.TFReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "tensorflow"
 
