@@ -121,8 +121,6 @@ func TestFitInCohort(t *testing.T) {
 							Resource(corev1.ResourceCPU, "5").
 							Resource(corev1.ResourceMemory, "5").
 							Obj(),
-					).
-					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("f2").
 							Resource(corev1.ResourceCPU, "5").
 							Resource(corev1.ResourceMemory, "5").
@@ -153,8 +151,6 @@ func TestFitInCohort(t *testing.T) {
 							Resource(corev1.ResourceCPU, "5").
 							Resource(corev1.ResourceMemory, "5").
 							Obj(),
-					).
-					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("f2").
 							Resource(corev1.ResourceCPU, "5").
 							Resource(corev1.ResourceMemory, "5").
@@ -187,8 +183,6 @@ func TestFitInCohort(t *testing.T) {
 							Resource(corev1.ResourceCPU, "5").
 							Resource(corev1.ResourceMemory, "5").
 							Obj(),
-					).
-					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("f2").
 							Resource(corev1.ResourceCPU, "5").
 							Resource(corev1.ResourceMemory, "5").
@@ -221,8 +215,6 @@ func TestFitInCohort(t *testing.T) {
 							Resource(corev1.ResourceCPU, "5").
 							Resource(corev1.ResourceMemory, "5").
 							Obj(),
-					).
-					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("f2").
 							Resource(corev1.ResourceCPU, "5").
 							Resource(corev1.ResourceMemory, "5").
