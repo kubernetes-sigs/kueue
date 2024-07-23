@@ -32,7 +32,7 @@ DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
 # TODO(#52): Add kueue to k8s gcr registry
-STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images
+STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
@@ -226,7 +226,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=us-central1-docker.pkg.dev/k8s-staging-images/kueue:$(RELEASE_BRANCH))
+clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -296,7 +296,7 @@ update-security-insights: yq
 # Developers don't need to build this image, as it will be available as us-central1-docker.pkg.dev/k8s-staging-images/kueue/debug
 .PHONY: debug-image-push
 debug-image-push: ## Build and push the debug image to the registry
-	$(IMAGE_BUILD_CMD) -t $(IMAGE_REPO)/debug:$(GIT_TAG) \
+	$(IMAGE_BUILD_CMD) -t $(IMAGE_REGISTRY)/debug:$(GIT_TAG) \
 		--platform=$(PLATFORMS) \
 		--push ./hack/debugpod
 
@@ -308,8 +308,8 @@ importer-build:
 .PHONY: importer-image-build
 importer-image-build:
 	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REPO)/importer:$(GIT_TAG) \
-		-t $(IMAGE_REPO)/importer:$(RELEASE_BRANCH)-latest \
+		-t $(IMAGE_REGISTRY)/importer:$(GIT_TAG) \
+		-t $(IMAGE_REGISTRY)/importer:$(RELEASE_BRANCH)-latest \
 		--platform=$(PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \

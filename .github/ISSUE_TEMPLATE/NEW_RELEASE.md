@@ -37,7 +37,7 @@ Please do not remove items from the checklist
 - [ ] An OWNER pushes the tag with
       `git push $VERSION`
   - Triggers prow to build and publish a staging container image
-      `us-central1-docker.pkg.dev/k8s-staging-images/kueue:$VERSION`
+      `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`
 - [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io),
       updating `registry.k8s.io/images/k8s-staging-kueue/images.yaml` to
       [promote the container images](https://github.com/kubernetes/k8s.io/tree/main/k8s.gcr.io#image-promoter)
