@@ -49,7 +49,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | `enablePrometheus`                                     | enable Prometheus                                      | `false`                                     |
 | `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
 | `controllerManager.kubeRbacProxy.image`                | controllerManager.kubeRbacProxy's image                | `gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0` |
-| `controllerManager.manager.image`                      | controllerManager.manager's image                      | `gcr.io/k8s-staging-kueue/kueue:main`       |
+| `controllerManager.manager.image`                      | controllerManager.manager's image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main`       |
 | `controllerManager.manager.resources`                  | controllerManager.manager's resources                  | abbr.                                       |
 | `controllerManager.replicas`                           | ControllerManager's replicaCount                       | `1`                                         |
 | `controllerManager.imagePullSecrets`                   | ControllerManager's imagePullSecrets                   | `[]`                                        |
