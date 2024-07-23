@@ -98,15 +98,13 @@ func TestFitInCohort(t *testing.T) {
 	cases := map[string]struct {
 		request            resources.FlavorResourceQuantitiesFlat
 		wantFit            bool
-		flavorNames        []string
 		usage              resources.FlavorResourceQuantitiesFlat
 		clusterQueue       []*kueue.ClusterQueue
 		enableLendingLimit bool
 	}{
 		"full cohort, empty request": {
-			request:     resources.FlavorResourceQuantitiesFlat{},
-			wantFit:     true,
-			flavorNames: []string{"f1", "f2"},
+			request: resources.FlavorResourceQuantitiesFlat{},
+			wantFit: true,
 			usage: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
@@ -135,8 +133,7 @@ func TestFitInCohort(t *testing.T) {
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
 			},
-			wantFit:     true,
-			flavorNames: []string{"f1", "f2"},
+			wantFit: true,
 			usage: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
@@ -167,8 +164,7 @@ func TestFitInCohort(t *testing.T) {
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
 			},
-			wantFit:     false,
-			flavorNames: []string{"f1", "f2"},
+			wantFit: false,
 			usage: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
@@ -199,8 +195,7 @@ func TestFitInCohort(t *testing.T) {
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    2_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
 			},
-			wantFit:     false,
-			flavorNames: []string{"f1", "f2"},
+			wantFit: false,
 			usage: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    4_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 4,
@@ -226,11 +221,10 @@ func TestFitInCohort(t *testing.T) {
 		},
 		"missing flavor": {
 			request: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1_000,
-				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
+				{Flavor: "non-existent-flavor", Resource: corev1.ResourceCPU}:    1_000,
+				{Flavor: "non-existent-flavor", Resource: corev1.ResourceMemory}: 1,
 			},
-			wantFit:     false,
-			flavorNames: []string{"f1"},
+			wantFit: false,
 			usage: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
@@ -253,8 +247,7 @@ func TestFitInCohort(t *testing.T) {
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
 			},
-			wantFit:     false,
-			flavorNames: []string{"f1"},
+			wantFit: false,
 			usage: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
@@ -274,8 +267,7 @@ func TestFitInCohort(t *testing.T) {
 			request: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
-			wantFit:     false,
-			flavorNames: []string{"f1"},
+			wantFit: false,
 			usage: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 2_000,
 			},
@@ -305,8 +297,7 @@ func TestFitInCohort(t *testing.T) {
 			request: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
-			wantFit:     true,
-			flavorNames: []string{"f1"},
+			wantFit: true,
 			usage: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 1_000,
 			},
@@ -339,9 +330,8 @@ func TestFitInCohort(t *testing.T) {
 			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
 			cache := New(utiltesting.NewFakeClient())
 
-			for _, flavorName := range tc.flavorNames {
-				cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor(flavorName).Obj())
-			}
+			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f1").Obj())
+			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f2").Obj())
 
 			for _, cq := range tc.clusterQueue {
 				_ = cache.AddClusterQueue(context.Background(), cq)
