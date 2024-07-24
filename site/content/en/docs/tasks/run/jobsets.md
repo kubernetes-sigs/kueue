@@ -17,6 +17,11 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 2. See [JobSet Installation](https://jobset.sigs.k8s.io/docs/installation/) for installation and configuration details of JobSet Operator.
 
+{{% alert title="Note" color="note" %}}
+In order to use JobSet you need to restart Kueue after the installation.
+You can do it by running: `kubectl delete pods -lcontrol-plane=controller-manager -nkueue-system`.
+{{% /alert %}}
+
 ## JobSet definition
 
 When running [JobSets](https://jobset.sigs.k8s.io/docs/concepts/) on
