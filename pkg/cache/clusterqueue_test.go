@@ -136,7 +136,7 @@ func TestFitInCohort(t *testing.T) {
 			wantFit: true,
 			usage: resources.FlavorResourceQuantitiesFlat{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
-				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
+				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    4_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 4,
 			},
@@ -256,7 +256,7 @@ func TestFitInCohort(t *testing.T) {
 					MakeClusterQueue("CQ").
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("f1").
-							Resource(corev1.ResourceCPU, "4").
+							Resource(corev1.ResourceCPU, "5").
 							Obj(),
 					).
 					Cohort("C").
