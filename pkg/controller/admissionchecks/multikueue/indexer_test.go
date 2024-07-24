@@ -22,7 +22,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,10 +29,10 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -47,8 +46,13 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(kueuealpha.AddToScheme(scheme))
-	utilruntime.Must(jobset.AddToScheme(scheme))
-	utilruntime.Must(kftraining.AddToScheme(scheme))
+
+	utilruntime.Must(jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
+		if cb.MultiKueueAdapter != nil && cb.AddToScheme != nil {
+			return cb.AddToScheme(scheme)
+		}
+		return nil
+	}))
 
 	ctx := context.Background()
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Namespace{

@@ -17,6 +17,7 @@ limitations under the License.
 package testing
 
 import (
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,8 +25,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-
-	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 )
 
 // TFJobWrapper wraps a Job.

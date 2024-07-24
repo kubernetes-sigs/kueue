@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -48,8 +49,6 @@ import (
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
-
-	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 )
 
 var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -773,7 +772,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.FIt("Should run a TFJob on worker if admitted", func() {
+	ginkgo.It("Should run a TFJob on worker if admitted", func() {
 		tfJob := testingtfjob.MakeTFJob("tfjob1", managerNs.Name).
 			Queue(managerLq.Name).
 			TFReplicaSpecs(
@@ -863,13 +862,36 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdTfJob := kftraining.TFJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(tfJob), &createdTfJob)).To(gomega.Succeed())
-				// createdTfJob.Status.Restarts = 10
+				createdTfJob.Status.ReplicaStatuses = map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
+					kftraining.TFJobReplicaTypeChief: {
+						Active: 1,
+					},
+					kftraining.TFJobReplicaTypePS: {
+						Active: 1,
+					},
+					kftraining.TFJobReplicaTypeWorker: {
+						Active:    2,
+						Succeeded: 1,
+					},
+				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTfJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdTfJob := kftraining.TFJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(tfJob), &createdTfJob)).To(gomega.Succeed())
-				// g.Expect(createdTfJob.Status.Restarts).To(gomega.Equal(int32(10)))
+				g.Expect(createdTfJob.Status.ReplicaStatuses).To(gomega.Equal(
+					map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
+						kftraining.TFJobReplicaTypeChief: {
+							Active: 1,
+						},
+						kftraining.TFJobReplicaTypePS: {
+							Active: 1,
+						},
+						kftraining.TFJobReplicaTypeWorker: {
+							Active:    2,
+							Succeeded: 1,
+						},
+					}))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -878,7 +900,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				createdTfJob := kftraining.TFJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(tfJob), &createdTfJob)).To(gomega.Succeed())
 				createdTfJob.Status.Conditions = append(createdTfJob.Status.Conditions, kftraining.JobCondition{
-					Type:    kueue.WorkloadFinished,
+					Type:    kftraining.JobSucceeded,
 					Status:  corev1.ConditionTrue,
 					Reason:  "ByTest",
 					Message: "TFJob finished successfully",
@@ -892,7 +914,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
-					Reason:  "ByTest",
+					Reason:  string(kftraining.JobSucceeded),
 					Message: "TFJob finished successfully",
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
