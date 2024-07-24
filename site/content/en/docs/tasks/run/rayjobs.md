@@ -18,6 +18,11 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 2. See [KubeRay Installation](https://ray-project.github.io/kuberay/deploy/installation/) for installation and configuration details of KubeRay.
 
+{{% alert title="Note" color="note" %}}
+In order to use RayJob you need to restart Kueue after the installation.
+You can do it by running: `kubectl delete pods -lcontrol-plane=controller-manager -nkueue-system`.
+{{% /alert %}}
+
 ## RayJob definition
 
 When running [RayJobs](https://ray-project.github.io/kuberay/guidance/rayjob/) on
