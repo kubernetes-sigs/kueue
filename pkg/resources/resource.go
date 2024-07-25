@@ -48,12 +48,12 @@ func (f FlavorResourceQuantities) For(fr FlavorResource) int64 {
 
 // Add adds the Quantity v for the FlavorResource fr, allocating
 // as needed.
-func (f *FlavorResourceQuantities) Add(fr FlavorResource, v int64) {
-	if *f == nil {
-		*f = make(FlavorResourceQuantities)
+func (f FlavorResourceQuantities) Add(fr FlavorResource, v int64) {
+	if f == nil {
+		f = make(FlavorResourceQuantities)
 	}
-	if (*f)[fr.Flavor] == nil {
-		(*f)[fr.Flavor] = make(Requests)
+	if f[fr.Flavor] == nil {
+		f[fr.Flavor] = make(Requests)
 	}
-	(*f)[fr.Flavor][fr.Resource] += v
+	f[fr.Flavor][fr.Resource] += v
 }
