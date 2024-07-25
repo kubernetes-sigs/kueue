@@ -56,8 +56,8 @@ spec:
           timeoutSeconds: {{ .Values.controllerManager.readinessProbe.timeoutSeconds }}
           failureThreshold: {{ .Values.controllerManager.readinessProbe.failureThreshold }}
           successThreshold: {{ .Values.controllerManager.readinessProbe.successThreshold }}
-        resources: {{- toYaml .Values.controllerManager.manager.resources | nindent 10
-          }}
+        resources:
+          {{- toYaml .Values.controllerManager.manager.resources | nindent 10 }}
         securityContext:
           {{- toYaml .Values.controllerManager.manager.containerSecurityContext | nindent 10 }}
         volumeMounts:
