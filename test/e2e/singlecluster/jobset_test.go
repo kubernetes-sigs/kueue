@@ -23,6 +23,8 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/jobset/pkg/constants"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -111,6 +113,109 @@ var _ = ginkgo.Describe("JobSet", func() {
 						Message: constants.AllJobsCompletedMessage,
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Using resource flavors with node selectors", func() {
+		var (
+			onDemandRF   *kueue.ResourceFlavor
+			spotRF       *kueue.ResourceFlavor
+			localQueue   *kueue.LocalQueue
+			clusterQueue *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			onDemandRF = testing.MakeResourceFlavor("on-demand").
+				NodeLabel("instance-type", "on-demand").Obj()
+			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
+			spotRF = testing.MakeResourceFlavor("spot").
+				NodeLabel("instance-type", "spot").Obj()
+			gomega.Expect(k8sClient.Create(ctx, spotRF)).Should(gomega.Succeed())
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "1Gi").
+						Obj(),
+					*testing.MakeFlavorQuotas("spot").
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllJobsetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			// Force remove workloads to be sure that cluster queue can be removed.
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotRF, true)
+		})
+
+		ginkgo.It("Should restore nodeSelector for JobSet when suspended", func() {
+			jobSet := testingjobset.MakeJobSet("job-set-suspend", ns.Name).
+				Queue("main").
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "replicated-job-1",
+						Replicas:    1,
+						Parallelism: 1,
+						Completions: 1,
+						Image:       "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
+						Args:        []string{"60s"},
+					},
+				).
+				Request("replicated-job-1", "cpu", "500m").
+				Request("replicated-job-1", "memory", "200M").
+				Obj()
+
+			ginkgo.By("Creating the jobSet", func() {
+				gomega.Expect(k8sClient.Create(ctx, jobSet)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the jobSet to be unsuspended", func() {
+				jobKey := client.ObjectKeyFromObject(jobSet)
+				gomega.Eventually(func() *bool {
+					gomega.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
+					return jobSet.Spec.Suspend
+				}, util.Timeout, util.Interval).Should(gomega.BeEquivalentTo(ptr.To(false)))
+			})
+
+			ginkgo.By("Verify the jobSet has nodeSelector set", func() {
+				gomega.Expect(jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector).To(gomega.Equal(
+					map[string]string{
+						"instance-type": "on-demand",
+					},
+				))
+			})
+
+			ginkgo.By("Stopping the ClusterQueue to make the JobSet be stopped and suspended")
+			gomega.Eventually(func() error {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
+				clusterQueue.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+				return k8sClient.Update(ctx, clusterQueue)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Waiting for the jobSet to be suspended", func() {
+				jobKey := client.ObjectKeyFromObject(jobSet)
+				gomega.Eventually(func() *bool {
+					gomega.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
+					return jobSet.Spec.Suspend
+				}, util.Timeout, util.Interval).Should(gomega.BeEquivalentTo(ptr.To(true)))
+			})
+
+			ginkgo.By("Verify the JobSet has the nodeSelector restored", func() {
+				gomega.Expect(jobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector).To(gomega.Equal(
+					map[string]string{},
+				))
 			})
 		})
 	})
