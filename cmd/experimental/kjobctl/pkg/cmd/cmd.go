@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/crds"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/create"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/list"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
@@ -76,6 +77,7 @@ func NewKjobctlCmd(o KjobctlOptions) *cobra.Command {
 
 	cmd.AddCommand(create.NewCreateCmd(clientGetter, o.IOStreams, o.Clock))
 	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
+	cmd.AddCommand(crds.NewCmd())
 
 	return cmd
 }
