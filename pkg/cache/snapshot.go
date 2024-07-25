@@ -20,7 +20,6 @@ import (
 	"maps"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
@@ -168,34 +167,22 @@ func (c *ClusterQueueSnapshot) accumulateResources(cohort *CohortSnapshot) {
 	}
 	for _, rg := range c.ResourceGroups {
 		for _, fName := range rg.Flavors {
-			res := cohort.RequestableResources[fName]
-			if res == nil {
-				res = make(map[corev1.ResourceName]int64, len(rg.CoveredResources))
-				cohort.RequestableResources[fName] = res
-			}
 			for rName := range rg.CoveredResources {
-				rQuota := c.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
+				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
+				rQuota := c.QuotaFor(fr)
 				// When feature LendingLimit enabled, cohort.RequestableResources indicates
 				// the sum of cq.NominalQuota and other cqs' LendingLimit (if not nil).
 				// If LendingLimit is not nil, we should count the lendingLimit as the requestable
 				// resource because we can't borrow more quota than lendingLimit.
 				if features.Enabled(features.LendingLimit) && rQuota.LendingLimit != nil {
-					res[rName] += *rQuota.LendingLimit
+					cohort.RequestableResources.Add(fr, *rQuota.LendingLimit)
 				} else {
-					res[rName] += rQuota.Nominal
+					cohort.RequestableResources.Add(fr, rQuota.Nominal)
 				}
 			}
 		}
 	}
-	if cohort.Usage == nil {
-		cohort.Usage = make(resources.FlavorResourceQuantities, len(c.Usage))
-	}
 	for fName, resUsages := range c.Usage {
-		used := cohort.Usage[fName]
-		if used == nil {
-			used = make(map[corev1.ResourceName]int64, len(resUsages))
-			cohort.Usage[fName] = used
-		}
 		for res, val := range resUsages {
 			// Similar to cohort.RequestableResources, we accumulate the usage above the guaranteed resources,
 			// here we should remove the guaranteed quota as well for that part can not be borrowed.
@@ -204,7 +191,7 @@ func (c *ClusterQueueSnapshot) accumulateResources(cohort *CohortSnapshot) {
 			if val < 0 {
 				val = 0
 			}
-			used[res] += val
+			cohort.Usage.Add(resources.FlavorResource{Flavor: fName, Resource: res}, val)
 		}
 	}
 }
