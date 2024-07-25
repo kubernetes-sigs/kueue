@@ -200,15 +200,10 @@ func (c *clusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 		for _, rg := range c.ResourceGroups {
 			for _, fName := range rg.Flavors {
 				for rName := range rg.CoveredResources {
-					rQuota := c.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
+					fr := resources.FlavorResource{Flavor: fName, Resource: rName}
+					rQuota := c.QuotaFor(fr)
 					if rQuota.LendingLimit != nil {
-						if guaranteedQuota == nil {
-							guaranteedQuota = make(resources.FlavorResourceQuantities)
-						}
-						if guaranteedQuota[fName] == nil {
-							guaranteedQuota[fName] = make(map[corev1.ResourceName]int64)
-						}
-						guaranteedQuota[fName][rName] = rQuota.Nominal - *rQuota.LendingLimit
+						guaranteedQuota.Add(fr, rQuota.Nominal-*rQuota.LendingLimit)
 					}
 				}
 			}
