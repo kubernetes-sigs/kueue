@@ -276,6 +276,87 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
 		})
 
+		ginkgo.It("Should finish the preemption when the jobset becomes inactive", func() {
+			jobSet := testingjobset.MakeJobSet(jobSetName, ns.Name).ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			).Queue(localQueue.Name).
+				Suspend(false).
+				Obj()
+			createdWorkload := &kueue.Workload{}
+			var wlLookupKey types.NamespacedName
+
+			ginkgo.By("create the jobset and admit the workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, jobSet)).To(gomega.Succeed())
+				wlLookupKey = types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) { g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed()) }, util.Timeout, util.Interval).Should(gomega.Succeed())
+				admission := testing.MakeAdmission(localQueue.Name).PodSets(
+					kueue.PodSetAssignment{
+						Name: createdWorkload.Spec.PodSets[0].Name,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+						},
+					},
+				).Obj()
+				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).To(gomega.Succeed())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			})
+
+			ginkgo.By("wait for the jobset to be unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobSetName, Namespace: ns.Name}, jobSet)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(jobSet.Spec.Suspend, false)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("mark the jobset as active", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
+					jobSet.Status.ReplicatedJobsStatus = make([]jobsetapi.ReplicatedJobStatus, 1)
+					jobSet.Status.ReplicatedJobsStatus[0].Active = 1
+					jobSet.Status.ReplicatedJobsStatus[0].Name = jobSet.Spec.ReplicatedJobs[0].Name
+					g.Expect(k8sClient.Status().Update(ctx, jobSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("preempt the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(workload.UpdateStatus(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict")).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("wait for the jobset to be suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
+					g.Expect(*jobSet.Spec.Suspend).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("the workload should stay admitted", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeTrue())
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("mark the jobset as inactive", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
+					jobSet.Status.ReplicatedJobsStatus[0].Active = 0
+					g.Expect(k8sClient.Status().Update(ctx, jobSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("the workload should get unadmitted", func() {
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, createdWorkload)
+			})
+		})
+
 		ginkgo.It("Should allow to create jobset with one replicated job replica count 0", func() {
 			mixJobSet := testingjobset.MakeJobSet("mix-jobset", ns.Name).ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
