@@ -50,15 +50,14 @@ import (
 )
 
 type podTestCase struct {
-	name             string
-	job              []runtime.Object
-	pods             []corev1.Pod
-	apiResourceLists []*metav1.APIResourceList
-	mapperGVKs       []schema.GroupVersionKind
-	args             []string
-	wantOut          string
-	wantOutErr       string
-	wantErr          error
+	name       string
+	job        runtime.Object
+	pods       []corev1.Pod
+	mapperGVKs []schema.GroupVersionKind
+	args       []string
+	wantOut    string
+	wantOutErr string
+	wantErr    error
 }
 
 func TestPodCmd(t *testing.T) {
@@ -67,17 +66,15 @@ func TestPodCmd(t *testing.T) {
 	testCases := []podTestCase{
 		{
 			name: "list pods of batch/job with wide output",
-			job: []runtime.Object{
-				&batchv1.Job{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "Job",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
+			job: &batchv1.Job{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Job",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						batchv1.JobNameLabel: "test-job",
 					},
 				},
 			},
@@ -115,18 +112,6 @@ func TestPodCmd(t *testing.T) {
 					Group:   "",
 					Version: "v1",
 					Kind:    "Pod",
-				},
-			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "batch/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "job",
-							Kind:         "Job",
-							Group:        "batch",
-						},
-					},
 				},
 			},
 			args: []string{"--for", "job/test-job", "-o", "wide"},
@@ -136,17 +121,15 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 `,
 		}, {
 			name: "list pods for valid batch/job type",
-			job: []runtime.Object{
-				&batchv1.Job{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "Job",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
+			job: &batchv1.Job{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Job",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						batchv1.JobNameLabel: "test-job",
 					},
 				},
 			},
@@ -186,18 +169,6 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "batch/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "job",
-							Kind:         "Job",
-							Group:        "batch",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "job/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
@@ -205,17 +176,15 @@ valid-pod-2   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "no valid pods for batch/job type in current namespace",
-			job: []runtime.Object{
-				&batchv1.Job{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "Job",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
+			job: &batchv1.Job{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Job",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						batchv1.JobNameLabel: "test-job",
 					},
 				},
 			},
@@ -229,18 +198,6 @@ valid-pod-2   1/1     Running   0          <unknown>
 					Group:   "",
 					Version: "v1",
 					Kind:    "Pod",
-				},
-			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "batch/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "job",
-							Kind:         "Job",
-							Group:        "batch",
-						},
-					},
 				},
 			},
 			args:    []string{"--for", "job/test-job"},
@@ -249,17 +206,15 @@ valid-pod-2   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "no valid pods for batch/job type in all namespaces",
-			job: []runtime.Object{
-				&batchv1.Job{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "Job",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
+			job: &batchv1.Job{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Job",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						batchv1.JobNameLabel: "test-job",
 					},
 				},
 			},
@@ -275,35 +230,21 @@ valid-pod-2   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "batch/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "job",
-							Kind:         "Job",
-							Group:        "batch",
-						},
-					},
-				},
-			},
 			args:    []string{"--for", "job/test-job", "-A"},
 			wantOut: "",
 			wantOutErr: `No resources found.
 `,
 		}, {
 			name: "valid pods for batch/job type in all namespaces",
-			job: []runtime.Object{
-				&batchv1.Job{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "Job",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "sample-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "sample-job",
-						},
+			job: &batchv1.Job{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Job",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "sample-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						batchv1.JobNameLabel: "sample-job",
 					},
 				},
 			},
@@ -343,18 +284,6 @@ valid-pod-2   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "batch/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "job",
-							Kind:         "Job",
-							Group:        "batch",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "job/sample-job", "-A"},
 			wantOut: `NAMESPACE    NAME          READY   STATUS    RESTARTS   AGE
 dev-team-a   valid-pod-1   1/1     Running   0          <unknown>
@@ -362,18 +291,16 @@ dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/PyTorchJob type",
-			job: []runtime.Object{
-				&kftraining.PyTorchJob{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "PyTorchJob",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "pytorchjob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
+			job: &kftraining.PyTorchJob{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "PyTorchJob",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						kftraining.OperatorNameLabel: "pytorchjob-controller",
+						kftraining.JobNameLabel:      "test-job",
 					},
 				},
 			},
@@ -403,36 +330,22 @@ dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "kubeflow.org/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "pytorchjob",
-							Kind:         "PyTorchJob",
-							Group:        "kubeflow.org",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "pytorchjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/MXjob type",
-			job: []runtime.Object{
-				&kftraining.MXJob{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "MXJob",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "mxjob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
+			job: &kftraining.MXJob{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "MXJob",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						kftraining.OperatorNameLabel: "mxjob-controller",
+						kftraining.JobNameLabel:      "test-job",
 					},
 				},
 			},
@@ -462,36 +375,22 @@ valid-pod-1   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "kubeflow.org/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "mxjob",
-							Kind:         "MXJob",
-							Group:        "kubeflow.org",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "mxjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/paddlejob type",
-			job: []runtime.Object{
-				&kftraining.PaddleJob{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "PaddleJob",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "paddlejob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
+			job: &kftraining.PaddleJob{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "PaddleJob",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						kftraining.OperatorNameLabel: "paddlejob-controller",
+						kftraining.JobNameLabel:      "test-job",
 					},
 				},
 			},
@@ -521,36 +420,22 @@ valid-pod-1   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "kubeflow.org/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "paddlejob",
-							Kind:         "PaddleJob",
-							Group:        "kubeflow.org",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "paddlejob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/tfjob type",
-			job: []runtime.Object{
-				&kftraining.TFJob{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "TFJob",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "tfjob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
+			job: &kftraining.TFJob{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "TFJob",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						kftraining.OperatorNameLabel: "tfjob-controller",
+						kftraining.JobNameLabel:      "test-job",
 					},
 				},
 			},
@@ -580,36 +465,22 @@ valid-pod-1   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "kubeflow.org/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "tfjob",
-							Kind:         "TFJob",
-							Group:        "kubeflow.org",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "tfjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/mpijob type",
-			job: []runtime.Object{
-				&kftraining.MPIJob{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "MPIJob",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "mpijob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
+			job: &kftraining.MPIJob{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "MPIJob",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						kftraining.OperatorNameLabel: "mpijob-controller",
+						kftraining.JobNameLabel:      "test-job",
 					},
 				},
 			},
@@ -639,36 +510,22 @@ valid-pod-1   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "kubeflow.org/v2beta1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "mpijob",
-							Kind:         "MPIJob",
-							Group:        "kubeflow.org",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "mpijob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for kubeflow.org/xgboostjob type",
-			job: []runtime.Object{
-				&kftraining.XGBoostJob{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "XGBoostJob",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							kftraining.OperatorNameLabel: "xgboostjob-controller",
-							kftraining.JobNameLabel:      "test-job",
-						},
+			job: &kftraining.XGBoostJob{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "XGBoostJob",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						kftraining.OperatorNameLabel: "xgboostjob-controller",
+						kftraining.JobNameLabel:      "test-job",
 					},
 				},
 			},
@@ -698,35 +555,21 @@ valid-pod-1   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "kubeflow.org/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "xgboostjob",
-							Kind:         "XGBoostJob",
-							Group:        "kubeflow.org",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "xgboostjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for ray.io/rayjob type",
-			job: []runtime.Object{
-				&rayv1.RayJob{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "RayJob",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							batchv1.JobNameLabel: "test-job",
-						},
+			job: &rayv1.RayJob{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "RayJob",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						batchv1.JobNameLabel: "test-job",
 					},
 				},
 			},
@@ -755,35 +598,21 @@ valid-pod-1   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "ray.io/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "rayjob",
-							Kind:         "RayJob",
-							Group:        "ray.io",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "rayjob/test-job"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for ray.io/raycluster type",
-			job: []runtime.Object{
-				&rayv1.RayCluster{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "RayCluster",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-cluster",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							rayutils.RayClusterLabelKey: "test-cluster",
-						},
+			job: &rayv1.RayCluster{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "RayCluster",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						rayutils.RayClusterLabelKey: "test-cluster",
 					},
 				},
 			},
@@ -812,35 +641,21 @@ valid-pod-1   1/1     Running   0          <unknown>
 					Kind:    "Pod",
 				},
 			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "ray.io/v1",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "raycluster",
-							Kind:         "RayCluster",
-							Group:        "ray.io",
-						},
-					},
-				},
-			},
 			args: []string{"--for", "raycluster/test-cluster"},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods for jobset.x-k8s.io/jobset type",
-			job: []runtime.Object{
-				&jobsetapi.JobSet{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "JobSet",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							jobsetapi.JobSetNameKey: "test-job",
-						},
+			job: &jobsetapi.JobSet{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "JobSet",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						jobsetapi.JobSetNameKey: "test-job",
 					},
 				},
 			},
@@ -867,18 +682,6 @@ valid-pod-1   1/1     Running   0          <unknown>
 					Group:   "",
 					Version: "v1",
 					Kind:    "Pod",
-				},
-			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "jobset.x-k8s.io/v1alpha2",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "jobset",
-							Kind:         "JobSet",
-							Group:        "jobset.x-k8s.io",
-						},
-					},
 				},
 			},
 			args: []string{"--for", "jobset/test-job"},
@@ -887,17 +690,15 @@ valid-pod-1   1/1     Running   0          <unknown>
 `,
 		}, {
 			name: "list pods with api-group filter",
-			job: []runtime.Object{
-				&jobsetapi.JobSet{
-					TypeMeta: metav1.TypeMeta{
-						Kind: "JobSet",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-job",
-						Namespace: metav1.NamespaceDefault,
-						Labels: map[string]string{
-							jobsetapi.JobSetNameKey: "test-job",
-						},
+			job: &jobsetapi.JobSet{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "JobSet",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						jobsetapi.JobSetNameKey: "test-job",
 					},
 				},
 			},
@@ -924,18 +725,6 @@ valid-pod-1   1/1     Running   0          <unknown>
 					Group:   "",
 					Version: "v1",
 					Kind:    "Pod",
-				},
-			},
-			apiResourceLists: []*metav1.APIResourceList{
-				{
-					GroupVersion: "jobset.x-k8s.io/v1alpha2",
-					APIResources: []metav1.APIResource{
-						{
-							SingularName: "jobset",
-							Kind:         "JobSet",
-							Group:        "jobset.x-k8s.io",
-						},
-					},
 				},
 			},
 			args: []string{"--for", "jobset.jobset.x-k8s.io/test-job"},
@@ -1033,7 +822,7 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, 
 		reqPathPrefix = ""
 	}
 
-	reqJobKind := strings.ToLower(tc.job[0].GetObjectKind().GroupVersionKind().Kind) + "s"
+	reqJobKind := strings.ToLower(tc.job.GetObjectKind().GroupVersionKind().Kind) + "s"
 
 	var err error
 	mockRestClient := &restfake.RESTClient{
@@ -1044,7 +833,7 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, 
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     getDefaultHeader(),
-					Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.job[0])))),
+					Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.job)))),
 				}, nil
 			case fmt.Sprintf("%s/pods", reqPathPrefix):
 				return &http.Response{
