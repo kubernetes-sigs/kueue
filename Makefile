@@ -281,6 +281,15 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
 	@$(call clean-manifests)
 
+.PHONY: update-security-insights
+update-security-insights: yq
+	$(YQ) e '.header.last-updated = "$(shell git log -1 --date=short --format=%cd $(RELEASE_VERSION))"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.header.last-reviewed = "$(shell git log -1 --date=short --format=%cd $(RELEASE_VERSION))"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.header.commit-hash = "$(shell git rev-list -1 $(RELEASE_VERSION))"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.header.project-release = "$(shell echo "$(RELEASE_VERSION)" | $(SED) 's/v//g')"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.distribution-points[0] = "https://github.com/kubernetes-sigs/kueue/releases/download/$(RELEASE_VERSION)/manifests.yaml"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.dependencies.sbom[0].sbom-file = "https://github.com/kubernetes-sigs/kueue/releases/download/$(RELEASE_VERSION)/kueue-$(RELEASE_VERSION).spdx.json"' -i SECURITY-INSIGHTS.yaml
+
 ##@ Debug
 
 # Build an image that can be used with kubectl debug
