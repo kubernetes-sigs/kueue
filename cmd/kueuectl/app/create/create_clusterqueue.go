@@ -308,7 +308,7 @@ func (o *ClusterQueueOptions) parseResourceGroups() error {
 func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]v1beta1.ResourceGroup, error) {
 	var resourceGroups []v1beta1.ResourceGroup
 
-	regex := regexp.MustCompile(`^(\w+):((\w+[\.-]?)*\/?\w+=\w+;)*(\w+[\.-]?)*\/?\w+=\w+;?$`)
+	regex := regexp.MustCompile(`^([a-z0-9][a-z0-9\-\.]{0,252}):((\w+[\.-]?)*\/?\w+=\w+;)*(\w+[\.-]?)*\/?\w+=\w+;?$`)
 	for _, r := range resources {
 		if !regex.MatchString(r) {
 			return resourceGroups, errInvalidResourcesSpec
