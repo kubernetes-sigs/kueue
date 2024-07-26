@@ -102,14 +102,15 @@ func TestParseResourceQuotas(t *testing.T) {
 		wantResourceGroups []v1beta1.ResourceGroup
 	}{
 		"should create one resource group with one flavor and nominalQuota set": {
-			quotaArgs: []string{"alpha:cpu=1;memory=1"},
+			quotaArgs: []string{"alpha-2.0:cpu=1;memory=1;example-1.org/memory=5Gi"},
 			wantResourceGroups: []v1beta1.ResourceGroup{
 				{
-					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					CoveredResources: []corev1.ResourceName{"cpu", "memory", "example-1.org/memory"},
 					Flavors: []v1beta1.FlavorQuotas{
-						*utiltesting.MakeFlavorQuotas("alpha").
+						*utiltesting.MakeFlavorQuotas("alpha-2.0").
 							Resource("cpu", "1").
 							Resource("memory", "1").
+							Resource("example-1.org/memory", "5Gi").
 							Obj(),
 					},
 				},
