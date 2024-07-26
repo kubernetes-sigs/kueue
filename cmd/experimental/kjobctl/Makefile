@@ -85,10 +85,14 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: test
-test: verify gotestsum gomod-download vet envtest ginkgo ## Run tests.
-	# Unit tests
+test: verify vet test-unit test-integration ## Run all tests.
+
+.PHONY: test-unit
+test-unit: gomod-download gotestsum ## Run unit tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
-	# Integration tests
+
+.PHONY: test-integration
+test-integration: gomod-download envtest ginkgo ## Run integration tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
