@@ -129,22 +129,6 @@ func (w *RayJobTemplateWrapper) WithVolumeMount(volumeMount corev1.VolumeMount) 
 	return w
 }
 
-// Command set command to primary pod templates.
-func (w *RayJobTemplateWrapper) Command(command []string) *RayJobTemplateWrapper {
-	if w.Template.Spec.RayClusterSpec == nil {
-		return w
-	}
-
-	for i := range w.Template.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerGroupSpec := &w.Template.Spec.RayClusterSpec.WorkerGroupSpecs[i]
-		if len(workerGroupSpec.Template.Spec.Containers) > 0 {
-			workerGroupSpec.Template.Spec.Containers[0].Command = command
-		}
-	}
-
-	return w
-}
-
 // Replicas set Replicas on WorkerGroupSpec.
 func (w *RayJobTemplateWrapper) Replicas(groupName string, replicas int32) *RayJobTemplateWrapper {
 	if w.Template.Spec.RayClusterSpec == nil {

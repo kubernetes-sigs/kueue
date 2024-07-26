@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Create a rayjob
 
 ```
-kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--localqueue LOCAL_QUEUE_NAME] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
+kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--request RESOURCE_NAME=QUANTITY] [--localqueue LOCAL_QUEUE_NAME] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
 ```
 
 
@@ -22,7 +22,6 @@ kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--requ
   # Create job 
   kjobctl create rayjob \ 
 	--profile my-application-profile  \
-	--cmd &#34;sleep 5&#34; \
 	--request cpu=500m,ram=4Gi \
 	--replicas small-group=1 \
 	--min-replicas small-group=1 \ 
@@ -47,15 +46,6 @@ kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--requ
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>If true, ignore any errors in templates when a field or map key is missing in the template. Only applies to golang and jsonpath output formats.</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--cmd string</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Command which is associated with the resource.</p>
         </td>
     </tr>
     <tr>

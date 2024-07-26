@@ -33,7 +33,6 @@ Create a task
   # Create job 
   kjobctl create rayjob \ 
 	--profile my-application-profile  \
-	--cmd &#34;sleep 5&#34; \
 	--request cpu=500m,ram=4Gi \
 	--replicas small-group=1 \
 	--min-replicas small-group=1 \ 
