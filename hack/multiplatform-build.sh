@@ -45,7 +45,7 @@ for PLATFORM in ${PLATFORMS} ; do
   FULL_NAME=${BUILD_NAME}-${GOOS}-${GOARCH}
   ${GO_BUILD_ENV} ${GO_CMD} build -ldflags="${LD_FLAGS}" -o ${BUILD_PATH}/${FULL_NAME}${EXTENSION} $1
 
-  mkdir ${BUILD_PATH}/tmp
+  mkdir -p ${BUILD_PATH}/tmp
   cp ${ROOT_PATH}/LICENSE ${BUILD_PATH}/tmp
   cp ${BUILD_PATH}/${FULL_NAME}${EXTENSION} ${BUILD_PATH}/tmp/${BUILD_NAME}${EXTENSION}
   (cd ${BUILD_PATH}/tmp && tar -czf ${BUILD_PATH}/${FULL_NAME}.tar.gz *)
