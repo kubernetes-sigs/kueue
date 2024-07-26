@@ -84,7 +84,7 @@ fmt-verify:
 $(EMBEDDED_MANIFEST): kustomize $(MANIFEST_SOURCES) 
 	mkdir -p  $(EMBEDDED_MANIFEST_DIR)
 	# This is embedded in the kjobctl binary. 
-	$(KUSTOMIZE) build $(MANIFEST_DIR) | gzip > $(EMBEDDED_MANIFEST)
+	$(KUSTOMIZE) build $(MANIFEST_DIR) | $(GO_CMD) run $(PROJECT_DIR)/hack/tools/gzip/gzip.go > $(EMBEDDED_MANIFEST)
 
 embeded-manifest: $(EMBEDDED_MANIFEST)
 
