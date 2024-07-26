@@ -54,7 +54,7 @@ Please do not remove items from the checklist
   - Release notes in the `CHANGELOG`
   - `version` in `site/config.toml`
   - `appVersion` in `charts/kueue/Chart.yaml`
-  - `last-updated`, `last-reviewed`, `commit-hash`, `project-release`, `distribution-points` and `sbom-file` in `SECURITY-INSIGHTS.yaml`
+  - `SECURITY-INSIGHTS.yaml` values by running `make update-security-insights GIT_TAG=$VERSION`
 - [ ] For a major or minor release, prepare the repo for the next version:
   - [ ] create an unannotated _devel_ tag in the
         `main` branch, on the first commit that gets merged after the release
