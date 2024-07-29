@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Create a rayjob
 
 ```
-kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--localqueue LOCAL_QUEUE_NAME] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
+kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--localqueue LOCAL_QUEUE_NAME] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
 ```
 
 
@@ -128,15 +128,6 @@ kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--requ
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>Replicas is the number of desired Pods for this worker group.</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--request &lt;comma-separated &#39;key=value&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Request is a set of (resource name, quantity) pairs.</p>
         </td>
     </tr>
     <tr>

@@ -141,9 +141,11 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"job": {
 		ModeName: v1alpha1.JobMode,
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--parallelism PARALLELISM] [--completions COMPLETIONS]"
+			subcmd.Use += " [--request RESOURCE_NAME=QUANTITY] [--parallelism PARALLELISM] [--completions COMPLETIONS]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
+			subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
+				"Request is a set of (resource name, quantity) pairs.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedParallelism, parallelismFlagName, 0,
 				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
@@ -153,9 +155,11 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"interactive": {
 		ModeName: v1alpha1.InteractiveMode,
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--pod-running-timeout DURATION] [--rm]"
+			subcmd.Use += " [--request RESOURCE_NAME=QUANTITY] [--pod-running-timeout DURATION] [--rm]"
 			subcmd.Short = "Create an interactive shell"
 			subcmd.Example = createInteractiveExample
+			subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
+				"Request is a set of (resource name, quantity) pairs.")
 			subcmd.Flags().DurationVar(&o.PodRunningTimeout, podRunningTimeout, podRunningTimeoutDefault,
 				"The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running.")
 			subcmd.Flags().BoolVar(&o.RemoveInteractivePod, "rm", false,
@@ -192,7 +196,6 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			Use: fmt.Sprintf("%s"+
 				" --profile APPLICATION_PROFILE_NAME"+
 				" [--cmd COMMAND]"+
-				" [--request RESOURCE_NAME=QUANTITY]"+
 				" [--localqueue LOCAL_QUEUE_NAME]", modeName),
 			DisableFlagsInUseLine: true,
 			Args:                  cobra.NoArgs,
@@ -214,8 +217,6 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			"Application profile contains a template (with defaults set) for running a specific type of application.")
 		subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
 			"Command which is associated with the resource.")
-		subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
-			"Request is a set of (resource name, quantity) pairs.")
 		subcmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
 			"Kueue localqueue name which is associated with the resource.")
 		modeSubcommand.Setup(subcmd, o)

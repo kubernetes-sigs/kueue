@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Create an interactive shell
 
 ```
-kjobctl create interactive --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--localqueue LOCAL_QUEUE_NAME] [--pod-running-timeout DURATION] [--rm]
+kjobctl create interactive --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--localqueue LOCAL_QUEUE_NAME] [--request RESOURCE_NAME=QUANTITY] [--pod-running-timeout DURATION] [--rm]
 ```
 
 
