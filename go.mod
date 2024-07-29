@@ -8,8 +8,8 @@ require (
 	github.com/google/go-cmp v0.6.0
 	github.com/kubeflow/mpi-operator v0.5.0
 	github.com/kubeflow/training-operator v1.8.0
-	github.com/onsi/ginkgo/v2 v2.19.0
-	github.com/onsi/gomega v1.33.1
+	github.com/onsi/ginkgo/v2 v2.19.1
+	github.com/onsi/gomega v1.34.0
 	github.com/open-policy-agent/cert-controller v0.10.1
 	github.com/prometheus/client_golang v1.18.0
 	github.com/prometheus/client_model v0.6.1
@@ -115,7 +115,7 @@ require (
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/oauth2 v0.20.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.20.0 // indirect
+	golang.org/x/sys v0.21.0 // indirect
 	golang.org/x/term v0.20.0 // indirect
 	golang.org/x/text v0.15.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
