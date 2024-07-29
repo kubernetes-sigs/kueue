@@ -18,6 +18,7 @@ package builder
 
 import (
 	"context"
+	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,6 +63,10 @@ func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, error) {
 		rayJob.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
 	}
 
+	if b.command != nil {
+		rayJob.Spec.Entrypoint = strings.Join(b.command, " ")
+	}
+
 	if rayJob.Spec.RayClusterSpec != nil {
 		for index := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
 			workerGroupSpec := &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[index]
@@ -75,7 +80,7 @@ func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, error) {
 				workerGroupSpec.MaxReplicas = ptr.To(int32(maxReplicas))
 			}
 
-			workerGroupSpec.Template.Spec = b.buildPodSpec(workerGroupSpec.Template.Spec)
+			b.buildPodSpecVolumesAndEnv(&workerGroupSpec.Template.Spec)
 		}
 	}
 

@@ -109,6 +109,7 @@ func TestRayJobBuilder(t *testing.T) {
 		namespace   string
 		profile     string
 		mode        v1alpha1.ApplicationProfileMode
+		command     []string
 		replicas    map[string]int
 		minReplicas map[string]int
 		maxReplicas map[string]int
@@ -159,6 +160,7 @@ func TestRayJobBuilder(t *testing.T) {
 			namespace:   metav1.NamespaceDefault,
 			profile:     "profile",
 			mode:        v1alpha1.RayJobMode,
+			command:     []string{"sleep"},
 			replicas:    map[string]int{"g1": 10, "g2": 20},
 			minReplicas: map[string]int{"g1": 10, "g2": 20},
 			maxReplicas: map[string]int{"g1": 15, "g2": 25},
@@ -182,7 +184,7 @@ func TestRayJobBuilder(t *testing.T) {
 				Label(kueueconstants.QueueLabel, "lq1").
 				Spec(
 					testRayJobTemplateWrapper.Clone().
-						WithRequest(corev1.ResourceCPU, resource.MustParse("3")).
+						Entrypoint("sleep").
 						Replicas("g1", 10).
 						Replicas("g2", 20).
 						MinReplicas("g1", 10).
@@ -217,10 +219,10 @@ func TestRayJobBuilder(t *testing.T) {
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
+				WithCommand(tc.command).
 				WithReplicas(tc.replicas).
 				WithMinReplicas(tc.minReplicas).
 				WithMaxReplicas(tc.maxReplicas).
-				WithRequests(tc.requests).
 				WithLocalQueue(tc.localQueue).
 				Do(ctx)
 

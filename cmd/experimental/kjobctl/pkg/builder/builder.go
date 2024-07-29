@@ -246,9 +246,8 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 }
 
 func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
-	bundle := mergeBundles(b.volumeBundles)
+	b.buildPodSpecVolumesAndEnv(&templateSpec)
 
-	templateSpec.Volumes = append(templateSpec.Volumes, bundle.Spec.Volumes...)
 	for i := range templateSpec.Containers {
 		container := &templateSpec.Containers[i]
 
@@ -259,6 +258,17 @@ func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
 		if i == 0 && len(b.requests) > 0 {
 			container.Resources.Requests = b.requests
 		}
+	}
+
+	return templateSpec
+}
+
+func (b *Builder) buildPodSpecVolumesAndEnv(templateSpec *corev1.PodSpec) {
+	bundle := mergeBundles(b.volumeBundles)
+
+	templateSpec.Volumes = append(templateSpec.Volumes, bundle.Spec.Volumes...)
+	for i := range templateSpec.Containers {
+		container := &templateSpec.Containers[i]
 
 		container.VolumeMounts = append(container.VolumeMounts, bundle.Spec.ContainerVolumeMounts...)
 		container.Env = append(container.Env, bundle.Spec.EnvVars...)
@@ -272,8 +282,6 @@ func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
 		initContainer.Env = append(initContainer.Env, bundle.Spec.EnvVars...)
 		initContainer.Env = append(initContainer.Env, b.additionalEnvironmentVariables()...)
 	}
-
-	return templateSpec
 }
 
 func (b *Builder) additionalEnvironmentVariables() []corev1.EnvVar {

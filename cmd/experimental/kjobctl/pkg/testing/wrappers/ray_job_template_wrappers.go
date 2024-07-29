@@ -19,7 +19,6 @@ package wrappers
 import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
@@ -129,6 +128,12 @@ func (w *RayJobTemplateWrapper) WithVolumeMount(volumeMount corev1.VolumeMount) 
 	return w
 }
 
+// Entrypoint set entrypoint.
+func (w *RayJobTemplateWrapper) Entrypoint(entrypoint string) *RayJobTemplateWrapper {
+	w.Template.Spec.Entrypoint = entrypoint
+	return w
+}
+
 // Replicas set Replicas on WorkerGroupSpec.
 func (w *RayJobTemplateWrapper) Replicas(groupName string, replicas int32) *RayJobTemplateWrapper {
 	if w.Template.Spec.RayClusterSpec == nil {
@@ -171,26 +176,6 @@ func (w *RayJobTemplateWrapper) MaxReplicas(groupName string, maxReplicas int32)
 		if w.Template.Spec.RayClusterSpec.WorkerGroupSpecs[i].GroupName == groupName {
 			w.Template.Spec.RayClusterSpec.WorkerGroupSpecs[i].MaxReplicas = &maxReplicas
 			break
-		}
-	}
-
-	return w
-}
-
-// WithRequest set command to primary pod templates.
-func (w *RayJobTemplateWrapper) WithRequest(key corev1.ResourceName, value resource.Quantity) *RayJobTemplateWrapper {
-	if w.Template.Spec.RayClusterSpec == nil {
-		return w
-	}
-
-	for i := range w.Template.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerGroupSpec := &w.Template.Spec.RayClusterSpec.WorkerGroupSpecs[i]
-		if len(workerGroupSpec.Template.Spec.Containers) > 0 {
-			container := &workerGroupSpec.Template.Spec.Containers[0]
-			if container.Resources.Requests == nil {
-				container.Resources.Requests = make(corev1.ResourceList)
-			}
-			container.Resources.Requests[key] = value
 		}
 	}
 

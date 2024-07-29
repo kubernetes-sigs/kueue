@@ -355,6 +355,29 @@ func TestCreateCmd(t *testing.T) {
 			// Fake dynamic client not generating name. That's why we have <unknown>.
 			wantOut: "rayjob.ray.io/<unknown> created\n",
 		},
+		"should create ray job with cmd replacement": {
+			args: []string{"rayjob", "--profile", "profile", "--cmd", "sleep   3s"},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
+					Obj(),
+			},
+			gvk: schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayJob"},
+			wantList: &rayv1.RayJobList{
+				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
+				Items: []rayv1.RayJob{
+					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
+						GenerateName("profile-").
+						Profile("profile").
+						Entrypoint("sleep 3s").
+						Obj(),
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "rayjob.ray.io/<unknown> created\n",
+		},
 		"should create ray job with min-replicas replacement": {
 			args: []string{"rayjob", "--profile", "profile", "--min-replicas", "g1=5"},
 			kjobctlObjs: []runtime.Object{

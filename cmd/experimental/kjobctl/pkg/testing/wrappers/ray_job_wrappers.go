@@ -86,3 +86,9 @@ func (j *RayJobWrapper) Spec(spec rayv1.RayJobSpec) *RayJobWrapper {
 	j.RayJob.Spec = spec
 	return j
 }
+
+// Entrypoint set entrypoint.
+func (j *RayJobWrapper) Entrypoint(entrypoint string) *RayJobWrapper {
+	j.RayJob.Spec.Entrypoint = entrypoint
+	return j
+}

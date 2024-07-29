@@ -63,6 +63,7 @@ const (
 	createRayJobExample = `  # Create job 
   kjobctl create rayjob \ 
 	--profile my-application-profile  \
+	--cmd "sleep 5" \
 	--request cpu=500m,ram=4Gi \
 	--replicas small-group=1 \
 	--min-replicas small-group=1 \ 
@@ -140,11 +141,9 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"job": {
 		ModeName: v1alpha1.JobMode,
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--cmd COMMAND] [--parallelism PARALLELISM] [--completions COMPLETIONS]"
+			subcmd.Use += " [--parallelism PARALLELISM] [--completions COMPLETIONS]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
-			subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
-				"Command which is associated with the resource.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedParallelism, parallelismFlagName, 0,
 				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
@@ -154,11 +153,9 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"interactive": {
 		ModeName: v1alpha1.InteractiveMode,
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--cmd COMMAND] [--pod-running-timeout DURATION] [--rm]"
+			subcmd.Use += " [--pod-running-timeout DURATION] [--rm]"
 			subcmd.Short = "Create an interactive shell"
 			subcmd.Example = createInteractiveExample
-			subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
-				"Command which is associated with the resource.")
 			subcmd.Flags().DurationVar(&o.PodRunningTimeout, podRunningTimeout, podRunningTimeoutDefault,
 				"The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running.")
 			subcmd.Flags().BoolVar(&o.RemoveInteractivePod, "rm", false,
@@ -194,6 +191,7 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 		subcmd := &cobra.Command{
 			Use: fmt.Sprintf("%s"+
 				" --profile APPLICATION_PROFILE_NAME"+
+				" [--cmd COMMAND]"+
 				" [--request RESOURCE_NAME=QUANTITY]"+
 				" [--localqueue LOCAL_QUEUE_NAME]", modeName),
 			DisableFlagsInUseLine: true,
@@ -214,6 +212,8 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 
 		subcmd.Flags().StringVarP(&o.ProfileName, profileFlagName, "p", "",
 			"Application profile contains a template (with defaults set) for running a specific type of application.")
+		subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
+			"Command which is associated with the resource.")
 		subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
 			"Request is a set of (resource name, quantity) pairs.")
 		subcmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
