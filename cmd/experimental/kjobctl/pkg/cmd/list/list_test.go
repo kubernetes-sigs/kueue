@@ -17,14 +17,18 @@ limitations under the License.
 package list
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayfake "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned/fake"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
-	"k8s.io/client-go/kubernetes/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	testingclock "k8s.io/utils/clock/testing"
 
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
@@ -36,7 +40,8 @@ func TestListCmd(t *testing.T) {
 
 	testCases := map[string]struct {
 		ns         string
-		objs       []runtime.Object
+		k8sObjs    []runtime.Object
+		rayObjs    []runtime.Object
 		args       []string
 		wantOut    string
 		wantOutErr string
@@ -44,7 +49,7 @@ func TestListCmd(t *testing.T) {
 	}{
 		"should print job list with all namespaces": {
 			args: []string{"job", "--all-namespaces"},
-			objs: []runtime.Object{
+			k8sObjs: []runtime.Object{
 				wrappers.MakeJob("j1", "ns1").
 					Profile("profile1").
 					LocalQueue("lq1").
@@ -69,6 +74,38 @@ ns1         j1     profile1   lq1           3/3           60m        60m
 ns2         j2     profile2   lq1           3/3           60m        60m
 `,
 		},
+		"should print rayjob list with all namespaces": {
+			args: []string{"rayjob", "--all-namespaces"},
+			rayObjs: []runtime.Object{
+				wrappers.MakeRayJob("rj1", metav1.NamespaceDefault).
+					Profile("profile1").
+					LocalQueue("lq1").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
+					StartTime(testStartTime.Add(-2 * time.Hour)).
+					EndTime(testStartTime.Add(-1 * time.Hour)).
+					Obj(),
+				wrappers.MakeRayJob("rj2", metav1.NamespaceDefault).
+					Profile("profile2").
+					LocalQueue("lq2").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
+					StartTime(testStartTime.Add(-2 * time.Hour)).
+					EndTime(testStartTime.Add(-1 * time.Hour)).
+					Obj(),
+			},
+			wantOut: fmt.Sprintf(`NAMESPACE   NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+default     rj1    profile1   lq1           SUCCEEDED    Complete            %s   %s   120m
+default     rj2    profile2   lq2           SUCCEEDED    Complete            %s   %s   120m
+`,
+				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
+				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
+				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
+				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
+			),
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -79,7 +116,8 @@ ns2         j2     profile2   lq1           3/3           60m        60m
 				tcg.WithNamespace(tc.ns)
 			}
 
-			tcg.WithK8sClientset(fake.NewSimpleClientset(tc.objs...))
+			tcg.WithK8sClientset(k8sfake.NewSimpleClientset(tc.k8sObjs...))
+			tcg.WithRayClientset(rayfake.NewSimpleClientset(tc.rayObjs...))
 
 			cmd := NewListCmd(tcg, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetArgs(tc.args)

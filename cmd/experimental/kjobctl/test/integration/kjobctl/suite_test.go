@@ -32,12 +32,13 @@ import (
 )
 
 var (
-	userID    string
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
-	crdPath   = filepath.Join("..", "..", "..", "config", "crd", "bases")
+	userID     string
+	cfg        *rest.Config
+	k8sClient  client.Client
+	ctx        context.Context
+	fwk        *framework.Framework
+	crdPath    = filepath.Join("..", "..", "..", "config", "crd", "bases")
+	rayCrdPath = filepath.Join("..", "..", "..", "dep-crds", "ray-operator")
 )
 
 func TestKjobctl(t *testing.T) {
@@ -47,7 +48,10 @@ func TestKjobctl(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{CRDPath: crdPath}
+	fwk = &framework.Framework{
+		CRDPath:     crdPath,
+		DepCRDPaths: []string{rayCrdPath},
+	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
 })

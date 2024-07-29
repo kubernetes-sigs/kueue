@@ -21,6 +21,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,16 +31,17 @@ import (
 )
 
 type Framework struct {
-	CRDPath string
-	testEnv *envtest.Environment
-	cancel  context.CancelFunc
+	CRDPath     string
+	DepCRDPaths []string
+	testEnv     *envtest.Environment
+	cancel      context.CancelFunc
 }
 
 func (f *Framework) Init() *rest.Config {
 	ginkgo.By("bootstrapping test environment")
 
 	f.testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{f.CRDPath},
+		CRDDirectoryPaths:     append(f.DepCRDPaths, f.CRDPath),
 		ErrorIfCRDPathMissing: true,
 	}
 
@@ -53,6 +55,9 @@ func (f *Framework) Init() *rest.Config {
 
 func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Client) {
 	err := v1alpha1.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = rayv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

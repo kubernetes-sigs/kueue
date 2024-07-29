@@ -3,20 +3,27 @@ The file is auto-generated from the Go source code of the component using the
 [generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
 -->
 
-# kjobctl list
+# kjobctl list rayjob
 
 
 ## Synopsis
 
 
-Display resources
+List RayJob
+
+```
+kjobctl list rayjob [--profile PROFILE_NAME] [--localqueue LOCALQUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]
+```
 
 
 ## Examples
 
 ```
-  # List Job 
-  kjobctl list job
+  # List RayJob
+  kjobctl list rayjob
+  
+  # List RayJob with profile filter
+  kjobctl list rayjob --profile my-profile
 ```
 
 
@@ -30,12 +37,93 @@ Display resources
     </colgroup>
     <tbody>
     <tr>
+        <td colspan="2">-A, --all-namespaces</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: true</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, ignore any errors in templates when a field or map key is missing in the template. Only applies to golang and jsonpath output formats.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--field-selector string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Selector (field query) to filter on, supports &#39;=&#39;, &#39;==&#39;, and &#39;!=&#39;.(e.g. --field-selector key1=value1,key2=value2). The server only supports a limited number of field queries per type.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-h, --help</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for list</p>
+            <p>help for rayjob</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-q, --localqueue string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Filter by localqueue which is associated with the resource.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-o, --output string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-p, --profile string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Filter by profile name which is associated with the resource.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-l, --selector string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Selector (label query) to filter on, supports &#39;=&#39;, &#39;==&#39;, and &#39;!=&#39;.(e.g. -l key1=value1,key2=value2). Matching objects must satisfy all of the specified label constraints.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--show-managed-fields</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--template string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
         </td>
     </tr>
     </tbody>
@@ -219,8 +307,5 @@ Display resources
 
 ## See Also
 
-* [kjobctl](../kjobctl.md)	 - ML/AI/Batch Jobs Made Easy
-* [kjobctl list interactive](kjobctl_list_interactive.md)	 - List Interactive
-* [kjobctl list job](kjobctl_list_job.md)	 - List Job
-* [kjobctl list rayjob](kjobctl_list_rayjob.md)	 - List RayJob
+* [kjobctl_list](_index.md)	 - Display resources
 

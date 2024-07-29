@@ -17,6 +17,7 @@ limitations under the License.
 package testing
 
 import (
+	rayversioned "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -41,6 +42,7 @@ type TestClientGetter struct {
 	k8sClientset     k8s.Interface
 	kueueClientset   kueueversioned.Interface
 	kjobctlClientset kjobctlversioned.Interface
+	rayClientset     rayversioned.Interface
 	dynamicClient    dynamic.Interface
 	restClient       resource.RESTClient
 	restConfig       *rest.Config
@@ -93,6 +95,11 @@ func (cg *TestClientGetter) WithKueueClientset(clientset kueueversioned.Interfac
 	return cg
 }
 
+func (cg *TestClientGetter) WithRayClientset(clientset rayversioned.Interface) *TestClientGetter {
+	cg.rayClientset = clientset
+	return cg
+}
+
 func (cg *TestClientGetter) WithKjobctlClientset(clientset kjobctlversioned.Interface) *TestClientGetter {
 	cg.kjobctlClientset = clientset
 	return cg
@@ -118,6 +125,10 @@ func (cg *TestClientGetter) KueueClientset() (kueueversioned.Interface, error) {
 
 func (cg *TestClientGetter) KjobctlClientset() (kjobctlversioned.Interface, error) {
 	return cg.kjobctlClientset, nil
+}
+
+func (cg *TestClientGetter) RayClientset() (rayversioned.Interface, error) {
+	return cg.rayClientset, nil
 }
 
 func (cg *TestClientGetter) DynamicClient() (dynamic.Interface, error) {
