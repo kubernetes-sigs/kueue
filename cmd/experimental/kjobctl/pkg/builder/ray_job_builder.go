@@ -68,6 +68,8 @@ func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, error) {
 	}
 
 	if rayJob.Spec.RayClusterSpec != nil {
+		b.buildPodSpecVolumesAndEnv(&rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec)
+
 		for index := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
 			workerGroupSpec := &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[index]
 			if replicas, ok := b.replicas[workerGroupSpec.GroupName]; ok {

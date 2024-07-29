@@ -68,6 +68,19 @@ func (w *RayJobTemplateWrapper) WithVolume(name, localObjectReferenceName string
 		w.Template.Spec.RayClusterSpec = &rayv1.RayClusterSpec{}
 	}
 
+	headGroupSpec := &w.Template.Spec.RayClusterSpec.HeadGroupSpec
+	headGroupSpec.Template.Spec.Volumes =
+		append(headGroupSpec.Template.Spec.Volumes, corev1.Volume{
+			Name: name,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: localObjectReferenceName,
+					},
+				},
+			},
+		})
+
 	for index := range w.Template.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerGroupSpec := &w.Template.Spec.RayClusterSpec.WorkerGroupSpecs[index]
 		workerGroupSpec.Template.Spec.Volumes =
@@ -92,6 +105,16 @@ func (w *RayJobTemplateWrapper) WithEnvVar(envVar corev1.EnvVar) *RayJobTemplate
 		w.Template.Spec.RayClusterSpec = &rayv1.RayClusterSpec{}
 	}
 
+	headGroupSpec := &w.Template.Spec.RayClusterSpec.HeadGroupSpec
+	for j := range headGroupSpec.Template.Spec.InitContainers {
+		container := &headGroupSpec.Template.Spec.InitContainers[j]
+		container.Env = append(container.Env, envVar)
+	}
+	for j := range headGroupSpec.Template.Spec.Containers {
+		container := &headGroupSpec.Template.Spec.Containers[j]
+		container.Env = append(container.Env, envVar)
+	}
+
 	for i := range w.Template.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerGroupSpec := &w.Template.Spec.RayClusterSpec.WorkerGroupSpecs[i]
 		for j := range workerGroupSpec.Template.Spec.InitContainers {
@@ -111,6 +134,16 @@ func (w *RayJobTemplateWrapper) WithEnvVar(envVar corev1.EnvVar) *RayJobTemplate
 func (w *RayJobTemplateWrapper) WithVolumeMount(volumeMount corev1.VolumeMount) *RayJobTemplateWrapper {
 	if w.Template.Spec.RayClusterSpec == nil {
 		w.Template.Spec.RayClusterSpec = &rayv1.RayClusterSpec{}
+	}
+
+	headGroupSpec := &w.Template.Spec.RayClusterSpec.HeadGroupSpec
+	for j := range headGroupSpec.Template.Spec.InitContainers {
+		container := &headGroupSpec.Template.Spec.InitContainers[j]
+		container.VolumeMounts = append(container.VolumeMounts, volumeMount)
+	}
+	for j := range headGroupSpec.Template.Spec.Containers {
+		container := &headGroupSpec.Template.Spec.Containers[j]
+		container.VolumeMounts = append(container.VolumeMounts, volumeMount)
 	}
 
 	for i := range w.Template.Spec.RayClusterSpec.WorkerGroupSpecs {
