@@ -60,6 +60,10 @@ const (
 	--profile my-application-profile  \
 	--pod-running-timeout 30s \
 	--rm`
+	createRayJobLong = `Create a rayjob.
+
+KubeRay operator is required for RayJob.
+How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.`
 	createRayJobExample = `  # Create job 
   kjobctl create rayjob \ 
 	--profile my-application-profile  \
@@ -171,6 +175,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
 			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
 			subcmd.Short = "Create a rayjob"
+			subcmd.Long = createRayJobLong
 			subcmd.Example = createRayJobExample
 			subcmd.Flags().StringToIntVar(&o.Replicas, replicasFlagName, nil,
 				"Replicas is the number of desired Pods for this worker group.")
