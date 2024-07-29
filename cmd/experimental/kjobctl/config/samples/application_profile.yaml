@@ -60,7 +60,7 @@ template:
     # The default value is "K8sJobMode", meaning RayJob will submit the Ray job via a submitter Kubernetes Job.
     # The alternative value is "HTTPMode", indicating that KubeRay will submit the Ray job by sending an HTTP request to the RayCluster.
     # submissionMode: "K8sJobMode"
-    entrypoint: python /home/ray/samples/sample_code.py
+    entrypoint: python ${ENTRYPOINT_PATH}/ray_sample_code.py
     # shutdownAfterJobFinishes specifies whether the RayCluster should be deleted after the RayJob finishes. Default is false.
     # shutdownAfterJobFinishes: false
 
@@ -125,8 +125,8 @@ template:
                   name: ray-job-code-sample
                   # An array of keys from the ConfigMap to create as files
                   items:
-                    - key: sample_code.py
-                      path: sample_code.py
+                    - key: ray_sample_code.py
+                      path: ray_sample_code.py
       workerGroupSpecs:
         # the pod replicas in this group typed worker
         - replicas: 1
@@ -153,38 +153,3 @@ template:
                       cpu: "1"
                     requests:
                       cpu: "200m"
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ray-job-code-sample
-data:
-  sample_code.py: |
-    import ray
-    import os
-    import requests
-
-    ray.init()
-
-    @ray.remote
-    class Counter:
-        def __init__(self):
-            # Used to verify runtimeEnv
-            self.name = os.getenv("counter_name")
-            assert self.name == "test_counter"
-            self.counter = 0
-
-        def inc(self):
-            self.counter += 1
-
-        def get_counter(self):
-            return "{} got {}".format(self.name, self.counter)
-
-    counter = Counter.remote()
-
-    for _ in range(5):
-        ray.get(counter.inc.remote())
-        print(ray.get(counter.get_counter.remote()))
-
-    # Verify that the correct runtime env was used for the job.
-    assert requests.__version__ == "2.26.0"

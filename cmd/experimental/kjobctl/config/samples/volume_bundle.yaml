@@ -1,0 +1,16 @@
+---
+apiVersion: kjobctl.x-k8s.io/v1alpha1
+kind: VolumeBundle
+metadata:
+  name: sample-volume-bundle
+spec:
+  volumes:
+    - name: foo
+      hostPath:
+        path: /foo
+  containerVolumeMounts:
+    - name: foo
+      mountPath: /mnt/data
+  envVars:
+    - name: ENTRYPOINT_PATH
+      value: /mnt/data
