@@ -592,8 +592,10 @@ func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []ku
 		return kueue.PodSetUpdate{
 			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
-				ConsumesAnnotationKey:  pr.Name,
-				ClassNameAnnotationKey: pr.Spec.ProvisioningClassName},
+				DeprecatedConsumesAnnotationKey:  pr.Name,
+				DeprecatedClassNameAnnotationKey: pr.Spec.ProvisioningClassName,
+				ConsumesAnnotationKey:            pr.Name,
+				ClassNameAnnotationKey:           pr.Spec.ProvisioningClassName},
 		}
 	})
 }
