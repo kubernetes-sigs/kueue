@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/utils/clock"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -98,6 +99,9 @@ func NewInteractiveCmd(clientGetter util.ClientGetter, streams genericiooptions.
 	util.AddLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	util.AddProfileFlagVar(cmd, &o.ProfileFilter)
 	util.AddLocalQueueFlagVar(cmd, &o.LocalQueueFilter)
+
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("profile", completion.ApplicationProfileNameFunc(clientGetter)))
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter)))
 
 	return cmd
 }
