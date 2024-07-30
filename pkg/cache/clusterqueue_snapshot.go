@@ -16,7 +16,7 @@ type ClusterQueueSnapshot struct {
 	Name              string
 	Cohort            *CohortSnapshot
 	ResourceGroups    []ResourceGroup
-	Usage             resources.FlavorResourceQuantitiesFlat
+	Usage             resources.FlavorResourceQuantities
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
 	NamespaceSelector labels.Selector
@@ -31,7 +31,7 @@ type ClusterQueueSnapshot struct {
 	Quotas          map[resources.FlavorResource]*ResourceQuota
 	// GuaranteedQuota records how much resource quota the ClusterQueue reserved
 	// when feature LendingLimit is enabled and flavor's lendingLimit is not nil.
-	GuaranteedQuota resources.FlavorResourceQuantitiesFlat
+	GuaranteedQuota resources.FlavorResourceQuantities
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
@@ -48,11 +48,11 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 	return nil
 }
 
-func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantitiesFlat) {
+func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantities) {
 	c.addOrRemoveUsage(frq, 1)
 }
 
-func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantitiesFlat) bool {
+func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantities) bool {
 	for fr, q := range frq {
 		if c.Available(fr) < q {
 			return false

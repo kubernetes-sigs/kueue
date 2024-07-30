@@ -144,11 +144,11 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
-type cohortsUsage map[string]resources.FlavorResourceQuantitiesFlat
+type cohortsUsage map[string]resources.FlavorResourceQuantities
 
-func (cu cohortsUsage) add(cohort string, assignment resources.FlavorResourceQuantitiesFlat) {
+func (cu cohortsUsage) add(cohort string, assignment resources.FlavorResourceQuantities) {
 	if cu[cohort] == nil {
-		cu[cohort] = make(resources.FlavorResourceQuantitiesFlat, len(assignment))
+		cu[cohort] = make(resources.FlavorResourceQuantities, len(assignment))
 	}
 
 	for fr, v := range assignment {
@@ -156,11 +156,11 @@ func (cu cohortsUsage) add(cohort string, assignment resources.FlavorResourceQua
 	}
 }
 
-func (cu cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantitiesFlat) resources.FlavorResourceQuantitiesFlat {
+func (cu cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
 	return utilmaps.Intersect(cu[cohort], assignment, func(a, b int64) int64 { return a + b })
 }
 
-func (cu cohortsUsage) hasCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantitiesFlat) bool {
+func (cu cohortsUsage) hasCommonFlavorResources(cohort string, assignment resources.FlavorResourceQuantities) bool {
 	cohortUsage, cohortFound := cu[cohort]
 	if !cohortFound {
 		return false
@@ -364,7 +364,7 @@ type entry struct {
 // netUsage returns how much capacity this entry will require from the ClusterQueue/Cohort.
 // When a workload is preempting, it subtracts the preempted resources from the resources
 // required, as the remaining quota is all we need from the CQ/Cohort.
-func (e *entry) netUsage() resources.FlavorResourceQuantitiesFlat {
+func (e *entry) netUsage() resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		return e.assignment.Usage
 	}
@@ -423,11 +423,11 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
-func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantitiesFlat {
+func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
 		return e.assignment.Usage
 	}
-	reservedUsage := make(resources.FlavorResourceQuantitiesFlat)
+	reservedUsage := make(resources.FlavorResourceQuantities)
 	for fr, usage := range e.assignment.Usage {
 		cqQuota := cq.QuotaFor(fr)
 		if e.assignment.Borrowing {

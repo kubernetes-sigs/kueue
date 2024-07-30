@@ -50,7 +50,7 @@ type clusterQueue struct {
 	Cohort            *cohort
 	ResourceGroups    []ResourceGroup
 	quotas            map[resources.FlavorResource]*ResourceQuota
-	Usage             resources.FlavorResourceQuantitiesFlat
+	Usage             resources.FlavorResourceQuantities
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
 	NamespaceSelector labels.Selector
@@ -64,12 +64,12 @@ type clusterQueue struct {
 	Status          metrics.ClusterQueueStatus
 	// GuaranteedQuota records how much resource quota the ClusterQueue reserved
 	// when feature LendingLimit is enabled and flavor's lendingLimit is not nil.
-	GuaranteedQuota resources.FlavorResourceQuantitiesFlat
+	GuaranteedQuota resources.FlavorResourceQuantities
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
 
-	AdmittedUsage resources.FlavorResourceQuantitiesFlat
+	AdmittedUsage resources.FlavorResourceQuantities
 	// localQueues by (namespace/name).
 	localQueues                                        map[string]*queue
 	podsReadyTracking                                  bool
@@ -108,8 +108,8 @@ type queue struct {
 	reservingWorkloads int
 	admittedWorkloads  int
 	//TODO: rename this to better distinguish between reserved and "in use" quantities
-	usage         resources.FlavorResourceQuantitiesFlat
-	admittedUsage resources.FlavorResourceQuantitiesFlat
+	usage         resources.FlavorResourceQuantities
+	admittedUsage resources.FlavorResourceQuantities
 }
 
 func newCohort(name string, size int) *cohort {
@@ -134,7 +134,7 @@ func (c *cohort) CalculateLendable() map[corev1.ResourceName]int64 {
 	return lendable
 }
 
-func (c *ClusterQueueSnapshot) FitInCohort(q resources.FlavorResourceQuantitiesFlat) bool {
+func (c *ClusterQueueSnapshot) FitInCohort(q resources.FlavorResourceQuantities) bool {
 	for fr, value := range q {
 		available := c.RequestableCohortQuota(fr) - c.UsedCohortQuota(fr)
 		if available < value {
@@ -196,7 +196,7 @@ func (c *clusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	}
 
 	if features.Enabled(features.LendingLimit) {
-		c.GuaranteedQuota = make(resources.FlavorResourceQuantitiesFlat)
+		c.GuaranteedQuota = make(resources.FlavorResourceQuantities)
 		for _, rg := range c.ResourceGroups {
 			for _, fName := range rg.Flavors {
 				for rName := range rg.CoveredResources {
@@ -213,8 +213,8 @@ func (c *clusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	return nil
 }
 
-func filterFlavorQuantities(orig resources.FlavorResourceQuantitiesFlat, resourceGroups []kueue.ResourceGroup) resources.FlavorResourceQuantitiesFlat {
-	ret := make(resources.FlavorResourceQuantitiesFlat, len(orig))
+func filterFlavorQuantities(orig resources.FlavorResourceQuantities, resourceGroups []kueue.ResourceGroup) resources.FlavorResourceQuantities {
+	ret := make(resources.FlavorResourceQuantities, len(orig))
 	for _, rg := range resourceGroups {
 		for _, f := range rg.Flavors {
 			for _, r := range f.Resources {
@@ -455,13 +455,13 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	}
 }
 
-func updateFlavorUsage(newUsage resources.FlavorResourceQuantitiesFlat, oldUsage resources.FlavorResourceQuantitiesFlat, m int64) {
+func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, m int64) {
 	for fr, q := range newUsage {
 		oldUsage[fr] += q * m
 	}
 }
 
-func updateCohortUsage(newUsage resources.FlavorResourceQuantitiesFlat, cq *ClusterQueueSnapshot, m int64) {
+func updateCohortUsage(newUsage resources.FlavorResourceQuantities, cq *ClusterQueueSnapshot, m int64) {
 	for fr, v := range newUsage {
 		after := cq.Usage[fr] - cq.guaranteedQuota(fr)
 		// rollback update cq.Usage
@@ -486,7 +486,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qImpl := &queue{
 		key:                qKey,
 		reservingWorkloads: 0,
-		usage:              make(resources.FlavorResourceQuantitiesFlat),
+		usage:              make(resources.FlavorResourceQuantities),
 	}
 	if err := qImpl.resetFlavorsAndResources(c.Usage, c.AdmittedUsage); err != nil {
 		return err
@@ -522,15 +522,15 @@ func (c *clusterQueue) flavorInUse(flavor string) bool {
 	return false
 }
 
-func (q *queue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantitiesFlat, cqAdmittedUsage resources.FlavorResourceQuantitiesFlat) error {
+func (q *queue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) error {
 	// Clean up removed flavors or resources.
 	q.usage = resetUsage(q.usage, cqUsage)
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
 	return nil
 }
 
-func resetUsage(lqUsage resources.FlavorResourceQuantitiesFlat, cqUsage resources.FlavorResourceQuantitiesFlat) resources.FlavorResourceQuantitiesFlat {
-	usedFlavorResources := make(resources.FlavorResourceQuantitiesFlat, len(cqUsage))
+func resetUsage(lqUsage resources.FlavorResourceQuantities, cqUsage resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
+	usedFlavorResources := make(resources.FlavorResourceQuantities, len(cqUsage))
 	for fr := range cqUsage {
 		usedFlavorResources[fr] = lqUsage[fr]
 	}
@@ -630,11 +630,11 @@ func (c *ClusterQueueSnapshot) DominantResourceShare() (int, corev1.ResourceName
 	return dominantResourceShare(c, nil, 0)
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantitiesFlat) (int, corev1.ResourceName) {
+func (c *ClusterQueueSnapshot) DominantResourceShareWith(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
 	return dominantResourceShare(c, wlReq, 1)
 }
 
-func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantitiesFlat) (int, corev1.ResourceName) {
+func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.FlavorResourceQuantities) (int, corev1.ResourceName) {
 	return dominantResourceShare(c, wlReq, -1)
 }
 
@@ -646,7 +646,7 @@ type dominantResourceShareNode interface {
 	netQuotaNode
 }
 
-func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantitiesFlat, m int64) (int, corev1.ResourceName) {
+func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities, m int64) (int, corev1.ResourceName) {
 	if !node.hasCohort() {
 		return 0, ""
 	}

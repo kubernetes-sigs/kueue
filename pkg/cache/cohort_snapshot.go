@@ -12,8 +12,8 @@ type CohortSnapshot struct {
 	Members sets.Set[*ClusterQueueSnapshot]
 
 	// RequestableResources equals to the sum of LendingLimit when feature LendingLimit enabled.
-	RequestableResources resources.FlavorResourceQuantitiesFlat
-	Usage                resources.FlavorResourceQuantitiesFlat
+	RequestableResources resources.FlavorResourceQuantities
+	Usage                resources.FlavorResourceQuantities
 	Lendable             map[corev1.ResourceName]int64
 
 	// AllocatableResourceGeneration equals to

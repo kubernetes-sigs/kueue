@@ -52,7 +52,7 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq.addOrRemoveUsage(wl.FlavorResourceUsage(), 1)
 }
 
-func (c *ClusterQueueSnapshot) addOrRemoveUsage(usage resources.FlavorResourceQuantitiesFlat, m int64) {
+func (c *ClusterQueueSnapshot) addOrRemoveUsage(usage resources.FlavorResourceQuantities, m int64) {
 	updateFlavorUsage(usage, c.Usage, m)
 	if c.Cohort != nil {
 		if features.Enabled(features.LendingLimit) {
@@ -145,8 +145,8 @@ func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
 		Name:                 c.Name,
 		Members:              make(sets.Set[*ClusterQueueSnapshot], c.Members.Len()),
 		Lendable:             c.CalculateLendable(),
-		Usage:                make(resources.FlavorResourceQuantitiesFlat),
-		RequestableResources: make(resources.FlavorResourceQuantitiesFlat),
+		Usage:                make(resources.FlavorResourceQuantities),
+		RequestableResources: make(resources.FlavorResourceQuantities),
 	}
 	cohortSnap.AllocatableResourceGeneration = 0
 	for cq := range c.Members {

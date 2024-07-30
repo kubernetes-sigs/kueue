@@ -27,4 +27,4 @@ type FlavorResource struct {
 	Resource corev1.ResourceName
 }
 
-type FlavorResourceQuantitiesFlat map[FlavorResource]int64
+type FlavorResourceQuantities map[FlavorResource]int64

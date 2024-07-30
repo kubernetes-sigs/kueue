@@ -37,8 +37,8 @@ type netQuotaNode interface {
 
 // remainingQuota computes the remaining quota for each FlavorResource. A
 // negative value implies that the node is borrowing.
-func remainingQuota(node netQuotaNode) resources.FlavorResourceQuantitiesFlat {
-	remainingQuota := make(resources.FlavorResourceQuantitiesFlat)
+func remainingQuota(node netQuotaNode) resources.FlavorResourceQuantities {
+	remainingQuota := make(resources.FlavorResourceQuantities)
 	for _, fr := range flavorResources(node) {
 		remainingQuota[fr] += node.QuotaFor(fr).Nominal - node.usageFor(fr)
 	}

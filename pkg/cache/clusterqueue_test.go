@@ -96,16 +96,16 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 func TestFitInCohort(t *testing.T) {
 	cases := map[string]struct {
-		request            resources.FlavorResourceQuantitiesFlat
+		request            resources.FlavorResourceQuantities
 		wantFit            bool
-		usage              resources.FlavorResourceQuantitiesFlat
+		usage              resources.FlavorResourceQuantities
 		clusterQueue       []*kueue.ClusterQueue
 		enableLendingLimit bool
 	}{
 		"full cohort, empty request": {
-			request: resources.FlavorResourceQuantitiesFlat{},
+			request: resources.FlavorResourceQuantities{},
 			wantFit: true,
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    5_000,
@@ -129,12 +129,12 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"can fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
+			request: resources.FlavorResourceQuantities{
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: true,
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    4_000,
@@ -158,14 +158,14 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"full cohort, none fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
+			request: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: false,
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    5_000,
@@ -189,14 +189,14 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"one cannot fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
+			request: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    2_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: false,
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    4_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 4,
 				{Flavor: "f2", Resource: corev1.ResourceCPU}:    4_000,
@@ -220,12 +220,12 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"missing flavor": {
-			request: resources.FlavorResourceQuantitiesFlat{
+			request: resources.FlavorResourceQuantities{
 				{Flavor: "non-existent-flavor", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "non-existent-flavor", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: false,
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
 			},
@@ -243,12 +243,12 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"missing resource": {
-			request: resources.FlavorResourceQuantitiesFlat{
+			request: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: false,
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
 			clusterQueue: []*kueue.ClusterQueue{
@@ -264,11 +264,11 @@ func TestFitInCohort(t *testing.T) {
 			},
 		},
 		"lendingLimit enabled can't fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
+			request: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
 			wantFit: false,
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 2_000,
 			},
 			clusterQueue: []*kueue.ClusterQueue{
@@ -299,11 +299,11 @@ func TestFitInCohort(t *testing.T) {
 			enableLendingLimit: true,
 		},
 		"lendingLimit enabled can fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
+			request: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
 			wantFit: true,
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 1_000,
 			},
 			clusterQueue: []*kueue.ClusterQueue{
@@ -761,15 +761,15 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 
 func TestDominantResourceShare(t *testing.T) {
 	cases := map[string]struct {
-		usage               resources.FlavorResourceQuantitiesFlat
+		usage               resources.FlavorResourceQuantities
 		clusterQueue        *kueue.ClusterQueue
 		lendingClusterQueue *kueue.ClusterQueue
-		flvResQ             resources.FlavorResourceQuantitiesFlat
+		flvResQ             resources.FlavorResourceQuantities
 		wantDRValue         int
 		wantDRName          corev1.ResourceName
 	}{
 		"no cohort": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
@@ -782,7 +782,7 @@ func TestDominantResourceShare(t *testing.T) {
 				).Obj(),
 		},
 		"usage below nominal": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
@@ -806,7 +806,7 @@ func TestDominantResourceShare(t *testing.T) {
 				).Obj(),
 		},
 		"usage above nominal": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  7,
 			},
@@ -832,7 +832,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 200, // (7-5)*1000/10
 		},
 		"one resource above nominal": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  3,
 			},
@@ -858,7 +858,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 100, // (3-2)*1000/10
 		},
 		"usage with workload above nominal": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
@@ -880,7 +880,7 @@ func TestDominantResourceShare(t *testing.T) {
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						FlavorQuotas,
 				).Obj(),
-			flvResQ: resources.FlavorResourceQuantitiesFlat{
+			flvResQ: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  4,
 			},
@@ -888,7 +888,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 300, // (1+4-2)*1000/10
 		},
 		"A resource with zero lendable": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  1,
 			},
@@ -910,7 +910,7 @@ func TestDominantResourceShare(t *testing.T) {
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("64").LendingLimit("0").Append().
 						FlavorQuotas,
 				).Obj(),
-			flvResQ: resources.FlavorResourceQuantitiesFlat{
+			flvResQ: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  4,
 			},
@@ -918,7 +918,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 300, // (1+4-2)*1000/10
 		},
 		"multiple flavors": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 15_000,
 				{Flavor: "spot", Resource: corev1.ResourceCPU}:      5_000,
 			},
@@ -941,14 +941,14 @@ func TestDominantResourceShare(t *testing.T) {
 						ResourceQuotaWrapper("cpu").NominalQuota("100").Append().
 						FlavorQuotas,
 				).Obj(),
-			flvResQ: resources.FlavorResourceQuantitiesFlat{
+			flvResQ: resources.FlavorResourceQuantities{
 				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10_000,
 			},
 			wantDRName:  corev1.ResourceCPU,
 			wantDRValue: 25, // ((15+10-20)+0)*1000/200 (spot under nominal)
 		},
 		"above nominal with integer weight": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
@@ -971,7 +971,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 100, // ((7-5)*1000/10)/2
 		},
 		"above nominal with decimal weight": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
@@ -994,7 +994,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 400, // ((7-5)*1000/10)/(1/2)
 		},
 		"above nominal with zero weight": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("cq").

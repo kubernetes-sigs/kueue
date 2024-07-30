@@ -46,7 +46,7 @@ type Assignment struct {
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned.
-	Usage resources.FlavorResourceQuantitiesFlat
+	Usage resources.FlavorResourceQuantities
 
 	// representativeMode is the cached representative mode for this assignment.
 	representativeMode *FlavorAssignmentMode
@@ -106,8 +106,8 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 	return psFlavors
 }
 
-func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantitiesFlat {
-	usage := make(resources.FlavorResourceQuantitiesFlat)
+func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
+	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
 		for res, q := range ps.Requests {
 			flv := a.PodSets[i].Flavors[res].Name
@@ -296,7 +296,7 @@ func (a *FlavorAssigner) Assign(log logr.Logger, counts []int32) Assignment {
 func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodSetResources) Assignment {
 	assignment := Assignment{
 		PodSets: make([]PodSetAssignment, 0, len(requests)),
-		Usage:   make(resources.FlavorResourceQuantitiesFlat),
+		Usage:   make(resources.FlavorResourceQuantities),
 		LastState: workload.AssignmentClusterQueueState{
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
 			CohortGeneration:       0,
@@ -377,7 +377,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	psID int,
 	requests resources.Requests,
 	resName corev1.ResourceName,
-	assignmentUsage resources.FlavorResourceQuantitiesFlat,
+	assignmentUsage resources.FlavorResourceQuantities,
 ) (ResourceAssignment, *Status) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {

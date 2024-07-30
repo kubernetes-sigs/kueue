@@ -343,8 +343,8 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
 			//TODO: rename this to better distinguish between reserved and in use quantities
-			usage:         make(resources.FlavorResourceQuantitiesFlat),
-			admittedUsage: make(resources.FlavorResourceQuantitiesFlat),
+			usage:         make(resources.FlavorResourceQuantities),
+			admittedUsage: make(resources.FlavorResourceQuantities),
 		}
 		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage); err != nil {
 			return err
@@ -615,7 +615,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	return stats, nil
 }
 
-func getUsage(frq resources.FlavorResourceQuantitiesFlat, cq *clusterQueue, cohort *cohort) []kueue.FlavorUsage {
+func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue, cohort *cohort) []kueue.FlavorUsage {
 	usage := make([]kueue.FlavorUsage, 0, len(frq))
 	for _, rg := range cq.ResourceGroups {
 		for _, fName := range rg.Flavors {
@@ -678,7 +678,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	}, nil
 }
 
-func filterLocalQueueUsage(orig resources.FlavorResourceQuantitiesFlat, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
+func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
 	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
 	for _, rg := range resourceGroups {
 		for _, fName := range rg.Flavors {
