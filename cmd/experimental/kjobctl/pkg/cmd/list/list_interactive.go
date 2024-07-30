@@ -35,7 +35,10 @@ import (
 
 const (
 	interactiveExample = `  # List Interactive
-  kjobctl list interactive`
+  kjobctl list interactive
+
+  # List Interactive with profile filter
+  kjobctl list interactive --profile my-profile`
 )
 
 type InteractiveOptions struct {
@@ -67,7 +70,11 @@ func NewInteractiveCmd(clientGetter util.ClientGetter, streams genericiooptions.
 	o := NewInteractiveOptions(streams, clock)
 
 	cmd := &cobra.Command{
-		Use:                   "interactive [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]",
+		Use: "interactive" +
+			" [--profile PROFILE_NAME]" +
+			" [--selector key1=value1]" +
+			" [--field-selector key1=value1]" +
+			" [--all-namespaces]",
 		DisableFlagsInUseLine: true,
 		Short:                 "List Interactive",
 		Example:               interactiveExample,

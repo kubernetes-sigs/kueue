@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 List Interactive
 
 ```
-kjobctl list interactive [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]
+kjobctl list interactive [--profile PROFILE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]
 ```
 
 
@@ -21,6 +21,9 @@ kjobctl list interactive [--selector key1=value1] [--field-selector key1=value1]
 ```
   # List Interactive
   kjobctl list interactive
+
+  # List Interactive with profile filter
+  kjobctl list interactive --profile my-profile
 ```
 
 
