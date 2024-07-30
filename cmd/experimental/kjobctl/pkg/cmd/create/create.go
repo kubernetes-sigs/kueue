@@ -68,7 +68,6 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
   kjobctl create rayjob \ 
 	--profile my-application-profile  \
 	--cmd "python /home/ray/samples/sample_code.py" \
-	--request cpu=500m,ram=4Gi \
 	--replicas small-group=1 \
 	--min-replicas small-group=1 \ 
 	--max-replicas small-group=5 \ 

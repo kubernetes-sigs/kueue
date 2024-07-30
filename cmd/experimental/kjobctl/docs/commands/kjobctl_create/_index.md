@@ -34,7 +34,6 @@ Create a task
   kjobctl create rayjob \ 
 	--profile my-application-profile  \
 	--cmd &#34;python /home/ray/samples/sample_code.py&#34; \
-	--request cpu=500m,ram=4Gi \
 	--replicas small-group=1 \
 	--min-replicas small-group=1 \ 
 	--max-replicas small-group=5 \ 
