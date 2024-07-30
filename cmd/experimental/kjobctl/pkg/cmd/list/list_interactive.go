@@ -149,13 +149,14 @@ func (o *InteractiveOptions) Run(ctx context.Context) error {
 	}
 
 	opts := metav1.ListOptions{
-		LabelSelector: constants.ProfileLabel,
 		FieldSelector: o.FieldSelector,
 		Limit:         o.Limit,
 	}
 
 	if len(o.ProfileFilter) > 0 {
-		opts.LabelSelector = fmt.Sprintf("%s,%s=%s", opts.LabelSelector, constants.ProfileLabel, o.ProfileFilter)
+		opts.LabelSelector = fmt.Sprintf("%s=%s", constants.ProfileLabel, o.ProfileFilter)
+	} else {
+		opts.LabelSelector = constants.ProfileLabel
 	}
 	if len(o.LabelSelector) > 0 {
 		opts.LabelSelector = fmt.Sprintf("%s,%s", opts.LabelSelector, o.LabelSelector)
