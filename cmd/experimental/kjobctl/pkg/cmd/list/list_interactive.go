@@ -31,6 +31,7 @@ import (
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 const (
@@ -49,6 +50,7 @@ type InteractiveOptions struct {
 	AllNamespaces      bool
 	Namespace          string
 	ProfileFilter      string
+	LocalQueueFilter   string
 	FieldSelector      string
 	LabelSelector      string
 	ClusterQueueFilter string
@@ -72,6 +74,7 @@ func NewInteractiveCmd(clientGetter util.ClientGetter, streams genericiooptions.
 	cmd := &cobra.Command{
 		Use: "interactive" +
 			" [--profile PROFILE_NAME]" +
+			" [--localqueue LOCALQUEUE_NAME]" +
 			" [--selector key1=value1]" +
 			" [--field-selector key1=value1]" +
 			" [--all-namespaces]",
@@ -94,6 +97,7 @@ func NewInteractiveCmd(clientGetter util.ClientGetter, streams genericiooptions.
 	util.AddFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	util.AddLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	util.AddProfileFlagVar(cmd, &o.ProfileFilter)
+	util.AddLocalQueueFlagVar(cmd, &o.LocalQueueFilter)
 
 	return cmd
 }
@@ -157,6 +161,9 @@ func (o *InteractiveOptions) Run(ctx context.Context) error {
 		opts.LabelSelector = fmt.Sprintf("%s=%s", constants.ProfileLabel, o.ProfileFilter)
 	} else {
 		opts.LabelSelector = constants.ProfileLabel
+	}
+	if len(o.LocalQueueFilter) > 0 {
+		opts.LabelSelector = fmt.Sprintf("%s,%s=%s", opts.LabelSelector, kueueconstants.QueueLabel, o.LocalQueueFilter)
 	}
 	if len(o.LabelSelector) > 0 {
 		opts.LabelSelector = fmt.Sprintf("%s,%s", opts.LabelSelector, o.LabelSelector)

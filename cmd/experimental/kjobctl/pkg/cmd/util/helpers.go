@@ -42,6 +42,11 @@ func AddProfileFlagVar(cmd *cobra.Command, p *string) {
 		"Filter by profile name which is associated with the resource.")
 }
 
+func AddLocalQueueFlagVar(cmd *cobra.Command, p *string) {
+	cmd.Flags().StringVarP(p, "localqueue", "q", "",
+		"Filter by localqueue which is associated with the resource.")
+}
+
 func FlagString(cmd *cobra.Command, flag string) string {
 	s, err := cmd.Flags().GetString(flag)
 	if err != nil {
