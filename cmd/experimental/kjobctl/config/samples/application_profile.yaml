@@ -60,7 +60,7 @@ template:
     # The default value is "K8sJobMode", meaning RayJob will submit the Ray job via a submitter Kubernetes Job.
     # The alternative value is "HTTPMode", indicating that KubeRay will submit the Ray job by sending an HTTP request to the RayCluster.
     # submissionMode: "K8sJobMode"
-    entrypoint: python ${ENTRYPOINT_PATH}/ray_sample_code.py
+    entrypoint: python ${ENTRYPOINT_PATH}/sample_code.py
     # shutdownAfterJobFinishes specifies whether the RayCluster should be deleted after the RayJob finishes. Default is false.
     # shutdownAfterJobFinishes: false
 
@@ -114,19 +114,6 @@ template:
                     cpu: "1"
                   requests:
                     cpu: "200m"
-                volumeMounts:
-                  - mountPath: /home/ray/samples
-                    name: code-sample
-            volumes:
-              # You set volumes at the Pod level, then mount them into containers inside that Pod
-              - name: code-sample
-                configMap:
-                  # Provide the name of the ConfigMap you want to mount.
-                  name: ray-job-code-sample
-                  # An array of keys from the ConfigMap to create as files
-                  items:
-                    - key: ray_sample_code.py
-                      path: ray_sample_code.py
       workerGroupSpecs:
         # the pod replicas in this group typed worker
         - replicas: 1
