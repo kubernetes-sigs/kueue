@@ -26,6 +26,7 @@ import (
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/create"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/describe"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/list"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 )
@@ -75,6 +76,7 @@ func NewKjobctlCmd(o KjobctlOptions) *cobra.Command {
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("user", completion.UsersFunc(clientGetter)))
 
 	cmd.AddCommand(create.NewCreateCmd(clientGetter, o.IOStreams, o.Clock))
+	cmd.AddCommand(describe.NewDescribeCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
 
 	return cmd
