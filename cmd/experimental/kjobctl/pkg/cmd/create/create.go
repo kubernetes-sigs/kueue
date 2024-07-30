@@ -64,10 +64,10 @@ const (
 
 KubeRay operator is required for RayJob.
 How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.`
-	createRayJobExample = `  # Create job 
+	createRayJobExample = `  # Create rayjob 
   kjobctl create rayjob \ 
 	--profile my-application-profile  \
-	--cmd "sleep 5" \
+	--cmd "python /home/ray/samples/sample_code.py" \
 	--request cpu=500m,ram=4Gi \
 	--replicas small-group=1 \
 	--min-replicas small-group=1 \ 

@@ -22,10 +22,10 @@ kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--loca
 ## Examples
 
 ```
-  # Create job 
+  # Create rayjob 
   kjobctl create rayjob \ 
 	--profile my-application-profile  \
-	--cmd &#34;sleep 5&#34; \
+	--cmd &#34;python /home/ray/samples/sample_code.py&#34; \
 	--request cpu=500m,ram=4Gi \
 	--replicas small-group=1 \
 	--min-replicas small-group=1 \ 
