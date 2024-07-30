@@ -27,33 +27,4 @@ type FlavorResource struct {
 	Resource corev1.ResourceName
 }
 
-type FlavorResourceQuantities map[kueue.ResourceFlavorReference]Requests
-type FlavorResourceQuantitiesFlat map[FlavorResource]int64
-
-func (f FlavorResourceQuantitiesFlat) Unflatten() FlavorResourceQuantities {
-	out := make(FlavorResourceQuantities)
-	for flavorResource, value := range f {
-		if _, ok := out[flavorResource.Flavor]; !ok {
-			out[flavorResource.Flavor] = make(Requests)
-		}
-		out[flavorResource.Flavor][flavorResource.Resource] = value
-	}
-	return out
-}
-
-// For attempts to access nested value, returning 0 if absent.
-func (f FlavorResourceQuantities) For(fr FlavorResource) int64 {
-	return f[fr.Flavor][fr.Resource]
-}
-
-// Add adds the Quantity v for the FlavorResource fr, allocating
-// as needed.
-func (f *FlavorResourceQuantities) Add(fr FlavorResource, v int64) {
-	if *f == nil {
-		*f = make(FlavorResourceQuantities)
-	}
-	if (*f)[fr.Flavor] == nil {
-		(*f)[fr.Flavor] = make(Requests)
-	}
-	(*f)[fr.Flavor][fr.Resource] += v
-}
+type FlavorResourceQuantities map[FlavorResource]int64
