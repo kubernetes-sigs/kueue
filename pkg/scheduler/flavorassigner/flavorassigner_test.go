@@ -1951,10 +1951,10 @@ func TestAssignFlavors(t *testing.T) {
 				if clusterQueue.Cohort == nil {
 					t.Fatalf("Test case has cohort resources, but cluster queue doesn't have cohort")
 				}
-				clusterQueue.Cohort.Usage = tc.cohortResources.usage.Unflatten()
-				clusterQueue.Cohort.RequestableResources = tc.cohortResources.requestableResources.Unflatten()
+				clusterQueue.Cohort.Usage = tc.cohortResources.usage
+				clusterQueue.Cohort.RequestableResources = tc.cohortResources.requestableResources
 			}
-			clusterQueue.Usage = tc.clusterQueueUsage.Unflatten()
+			clusterQueue.Usage = tc.clusterQueueUsage
 
 			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing)
 			assignment := flvAssigner.Assign(log, nil)

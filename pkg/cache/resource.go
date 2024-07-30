@@ -8,13 +8,16 @@ type resourceGroupNode interface {
 	resourceGroups() []ResourceGroup
 }
 
-func flavorResources(r resourceGroupNode) []resources.FlavorResource {
-	flavorResourceCount := 0
-	for _, rg := range r.resourceGroups() {
-		flavorResourceCount += len(rg.Flavors) * len(rg.CoveredResources)
+func flavorResourceCount(rgs []ResourceGroup) int {
+	count := 0
+	for _, rg := range rgs {
+		count += len(rg.Flavors) * len(rg.CoveredResources)
 	}
+	return count
+}
 
-	frs := make([]resources.FlavorResource, 0, flavorResourceCount)
+func flavorResources(r resourceGroupNode) []resources.FlavorResource {
+	frs := make([]resources.FlavorResource, 0, flavorResourceCount(r.resourceGroups()))
 	for _, rg := range r.resourceGroups() {
 		for _, f := range rg.Flavors {
 			for r := range rg.CoveredResources {

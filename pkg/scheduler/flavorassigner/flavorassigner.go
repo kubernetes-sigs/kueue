@@ -429,7 +429,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			resQuota := a.cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
 			// Check considering the flavor usage by previous pod sets.
 			fr := resources.FlavorResource{Flavor: fName, Resource: rName}
-			mode, borrow, s := a.fitsResourceQuota(fName, rName, val+assignmentUsage[fr], resQuota)
+			mode, borrow, s := a.fitsResourceQuota(fr, val+assignmentUsage[fr], resQuota)
 			if s != nil {
 				status.reasons = append(status.reasons, s.reasons...)
 			}
@@ -557,10 +557,10 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // if borrowing is required when preempting.
 // If the flavor doesn't satisfy limits immediately (when waiting or preemption
 // could help), it returns a Status with reasons.
-func (a *FlavorAssigner) fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.ResourceName, val int64, rQuota *cache.ResourceQuota) (FlavorAssignmentMode, bool, *Status) {
+func (a *FlavorAssigner) fitsResourceQuota(fr resources.FlavorResource, val int64, rQuota *cache.ResourceQuota) (FlavorAssignmentMode, bool, *Status) {
 	var status Status
 	var borrow bool
-	used := a.cq.Usage[fName][rName]
+	used := a.cq.Usage[fr]
 	mode := NoFit
 	if val <= rQuota.Nominal {
 		// The request can be satisfied by the nominal quota, assuming quota is
@@ -570,7 +570,7 @@ func (a *FlavorAssigner) fitsResourceQuota(fName kueue.ResourceFlavorReference, 
 	}
 	cohortAvailable := rQuota.Nominal
 	if a.cq.Cohort != nil {
-		cohortAvailable = a.cq.RequestableCohortQuota(fName, rName)
+		cohortAvailable = a.cq.RequestableCohortQuota(fr)
 	}
 
 	if a.canPreemptWhileBorrowing() {
@@ -582,13 +582,13 @@ func (a *FlavorAssigner) fitsResourceQuota(fName kueue.ResourceFlavorReference, 
 		}
 	}
 	if rQuota.BorrowingLimit != nil && used+val > rQuota.Nominal+*rQuota.BorrowingLimit {
-		status.append(fmt.Sprintf("borrowing limit for %s in flavor %s exceeded", rName, fName))
+		status.append(fmt.Sprintf("borrowing limit for %s in flavor %s exceeded", fr.Resource, fr.Flavor))
 		return mode, borrow, &status
 	}
 
 	cohortUsed := used
 	if a.cq.Cohort != nil {
-		cohortUsed = a.cq.UsedCohortQuota(fName, rName)
+		cohortUsed = a.cq.UsedCohortQuota(fr)
 	}
 
 	lack := cohortUsed + val - cohortAvailable
@@ -596,13 +596,13 @@ func (a *FlavorAssigner) fitsResourceQuota(fName kueue.ResourceFlavorReference, 
 		return Fit, used+val > rQuota.Nominal, nil
 	}
 
-	lackQuantity := resources.ResourceQuantity(rName, lack)
-	msg := fmt.Sprintf("insufficient unused quota in cohort for %s in flavor %s, %s more needed", rName, fName, &lackQuantity)
+	lackQuantity := resources.ResourceQuantity(fr.Resource, lack)
+	msg := fmt.Sprintf("insufficient unused quota in cohort for %s in flavor %s, %s more needed", fr.Resource, fr.Flavor, &lackQuantity)
 	if a.cq.Cohort == nil {
 		if mode == NoFit {
-			msg = fmt.Sprintf("insufficient quota for %s in flavor %s in ClusterQueue", rName, fName)
+			msg = fmt.Sprintf("insufficient quota for %s in flavor %s in ClusterQueue", fr.Resource, fr.Flavor)
 		} else {
-			msg = fmt.Sprintf("insufficient unused quota for %s in flavor %s, %s more needed", rName, fName, &lackQuantity)
+			msg = fmt.Sprintf("insufficient unused quota for %s in flavor %s, %s more needed", fr.Resource, fr.Flavor, &lackQuantity)
 		}
 	}
 	status.append(msg)

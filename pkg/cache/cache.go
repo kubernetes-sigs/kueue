@@ -343,8 +343,8 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
 			//TODO: rename this to better distinguish between reserved and in use quantities
-			usage:         make(resources.FlavorResourceQuantities),
-			admittedUsage: make(resources.FlavorResourceQuantities),
+			usage:         make(resources.FlavorResourceQuantitiesFlat),
+			admittedUsage: make(resources.FlavorResourceQuantitiesFlat),
 		}
 		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage); err != nil {
 			return err
@@ -615,18 +615,18 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	return stats, nil
 }
 
-func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue, cohort *cohort) []kueue.FlavorUsage {
+func getUsage(frq resources.FlavorResourceQuantitiesFlat, cq *clusterQueue, cohort *cohort) []kueue.FlavorUsage {
 	usage := make([]kueue.FlavorUsage, 0, len(frq))
 	for _, rg := range cq.ResourceGroups {
 		for _, fName := range rg.Flavors {
-			flvUsage := frq[fName]
 			outFlvUsage := kueue.FlavorUsage{
 				Name:      fName,
 				Resources: make([]kueue.ResourceUsage, 0, len(rg.CoveredResources)),
 			}
 			for rName := range rg.CoveredResources {
-				rQuota := cq.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
-				used := flvUsage[rName]
+				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
+				rQuota := cq.QuotaFor(fr)
+				used := frq[fr]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
 					Total: resources.ResourceQuantity(rName, used),
@@ -678,19 +678,19 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	}, nil
 }
 
-func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
+func filterLocalQueueUsage(orig resources.FlavorResourceQuantitiesFlat, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
 	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
 	for _, rg := range resourceGroups {
 		for _, fName := range rg.Flavors {
-			flvUsage := orig[fName]
 			outFlvUsage := kueue.LocalQueueFlavorUsage{
 				Name:      fName,
 				Resources: make([]kueue.LocalQueueResourceUsage, 0, len(rg.CoveredResources)),
 			}
 			for rName := range rg.CoveredResources {
+				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
-					Total: resources.ResourceQuantity(rName, flvUsage[rName]),
+					Total: resources.ResourceQuantity(rName, orig[fr]),
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.

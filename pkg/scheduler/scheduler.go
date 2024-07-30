@@ -434,10 +434,10 @@ func resourcesToReserve(e *entry, cq *cache.ClusterQueueSnapshot) resources.Flav
 			if cqQuota.BorrowingLimit == nil {
 				reservedUsage[fr] = usage
 			} else {
-				reservedUsage[fr] = min(usage, cqQuota.Nominal+*cqQuota.BorrowingLimit-cq.Usage.For(fr))
+				reservedUsage[fr] = min(usage, cqQuota.Nominal+*cqQuota.BorrowingLimit-cq.Usage[fr])
 			}
 		} else {
-			reservedUsage[fr] = max(0, min(usage, cqQuota.Nominal-cq.Usage.For(fr)))
+			reservedUsage[fr] = max(0, min(usage, cqQuota.Nominal-cq.Usage[fr]))
 		}
 	}
 	return reservedUsage

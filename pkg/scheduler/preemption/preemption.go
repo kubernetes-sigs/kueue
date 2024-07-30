@@ -577,7 +577,7 @@ func workloadFits(wlReq resources.FlavorResourceQuantitiesFlat, cq *cache.Cluste
 
 func queueUnderNominalInResourcesNeedingPreemption(resPerFlv resourcesPerFlavor, cq *cache.ClusterQueueSnapshot) bool {
 	for fr := range resPerFlv {
-		if cq.Usage.For(fr) >= cq.QuotaFor(fr).Nominal {
+		if cq.Usage[fr] >= cq.QuotaFor(fr).Nominal {
 			return false
 		}
 	}
