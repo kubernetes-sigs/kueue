@@ -23,7 +23,6 @@ export JOBSET_MANIFEST=https://github.com/kubernetes-sigs/jobset/releases/downlo
 export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
 export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 
-export KUBEFLOW_VERSION=v1.7.0
 export KUBEFLOW_MANIFEST=https://github.com/kubeflow/training-operator/manifests/overlays/standalone?ref=${KUBEFLOW_VERSION}
 #no matching semver tag unfortunately
 export KUBEFLOW_IMAGE=kubeflow/training-operator:v1-855e096

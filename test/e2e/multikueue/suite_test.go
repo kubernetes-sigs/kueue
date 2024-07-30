@@ -213,7 +213,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue1", worker1Kconfig)).To(gomega.Succeed())
 
-	worker2Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, "kueue-system", "mksa", worker1ClusterName)
+	worker2Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, "kueue-system", "mksa", worker2ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue2", worker2Kconfig)).To(gomega.Succeed())
 

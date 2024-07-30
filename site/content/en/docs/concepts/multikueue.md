@@ -68,6 +68,12 @@ The `managedBy` field is available as an Alpha feature staring Kubernetes 1.30.0
 
 We recommend using JobSet v0.5.1 or newer.
 
+### Kubeflow
+
+The supported version of the Kubeflow Training Operator is v1.7.0. 
+The Management cluster should only install the CRDs and not the package itself. 
+On the other hand, the Worker cluster should install the full kubeflow operator.
+
 ## Submitting Jobs
 In a [configured MultiKueue environment](/docs/tasks/manage/setup_multikueue), you can submit any MultiKueue supported job to the Manager cluster, targeting a ClusterQueue configured for Multikueue.
 Kueue delegates the job to the configured worker clusters without any additional configuration changes.

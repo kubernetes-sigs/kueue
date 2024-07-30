@@ -24,6 +24,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/utils/ptr"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -372,27 +374,18 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(managerLq.Name).
 				TFReplicaSpecs(
 					testingtfjob.TFReplicaSpecRequirement{
-						ReplicaType:  kftraining.TFJobReplicaTypeChief,
-						ReplicaCount: 1,
-						Annotations: map[string]string{
-							"sidecar.istio.io/inject": "false",
-						},
+						ReplicaType:   kftraining.TFJobReplicaTypeChief,
+						ReplicaCount:  1,
 						RestartPolicy: "OnFailure",
 					},
 					testingtfjob.TFReplicaSpecRequirement{
-						ReplicaType:  kftraining.TFJobReplicaTypePS,
-						ReplicaCount: 1,
-						Annotations: map[string]string{
-							"sidecar.istio.io/inject": "false",
-						},
+						ReplicaType:   kftraining.TFJobReplicaTypePS,
+						ReplicaCount:  1,
 						RestartPolicy: "Never",
 					},
 					testingtfjob.TFReplicaSpecRequirement{
-						ReplicaType:  kftraining.TFJobReplicaTypeWorker,
-						ReplicaCount: 2,
-						Annotations: map[string]string{
-							"sidecar.istio.io/inject": "false",
-						},
+						ReplicaType:   kftraining.TFJobReplicaTypeWorker,
+						ReplicaCount:  1,
 						RestartPolicy: "OnFailure",
 					},
 				).
@@ -402,29 +395,29 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceMemory, "200M").
 				Request(kftraining.TFJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				Request(kftraining.TFJobReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Image(kftraining.TFJobReplicaTypeChief, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).
-				Image(kftraining.TFJobReplicaTypePS, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).
-				Image(kftraining.TFJobReplicaTypeWorker, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).
+				Image(kftraining.TFJobReplicaTypeChief, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(kftraining.TFJobReplicaTypePS, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(kftraining.TFJobReplicaTypeWorker, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Obj()
 
 			ginkgo.By("Creating the TfJob", func() {
 				gomega.Expect(k8sManagerClient.Create(ctx, tfJob)).Should(gomega.Succeed())
 			})
 
-			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadtfjob.GetWorkloadNameForTFJob(tfJob.Name, tfJob.UID), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
 			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionTrue,
 						Reason:  "Admitted",
 						Message: "The workload is admitted",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
-					g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+					g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
 						Name:    multiKueueAc.Name,
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
@@ -432,38 +425,24 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Waiting for the TfJob to get status updates", func() {
+			ginkgo.By("Waiting for the TfJob to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdTfJob := &kftraining.TFJob{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(tfJob), createdTfJob)).To(gomega.Succeed())
-					g.Expect(createdTfJob.Status.ReplicaStatuses).To(gomega.BeComparableTo(
-						map[kftraining.ReplicaType]*kftraining.ReplicaStatus{
-							kftraining.TFJobReplicaTypeChief: {
-								Active:    1,
-								Succeeded: 0,
-							},
-							kftraining.TFJobReplicaTypePS: {
-								Active:    1,
-								Succeeded: 0,
-							},
-							kftraining.TFJobReplicaTypeWorker: {
-								Active:    2,
-								Succeeded: 0,
-							},
+					g.Expect(createdTfJob.Status.ReplicaStatuses[kftraining.TFJobReplicaTypeChief]).To(gomega.BeComparableTo(
+						&kftraining.ReplicaStatus{
+							Active:    0,
+							Succeeded: 1,
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
 
-			ginkgo.By("Waiting for the TfJob to finish", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-
-					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadFinishedReasonSucceeded,
-						Message: fmt.Sprintf("TFJob %s/%s successfully completed.", createdLeaderWorkload.Namespace, tfJob.Name),
+						Message: fmt.Sprintf("TFJob %s/%s successfully completed.", createdWorkload.Namespace, tfJob.Name),
 					}, util.IgnoreConditionTimestampsAndObservedGeneration))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
