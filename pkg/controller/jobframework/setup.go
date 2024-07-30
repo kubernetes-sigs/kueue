@@ -21,12 +21,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -34,10 +34,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 )
 
+type fetchRestMapperFunc func(mgr ctrl.Manager, gvk schema.GroupVersionKind) (bool, error)
+
+const (
+	baseBackoffWaitForIntegration = 1 * time.Second
+	maxBackoffWaitForIntegration  = 2 * time.Minute
+)
+
 var (
 	errFailedMappingResource = errors.New("restMapper failed mapping resource")
-	// restMapperMutex is required for unit tests to lock the RESTMapper on update.
-	restMapperMutex sync.RWMutex
 )
 
 // SetupControllers setups all controllers and webhooks for integrations.
@@ -49,11 +54,11 @@ var (
 // this function needs to be called after the certs get ready because the controllers won't work
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
-func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, retryInterval time.Duration, opts ...Option) error {
-	return manager.setupControllers(ctx, mgr, log, retryInterval, opts...)
+func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+	return manager.setupControllers(ctx, mgr, log, opts...)
 }
 
-func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, retryInterval time.Duration, opts ...Option) error {
+func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
 	if err := m.checkEnabledListDependencies(options.EnabledFrameworks); err != nil {
@@ -85,7 +90,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 					return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 				}
 				logger.Info("No matching API in the server for job framework, skipped setup of controller and webhook")
-				go waitForAPI(ctx, mgr, log, gvk, retryInterval, func() {
+				go waitForAPI(ctx, mgr, defaultCheckAPIAvailable, log, gvk, func() {
 					log.Info(fmt.Sprintf("API now available, starting controller and webhook for %v", gvk))
 					if err := m.setupControllerAndWebhook(mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 						log.Error(err, "Failed to setup controller and webhook for job framework")
@@ -119,35 +124,43 @@ func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name st
 	return nil
 }
 
-func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, retryInterval time.Duration, action func()) {
-	ticker := time.NewTicker(retryInterval)
-	defer ticker.Stop()
+func waitForAPI(ctx context.Context, mgr ctrl.Manager, checkAPIAvailable fetchRestMapperFunc, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
+	rateLimiter := workqueue.NewItemExponentialFailureRateLimiter(baseBackoffWaitForIntegration, maxBackoffWaitForIntegration)
+	item := gvk.String()
+
 	for {
-		_, err := getRESTMapping(mgr, gvk)
-		if err == nil {
+		isAvailable, err := checkAPIAvailable(mgr, gvk)
+		if isAvailable {
+			rateLimiter.Forget(item)
 			action()
 			return
 		}
-		if !meta.IsNoMatchError(err) {
+		if err != nil && !meta.IsNoMatchError(err) {
 			log.Error(err, "Failed to get REST mapping for gvk", "gvk", gvk)
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-time.After(rateLimiter.When(item)):
 			continue
 		}
 	}
 }
 
 func getRESTMapping(mgr ctrl.Manager, gvk schema.GroupVersionKind) (*meta.RESTMapping, error) {
-	restMapperMutex.RLock()
-	defer restMapperMutex.RUnlock()
 	restMapping, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get REST mapping for %v: %w", gvk, err)
 	}
 	return restMapping, nil
+}
+
+var defaultCheckAPIAvailable fetchRestMapperFunc = func(mgr ctrl.Manager, gvk schema.GroupVersionKind) (bool, error) {
+	_, err := getRESTMapping(mgr, gvk)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // SetupIndexes setups the indexers for integrations.
