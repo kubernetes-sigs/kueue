@@ -28,6 +28,7 @@ import (
 	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type listInteractivePrinter struct {
@@ -49,6 +50,7 @@ func (p *listInteractivePrinter) PrintObj(obj runtime.Object, out io.Writer) err
 		ColumnDefinitions: []metav1.TableColumnDefinition{
 			{Name: "Name", Type: "string", Format: "name"},
 			{Name: "Profile", Type: "string"},
+			{Name: "Local Queue", Type: "string"},
 			{Name: "Status", Type: "string"},
 			{Name: "Age", Type: "string"},
 		},
@@ -95,6 +97,7 @@ func (p *listInteractivePrinter) printPod(pod *corev1.Pod) metav1.TableRow {
 	row.Cells = []any{
 		pod.Name,
 		pod.ObjectMeta.Labels[constants.ProfileLabel],
+		pod.ObjectMeta.Labels[kueueconstants.QueueLabel],
 		pod.Status.Phase,
 		duration.HumanDuration(p.clock.Since(pod.CreationTimestamp.Time)),
 	}

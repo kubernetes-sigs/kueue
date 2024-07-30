@@ -52,18 +52,20 @@ func TestInteractiveCmd(t *testing.T) {
 			objs: []runtime.Object{
 				wrappers.MakePod("i1", "ns1").
 					Profile("profile1").
+					LocalQueue("lq1").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 				wrappers.MakePod("j2", "ns2").
+					LocalQueue("lq2").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 			},
-			wantOut: `NAME   PROFILE    STATUS      AGE
-i1     profile1   Succeeded   60m
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   STATUS      AGE
+i1     profile1   lq1           Succeeded   60m
 `,
 		},
 		"should print interactive list with namespace filter": {
@@ -71,19 +73,21 @@ i1     profile1   Succeeded   60m
 			objs: []runtime.Object{
 				wrappers.MakePod("i1", "ns1").
 					Profile("profile1").
+					LocalQueue("lq1").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 				wrappers.MakePod("j2", "ns2").
 					Profile("profile2").
+					LocalQueue("lq2").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 			},
-			wantOut: `NAME   PROFILE    STATUS      AGE
-i1     profile1   Succeeded   60m
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   STATUS      AGE
+i1     profile1   lq1           Succeeded   60m
 `,
 		},
 		"should print interactive list with profile filter": {
@@ -91,19 +95,21 @@ i1     profile1   Succeeded   60m
 			objs: []runtime.Object{
 				wrappers.MakePod("i1", metav1.NamespaceDefault).
 					Profile("profile1").
+					LocalQueue("lq1").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 				wrappers.MakePod("i2", metav1.NamespaceDefault).
 					Profile("profile2").
+					LocalQueue("lq2").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 			},
-			wantOut: `NAME   PROFILE    STATUS      AGE
-i1     profile1   Succeeded   60m
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   STATUS      AGE
+i1     profile1   lq1           Succeeded   60m
 `,
 		},
 		"should print interactive list with profile filter (short flag)": {
@@ -111,63 +117,65 @@ i1     profile1   Succeeded   60m
 			objs: []runtime.Object{
 				wrappers.MakePod("i1", metav1.NamespaceDefault).
 					Profile("profile1").
+					LocalQueue("lq1").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 				wrappers.MakePod("i2", metav1.NamespaceDefault).
 					Profile("profile2").
+					LocalQueue("lq2").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 			},
-			wantOut: `NAME   PROFILE    STATUS      AGE
-i1     profile1   Succeeded   60m
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   STATUS      AGE
+i1     profile1   lq1           Succeeded   60m
 `,
 		},
 		"should print interactive list with localqueue filter": {
-			args: []string{"--localqueue", "localqueue1"},
+			args: []string{"--localqueue", "lq1"},
 			objs: []runtime.Object{
 				wrappers.MakePod("i1", metav1.NamespaceDefault).
 					Profile("profile1").
-					LocalQueue("localqueue1").
+					LocalQueue("lq1").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 				wrappers.MakePod("i2", metav1.NamespaceDefault).
 					Profile("profile1").
-					LocalQueue("localqueue2").
+					LocalQueue("lq2").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 			},
-			wantOut: `NAME   PROFILE    STATUS      AGE
-i1     profile1   Succeeded   60m
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   STATUS      AGE
+i1     profile1   lq1           Succeeded   60m
 `,
 		},
 		"should print interactive list with localqueue filter (short flag)": {
-			args: []string{"-q", "localqueue1"},
+			args: []string{"-q", "lq1"},
 			objs: []runtime.Object{
 				wrappers.MakePod("i1", metav1.NamespaceDefault).
 					Profile("profile1").
-					LocalQueue("localqueue1").
+					LocalQueue("lq1").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 				wrappers.MakePod("i2", metav1.NamespaceDefault).
 					Profile("profile1").
-					LocalQueue("localqueue2").
+					LocalQueue("lq2").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 			},
-			wantOut: `NAME   PROFILE    STATUS      AGE
-i1     profile1   Succeeded   60m
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   STATUS      AGE
+i1     profile1   lq1           Succeeded   60m
 `,
 		},
 		"should print interactive list with label selector filter": {
@@ -175,6 +183,7 @@ i1     profile1   Succeeded   60m
 			objs: []runtime.Object{
 				wrappers.MakePod("i1", metav1.NamespaceDefault).
 					Profile("profile1").
+					LocalQueue("lq1").
 					Label("foo", "bar").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
@@ -182,13 +191,14 @@ i1     profile1   Succeeded   60m
 					Obj(),
 				wrappers.MakePod("i2", metav1.NamespaceDefault).
 					Profile("profile2").
+					LocalQueue("lq2").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 			},
-			wantOut: `NAME   PROFILE    STATUS      AGE
-i1     profile1   Succeeded   60m
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   STATUS      AGE
+i1     profile1   lq1           Succeeded   60m
 `,
 		},
 		"should print interactive list with label selector filter (short flag)": {
@@ -196,6 +206,7 @@ i1     profile1   Succeeded   60m
 			objs: []runtime.Object{
 				wrappers.MakePod("i1", metav1.NamespaceDefault).
 					Profile("profile1").
+					LocalQueue("lq1").
 					Label("foo", "bar").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
@@ -203,13 +214,14 @@ i1     profile1   Succeeded   60m
 					Obj(),
 				wrappers.MakePod("i2", metav1.NamespaceDefault).
 					Profile("profile2").
+					LocalQueue("lq2").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 			},
-			wantOut: `NAME   PROFILE    STATUS      AGE
-i1     profile1   Succeeded   60m
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   STATUS      AGE
+i1     profile1   lq1           Succeeded   60m
 `,
 		},
 		"should print interactive list with field selector filter": {
@@ -217,19 +229,21 @@ i1     profile1   Succeeded   60m
 			objs: []runtime.Object{
 				wrappers.MakePod("i1", metav1.NamespaceDefault).
 					Profile("profile1").
+					LocalQueue("lq1").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 				wrappers.MakePod("i2", metav1.NamespaceDefault).
 					Profile("profile2").
+					LocalQueue("lq2").
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Phase(corev1.PodSucceeded).
 					Obj(),
 			},
-			wantOut: `NAME   PROFILE    STATUS      AGE
-i1     profile1   Succeeded   60m
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   STATUS      AGE
+i1     profile1   lq1           Succeeded   60m
 `,
 		},
 		"should print not found error": {
