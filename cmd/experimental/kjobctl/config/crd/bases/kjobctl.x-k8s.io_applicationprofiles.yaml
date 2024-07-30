@@ -72,6 +72,7 @@ spec:
                         - request
                         - localqueue
                         type: string
+                      maxItems: 8
                       type: array
                       x-kubernetes-list-type: set
                     template:
@@ -88,6 +89,24 @@ spec:
                   - name
                   - template
                   type: object
+                  x-kubernetes-validations:
+                  - message: replicas flag can be used only on RayJob mode
+                    rule: '!has(self.requiredFlags) || self.name == ''RayJob'' ||
+                      (self.name == ''Interactive'' || self.name == ''Job'') && !(''replicas''
+                      in self.requiredFlags)'
+                  - message: min-replicas flag can be used only on RayJob mode
+                    rule: '!has(self.requiredFlags) || self.name == ''RayJob'' ||
+                      (self.name == ''Interactive'' || self.name == ''Job'') && !(''min-replicas''
+                      in self.requiredFlags)'
+                  - message: max-replicas flag can be used only on RayJob mode
+                    rule: '!has(self.requiredFlags) || self.name == ''RayJob'' ||
+                      (self.name == ''Interactive'' || self.name == ''Job'') && !(''max-replicas''
+                      in self.requiredFlags)'
+                  - message: request flag can be used only on Job and Interactive
+                      modes
+                    rule: '!has(self.requiredFlags) || (self.name == ''Interactive''
+                      || self.name == ''Job'') || self.name == ''RayJob'' && !(''request''
+                      in self.requiredFlags)'
                 type: array
                 x-kubernetes-list-map-keys:
                 - name

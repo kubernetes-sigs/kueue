@@ -54,6 +54,10 @@ const (
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type TemplateReference string
 
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job') && !('replicas' in self.requiredFlags)", message="replicas flag can be used only on RayJob mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job') && !('min-replicas' in self.requiredFlags)", message="min-replicas flag can be used only on RayJob mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job') && !('max-replicas' in self.requiredFlags)", message="max-replicas flag can be used only on RayJob mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || (self.name == 'Interactive' || self.name == 'Job') || self.name == 'RayJob' && !('request' in self.requiredFlags)", message="request flag can be used only on Job and Interactive modes"
 type SupportedMode struct {
 	// name determines which template will be used and which object will eventually be created.
 	// Possible values are Interactive, Job and RayJob.
@@ -80,6 +84,7 @@ type SupportedMode struct {
 	//
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MaxItems=8
 	RequiredFlags []Flag `json:"requiredFlags,omitempty"`
 }
 
