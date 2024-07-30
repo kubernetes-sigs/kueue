@@ -34,13 +34,16 @@ const (
 	RayJobMode      ApplicationProfileMode = "RayJob"
 )
 
-// +kubebuilder:validation:Enum=cmd;parallelism;completions;request;localqueue
+// +kubebuilder:validation:Enum=cmd;parallelism;completions;replicas;min-replicas;max-replicas;request;localqueue
 type Flag string
 
 const (
 	CmdFlag         Flag = "cmd"
 	ParallelismFlag Flag = "parallelism"
 	CompletionsFlag Flag = "completions"
+	ReplicasFlag    Flag = "replicas"
+	MinReplicasFlag Flag = "min-replicas"
+	MaxReplicasFlag Flag = "max-replicas"
 	RequestFlag     Flag = "request"
 	LocalQueueFlag  Flag = "localqueue"
 )
@@ -69,7 +72,9 @@ type SupportedMode struct {
 	Template TemplateReference `json:"template"`
 
 	// requiredFlags point which cli flags are required to be passed in order to fill the gaps in the templates.
-	// Possible values are cmd, parallelism, completions, request, localqueue.
+	// Possible values are cmd, parallelism, completions, replicas, min-replicas, max-replicas, request, localqueue.
+	// replicas, min-replicas and max-replicas flags used only for RayJob mode.
+	// request flag used only for Interactive and Job modes.
 	//
 	// cmd and requests values are going to be added only to the first primary container.
 	//

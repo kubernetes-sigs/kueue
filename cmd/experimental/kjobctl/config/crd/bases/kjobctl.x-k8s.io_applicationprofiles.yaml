@@ -55,7 +55,9 @@ spec:
                     requiredFlags:
                       description: |-
                         requiredFlags point which cli flags are required to be passed in order to fill the gaps in the templates.
-                        Possible values are cmd, parallelism, completions, request, localqueue.
+                        Possible values are cmd, parallelism, completions, replicas, min-replicas, max-replicas, request, localqueue.
+                        replicas, min-replicas and max-replicas flags used only for RayJob mode.
+                        request flag used only for Interactive and Job modes.
 
 
                         cmd and requests values are going to be added only to the first primary container.
@@ -64,6 +66,9 @@ spec:
                         - cmd
                         - parallelism
                         - completions
+                        - replicas
+                        - min-replicas
+                        - max-replicas
                         - request
                         - localqueue
                         type: string

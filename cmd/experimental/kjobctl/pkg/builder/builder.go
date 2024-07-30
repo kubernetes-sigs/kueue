@@ -44,6 +44,9 @@ var (
 	noCommandSpecifiedErr                  = errors.New("no command specified")
 	noParallelismSpecifiedErr              = errors.New("no parallelism specified")
 	noCompletionsSpecifiedErr              = errors.New("no completions specified")
+	noReplicasSpecifiedErr                 = errors.New("no replicas specified")
+	noMinReplicasSpecifiedErr              = errors.New("no min-replicas specified")
+	noMaxReplicasSpecifiedErr              = errors.New("no max-replicas specified")
 	noRequestsSpecifiedErr                 = errors.New("no requests specified")
 	noLocalQueueSpecifiedErr               = errors.New("no local queue specified")
 )
@@ -201,6 +204,18 @@ func (b *Builder) validateFlags() error {
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.CompletionsFlag) && b.completions == nil {
 		return noCompletionsSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.ReplicasFlag) && b.replicas == nil {
+		return noReplicasSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MinReplicasFlag) && b.minReplicas == nil {
+		return noMinReplicasSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MaxReplicasFlag) && b.maxReplicas == nil {
+		return noMaxReplicasSpecifiedErr
 	}
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.RequestFlag) && b.requests == nil {

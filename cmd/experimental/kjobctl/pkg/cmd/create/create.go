@@ -77,9 +77,9 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	commandFlagName     = "cmd"
 	parallelismFlagName = "parallelism"
 	completionsFlagName = "completions"
-	replicasFlagName    = "replicas"
-	minReplicasFlagName = "min-replicas"
-	maxReplicasFlagName = "max-replicas"
+	replicasFlagName    = string(v1alpha1.ReplicasFlag)
+	minReplicasFlagName = string(v1alpha1.MinReplicasFlag)
+	maxReplicasFlagName = string(v1alpha1.MaxReplicasFlag)
 	requestFlagName     = "request"
 	localQueueFlagName  = "localqueue"
 	podRunningTimeout   = "pod-running-timeout"
