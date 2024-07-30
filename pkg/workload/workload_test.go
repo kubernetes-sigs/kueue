@@ -593,10 +593,10 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 func TestFlavorResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info
-		want resources.FlavorResourceQuantitiesFlat
+		want resources.FlavorResourceQuantities
 	}{
 		"nil": {
-			want: resources.FlavorResourceQuantitiesFlat{},
+			want: resources.FlavorResourceQuantities{},
 		},
 		"one podset, no flavors": {
 			info: &Info{
@@ -607,7 +607,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				}},
 			},
-			want: resources.FlavorResourceQuantitiesFlat{
+			want: resources.FlavorResourceQuantities{
 				{Flavor: "", Resource: "cpu"}:             1_000,
 				{Flavor: "", Resource: "example.com/gpu"}: 3,
 			},
@@ -625,7 +625,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				}},
 			},
-			want: resources.FlavorResourceQuantitiesFlat{
+			want: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "cpu"}:         1_000,
 				{Flavor: "gpu", Resource: "example.com/gpu"}: 3,
 			},
@@ -663,7 +663,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				},
 			},
-			want: resources.FlavorResourceQuantitiesFlat{
+			want: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "cpu"}:             3_000,
 				{Flavor: "default", Resource: "memory"}:          2 * utiltesting.Gi,
 				{Flavor: "model_a", Resource: "example.com/gpu"}: 3,
