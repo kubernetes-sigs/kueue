@@ -70,7 +70,7 @@ We recommend using JobSet v0.5.1 or newer.
 
 ### Kubeflow
 
-The supported version of the Kubeflow Training Operator is v1.7.0. 
+The supported version of the Kubeflow Training Operator is v1.7.0, or a newer version.
 The Management cluster should only install the CRDs and not the package itself. 
 On the other hand, the Worker cluster should install the full kubeflow operator.
 

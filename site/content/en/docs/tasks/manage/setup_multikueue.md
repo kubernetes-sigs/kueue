@@ -52,7 +52,7 @@ To create a Kubeconfig that can be used in the manager cluster to delegate Jobs 
 ### Kubeflow Installation
 
 Install Kubeflow Training-operator in the Worker cluster (see [Kubeflow Training-operator Installation](https://www.kubeflow.org/docs/components/training/installation/)
-for more details). Please use version v1.7.0 for MultiKueue.
+for more details). Please use version v1.7.0 or a newer version for MultiKueue.
 
 ## In the Manager Cluster
 
@@ -82,10 +82,10 @@ kubectl apply --server-side -f https://raw.githubusercontent.com/kubernetes-sigs
 ### Kubeflow Installation
 
 {{% alert title="Warning" color="warning" %}}
-Make sure to only install the Kubeflow TFJobs CRD of version v1.7.0 on the management cluster.
+Make sure to install only the Kubeflow TFJobs CRD of version v1.7.0 or newer on the management cluster.
 
 ```bash
-  kubectl apply --server-side -f https://github.com/kubeflow/training-operator/blob/v1.7.0/manifests/base/crds/kubeflow.org_tfjobs.yaml
+  kubectl apply --server-side -f https://github.com/kubeflow/training-operator/blob/v1.8.0/manifests/base/crds/kubeflow.org_tfjobs.yaml
 ```
 {{% /alert %}}
 
