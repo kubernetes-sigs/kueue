@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 List Job
 
 ```
-kjobctl list job [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]
+kjobctl list job [--profile PROFILE_NAME] [--localqueue LOCALQUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]
 ```
 
 
@@ -21,6 +21,9 @@ kjobctl list job [--selector key1=value1] [--field-selector key1=value1] [--all-
 ```
   # List Job
   kjobctl list job
+  
+  # List Job with profile filter
+  kjobctl list job --profile my-profile
 ```
 
 
@@ -67,6 +70,15 @@ kjobctl list job [--selector key1=value1] [--field-selector key1=value1] [--all-
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>help for job</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-q, --localqueue string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Filter by localqueue which is associated with the resource.</p>
         </td>
     </tr>
     <tr>

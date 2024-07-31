@@ -96,10 +96,10 @@ var _ = ginkgo.Describe("Kjobctl List", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                 PROFILE    COMPLETIONS   DURATION   AGE
-j1                   profile1   0/3                      %s
-j2                   profile1   0/3                      %s
-very-long-job-name   profile1   0/3                      %s
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                 PROFILE    LOCAL QUEUE   COMPLETIONS   DURATION   AGE
+j1                   profile1                 0/3                      %s
+j2                   profile1                 0/3                      %s
+very-long-job-name   profile1                 0/3                      %s
 `,
 				duration.HumanDuration(executeTime.Sub(j1.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(j2.CreationTimestamp.Time)),
