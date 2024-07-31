@@ -248,3 +248,9 @@ func (p *PodWrapper) Volume(v corev1.Volume) *PodWrapper {
 	p.Pod.Spec.Volumes = append(p.Pod.Spec.Volumes, v)
 	return p
 }
+
+// TerminationGracePeriod sets terminationGracePeriodSeconds for the pod object
+func (p *PodWrapper) TerminationGracePeriod(seconds int64) *PodWrapper {
+	p.Spec.TerminationGracePeriodSeconds = &seconds
+	return p
+}
