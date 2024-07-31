@@ -98,3 +98,9 @@ func (j *PodWrapper) Spec(spec corev1.PodSpec) *PodWrapper {
 	j.Pod.Spec = spec
 	return j
 }
+
+// Phase set pod status phase.
+func (j *PodWrapper) Phase(phase corev1.PodPhase) *PodWrapper {
+	j.Status.Phase = phase
+	return j
+}

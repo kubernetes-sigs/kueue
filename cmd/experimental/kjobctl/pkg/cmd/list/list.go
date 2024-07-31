@@ -38,6 +38,7 @@ func NewListCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStrea
 	}
 
 	cmd.AddCommand(NewJobCmd(clientGetter, streams, clock))
+	cmd.AddCommand(NewInteractiveCmd(clientGetter, streams, clock))
 
 	return cmd
 }
