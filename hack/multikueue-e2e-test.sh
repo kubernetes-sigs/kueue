@@ -78,6 +78,19 @@ function kind_load {
     install_jobset $MANAGER_KIND_CLUSTER_NAME
     install_jobset $WORKER1_KIND_CLUSTER_NAME
     install_jobset $WORKER2_KIND_CLUSTER_NAME
+
+    # KUBEFLOW SETUP
+    # MANAGER
+    # Only install the CRDs and not the controller to be able to
+    # have Kubeflow Jobs admitted without execution in the manager cluster.
+    kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
+    kubectl apply -k ${KUBEFLOW_CRDS}
+
+    # WORKERS
+    docker pull kubeflow/training-operator:v1-855e096
+    install_kubeflow $WORKER1_KIND_CLUSTER_NAME
+    install_kubeflow $WORKER2_KIND_CLUSTER_NAME
+    
     fi
 }
 

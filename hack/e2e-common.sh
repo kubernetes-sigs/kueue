@@ -23,6 +23,11 @@ export JOBSET_MANIFEST=https://github.com/kubernetes-sigs/jobset/releases/downlo
 export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
 export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 
+export KUBEFLOW_MANIFEST=https://github.com/kubeflow/training-operator/manifests/overlays/standalone?ref=${KUBEFLOW_VERSION}
+#no matching semver tag unfortunately
+export KUBEFLOW_IMAGE=kubeflow/training-operator:v1-855e096
+export KUBEFLOW_CRDS=${ROOT_DIR}/dep-crds/training-operator/
+
 # $1 - cluster name
 function cluster_cleanup {
 	kubectl config use-context kind-$1
@@ -65,6 +70,13 @@ function install_jobset {
     cluster_kind_load_image ${1} ${JOBSET_IMAGE}
     kubectl config use-context kind-${1}
     kubectl apply --server-side -f ${JOBSET_MANIFEST}
+}
+
+#$1 - cluster name
+function install_kubeflow {
+    cluster_kind_load_image ${1} ${KUBEFLOW_IMAGE}
+    kubectl config use-context kind-${1}
+    kubectl apply -k ${KUBEFLOW_MANIFEST}
 }
 
 export INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)

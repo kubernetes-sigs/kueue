@@ -49,6 +49,11 @@ chmod +x create-multikueue-kubeconfig.sh
 
 To create a Kubeconfig that can be used in the manager cluster to delegate Jobs in the current worker.
 
+### Kubeflow Installation
+
+Install Kubeflow Training-operator in the Worker cluster (see [Kubeflow Training-operator Installation](https://www.kubeflow.org/docs/components/training/installation/)
+for more details). Please use version v1.7.0 or a newer version for MultiKueue.
+
 ## In the Manager Cluster
 
 {{% alert title="Note" color="note" %}}
@@ -71,6 +76,16 @@ If you are using an older version of Kueue than 0.7.0, only install the JobSet
 CRD in the management cluster. You can do this by running:
 ```bash
 kubectl apply --server-side -f https://raw.githubusercontent.com/kubernetes-sigs/jobset/v0.5.1/config/components/crd/bases/jobset.x-k8s.io_jobsets.yaml
+```
+{{% /alert %}}
+
+### Kubeflow Installation
+
+{{% alert title="Warning" color="warning" %}}
+Make sure to install only the Kubeflow TFJobs CRD of version v1.7.0 or newer on the management cluster.
+
+```bash
+  kubectl apply --server-side -f https://github.com/kubeflow/training-operator/blob/v1.8.0/manifests/base/crds/kubeflow.org_tfjobs.yaml
 ```
 {{% /alert %}}
 

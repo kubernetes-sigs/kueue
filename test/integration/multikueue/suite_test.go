@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -88,7 +89,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	c.fwk = &framework.Framework{
 		CRDPath:               filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
 		WebhookPath:           filepath.Join("..", "..", "..", "config", "components", "webhook"),
-		DepCRDPaths:           []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator")},
+		DepCRDPaths:           []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator"), filepath.Join("..", "..", "..", "dep-crds", "training-operator")},
 		APIServerFeatureGates: apiFeatureGates,
 	}
 	c.cfg = c.fwk.Init()
@@ -134,6 +135,18 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadjobset.SetupJobSetWebhook(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadtfjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	tfjobReconciler := workloadtfjob.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = tfjobReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadtfjob.SetupTFJobWebhook(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

@@ -21,8 +21,10 @@ import (
 	"os/exec"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -30,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/utils/ptr"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -37,9 +40,11 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
+	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -362,6 +367,95 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Message: "jobset completed successfully",
 					},
 					util.IgnoreConditionTimestampsAndObservedGeneration)))
+			})
+		})
+		ginkgo.It("Should run a kubeflow TFJob on worker if admitted", func() {
+			tfJob := testingtfjob.MakeTFJob("tfjob1", managerNs.Name).
+				Queue(managerLq.Name).
+				TFReplicaSpecs(
+					testingtfjob.TFReplicaSpecRequirement{
+						ReplicaType:   kftraining.TFJobReplicaTypeChief,
+						ReplicaCount:  1,
+						RestartPolicy: "OnFailure",
+					},
+					testingtfjob.TFReplicaSpecRequirement{
+						ReplicaType:   kftraining.TFJobReplicaTypePS,
+						ReplicaCount:  1,
+						RestartPolicy: "Never",
+					},
+					testingtfjob.TFReplicaSpecRequirement{
+						ReplicaType:   kftraining.TFJobReplicaTypeWorker,
+						ReplicaCount:  1,
+						RestartPolicy: "OnFailure",
+					},
+				).
+				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceCPU, "0.5").
+				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceMemory, "200M").
+				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceCPU, "0.5").
+				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceMemory, "200M").
+				Request(kftraining.TFJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
+				Request(kftraining.TFJobReplicaTypeWorker, corev1.ResourceMemory, "100M").
+				Image(kftraining.TFJobReplicaTypeChief, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(kftraining.TFJobReplicaTypePS, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(kftraining.TFJobReplicaTypeWorker, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Obj()
+
+			ginkgo.By("Creating the TfJob", func() {
+				gomega.Expect(k8sManagerClient.Create(ctx, tfJob)).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadtfjob.GetWorkloadNameForTFJob(tfJob.Name, tfJob.UID), Namespace: managerNs.Name}
+
+			// the execution should be given to the worker
+			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+						Name:    multiKueueAc.Name,
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the TfJob to finish", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdTfJob := &kftraining.TFJob{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(tfJob), createdTfJob)).To(gomega.Succeed())
+					g.Expect(createdTfJob.Status.ReplicaStatuses[kftraining.TFJobReplicaTypeChief]).To(gomega.BeComparableTo(
+						&kftraining.ReplicaStatus{
+							Active:    0,
+							Succeeded: 1,
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration))
+
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: fmt.Sprintf("TFJob %s/%s successfully completed.", createdWorkload.Namespace, tfJob.Name),
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking no objects are left in the worker clusters and the TfJob is completed", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerWl := &kueue.Workload{}
+					g.Expect(k8sWorker1Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					workerTfJob := &kftraining.TFJob{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(tfJob), workerTfJob)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(tfJob), workerTfJob)).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
