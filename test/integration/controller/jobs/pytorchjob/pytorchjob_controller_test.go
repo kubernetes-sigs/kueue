@@ -80,7 +80,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 
 	ginkgo.It("Should reconcile PyTorchJobs", func() {
-		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).Obj())}
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).PyTorchReplicaSpecsDefault().Obj())}
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
 		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, []kftesting.PodSetsResource{
 			{
@@ -125,7 +125,9 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 
 	ginkgo.It("Should reconcile jobs only when queue is set", func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
-		job := testingpytorchjob.MakePyTorchJob(jobName, ns.Name).Obj()
+		job := testingpytorchjob.MakePyTorchJob(jobName, ns.Name).
+			PyTorchReplicaSpecsDefault().
+			Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 		createdJob := &kftraining.PyTorchJob{}
@@ -182,6 +184,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			createdJob := &kftraining.PyTorchJob{}
 			createdWorkload := &kueue.Workload{}
 			job := testingpytorchjob.MakePyTorchJob(jobName, ns.Name).
+				PyTorchReplicaSpecsDefault().
 				PodAnnotation(kftraining.PyTorchJobReplicaTypeWorker, "old-ann-key", "old-ann-value").
 				PodLabel(kftraining.PyTorchJobReplicaTypeWorker, "old-label-key", "old-label-value").
 				Queue(localQueue.Name).
@@ -359,7 +362,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec kftesting.PodsReadyTestSpec) {
-			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).Parallelism(2).Obj())}
+			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).PyTorchReplicaSpecsDefault().Parallelism(2).Obj())}
 			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
 
 			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
@@ -512,7 +515,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 
 		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(
-			testingpytorchjob.MakePyTorchJob(jobName, ns.Name).Queue(localQueue.Name).
+			testingpytorchjob.MakePyTorchJob(jobName, ns.Name).
+				PyTorchReplicaSpecsDefault().
+				Queue(localQueue.Name).
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "3").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "4").
 				Obj(),
@@ -534,7 +539,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	ginkgo.When("The workload's admission is removed", func() {
 		ginkgo.It("Should restore the original node selectors", func() {
 			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			job := testingpytorchjob.MakePyTorchJob(jobName, ns.Name).Queue(localQueue.Name).
+			job := testingpytorchjob.MakePyTorchJob(jobName, ns.Name).
+				PyTorchReplicaSpecsDefault().
+				Queue(localQueue.Name).
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "3").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "4").
 				Obj()

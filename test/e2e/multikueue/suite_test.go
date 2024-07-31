@@ -91,6 +91,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(kftraining.SchemeGroupVersion.Group, "tfjobs/status", "get"),
 			policyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs", resourceVerbs...),
 			policyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs/status", "get"),
+			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs", resourceVerbs...),
+			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
 		},
 	}
 	err := c.Create(ctx, cr)

@@ -42,6 +42,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
+	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -160,6 +161,18 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadpaddlejob.SetupPaddleJobWebhook(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadpytorchjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	pyTorchJobReconciler := workloadpytorchjob.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = pyTorchJobReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadpytorchjob.SetupPyTorchJobWebhook(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
