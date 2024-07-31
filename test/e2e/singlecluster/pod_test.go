@@ -191,6 +191,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			groupName := "group"
 			group := podtesting.MakePod(groupName, ns.Name).
 				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(3)
@@ -209,6 +210,14 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Wait for the pod to be running to allow fast termination by Kubelet", func() {
+				gomega.Eventually(func() corev1.PodPhase {
+					var p corev1.Pod
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
+					return p.Status.Phase
+				}, util.Timeout, util.Interval).Should(gomega.Equal(corev1.PodRunning))
 			})
 
 			ginkgo.By("Fail a pod", func() {
