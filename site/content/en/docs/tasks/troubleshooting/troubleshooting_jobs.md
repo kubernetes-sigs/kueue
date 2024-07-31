@@ -69,6 +69,38 @@ running the following command:
 kubectl describe workload -n my-namespace job-my-job-19797
 ```
 
+
+## What ResourceFlavors does my Job use?
+
+Once you [identified the Workload for you Job](/docs/tasks/troubleshooting/troubleshooting_jobs/#identifying-the-workload-for-your-job) run the following command to get all the details of your Workload:
+
+```sh
+kubectl describe workload -n my-namespace job-my-job-19797
+```
+
+The output should be similar to the following:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Workload
+...
+status:
+  admission:
+    clusterQueue: cluster-queue
+    podSetAssignments:
+    - count: 3
+      flavors:
+        cpu: default-flavor
+        memory: default-flavor
+      name: main
+      resourceUsage:
+        cpu: "3"
+        memory: 600Mi
+  ...
+```
+
+Now you can clearly see what `ResourceFlavors` your Job uses.
+
 ## Is my Job suspended?
 
 To know whether your Job is suspended, look for the value of the `.spec.suspend` field, by
@@ -107,17 +139,7 @@ apiVersion: kueue.x-k8s.io/v1beta1
 kind: Workload
 ...
 status:
-  admission:
-    clusterQueue: cluster-queue
-    podSetAssignments:
-    - count: 3
-      flavors:
-        cpu: default-flavor
-        memory: default-flavor
-      name: main
-      resourceUsage:
-        cpu: "3"
-        memory: 600Mi
+  ...
   conditions:
   - lastTransitionTime: "2024-03-19T20:49:17Z"
     message: Quota reserved in ClusterQueue cluster-queue
