@@ -31,6 +31,8 @@ const (
 	DefaultNamespace                                    = "kueue-system"
 	DefaultWebhookServiceName                           = "kueue-webhook-service"
 	DefaultWebhookSecretName                            = "kueue-webhook-server-cert"
+	DefaultMutatingWebhookConfigurationName             = "kueue-mutating-webhook-configuration"
+	DefaultValidatingWebhookConfigurationName           = "kueue-validating-webhook-configuration"
 	DefaultWebhookPort                                  = 9443
 	DefaultHealthProbeBindAddress                       = ":8081"
 	DefaultMetricsBindAddress                           = ":8080"
@@ -69,6 +71,12 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.Webhook.Port == nil {
 		cfg.Webhook.Port = ptr.To(DefaultWebhookPort)
+	}
+	if cfg.Webhook.MutatingWebhookConfigurationName == nil {
+		cfg.Webhook.MutatingWebhookConfigurationName = ptr.To(DefaultMutatingWebhookConfigurationName)
+	}
+	if cfg.Webhook.ValidatingWebhookConfigurationName == nil {
+		cfg.Webhook.ValidatingWebhookConfigurationName = ptr.To(DefaultValidatingWebhookConfigurationName)
 	}
 	if len(cfg.Metrics.BindAddress) == 0 {
 		cfg.Metrics.BindAddress = DefaultMetricsBindAddress
