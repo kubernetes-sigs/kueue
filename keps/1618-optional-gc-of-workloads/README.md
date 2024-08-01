@@ -1,4 +1,4 @@
-# KEP-NNNN: Your short, descriptive title
+# KEP-1618: Optional garbage collection of finished Workloads
 
 <!--
 This is the title of your KEP. Keep it short, simple, and descriptive. A good
@@ -59,7 +59,22 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-This KEP proposes a mechanism of optional garbage collection of finished Workloads.
+This KEP proposes a mechanism for garbage collection of finished Workloads in kueue. 
+Currently, kueue does not delete its own Kubernetes objects, leading to potential accumulation 
+and unnecessary resource consumption. The proposed solution involves adding a new 
+API section called `objectRetentionPolicies` to allow users to specify retention 
+policies for finished Workloads. This can be set to a specific duration or 
+disabled entirely to maintain backward compatibility.
+
+Benefits of implementing this KEP include the deletion of superfluous information, 
+decreased memory footprint for kueue, and freeing up etcd storage. The proposed changes 
+are designed to be explicitly enabled and configured by users, ensuring backward compatibility. 
+While the primary focus is on finished Workloads, the API section can be extended to include 
+other kueue-authored objects in the future. The implementation involves incorporating the 
+deletion logic into the reconciliation loop and includes considerations for 
+potential risks, such as handling a large number of existing finished Workloads. 
+Overall, this KEP aims to enhance kueue's resource management and provide users with 
+more control over object retention.
 
 ## Motivation
 
@@ -72,24 +87,24 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 [experience reports]: https://github.com/golang/go/wiki/ExperienceReports
 -->
 
-Currently, kueue doesn't delete its own K8s objects leaving it to K8s' GC to manage retention of 
-objects created by kueue such as Pods, Jobs, Workloads etc. We don't set any expiration on them so
-by default they are kept forever. Based on the usage pattern including
-amount of jobs created, their complexity and frequency over time those objects can accumulate which leads
-to unnecessary usage of etcd storage as well as gradual increase of kueue's memory footprint. Some of these objects,
-like finished Workloads don't contain any useful information which could be used for additional
-purposes like debugging. That's why based on user's feedback in [#1618](https://github.com/kubernetes-sigs/kueue/issues/1618)
-or [#1789](https://github.com/kubernetes-sigs/kueue/issues/1789) a mechanism of garabge collection
-of finished Workloads is being proposed.
+Currently, kueue does not delete its own Kubernetes objects, leaving it to Kubernetes' 
+garbage collector (GC) to manage the retention of objects created by kueue, such as Pods, Jobs, and Workloads. 
+We do not set any expiration on these objects, so by default, they are kept indefinitely. Based on usage patterns, 
+including the amount of jobs created, their complexity, and frequency over time, these objects can accumulate, 
+leading to unnecessary use of etcd storage and a gradual increase in kueue's memory footprint. Some of these objects, 
+like finished Workloads, do not contain any useful information that could be used for additional purposes, such as debugging. 
+That's why, based on user feedback in [#1618](https://github.com/kubernetes-sigs/kueue/issues/1618)
+or [#1789](https://github.com/kubernetes-sigs/kueue/issues/1789), a mechanism for garbage collection of finished Workloads 
+is being proposed.
 
-With the mechanism in place deleting finished Workloads has several benefits:
-- **deletion of superfluous information** - finished Workloads don't store any useful runtime related
-information (that's being stored by Jobs), they aren't useful for debugging, possibly could be used 
-for auditing purposes
-- **decreasing kueue memory footprint** - finished Workloads are being loaded during kueue's 
-initialization and kept in memory.
-- **freeing up etcd's storage** - finished Workloads are stored in etcd's memory until K8s builtin
-GC mechanism collects it but by default Custom Resources are being stored indefinitely.
+With this mechanism in place, deleting finished Workloads has several benefits:
+- **Deletion of superfluous information**: Finished Workloads do not store any useful runtime-related information 
+(which is stored by Jobs), nor are they useful for debugging. They could possibly be useful for auditing purposes, 
+but this is not a primary concern.
+- **Decreasing kueue memory footprint**: Finished Workloads are loaded during kueue's initialization and kept in memory, 
+consuming resources unnecessarily.
+- **Freeing up etcd storage**: Finished Workloads are stored in etcd memory until Kubernetes' built-in GC mechanism 
+collects them, but by default, Custom Resources are stored indefinitely.
 
 ### Goals
 
@@ -98,10 +113,10 @@ List the specific goals of the KEP. What is it trying to achieve? How will we
 know that this has succeeded?
 -->
 
-- support deletion of finished Workload objects
-- introduction of configuration of global retention policies for kueue authored 
-K8s objects starting with finished Workloads
-- maintain backward compatibility (the feature needs to be explicitly enabled and configured)
+- Support the deletion of finished Workload objects.
+- Introduce configuration of global retention policies for kueue-authored Kubernetes objects, 
+starting with finished Workloads.
+- Maintain backward compatibility (the feature must be explicitly enabled and configured).
 
 ### Non-Goals
 
@@ -110,9 +125,9 @@ What is out of scope for this KEP? Listing non-goals helps to focus discussion
 and make progress.
 -->
 
-- support deletion/expiration of any kueue authored K8s object
-- configuring retention policies (like `.spec.ttlSecondsAfterFinished`) attached per 
-K8s object
+- Support the deletion/expiration of any kueue-authored Kubernetes object other than finished Workloads.
+- Configure retention policies (like `.spec.ttlSecondsAfterFinished`) that are attached to 
+individual Kubernetes objects.
 
 ## Proposal
 
@@ -125,10 +140,10 @@ The "Design Details" section below is for the real
 nitty-gritty.
 -->
 
-Add a new section to the configuration called `objectRetentionPolicies`
-which will include a retention policy for finished Workloads under an option
-called `FinishedWorkloadRetention`. The section could be extended with
-options for other kueue authored objects.
+Add a new API called `objectRetentionPolicies`, 
+which will enable specifying a retention policy for finished Workloads under an option 
+called `FinishedWorkloadRetention`. This API section could be extended in the future 
+with options for other kueue-authored objects.
 
 
 ### User Stories
@@ -140,39 +155,46 @@ the system. The goal here is to make this feel real for users without getting
 bogged down.
 -->
 
-Based on how the retention policy is configured for finished Workloads there are
-multiple user stories being proposed below.
+Based on how the retention policy is configured for finished Workloads, 
+several user stories are proposed below.
 
 #### Story 0 - Retention policy for finished Workloads is misconfigured
 
-If the finished Workloads policy is not configured correctly (provided value is not a valid
-time.Duration) kueue will crash during config parsing.
+If the finished Workloads policy is not configured correctly 
+(the provided value is not a valid time.Duration), kueue will fail to start 
+during configuration parsing.
 
 #### Story 1 - Retention policy for finished Workloads is not configured (default)
 
 **This story ensures backward compatibility.**
-If the object retention policy section is not configured or finished Workloads retention 
-is either not configured or set to null Workload objects won't be deleted by kueue.
+
+If the object retention policy section is not configured, 
+or finished Workloads retention is either not configured or set to `null`, 
+Workload objects will not be deleted by kueue.
 
 #### Story 2 - Retention policy for finished Workloads is configured and set to a value > 0s
 
-If the object retention policy is configured to a value > 0s finished Workload retention policy
-will be evaluated against every completed Workload. The flow is follow:
-1. During kueue's initial run of the reconciliation loop all previously finished Workloads 
-will be evaluated against the Workload retention policy and they'll be either deleted immediately if they
-are already expired or they'll be requeued for reconciliation after their
-retention period has expired.
-2. During following runs of the reconciliation loop each Workload will be evaluated using
-the same approach as in 1. but during the subsequent run of the reconciliation loop
-after they were declared finished and based on the evaluation result against the retention policy
-they'll be either requeued for later reconciliation or deleted.
+If the object retention policy is configured to a value greater than 0 seconds, 
+the finished Workload retention policy will be evaluated against every 
+completed Workload. The flow is as follows:
+
+1. During kueue's initial reconciliation loop, all previously finished Workloads 
+will be evaluated against the Workload retention policy. They will either be 
+deleted immediately if they are already expired or requeued for reconciliation 
+after their retention period has expired.
+
+2. During subsequent reconciliation loops, each Workload will be evaluated 
+using the same approach as in step 1. However, the evaluation will occur 
+during the next reconciliation loop after the Workload was declared finished. 
+Based on the evaluation result against the retention policy, the Workload will 
+either be requeued for later reconciliation or deleted.
 
 #### Story 3 - Retention policy for finished Workloads is configured and set to 0s
 
-When the object retention policy is set to 0s finished workloads will be deleted
-during the first run of the reconciliation loop after they were declared finished.
+When the object retention policy is set to 0 seconds, finished Workloads will be 
+deleted immediately during the first reconciliation loop after they are declared finished.
 
-### Notes/Constraints/Caveats (Optional)
+### Notes/Constraints/Caveats
 
 <!--
 What are the caveats to the proposal?
@@ -181,22 +203,23 @@ Go in to as much detail as necessary here.
 This might be a good place to talk about core concepts and how they relate.
 -->
 
-- Initially other naming was considered for config keys namely instead of Objects 
-the word Resources was used but based on the feedback from @alculquicondor it was
-changed because of Resources bearing too many meanings in the context of kueue 
-(K8s resources, physical resources, etc.).
-- A different implementation was proposed initially. The deletion logic wasn't supposed
-to be part of the Reconcile function but rather it was supposed to have its own 
-handler/watcher pair. During implementation, it was challenging to implement it this way
-without substantial changes to the code. Also creating a watcher for completed Workloads
-proved to be very difficult and complex.
-- The deletion mechanism assumes that finished Workload objects don't have
-any finalizers attached to them. After an investigation from @mimowo the [exact place in
-code](https://github.com/kubernetes-sigs/kueue/blob/a128ae3354a56670ffa58695fef1eca270fe3a47/pkg/controller/jobframework/reconciler.go#L332-L340) 
-was found which removes the resource in use finalizer when the Workload state
-transitions to finished. If that behavior ever changes or if there's an external
-source of a finalizer being attached to the Workload it will be marked for deletion
-by the K8s client but it won't actually be deleted until the finalizer is removed.
+- Initially, other naming was considered for config keys. Namely, instead of "Objects," 
+the word "Resources" was used, but based on feedback from `@alculquicondor`, it was changed 
+because "Resources" bears too many meanings in the context of kueue 
+(Kubernetes resources, physical resources, etc.).
+- A different implementation was proposed initially. The deletion logic was not 
+supposed to be part of the `Reconcile` function but rather was supposed to have 
+its own handler/watcher pair. During implementation, this proved challenging 
+without substantial changes to the code. Also, creating a watcher for 
+completed Workloads proved to be very complex.
+- The deletion mechanism assumes that finished Workload objects do not have 
+any finalizers attached to them. After an investigation by `@mimowo`, 
+the [exact place in the code](https://github.com/kubernetes-sigs/kueue/blob/a128ae3354a56670ffa58695fef1eca270fe3a47/pkg/controller/jobframework/reconciler.go#L332-L340) 
+was found that removes the resource-in-use 
+finalizer when the Workload state transitions to finished. If that behavior ever 
+changes, or if there is an external source of a finalizer being attached 
+to the Workload, it will be marked for deletion by the Kubernetes client 
+but will not actually be deleted until the finalizer is removed.
 
 ### Risks and Mitigations
 
@@ -212,18 +235,17 @@ How will UX be reviewed, and by whom?
 Consider including folks who also work outside the SIG or subproject.
 -->
 
-- In clusters with a big number of existing finished Workloads (1000s, 10000s, ...) 
-it may take some time to delete all previously finished Workloads that qualify 
-for deletion. Since the reconciliation loop is effectively synchronous it may 
-impact reconciling new jobs. From the user's perspective it may seem like the kueue's
-initialization time is really long for that initial run until all expired objects
-are deleted. Unfortunately there's no good way of mitigating this
-without complicating the code. A potential improvement would be to have a special
-internal queue that deals with deletion outside of the reconciliation loop or 
-deleting expired objects in batches so that after a batch of deletions is 
-completed all expired objects that are left would be skipped over until the next run
-of the loop but it'd increase  its against the synchronous nature of the reconciliation loop.
-The author proposes to include it as part of the documentation 
+- **R**: In clusters with a large number of existing finished Workloads 
+(thousands, tens of thousands, etc.), it may take a significant amount of time
+to delete all previously finished Workloads that qualify for deletion. Since the 
+reconciliation loop is effectively synchronous, this may impact the reconciliation 
+of new jobs. From the user's perspective, it may seem like kueue's initialization 
+time is very long for that initial run until all expired objects are deleted.\
+**M**: Unfortunately, there is no easy way to mitigate this without complicating the code.
+A potential improvement would be to have a dedicated internal queue that handles deletion 
+outside the reconciliation loop, or to delete expired objects in batches so that after 
+a batch of deletions is completed, any remaining expired objects would be skipped until 
+the next run of the loop. However, this would go against the synchronous nature of the reconciliation loop.
 
 ## Design Details
 
@@ -233,6 +255,33 @@ change are understandable. This may include API specs (though not always
 required) or even code snippets. If there's any ambiguity about HOW your
 proposal will be implemented, this is the place to discuss them.
 -->
+
+
+### API
+```go
+// Configuration is the Schema for the kueueconfigurations API
+type Configuration struct {
+        //...
+
+	// ObjectRetentionPolicies provides configuration options for retention of kueue owned
+	// resources.
+	ObjectRetentionPolicies *ObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
+}
+
+//...
+
+type ObjectRetentionPolicies struct {
+// FinishedWorkloadRetention is the duration to retain finished Workloads.
+// A duration of 0 will delete finished Workloads immediately.
+// A nil value will disable automatic deletion.
+// The value is represented using the metav1.Duration format, allowing for flexible
+// specification of time units (e.g., "24h", "1h30m", "30s").
+//
+// Defaults to null.
+// +optional
+FinishedWorkloadRetention *metav1.Duration `json:"finishedWorkloadRetention"`
+}
+```
 
 ### Test Plan
 
@@ -281,8 +330,8 @@ This can inform certain test coverage improvements that we want to do before
 extending the production code to implement this enhancement.
 -->
 
-The following new unit tests or modifications to the existing ones were added 
-to test new functionality:
+The following new unit tests or modifications to existing ones were added to test 
+the new functionality:
 
 - `apis/config/v1beta1/defaults_test.go`
   - updated existing tests with `defaultObjectRetentionPolicies` which sets 
@@ -366,13 +415,13 @@ Major milestones might include:
 Why should this KEP _not_ be implemented?
 -->
 
-- Deleting things is tricky and GC behavior can often be surprising for users.
-Even though the mechanism proposed in this KEP is really simple and needs to be 
-explicitly enabled, it is a global mechanism applied at the controller level.
-The author made sure to introduce some observability in the controller itself
-(logging and emitting a deletion event) but K8s users and developers used to
-tracking K8s objects' lifecycle using per object attached policies might be
-surprised with this behavior.
+- Deleting objects is inherently complex, and garbage collection (GC) behavior can often be 
+surprising for end-users who did not configure the service themselves. Even though the 
+mechanism proposed in this KEP is relatively simple and must be explicitly enabled, 
+it is a global mechanism applied at the controller level. The author has added some 
+observability to the controller itself (logging and emitting deletion events), 
+but Kubernetes users and developers accustomed to tracking object lifecycles 
+using per-object policies might be surprised by this behavior.
 
 
 ## Alternatives
@@ -383,9 +432,9 @@ not need to be as detailed as the proposal, but should include enough
 information to express the idea and why it was not acceptable.
 -->
 
-- Leave the current state of things as is,
-- Implement attaching retention policies attached per object like (like `.spec.ttlSecondsAfterFinished`)
-instead of having global retention policies configured at kueue level
-but it'd complicate the implementation and add complexity to the feature itself
-e.g. during reconfiguration of an existing retention policy all existing K8s objects
-would need to be updated with the new policy.
+- Leave the current state of things as is, not implementing any garbage 
+collection mechanism for finished Workloads.
+- Implement retention policies attached per object (like `.spec.ttlSecondsAfterFinished`) instead of having 
+global retention policies configured at the kueue level. However, this would complicate the 
+implementation and add complexity to the feature itself. For example, during the reconfiguration 
+of an existing retention policy, all existing Kubernetes objects would need to be updated with the new policy.
