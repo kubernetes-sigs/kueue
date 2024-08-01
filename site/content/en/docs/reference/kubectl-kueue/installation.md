@@ -18,20 +18,18 @@ kubectl krew install kueue
 ### 1. Download the latest release:
 
 On Linux:
-```shell
-# For AMD64 / x86_64
-[ $(uname -m) = x86_64 ] && curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-amd64
-# For ARM64
-[ $(uname -m) = aarch64 ] && curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-arm64
-```
+
+{{< tabpane lang="shell" persist=disabled >}}
+{{< tab header="AMD64 / x86_64"  >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-amd64{{< /tab >}}
+{{< tab header="ARM64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-arm64{{< /tab >}}
+{{< /tabpane >}}
 
 On Mac:
-```shell
-# For Intel Macs
-[ $(uname -m) = x86_64 ] && curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-amd64
-# For M1 / ARM Macs
-[ $(uname -m) = arm64 ] && curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-arm64
-```
+
+{{< tabpane lang="shell" persist=disabled >}}
+{{< tab header="AMD64 / x86_64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-amd64{{< /tab >}}
+{{< tab header="ARM64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-arm64{{< /tab >}}
+{{< /tabpane >}}
 
 ### 2. Make the kubectl-kueue binary executable.
 
@@ -56,19 +54,19 @@ sudo mv ./bin/kubectl-kueue /usr/local/bin/kubectl-kueue
 
 Additionally, you can create an alias `kueuectl` to allow shorter syntax.
 
-```bash
-echo 'alias kueuectl="kubectl kueue"' >> ~/.bashrc
-# Or if you are using ZSH
-echo 'alias kueuectl="kubectl kueue"' >> ~/.zshrc
-```
+{{< tabpane lang=shell persist=disabled >}}
+{{< tab header="Bash" >}}echo 'alias kueuectl="kubectl kueue"' >> ~/.bashrc{{< /tab >}}
+{{< tab header="Zsh" >}}echo 'alias kueuectl="kubectl kueue"' >> ~/.zshrc{{< /tab >}}
+{{< /tabpane >}}
 
 ## Autocompletion
 
-```bash
-echo '[[ $commands[kubectl-kueue] ]] && source <(kubectl-kueue completion bash)' >> ~/.bashrc
-# Or if you are using ZSH
-echo '[[ $commands[kubectl-kueue] ]] && source <(kubectl-kueue completion zsh)' >> ~/.zshrc
+{{< tabpane lang=shell persist=disabled >}}
+{{< tab header="Bash" >}}echo '[[ $commands[kubectl-kueue] ]] && source <(kubectl-kueue completion bash)' >> ~/.bashrc{{< /tab >}}
+{{< tab header="Zsh" >}}echo '[[ $commands[kubectl-kueue] ]] && source <(kubectl-kueue completion zsh)' >> ~/.zshrc{{< /tab >}}
+{{< /tabpane >}}
 
+```bash
 cat <<EOF >kubectl_complete-kueue
 #!/usr/bin/env sh
 
