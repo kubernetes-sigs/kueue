@@ -5,9 +5,10 @@ authors:
 status: implementable
 creation-date: 2024-07-31
 reviewers:
+  - "@denkensk"
   - "@mimowo"
+  - "@PBundyra"
   - "@tenzen-y"
-  - "@trasc"
 approvers:
   - "@mimowo"
   - "@tenzen-y"
