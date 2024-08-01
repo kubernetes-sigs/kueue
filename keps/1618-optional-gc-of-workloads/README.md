@@ -162,7 +162,7 @@ several user stories are proposed below.
 #### Story 0 - Retention policy for finished Workloads is misconfigured
 
 If the finished Workloads policy is not configured correctly 
-(the provided value is not a valid time.Duration), kueue will fail to start 
+(the provided value is not a valid `time.Duration`), kueue will fail to start 
 during configuration parsing.
 
 #### Story 1 - Retention policy for finished Workloads is not configured (default)
@@ -262,25 +262,24 @@ proposal will be implemented, this is the place to discuss them.
 ```go
 // Configuration is the Schema for the kueueconfigurations API
 type Configuration struct {
-        //...
-
-	// ObjectRetentionPolicies provides configuration options for retention of kueue owned
-	// resources.
-	ObjectRetentionPolicies *ObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
+    //...
+    // ObjectRetentionPolicies provides configuration options for retention of kueue owned
+    // resources.
+    ObjectRetentionPolicies *ObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
 }
 
 //...
 
 type ObjectRetentionPolicies struct {
-// FinishedWorkloadRetention is the duration to retain finished Workloads.
-// A duration of 0 will delete finished Workloads immediately.
-// A nil value will disable automatic deletion.
-// The value is represented using the metav1.Duration format, allowing for flexible
-// specification of time units (e.g., "24h", "1h30m", "30s").
-//
-// Defaults to null.
-// +optional
-FinishedWorkloadRetention *metav1.Duration `json:"finishedWorkloadRetention"`
+    // FinishedWorkloadRetention is the duration to retain finished Workloads.
+    // A duration of 0 will delete finished Workloads immediately.
+    // A nil value will disable automatic deletion.
+    // The value is represented using the metav1.Duration format, allowing for flexible
+    // specification of time units (e.g., "24h", "1h30m", "30s").
+    //
+    // Defaults to null.
+    // +optional
+    FinishedWorkloadRetention *metav1.Duration `json:"finishedWorkloadRetention"`
 }
 ```
 
