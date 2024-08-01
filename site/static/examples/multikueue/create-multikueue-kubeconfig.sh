@@ -117,7 +117,7 @@ rules:
   - paddlejobs/status
   verbs:
   - get
-  - apiGroups:
+- apiGroups:
   - kubeflow.org
   resources:
   - pytorchjobs
@@ -131,6 +131,22 @@ rules:
   - kubeflow.org
   resources:
   - pytorchjobs/status
+  verbs:
+  - get
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - xgboostjobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - xgboostjobs/status
   verbs:
   - get
 ---

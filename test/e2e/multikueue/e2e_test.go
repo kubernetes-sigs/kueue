@@ -43,12 +43,14 @@ import (
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
+	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
+	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -626,6 +628,89 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					workerPyTorchJob := &kftraining.PyTorchJob{}
 					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(pyTorchJob), workerPyTorchJob)).To(utiltesting.BeNotFoundError())
 					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(pyTorchJob), workerPyTorchJob)).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should run a kubeflow XGBoostJob on worker if admitted", func() {
+			// Since it requires 1.5 CPU, this job can only be admitted in worker 1.
+			xgboostJob := testingxgboostjob.MakeXGBoostJob("xgboostjob1", managerNs.Name).
+				Queue(managerLq.Name).
+				XGBReplicaSpecs(
+					testingxgboostjob.XGBReplicaSpecRequirement{
+						ReplicaType:   kftraining.XGBoostJobReplicaTypeMaster,
+						ReplicaCount:  1,
+						RestartPolicy: "OnFailure",
+					},
+					testingxgboostjob.XGBReplicaSpecRequirement{
+						ReplicaType:   kftraining.XGBoostJobReplicaTypeWorker,
+						ReplicaCount:  1,
+						RestartPolicy: "OnFailure",
+					},
+				).
+				Request(kftraining.XGBoostJobReplicaTypeMaster, corev1.ResourceCPU, "1").
+				Request(kftraining.XGBoostJobReplicaTypeMaster, corev1.ResourceMemory, "200M").
+				Request(kftraining.XGBoostJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
+				Request(kftraining.XGBoostJobReplicaTypeWorker, corev1.ResourceMemory, "100M").
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0").
+				Args([]string{"1ms"}).
+				Obj()
+
+			ginkgo.By("Creating the XGBoostJob", func() {
+				gomega.Expect(k8sManagerClient.Create(ctx, xgboostJob)).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadxgboostjob.GetWorkloadNameForXGBoostJob(xgboostJob.Name, xgboostJob.UID), Namespace: managerNs.Name}
+
+			// the execution should be given to the worker
+			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+						Name:    multiKueueAc.Name,
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the XGBoostJob to finish", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdXGBoostJob := &kftraining.XGBoostJob{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(xgboostJob), createdXGBoostJob)).To(gomega.Succeed())
+					g.Expect(createdXGBoostJob.Status.ReplicaStatuses[kftraining.XGBoostJobReplicaTypeMaster]).To(gomega.BeComparableTo(
+						&kftraining.ReplicaStatus{
+							Active:    0,
+							Succeeded: 1,
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration))
+
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: fmt.Sprintf("XGBoostJob %s is successfully completed.", xgboostJob.Name),
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking no objects are left in the worker clusters and the XGBoostJob is completed", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerWl := &kueue.Workload{}
+					g.Expect(k8sWorker1Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					workerXGBoostJob := &kftraining.XGBoostJob{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(xgboostJob), workerXGBoostJob)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(xgboostJob), workerXGBoostJob)).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

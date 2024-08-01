@@ -253,8 +253,8 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job:     testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").Parallelism(2).Obj(),
-			wantJob: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").Parallelism(2).Obj(),
+			job:     testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").XGBReplicaSpecsDefault().Parallelism(2).Obj(),
+			wantJob: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").XGBReplicaSpecsDefault().Parallelism(2).Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("xgboostjob", "ns").
 					PodSets(
@@ -268,12 +268,13 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(false),
 			},
-			job:           testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").Parallelism(2).Obj(),
-			wantJob:       testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").Parallelism(2).Obj(),
+			job:           testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").XGBReplicaSpecsDefault().Parallelism(2).Obj(),
+			wantJob:       testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").XGBReplicaSpecsDefault().Parallelism(2).Obj(),
 			wantWorkloads: []kueue.Workload{},
 		},
 		"when workload is evicted, suspended is reset, restore node affinity": {
 			job: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
+				XGBReplicaSpecsDefault().
 				Image("").
 				Args(nil).
 				Queue("foo").
@@ -317,6 +318,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantJob: testingxgboostjob.MakeXGBoostJob("xgboostjob", "ns").
+				XGBReplicaSpecsDefault().
 				Image("").
 				Args(nil).
 				Queue("foo").
