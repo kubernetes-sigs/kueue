@@ -463,6 +463,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should run a kubeflow PaddleJob on worker if admitted", func() {
+			// Since it requires 1600M memory, this job can only be admitted in worker 2.
 			paddleJob := testingpaddlejob.MakePaddleJob("paddlejob1", managerNs.Name).
 				Queue(managerLq.Name).
 				PaddleReplicaSpecs(
@@ -477,10 +478,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						RestartPolicy: "OnFailure",
 					},
 				).
-				Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceCPU, "0.6").
-				Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceMemory, "200M").
-				Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
-				Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceMemory, "200M").
+				Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceCPU, "0.2").
+				Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
+				Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceCPU, "0.2").
+				Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
 				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0").
 				Args([]string{"1ms"}).
 				Obj()
@@ -492,7 +493,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadpaddlejob.GetWorkloadNameForPaddleJob(paddleJob.Name, paddleJob.UID), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
-			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
+			ginkgo.By("Waiting to be admitted in worker2 and manager", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWorkload := &kueue.Workload{}
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -505,7 +506,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
 						Name:    multiKueueAc.Name,
 						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker1"`,
+						Message: `The workload got reservation on "worker2"`,
 					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
