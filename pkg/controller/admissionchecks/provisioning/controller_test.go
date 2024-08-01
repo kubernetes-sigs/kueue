@@ -550,19 +550,15 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "ps1",
 								Annotations: map[string]string{
-									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
-									DeprecatedClassNameAnnotationKey: "class1",
-									ConsumesAnnotationKey:            "wl-check1-1",
-									ClassNameAnnotationKey:           "class1",
+									ConsumesAnnotationKey:  "wl-check1-1",
+									ClassNameAnnotationKey: "class1",
 								},
 							},
 							{
 								Name: "ps2",
 								Annotations: map[string]string{
-									DeprecatedConsumesAnnotationKey:  "wl-check1-1",
-									DeprecatedClassNameAnnotationKey: "class1",
-									ConsumesAnnotationKey:            "wl-check1-1",
-									ClassNameAnnotationKey:           "class1",
+									ConsumesAnnotationKey:  "wl-check1-1",
+									ClassNameAnnotationKey: "class1",
 								},
 							},
 						},
