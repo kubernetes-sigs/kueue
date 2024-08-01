@@ -67,7 +67,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// add the prebuilt workload
 	if remoteJob.Labels == nil {
-		remoteJob.Labels = map[string]string{}
+		remoteJob.Labels = make(map[string]string, 2)
 	}
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
@@ -88,7 +88,7 @@ func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+func (b *multikueueAdapter) IsJobManagedByKueue(context.Context, client.Client, types.NamespacedName) (bool, string, error) {
 	return true, "", nil
 }
 
@@ -105,12 +105,12 @@ func (*multikueueAdapter) GetEmptyList() client.ObjectList {
 func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	pyTorchJob, isPyTorchJob := o.(*kftraining.PyTorchJob)
 	if !isPyTorchJob {
-		return types.NamespacedName{}, errors.New("not a PYTorch Job")
+		return types.NamespacedName{}, errors.New("not a PyTorchJob")
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := pyTorchJob.Labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for PYTorch Job: %s", klog.KObj(pyTorchJob))
+		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for PyTorchJob: %s", klog.KObj(pyTorchJob))
 	}
 
 	return types.NamespacedName{Name: prebuiltWl, Namespace: pyTorchJob.Namespace}, nil

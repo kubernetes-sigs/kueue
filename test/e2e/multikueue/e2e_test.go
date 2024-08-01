@@ -548,6 +548,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should run a kubeflow PyTorchJob on worker if admitted", func() {
+			// Since it requires 1600M of memory, this job can only be admitted in worker 2.
 			pyTorchJob := testingpytorchjob.MakePyTorchJob("pytorchjob1", managerNs.Name).
 				Queue(managerLq.Name).
 				PyTorchReplicaSpecs(
@@ -562,10 +563,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						RestartPolicy: "OnFailure",
 					},
 				).
-				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
-				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "200M").
+				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.2").
+				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
-				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "100M").
+				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
 				Image(kftraining.PyTorchJobReplicaTypeMaster, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Image(kftraining.PyTorchJobReplicaTypeWorker, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Obj()
@@ -577,8 +578,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: managerNs.Name}
 
-			// the execution should be given to the worker 1
-			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
+			// the execution should be given to the worker 2
+			ginkgo.By("Waiting to be admitted in worker2 and manager", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
@@ -590,7 +591,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
 						Name:    multiKueueAc.Name,
 						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker1"`,
+						Message: `The workload got reservation on "worker2"`,
 					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
