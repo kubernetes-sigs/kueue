@@ -39,7 +39,8 @@ var (
 	supportedPrebuiltWlJobGVKs    = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		jobset.SchemeGroupVersion.WithKind("JobSet").String(),
-		kftraining.SchemeGroupVersion.WithKind(kftraining.TFJobKind).String())
+		kftraining.SchemeGroupVersion.WithKind(kftraining.TFJobKind).String(),
+		kftraining.SchemeGroupVersion.WithKind(kftraining.PaddleJobKind).String())
 )
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation

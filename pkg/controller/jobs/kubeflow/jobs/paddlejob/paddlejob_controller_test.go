@@ -255,8 +255,8 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job:     testingpaddlejob.MakePaddleJob("paddlejob", "ns").Parallelism(2).Obj(),
-			wantJob: testingpaddlejob.MakePaddleJob("paddlejob", "ns").Parallelism(2).Obj(),
+			job:     testingpaddlejob.MakePaddleJob("paddlejob", "ns").PaddleReplicaSpecsDefault().Parallelism(2).Obj(),
+			wantJob: testingpaddlejob.MakePaddleJob("paddlejob", "ns").PaddleReplicaSpecsDefault().Parallelism(2).Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("paddlejob", "ns").
 					PodSets(
@@ -270,12 +270,13 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(false),
 			},
-			job:           testingpaddlejob.MakePaddleJob("paddlejob", "ns").Parallelism(2).Obj(),
-			wantJob:       testingpaddlejob.MakePaddleJob("paddlejob", "ns").Parallelism(2).Obj(),
+			job:           testingpaddlejob.MakePaddleJob("paddlejob", "ns").PaddleReplicaSpecsDefault().Parallelism(2).Obj(),
+			wantJob:       testingpaddlejob.MakePaddleJob("paddlejob", "ns").PaddleReplicaSpecsDefault().Parallelism(2).Obj(),
 			wantWorkloads: []kueue.Workload{},
 		},
 		"when workload is evicted, suspended is reset, restore node affinity": {
 			job: testingpaddlejob.MakePaddleJob("paddlejob", "ns").
+				PaddleReplicaSpecsDefault().
 				Image("").
 				Args(nil).
 				Queue("foo").
@@ -319,6 +320,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantJob: testingpaddlejob.MakePaddleJob("paddlejob", "ns").
+				PaddleReplicaSpecsDefault().
 				Image("").
 				Args(nil).
 				Queue("foo").
