@@ -35,6 +35,7 @@ function cluster_cleanup {
         kubectl describe pods -n kueue-system > "$ARTIFACTS/$1-kueue-system-pods.log" || true
         kubectl describe pods > "$ARTIFACTS/$1-default-pods.log" || true
         $KIND delete cluster --name "$1"
+        $KIND delete cluster -v=3 --name "$1" || echo "Ignoring cluster delete failure."
 }
 
 # $1 cluster name
