@@ -193,11 +193,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			if managerK8SVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
 				ginkgo.Skip("the managers kubernetes version is less then 1.30")
 			}
-			// Since it requires 2 CPU, this job can only be admitted in worker 1.
+			// Since it requires 2G of memory, this job can only be admitted in worker 2.
 			job := testingjob.MakeJob("job", managerNs.Name).
 				Queue(managerLq.Name).
-				Request("cpu", "2").
-				Request("memory", "1G").
+				Request("cpu", "1").
+				Request("memory", "2G").
 				// Give it the time to be observed Active in the live status update step.
 				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).
 				Obj()
@@ -215,13 +215,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
-			ginkgo.By("Waiting to be admitted in worker1, and the manager's job unsuspended", func() {
+			ginkgo.By("Waiting to be admitted in worker2, and the manager's job unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 					g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
 						Name:    multiKueueAc.Name,
 						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker1"`,
+						Message: `The workload got reservation on "worker2"`,
 					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -370,6 +370,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 		ginkgo.It("Should run a kubeflow TFJob on worker if admitted", func() {
+			// Since it requires 1.5 CPU, this job can only be admitted in worker 1.
 			tfJob := testingtfjob.MakeTFJob("tfjob1", managerNs.Name).
 				Queue(managerLq.Name).
 				TFReplicaSpecs(
@@ -389,8 +390,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						RestartPolicy: "OnFailure",
 					},
 				).
-				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceCPU, "0.5").
-				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceMemory, "200M").
+				Request(kftraining.TFJobReplicaTypeChief, corev1.ResourceCPU, "0.5").
+				Request(kftraining.TFJobReplicaTypeChief, corev1.ResourceMemory, "200M").
 				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceCPU, "0.5").
 				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceMemory, "200M").
 				Request(kftraining.TFJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
