@@ -24,6 +24,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
+    - [Story 2](#story-2)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -91,6 +92,7 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 unsuspended by Kueue
 - a timeout on getting the physical resources assigned by a Job since
 unsuspended by Kueue
+- a timeout on replacing a failed pod
 
 <!--
 List the specific goals of the KEP. What is it trying to achieve? How will we
@@ -101,8 +103,7 @@ know that this has succeeded?
 
 - guarantee that two jobs would not schedule pods concurrently. Example
 scenarios in which two jobs may still concurrently schedule their pods:
-  - when succeeded pods are replaced with new because job's parallelism is less than its completions;
-  - when a failed pod gets replaced
+- when succeeded pods are replaced with new because job's parallelism is less than its completions;
 
 <!--
 What is out of scope for this KEP? Listing non-goals helps to focus discussion
@@ -146,6 +147,11 @@ the configured cluster queue quota and when the Jobs don't specify priorities
 My use case can be supported by enabling `waitForPodsReady` in the Kueue
 configuration.
 
+#### Story 2
+
+As a Kueue administrator I want to ensure that a Workload will be evicted after
+configured timeout if a pod fails during runtime and can't be scheduled.
+
 ### Notes/Constraints/Caveats (Optional)
 
 <!--
@@ -161,8 +167,8 @@ If a workload fails to schedule its pods it could block admission of other
 workloads indefinitely.
 
 To mitigate this issue we introduce a timeout on reaching the `PodsReady`
-condition by a workload since its job start (see:
-[Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)).
+condition by a workload since its job start, and a timeout on reaching the `PodsReady` condition since its pod has failed
+ (see:[Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)).
 
 <!--
 What are the risks of this proposal, and how do we mitigate? Think broadly.
@@ -215,6 +221,15 @@ type WaitForPodsReady struct {
 	// enforced only if waitForPodsReady.enable=true. If unspecified, it defaults to 5min.
 	// +optional
 	TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
+
+	// replacementTimeoutSeconds defines optional time duration in seconds, relative to
+	// pod's failure after a Workload is Admitted and running.
+	// After exceeding the timeout the corresponding job gets suspended again
+	// and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
+	// enforced only if waitForPodsReady.enable=true. If unspecified, it defaults to 5min.
+	ReplacementTimeoutSeconds *int64
+
+	...
 }
 
 ```
@@ -223,7 +238,7 @@ type WaitForPodsReady struct {
 
 We introduce a new workload condition, called `PodsReady`, to indicate
 if the workload's startup requirements are satisfied. More precisely, we add
-the condition when `job.status.ready + job.status.succeeded` is greater or equal
+the condition when `job.status.ready + job.status.uncountedTerimnatedPods + job.status.succeeded` is greater or equal
 than `job.spec.parallelism`.
 
 Note that, we don't take failed pods into account when verifying if the
@@ -253,11 +268,17 @@ condition, so the corresponding job is unsuspended without further waiting.
 
 ### Timeout on reaching the PodsReady condition
 
-We introduce a timeout, defined in the `waitForPodsReady.timeoutSeconds` field, on reaching the `PodsReady` condition since the job
-is unsuspended (the time of unsuspending a job is marked by the Job's
-`job.status.startTime` field). When the timeout is exceeded, the Kueue's Job
+We introduce two timeouts defined in the `waitForPodsReady.timeoutSeconds` and `waitForPodsReady.replacementTimeoutSeconds` fields.
+
+First one tracks the time between job getting unsuspended (the time of unsuspending a job is marked by the Job's
+`job.status.startTime` field) and reaching the `PodsReady=true` condition.
+
+Second one tracks the time between changing `PodsReady` condition to `false` after the job is running and reaching the
+`PodsReady=true` condition once again.
+
+When any of the timeouts is exceeded, the Kueue's Job
 Controller suspends the Job corresponding to the workload and puts into the
-ClusterQueue's `inadmissibleWorkloads` list. The timeout is enforced only when
+ClusterQueue's `inadmissibleWorkloads` list. The timeouts are enforced only when
 `waitForPodsReady` is enabled.
 
 ### Test Plan
@@ -321,6 +342,7 @@ The following scenarios will be covered with integration tests when `waitForPods
 - no workloads are admitted if there is already an admitted workload which is not in the `PodsReady` condition
 - a workload gets admitted if all other admitted workloads are in the `PodsReady` condition
 - a workload which exceeds the `waitForPodsReady.timeoutSeconds` timeout is suspended and put into the `inadmissibleWorkloads` list
+- a workload which exceeds the `waitForPodsReady.replacementTimeoutSeconds` timeout is suspended and put into the `inadmissibleWorkloads` list
 
 <!--
 Describe what tests will be added to ensure proper quality of the enhancement.
