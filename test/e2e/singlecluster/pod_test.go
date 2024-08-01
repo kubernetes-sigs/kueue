@@ -433,7 +433,8 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			defaultPriorityGroup := podtesting.MakePod("default-priority-group", ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"-termination-code=1", "10min"}).
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"-termination-code=1", "10m"}).
+				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "2").
 				MakeGroup(2)
@@ -489,27 +490,28 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				})
 			})
 
-			replacementPods := make(map[types.NamespacedName]types.NamespacedName, len(defaultPriorityGroup))
-			ginkgo.By("Create replacement pods as soon as the default-priority pods are Failed", func() {
-				gomega.Eventually(func(g gomega.Gomega) int {
+			ginkgo.By("Wait for default-priority pods to fail", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range defaultPriorityGroup {
-						origKey := client.ObjectKeyFromObject(origPod)
-						if _, found := replacementPods[origKey]; !found {
-							var p corev1.Pod
-							g.Expect(k8sClient.Get(ctx, origKey, &p)).To(gomega.Succeed())
-							if p.Status.Phase == corev1.PodFailed {
-								rep := origPod.DeepCopy()
-								// For replacement pods use args that let it complete fast.
-								rep.Name = "replacement-for-" + rep.Name
-								rep.Spec.Containers[0].Args = []string{"1ms"}
-								g.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
-								replacementPods[origKey] = client.ObjectKeyFromObject(rep)
-							}
-						}
+						var p corev1.Pod
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(p.Status.Phase).To(gomega.Equal(corev1.PodFailed))
 					}
-					return len(replacementPods)
-				}, util.Timeout, util.Interval).Should(gomega.Equal(len(defaultPriorityGroup)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
+
+			replacementPods := make([]client.ObjectKey, 0, len(defaultPriorityGroup))
+
+			ginkgo.By("Create replacement pods", func() {
+				for _, origPod := range defaultPriorityGroup {
+					rep := origPod.DeepCopy()
+					rep.Name = "replacement-for-" + rep.Name
+					rep.Spec.Containers[0].Args = []string{"1ms"}
+					gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
+					replacementPods = append(replacementPods, client.ObjectKeyFromObject(rep))
+				}
+			})
+
 			ginkgo.By("Check that the preempted pods are deleted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					var p corev1.Pod
