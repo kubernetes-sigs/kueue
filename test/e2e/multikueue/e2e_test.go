@@ -545,7 +545,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
-
 	})
 	ginkgo.When("The connection to a worker cluster is unreliable", func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {

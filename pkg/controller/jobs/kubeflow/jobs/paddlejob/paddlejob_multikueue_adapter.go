@@ -67,7 +67,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// add the prebuilt workload
 	if remoteJob.Labels == nil {
-		remoteJob.Labels = map[string]string{}
+		remoteJob.Labels = make(map[string]string, 2)
 	}
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
@@ -88,7 +88,7 @@ func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+func (b *multikueueAdapter) IsJobManagedByKueue(context.Context, client.Client, types.NamespacedName) (bool, string, error) {
 	return true, "", nil
 }
 

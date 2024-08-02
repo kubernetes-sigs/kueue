@@ -927,7 +927,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.FIt("Should run a PaddleJob on worker if admitted", func() {
+	ginkgo.It("Should run a PaddleJob on worker if admitted", func() {
 		paddleJob := testingpaddlejob.MakePaddleJob("paddlejob1", managerNs.Name).
 			Queue(managerLq.Name).
 			PaddleReplicaSpecs(
