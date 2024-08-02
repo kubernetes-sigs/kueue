@@ -1048,7 +1048,7 @@ func TestDominantResourceShare(t *testing.T) {
 				i += 1
 			}
 
-			drVal, drNameCache := dominantResourceShare(cache.clusterQueues["cq"], tc.flvResQ, 1)
+			drVal, drNameCache := dominantResourceShare(cache.hm.ClusterQueues["cq"], tc.flvResQ, 1)
 			if drVal != tc.wantDRValue {
 				t.Errorf("cache.DominantResourceShare(_) returned value %d, want %d", drVal, tc.wantDRValue)
 			}
@@ -1099,7 +1099,7 @@ func TestCohortLendable(t *testing.T) {
 		"example.com/gpu":  3,
 	}
 
-	lendable := cache.clusterQueues["cq1"].Cohort.CalculateLendable()
+	lendable := cache.hm.ClusterQueues["cq1"].Cohort().CalculateLendable()
 	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
 		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
 	}

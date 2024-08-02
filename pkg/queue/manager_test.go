@@ -117,7 +117,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Could not re-add ClusterQueue: %v", err)
 	}
-	workloads := popNamesFromCQ(manager.clusterQueues["cq"])
+	workloads := popNamesFromCQ(manager.hm.ClusterQueues["cq"])
 	wantWorkloads := []string{"/b", "/a"}
 	if diff := cmp.Diff(wantWorkloads, workloads); diff != "" {
 		t.Errorf("Workloads popped in the wrong order from clusterQueue:\n%s", diff)
@@ -173,15 +173,22 @@ func TestUpdateClusterQueue(t *testing.T) {
 	wantCohorts := map[string]sets.Set[string]{
 		"alpha": sets.New("cq1", "cq2"),
 	}
-	if diff := cmp.Diff(manager.cohorts, wantCohorts); diff != "" {
+	gotCohorts := make(map[string]sets.Set[string])
+	for name, cohort := range manager.hm.Cohorts {
+		gotCohorts[name] = sets.New[string]()
+		for _, cq := range cohort.Members() {
+			gotCohorts[name].Insert(cq.GetName())
+		}
+	}
+	if diff := cmp.Diff(gotCohorts, wantCohorts); diff != "" {
 		t.Errorf("Unexpected ClusterQueues in cohorts (-want,+got):\n%s", diff)
 	}
 
 	// Verify all workloads are active after the update.
 	activeWorkloads := manager.Dump()
 	wantActiveWorkloads := map[string][]string{
-		"cq1": []string{"default/a"},
-		"cq2": []string{"default/b"},
+		"cq1": {"default/a"},
+		"cq2": {"default/b"},
 	}
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
 		t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
@@ -290,7 +297,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 
 	// Verification.
 	workloadOrders := make(map[string][]string)
-	for name, cq := range manager.clusterQueues {
+	for name, cq := range manager.hm.ClusterQueues {
 		workloadOrders[name] = popNamesFromCQ(cq)
 	}
 	wantWorkloadOrders := map[string][]string{
@@ -748,7 +755,7 @@ func TestUpdateWorkload(t *testing.T) {
 				} else if diff := cmp.Diff(wl, item.Obj); diff != "" {
 					t.Errorf("Object stored in queue differs (-want,+got):\n%s", diff)
 				}
-				cq := manager.clusterQueues[q.ClusterQueue]
+				cq := manager.hm.ClusterQueues[q.ClusterQueue]
 				if cq != nil {
 					item := cq.Info(key)
 					if item == nil {
@@ -759,7 +766,7 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			queueOrder := make(map[string][]string)
-			for name, cq := range manager.clusterQueues {
+			for name, cq := range manager.hm.ClusterQueues {
 				queueOrder[name] = popNamesFromCQ(cq)
 			}
 			if diff := cmp.Diff(tc.wantQueueOrder, queueOrder); diff != "" {

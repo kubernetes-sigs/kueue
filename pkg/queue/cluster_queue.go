@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -50,8 +51,9 @@ var (
 )
 
 type ClusterQueue struct {
+	hierarchy.WiredClusterQueue[*ClusterQueue, *cohort]
+	name              string
 	heap              heap.Heap[workload.Info]
-	cohort            string
 	namespaceSelector labels.Selector
 	active            bool
 
@@ -77,6 +79,10 @@ type ClusterQueue struct {
 	rwm sync.RWMutex
 
 	clock clock.Clock
+}
+
+func (c *ClusterQueue) GetName() string {
+	return c.name
 }
 
 func workloadKey(i *workload.Info) string {
@@ -108,8 +114,8 @@ func newClusterQueueImpl(wo workload.Ordering, clock clock.Clock) *ClusterQueue 
 func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
+	c.name = apiCQ.Name
 	c.queueingStrategy = apiCQ.Spec.QueueingStrategy
-	c.cohort = apiCQ.Spec.Cohort
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {
 		return err
@@ -117,11 +123,6 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	c.namespaceSelector = nsSelector
 	c.active = apimeta.IsStatusConditionTrue(apiCQ.Status.Conditions, kueue.ClusterQueueActive)
 	return nil
-}
-
-// Cohort returns the Cohort of this ClusterQueue.
-func (c *ClusterQueue) Cohort() string {
-	return c.cohort
 }
 
 // AddFromLocalQueue pushes all workloads belonging to this queue to

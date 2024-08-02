@@ -634,7 +634,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		}
 	}
 	wlInfos := make(map[string]*workload.Info, len(workloads))
-	for _, cq := range cqCache.clusterQueues {
+	for _, cq := range cqCache.hm.ClusterQueues {
 		for _, wl := range cq.Workloads {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
@@ -674,7 +674,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							Name:                          "c1",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["c1"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -688,7 +688,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							Name:                          "c2",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["c2"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -727,7 +727,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c1-memory-beta":  nil,
 							},
 							AllocatableResourceGeneration: 1,
-							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["c1"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							Usage: resources.FlavorResourceQuantities{
@@ -743,7 +743,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c2-cpu-1": nil,
 								"/c2-cpu-2": nil,
 							},
-							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["c2"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -782,7 +782,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c1-memory-beta":  nil,
 							},
 							AllocatableResourceGeneration: 1,
-							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["c1"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							Usage: resources.FlavorResourceQuantities{
@@ -799,7 +799,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c2-cpu-2": nil,
 							},
 							AllocatableResourceGeneration: 1,
-							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["c2"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							Usage: resources.FlavorResourceQuantities{
@@ -890,7 +890,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		}
 	}
 	wlInfos := make(map[string]*workload.Info, len(workloads))
-	for _, cq := range cqCache.clusterQueues {
+	for _, cq := range cqCache.hm.ClusterQueues {
 		for _, wl := range cq.Workloads {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
@@ -927,7 +927,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -942,7 +942,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -977,7 +977,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -992,7 +992,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1027,7 +1027,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1042,7 +1042,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1077,7 +1077,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1092,7 +1092,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1128,7 +1128,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1143,7 +1143,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1179,7 +1179,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1194,7 +1194,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1230,7 +1230,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-a",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,
@@ -1245,7 +1245,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							Name:                          "lend-b",
 							Cohort:                        cohort,
 							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
+							ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							FairWeight:                    oneQuantity,
 							AllocatableResourceGeneration: 1,

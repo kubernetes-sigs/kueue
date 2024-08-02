@@ -31,6 +31,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -75,18 +76,16 @@ type Manager struct {
 
 	client        client.Client
 	statusChecker StatusChecker
-	clusterQueues map[string]*ClusterQueue
 	localQueues   map[string]*LocalQueue
 
 	snapshotsMutex sync.RWMutex
 	snapshots      map[string][]kueue.ClusterQueuePendingWorkload
 
-	// Key is cohort's name. Value is a set of associated ClusterQueue names.
-	cohorts map[string]sets.Set[string]
-
 	workloadOrdering workload.Ordering
 
 	workloadInfoOptions []workload.InfoOption
+
+	hm hierarchy.Manager[*ClusterQueue, *cohort]
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -98,14 +97,13 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		client:         client,
 		statusChecker:  checker,
 		localQueues:    make(map[string]*LocalQueue),
-		clusterQueues:  make(map[string]*ClusterQueue),
-		cohorts:        make(map[string]sets.Set[string]),
 		snapshotsMutex: sync.RWMutex{},
 		snapshots:      make(map[string][]kueue.ClusterQueuePendingWorkload, 0),
 		workloadOrdering: workload.Ordering{
 			PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 		},
 		workloadInfoOptions: options.workloadInfoOptions,
+		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](cohortFactory),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -115,7 +113,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	m.Lock()
 	defer m.Unlock()
 
-	if _, ok := m.clusterQueues[cq.Name]; ok {
+	if _, ok := m.hm.ClusterQueues[cq.Name]; ok {
 		return errClusterQueueAlreadyExists
 	}
 
@@ -123,12 +121,8 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	if err != nil {
 		return err
 	}
-	m.clusterQueues[cq.Name] = cqImpl
-
-	cohort := cq.Spec.Cohort
-	if cohort != "" {
-		m.addCohort(cohort, cq.Name)
-	}
+	m.hm.AddClusterQueue(cqImpl)
+	m.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
 
 	// Iterate through existing queues, as queues corresponding to this cluster
 	// queue might have been added earlier.
@@ -156,21 +150,17 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated bool) error {
 	m.Lock()
 	defer m.Unlock()
-	cqImpl, ok := m.clusterQueues[cq.Name]
+	cqImpl, ok := m.hm.ClusterQueues[cq.Name]
 	if !ok {
 		return ErrClusterQueueDoesNotExist
 	}
 
-	oldCohort := cqImpl.Cohort()
 	oldActive := cqImpl.Active()
 	// TODO(#8): recreate heap based on a change of queueing policy.
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
-	newCohort := cqImpl.Cohort()
-	if oldCohort != newCohort {
-		m.updateCohort(oldCohort, newCohort, cq.Name)
-	}
+	m.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
 
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
@@ -184,15 +174,12 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	m.Lock()
 	defer m.Unlock()
-	cqImpl := m.clusterQueues[cq.Name]
+	cqImpl := m.hm.ClusterQueues[cq.Name]
 	if cqImpl == nil {
 		return
 	}
-	delete(m.clusterQueues, cq.Name)
+	m.hm.DeleteClusterQueue(cq.Name)
 	metrics.ClearQueueSystemMetrics(cq.Name)
-
-	cohort := cq.Spec.Cohort
-	m.deleteCohort(cohort, cq.Name)
 }
 
 func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
@@ -218,7 +205,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		workload.AdjustResources(ctx, m.client, &w)
 		qImpl.AddOrUpdate(workload.NewInfo(&w, m.workloadInfoOptions...))
 	}
-	cq := m.clusterQueues[qImpl.ClusterQueue]
+	cq := m.hm.ClusterQueues[qImpl.ClusterQueue]
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
 		m.Broadcast()
 	}
@@ -233,11 +220,11 @@ func (m *Manager) UpdateLocalQueue(q *kueue.LocalQueue) error {
 		return ErrQueueDoesNotExist
 	}
 	if qImpl.ClusterQueue != string(q.Spec.ClusterQueue) {
-		oldCQ := m.clusterQueues[qImpl.ClusterQueue]
+		oldCQ := m.hm.ClusterQueues[qImpl.ClusterQueue]
 		if oldCQ != nil {
 			oldCQ.DeleteFromLocalQueue(qImpl)
 		}
-		newCQ := m.clusterQueues[string(q.Spec.ClusterQueue)]
+		newCQ := m.hm.ClusterQueues[string(q.Spec.ClusterQueue)]
 		if newCQ != nil && newCQ.AddFromLocalQueue(qImpl) {
 			m.Broadcast()
 		}
@@ -254,7 +241,7 @@ func (m *Manager) DeleteLocalQueue(q *kueue.LocalQueue) {
 	if qImpl == nil {
 		return
 	}
-	cq := m.clusterQueues[qImpl.ClusterQueue]
+	cq := m.hm.ClusterQueues[qImpl.ClusterQueue]
 	if cq != nil {
 		cq.DeleteFromLocalQueue(qImpl)
 	}
@@ -277,7 +264,7 @@ func (m *Manager) Pending(cq *kueue.ClusterQueue) (int, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	cqImpl, ok := m.clusterQueues[cq.Name]
+	cqImpl, ok := m.hm.ClusterQueues[cq.Name]
 	if !ok {
 		return 0, ErrClusterQueueDoesNotExist
 	}
@@ -302,7 +289,7 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	_, ok = m.clusterQueues[q.ClusterQueue]
+	_, ok = m.hm.ClusterQueues[q.ClusterQueue]
 	return q.ClusterQueue, ok
 }
 
@@ -322,7 +309,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(w *kueue.Workload) bool {
 	}
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
 	q.AddOrUpdate(wInfo)
-	cq := m.clusterQueues[q.ClusterQueue]
+	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return false
 	}
@@ -353,7 +340,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	}
 	info.Update(&w)
 	q.AddOrUpdate(info)
-	cq := m.clusterQueues[q.ClusterQueue]
+	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return false
 	}
@@ -378,7 +365,7 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 		return
 	}
 	delete(q.items, workload.Key(w))
-	cq := m.clusterQueues[q.ClusterQueue]
+	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq != nil {
 		cq.Delete(w)
 		m.reportPendingWorkloads(q.ClusterQueue, cq)
@@ -402,7 +389,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 	if q == nil {
 		return
 	}
-	cq := m.clusterQueues[q.ClusterQueue]
+	cq := m.hm.ClusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return
 	}
@@ -424,7 +411,7 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 
 	var queued bool
 	for name := range cqNames {
-		cq, exists := m.clusterQueues[name]
+		cq, exists := m.hm.ClusterQueues[name]
 		if !exists {
 			continue
 		}
@@ -449,16 +436,13 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 // 2. add events of any cluster queue in the cohort.
 // 3. update events of any cluster queue in the cohort.
 func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq *ClusterQueue) bool {
-	cohort := cq.Cohort()
-	if cohort == "" {
+	if !cq.HasCohort() {
 		return cq.QueueInadmissibleWorkloads(ctx, m.client)
 	}
 
 	queued := false
-	for cqName := range m.cohorts[cohort] {
-		if clusterQueue, ok := m.clusterQueues[cqName]; ok {
-			queued = clusterQueue.QueueInadmissibleWorkloads(ctx, m.client) || queued
-		}
+	for _, clusterQueue := range cq.Cohort().Members() {
+		queued = clusterQueue.QueueInadmissibleWorkloads(ctx, m.client) || queued
 	}
 	return queued
 }
@@ -505,7 +489,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 
 func (m *Manager) heads() []workload.Info {
 	var workloads []workload.Info
-	for cqName, cq := range m.clusterQueues {
+	for cqName, cq := range m.hm.ClusterQueues {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
@@ -522,30 +506,6 @@ func (m *Manager) heads() []workload.Info {
 		delete(q.items, workload.Key(wl.Obj))
 	}
 	return workloads
-}
-
-func (m *Manager) addCohort(cohort string, cqName string) {
-	if m.cohorts[cohort] == nil {
-		m.cohorts[cohort] = make(sets.Set[string])
-	}
-	m.cohorts[cohort].Insert(cqName)
-}
-
-func (m *Manager) deleteCohort(cohort string, cqName string) {
-	if cohort == "" {
-		return
-	}
-	if m.cohorts[cohort] != nil {
-		m.cohorts[cohort].Delete(cqName)
-		if len(m.cohorts[cohort]) == 0 {
-			delete(m.cohorts, cohort)
-		}
-	}
-}
-
-func (m *Manager) updateCohort(oldCohort string, newCohort string, cqName string) {
-	m.deleteCohort(oldCohort, cqName)
-	m.addCohort(newCohort, cqName)
 }
 
 func (m *Manager) Broadcast() {
@@ -565,8 +525,8 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq *ClusterQueue) {
 func (m *Manager) GetClusterQueueNames() []string {
 	m.RLock()
 	defer m.RUnlock()
-	clusterQueueNames := make([]string, 0, len(m.clusterQueues))
-	for k := range m.clusterQueues {
+	clusterQueueNames := make([]string, 0, len(m.hm.ClusterQueues))
+	for k := range m.hm.ClusterQueues {
 		clusterQueueNames = append(clusterQueueNames, k)
 	}
 	return clusterQueueNames
@@ -575,7 +535,7 @@ func (m *Manager) GetClusterQueueNames() []string {
 func (m *Manager) getClusterQueue(cqName string) *ClusterQueue {
 	m.RLock()
 	defer m.RUnlock()
-	return m.clusterQueues[cqName]
+	return m.hm.ClusterQueues[cqName]
 }
 
 func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
