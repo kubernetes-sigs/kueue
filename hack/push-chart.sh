@@ -14,6 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+set -o errexit
+set -o nounset
+set -o pipefail
+
 DEST_CHART_DIR=${DEST_CHART_DIR:-bin/}
 
 EXTRA_TAG=${EXTRA_TAG:-$(git branch --show-current)} 
