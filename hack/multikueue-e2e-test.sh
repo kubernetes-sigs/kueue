@@ -25,6 +25,7 @@ export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
 export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
 export WORKER2_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker2
 
+# shellcheck source=hack/e2e-common.sh
 source ${SOURCE_DIR}/e2e-common.sh
 
 function cleanup {

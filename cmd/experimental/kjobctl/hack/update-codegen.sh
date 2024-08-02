@@ -25,6 +25,7 @@ CODEGEN_PKG=$(cd $TOOLS_DIR && go mod download && $GO_CMD list -m -f "{{.Dir}}" 
 
 cd $(dirname ${BASH_SOURCE[0]})/..
 
+# shellcheck source=/dev/null
 source "${CODEGEN_PKG}/kube_codegen.sh"
 
 # Generating conversion and defaults functions

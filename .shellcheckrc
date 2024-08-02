@@ -10,10 +10,6 @@ external-sources=true
 
 # Not following: (error message here)
 
-# Reasons include: file not found, no permissions, not included on the command line, not allowing shellcheck to follow files with -x, etc.
-# https://github.com/koalaman/shellcheck/wiki/SC1091
-disable=SC1091
-
 # Double quote to prevent globbing and word splitting
 # https://github.com/koalaman/shellcheck/wiki/SC2086
 disable=SC2086
