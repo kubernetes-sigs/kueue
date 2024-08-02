@@ -33,12 +33,16 @@ mkdir -p ${DEST_CRD_DIR} "${DEST_RBAC_DIR}" ${DEST_WEBHOOK_DIR} ${DEST_VISIBILIT
 
 # Add more excluded files separated by spaces
 EXCLUDE_FILES='kustomization.yaml kustomizeconfig.yaml'
+# shellcheck disable=SC2086
 EXCLUDE_FILES_ARGS=$(printf "! -name %s " $EXCLUDE_FILES)
 
 # Copy all YAML files from the source directory to the destination directory
 cp ${SRC_CRD_DIR}/*.yaml ${DEST_CRD_DIR}
+# shellcheck disable=SC2086
 find $SRC_RBAC_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_RBAC_DIR \;
+# shellcheck disable=SC2086
 find $SRC_WEBHOOK_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_WEBHOOK_DIR \;
+# shellcheck disable=SC2086
 find $SRC_VISIBILITY_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_VISIBILITY_DIR \;
 $YQ -N -s '.kind' ${DEST_WEBHOOK_DIR}/manifests.yaml
 rm ${DEST_WEBHOOK_DIR}/manifests.yaml
@@ -152,7 +156,7 @@ EOF
 for output_file in "${DEST_CRD_DIR}"/*.yaml; do
   input_file="${output_file%.yaml}.yaml.test"
   mv "$output_file" "$input_file"
-  : >$output_file
+  : > "$output_file"
   while IFS= read -r line; do
     echo "$line" >>"$output_file"
     if [[ $line == "$search_cert_line" ]]; then
@@ -160,32 +164,32 @@ for output_file in "${DEST_CRD_DIR}"/*.yaml; do
     elif [[ $line == "$search_webhook_line" ]]; then
       echo "$replace_webhook_line" >>"$output_file"
     fi
-  done <"$input_file"
-  rm $input_file
-  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' $output_file
+  done < "$input_file"
+  rm "$input_file"
+  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
 done
 
 # Add RBAC files, replace names, namespaces in helm format, remove document separators (---)
 for output_file in "${DEST_RBAC_DIR}"/*.yaml; do
-  if [ "$(cat $output_file | $YQ '.metadata | has("name")')" = "true" ]; then
-    $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
+  if [ "$(< "$output_file" $YQ '.metadata | has("name")')" = "true" ]; then
+    $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.metadata | has("namespace")')" = "true" ]; then
-    $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' $output_file
+  if [ "$(< "$output_file" $YQ '.metadata | has("namespace")')" = "true" ]; then
+    $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.roleRef | has("name")')" = "true" ]; then
-    $YQ -N -i '.roleRef.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
+  if [ "$(< "$output_file" $YQ '.roleRef | has("name")')" = "true" ]; then
+    $YQ -N -i '.roleRef.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.subjects.[] | has("name")')" = "true" ]; then
-    $YQ -N -i '.subjects.[].name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
+  if [ "$(< "$output_file" $YQ '.subjects.[] | has("name")')" = "true" ]; then
+    $YQ -N -i '.subjects.[].name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
-    $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' $output_file
+  if [ "$(< "$output_file" $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
+    $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.metadata | has("labels")')" = "true" ]; then
-    $SED -i '/labels:.*/a\  {{- include "kueue.labels" . | nindent 4 }}' $output_file
+  if [ "$(< "$output_file" $YQ '.metadata | has("labels")')" = "true" ]; then
+    $SED -i '/labels:.*/a\  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
   else
-    $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' $output_file
+    $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
   fi
 done
 
@@ -196,22 +200,22 @@ webhook_files=(
 "${DEST_WEBHOOK_DIR}/service.yaml"
 )
 for output_file in "${webhook_files[@]}"; do
-  if [ "$(cat $output_file | $YQ '.metadata | has("name")')" = "true" ]; then
-    $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
+  if [ "$(< "$output_file" $YQ '.metadata | has("name")')" = "true" ]; then
+    $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.metadata | has("namespace")')" = "true" ]; then
-    $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' $output_file
+  if [ "$(< "$output_file" $YQ '.metadata | has("namespace")')" = "true" ]; then
+    $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi
-  $YQ -N -i '.webhooks.[].clientConfig.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
-  $YQ -N -i '.webhooks.[].clientConfig.service.namespace = "{{ .Release.Namespace }}"' $output_file
-  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' $output_file
+  $YQ -N -i '.webhooks.[].clientConfig.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+  $YQ -N -i '.webhooks.[].clientConfig.service.namespace = "{{ .Release.Namespace }}"' "$output_file"
+  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
 done
 
 # Add service values in the YAML files
 for output_file in ${DEST_WEBHOOK_DIR}/service.yaml; do
   input_file="${output_file%.yaml}.yaml.test"
   mv "$output_file" "$input_file"
-  : >$output_file
+  : > "$output_file"
   while IFS= read -r line; do
     echo "$line" >>"$output_file"
     if [[ $line == "$search_service_line" ]]; then
@@ -219,7 +223,7 @@ for output_file in ${DEST_WEBHOOK_DIR}/service.yaml; do
       break
     fi
   done <"$input_file"
-  rm $input_file
+  rm "$input_file"
 done
 
 # Add webhook values in the YAML files
@@ -227,7 +231,7 @@ new_files=("${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml" "${DEST_WEBHOO
 for output_file in "${new_files[@]}"; do
   input_file="${output_file%.yaml}.yml.test"
   mv "$output_file" "$input_file"
-  : >$output_file
+  : > "$output_file"
   count=0
   while IFS= read -r line; do
     if [[ $count -gt 0 ]]; then
@@ -249,8 +253,8 @@ for output_file in "${new_files[@]}"; do
       count=$((count+2))
       echo "$add_webhook_pod_validate" >>"$output_file"
     fi
-  done <"$input_file"
-  rm $input_file
+  done < "$input_file"
+  rm "$input_file"
 done
 echo "$add_webhook_line" > ${DEST_WEBHOOK_DIR}/webhook.yaml
 {
@@ -263,36 +267,37 @@ rm ${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml ${DEST_WEBHOOK_DIR}/Vali
 # Add visibility files, replace names, namespaces in helm format
 for output_file in "${DEST_VISIBILITY_DIR}"/*.yaml; do
   # The name of the v1alpha1.visibility.kueue.x-k8s.io APIService needs to remain unchanged.
-  if [ "$(cat $output_file | $YQ '.metadata | has("name")')" = "true" ] &&
-    [ "$(cat $output_file | $YQ '.metadata.name | (. == "v1alpha1*")')" = "false" ]; then
-    $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
+  if [ "$(< "$output_file" $YQ '.metadata | has("name")')" = "true" ] &&
+    [ "$(< "$output_file" $YQ '.metadata.name | (. == "v1alpha1*")')" = "false" ]; then
+    $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   fi
   # The namespace of the visibility-server-auth-reader rolebinding needs to remain unchanged.
-  if [ "$(cat $output_file | $YQ '.metadata | has("namespace")')" = "true" ] &&
-    [ "$(cat $output_file | $YQ '.metadata.namespace | (. == "kube-system")')" = "false" ]; then
-    $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' $output_file
+  if [ "$(< "$output_file" $YQ '.metadata | has("namespace")')" = "true" ] &&
+    [ "$(< "$output_file" $YQ '.metadata.namespace | (. == "kube-system")')" = "false" ]; then
+    $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.spec.service | has("name")')" = "true" ]; then
-    $YQ -N -i '.spec.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
+  if [ "$(< "$output_file" $YQ '.spec.service | has("name")')" = "true" ]; then
+    $YQ -N -i '.spec.service.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.spec.service | has("namespace")')" = "true" ]; then
-    $YQ -N -i '.spec.service.namespace = "{{ .Release.Namespace }}"' $output_file
+  if [ "$(< "$output_file" $YQ '.spec.service | has("namespace")')" = "true" ]; then
+    $YQ -N -i '.spec.service.namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
-    $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' $output_file
+  if [ "$(< "$output_file" $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
+    $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' "$output_file"
   fi
-  if [ "$(cat $output_file | $YQ '.kind | select(. == "Service")')" ]; then
+  if [ "$(< "$output_file" $YQ '.kind | select(. == "Service")')" ]; then
+    # shellcheck disable=SC2086
     cat <<EOT >> $output_file
   selector:
   {{- include "kueue.selectorLabels" . | nindent 4 }}
 EOT
     fi
-    $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' $output_file
+    $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
 
   {
   echo '{{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}'
-  cat $output_file
+  cat "$output_file"
   echo "{{- end }}"
-  }> ${output_file}.tmp
-  mv ${output_file}.tmp ${output_file}
+  } > "${output_file}.tmp"
+  mv "${output_file}.tmp" "${output_file}"
 done

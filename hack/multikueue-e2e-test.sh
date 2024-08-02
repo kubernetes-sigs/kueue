@@ -26,18 +26,18 @@ export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
 export WORKER2_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker2
 
 # shellcheck source=hack/e2e-common.sh
-source ${SOURCE_DIR}/e2e-common.sh
+source "${SOURCE_DIR}/e2e-common.sh"
 
 function cleanup {
-    if [ $CREATE_KIND_CLUSTER == 'true' ]
+    if [ "$CREATE_KIND_CLUSTER" == 'true' ]
     then
         if [ ! -d "$ARTIFACTS" ]; then
             mkdir -p "$ARTIFACTS"
         fi
 
-        cluster_cleanup $MANAGER_KIND_CLUSTER_NAME
-        cluster_cleanup $WORKER1_KIND_CLUSTER_NAME
-        cluster_cleanup $WORKER2_KIND_CLUSTER_NAME
+        cluster_cleanup "$MANAGER_KIND_CLUSTER_NAME"
+        cluster_cleanup "$WORKER1_KIND_CLUSTER_NAME"
+        cluster_cleanup "$WORKER2_KIND_CLUSTER_NAME"
     fi
     #do the image restore here for the case when an error happened during deploy
     restore_managers_image
@@ -45,62 +45,61 @@ function cleanup {
 
 
 function startup {
-    if [ $CREATE_KIND_CLUSTER == 'true' ]
+    if [ "$CREATE_KIND_CLUSTER" == 'true' ]
     then
         if [ ! -d "$ARTIFACTS" ]; then
             mkdir -p "$ARTIFACTS"
         fi
 	
-	KIND_VERSION=${E2E_KIND_VERSION/"kindest/node:v"/} 
-	MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind-${KIND_VERSION}.yaml"
-	if [ !  -f $MANAGER_KIND_CONFIG ]; then
-	    MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml"
-	fi
+        KIND_VERSION=${E2E_KIND_VERSION/"kindest/node:v"/}
+        MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind-${KIND_VERSION}.yaml"
+        if [ !  -f "$MANAGER_KIND_CONFIG" ]; then
+            MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml"
+        fi
 
-	echo "Using manager config: $MANAGER_KIND_CONFIG"
-
+	      echo "Using manager config: $MANAGER_KIND_CONFIG"
         cluster_create "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KIND_CONFIG"
-        cluster_create $WORKER1_KIND_CLUSTER_NAME "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
-        cluster_create $WORKER2_KIND_CLUSTER_NAME "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
+        cluster_create "$WORKER1_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
+        cluster_create "$WORKER2_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
     fi
 }
 
 function kind_load {
-    if [ $CREATE_KIND_CLUSTER == 'true' ]
+    if [ "$CREATE_KIND_CLUSTER" == 'true' ]
     then
         docker pull $E2E_TEST_IMAGE
-        cluster_kind_load $MANAGER_KIND_CLUSTER_NAME
-        cluster_kind_load $WORKER1_KIND_CLUSTER_NAME
-        cluster_kind_load $WORKER2_KIND_CLUSTER_NAME 
+        cluster_kind_load "$MANAGER_KIND_CLUSTER_NAME"
+        cluster_kind_load "$WORKER1_KIND_CLUSTER_NAME"
+        cluster_kind_load "$WORKER2_KIND_CLUSTER_NAME"
 
 
     # JOBSET SETUP
-    docker pull registry.k8s.io/jobset/jobset:$JOBSET_VERSION
-    install_jobset $MANAGER_KIND_CLUSTER_NAME
-    install_jobset $WORKER1_KIND_CLUSTER_NAME
-    install_jobset $WORKER2_KIND_CLUSTER_NAME
+    docker pull "registry.k8s.io/jobset/jobset:$JOBSET_VERSION"
+    install_jobset "$MANAGER_KIND_CLUSTER_NAME"
+    install_jobset "$WORKER1_KIND_CLUSTER_NAME"
+    install_jobset "$WORKER2_KIND_CLUSTER_NAME"
 
     # KUBEFLOW SETUP
     # MANAGER
     # Only install the CRDs and not the controller to be able to
     # have Kubeflow Jobs admitted without execution in the manager cluster.
-    kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
-    kubectl apply -k ${KUBEFLOW_CRDS}
+    kubectl config use-context "kind-${MANAGER_KIND_CLUSTER_NAME}"
+    kubectl apply -k "${KUBEFLOW_CRDS}"
 
     # WORKERS
     docker pull kubeflow/training-operator:v1-855e096
-    install_kubeflow $WORKER1_KIND_CLUSTER_NAME
-    install_kubeflow $WORKER2_KIND_CLUSTER_NAME
+    install_kubeflow "$WORKER1_KIND_CLUSTER_NAME"
+    install_kubeflow "$WORKER2_KIND_CLUSTER_NAME"
     
     fi
 }
 
 function kueue_deploy {
-    (cd config/components/manager && $KUSTOMIZE edit set image controller=$IMAGE_TAG)
+    (cd config/components/manager && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
 
-    cluster_kueue_deploy $MANAGER_KIND_CLUSTER_NAME
-    cluster_kueue_deploy $WORKER1_KIND_CLUSTER_NAME
-    cluster_kueue_deploy $WORKER2_KIND_CLUSTER_NAME
+    cluster_kueue_deploy "$MANAGER_KIND_CLUSTER_NAME"
+    cluster_kueue_deploy "$WORKER1_KIND_CLUSTER_NAME"
+    cluster_kueue_deploy "$WORKER2_KIND_CLUSTER_NAME"
 }
 
 trap cleanup EXIT
@@ -108,4 +107,4 @@ startup
 kind_load
 kueue_deploy
 
-$GINKGO $GINKGO_ARGS --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/e2e/multikueue/...
+$GINKGO "$GINKGO_ARGS" --junit-report=junit.xml --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...

@@ -5,12 +5,3 @@
 # we need this because we specify one file at a time in order to trivially
 # detect which files are failing
 external-sources=true
-
-# Currently disabled these errors will take care of them later
-
-# Not following: (error message here)
-
-# Double quote to prevent globbing and word splitting
-# https://github.com/koalaman/shellcheck/wiki/SC2086
-disable=SC2086
-

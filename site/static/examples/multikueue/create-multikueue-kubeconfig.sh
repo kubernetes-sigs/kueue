@@ -150,7 +150,7 @@ EOF
 
 # Get or create a secret bound to the new service account.
 SA_SECRET_NAME=$(kubectl get -n ${NAMESPACE} sa/${MULTIKUEUE_SA} -o "jsonpath={.secrets[0]..name}")
-if [ -z $SA_SECRET_NAME ]
+if [ -z "$SA_SECRET_NAME" ]
 then
 kubectl apply -f - <<EOF
 apiVersion: v1
@@ -168,8 +168,8 @@ fi
 
 # Note: service account token is stored base64-encoded in the secret but must
 # be plaintext in kubeconfig.
-SA_TOKEN=$(kubectl get -n ${NAMESPACE} secrets/${SA_SECRET_NAME} -o "jsonpath={.data['token']}" | base64 -d)
-CA_CERT=$(kubectl get -n ${NAMESPACE} secrets/${SA_SECRET_NAME} -o "jsonpath={.data['ca\.crt']}")
+SA_TOKEN=$(kubectl get -n ${NAMESPACE} "secrets/${SA_SECRET_NAME}" -o "jsonpath={.data['token']}" | base64 -d)
+CA_CERT=$(kubectl get -n ${NAMESPACE} "secrets/${SA_SECRET_NAME}" -o "jsonpath={.data['ca\.crt']}")
 
 # Extract cluster IP from the current context
 CURRENT_CONTEXT=$(kubectl config current-context)
@@ -178,7 +178,7 @@ CURRENT_CLUSTER_ADDR=$(kubectl config view -o jsonpath="{.clusters[?(@.name == \
 
 # Create the Kubeconfig file
 echo "Writing kubeconfig in ${KUBECONFIG_OUT}"
-cat > ${KUBECONFIG_OUT} <<EOF
+cat > "${KUBECONFIG_OUT}" <<EOF
 apiVersion: v1
 clusters:
 - cluster:

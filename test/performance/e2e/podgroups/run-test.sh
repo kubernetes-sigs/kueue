@@ -13,7 +13,7 @@ kubectl apply -f templates/resource-flavor.yaml
 
 "$CL2_HOME_DIR/clusterloader" \
     --testconfig=test-config.yaml \
-    --provider=$PROVIDER \
+    --provider="$PROVIDER" \
     --v=2
 
 # as clusterqueues and resource flavors are non-namespaced, we clean up here.

@@ -25,11 +25,11 @@ LD_FLAGS=${LD_FLAGS:-}
 BUILD_NAME=${BUILD_NAME:-kueuectl}
 PLATFORMS=${PLATFORMS:-linux/amd64}
 
-CURRENT_DIR=$(dirname ${BASH_SOURCE[0]})
-ROOT_PATH=$(realpath ${CURRENT_DIR}/..)
+CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
+ROOT_PATH=$(realpath "${CURRENT_DIR}/..")
 BUILD_PATH=${ROOT_PATH}/${BUILD_DIR}
 
-mkdir -p ${BUILD_PATH}
+mkdir -p "${BUILD_PATH}"
 
 IFS=","
 for PLATFORM in ${PLATFORMS} ; do
@@ -37,17 +37,17 @@ for PLATFORM in ${PLATFORMS} ; do
   export GOARCH="${PLATFORM#*/}"
   EXTENSION=""
 
-  if [ ${GOOS} == "windows" ]; then
+  if [ "${GOOS}" == "windows" ]; then
     EXTENSION=".exe"
   fi
 
   echo "Building for $PLATFORM platform"
   FULL_NAME=${BUILD_NAME}-${GOOS}-${GOARCH}
-  ${GO_BUILD_ENV} ${GO_CMD} build -ldflags="${LD_FLAGS}" -o ${BUILD_PATH}/${FULL_NAME}${EXTENSION} $1
+  ${GO_BUILD_ENV} "${GO_CMD}" build -ldflags="${LD_FLAGS}" -o "${BUILD_PATH}/${FULL_NAME}${EXTENSION}" "$1"
 
-  mkdir -p ${BUILD_PATH}/tmp
-  cp ${ROOT_PATH}/LICENSE ${BUILD_PATH}/tmp
-  cp ${BUILD_PATH}/${FULL_NAME}${EXTENSION} ${BUILD_PATH}/tmp/${BUILD_NAME}${EXTENSION}
-  (cd ${BUILD_PATH}/tmp && tar -czf ${BUILD_PATH}/${FULL_NAME}.tar.gz ./*)
-  rm -R ${BUILD_PATH}/tmp
+  mkdir -p "${BUILD_PATH}/tmp"
+  cp "${ROOT_PATH}/LICENSE" "${BUILD_PATH}/tmp"
+  cp "${BUILD_PATH}/${FULL_NAME}${EXTENSION}" "${BUILD_PATH}/tmp/${BUILD_NAME}${EXTENSION}"
+  (cd "${BUILD_PATH}/tmp" && tar -czf "${BUILD_PATH}/${FULL_NAME}.tar.gz" ./*)
+  rm -R "${BUILD_PATH}/tmp"
 done
