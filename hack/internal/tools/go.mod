@@ -3,7 +3,7 @@ module sigs.k8s.io/kueue/internal/tools
 go 1.22.4
 
 require (
-	github.com/gohugoio/hugo v0.129.0
+	github.com/gohugoio/hugo v0.130.0
 	github.com/golangci/golangci-lint v1.59.1
 	github.com/mikefarah/yq/v4 v4.44.2
 	github.com/onsi/ginkgo/v2 v2.19.1
