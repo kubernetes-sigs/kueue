@@ -42,44 +42,87 @@ func MakePaddleJob(name, ns string) *PaddleJobWrapper {
 			RunPolicy: kftraining.RunPolicy{
 				Suspend: ptr.To(true),
 			},
-			PaddleReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
-				kftraining.PaddleJobReplicaTypeMaster: {
-					Replicas: ptr.To[int32](1),
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							RestartPolicy: "Never",
-							Containers: []corev1.Container{
-								{
-									Name:      "c",
-									Image:     "pause",
-									Command:   []string{},
-									Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
-								},
-							},
-							NodeSelector: map[string]string{},
-						},
-					},
-				},
-				kftraining.PaddleJobReplicaTypeWorker: {
-					Replicas: ptr.To[int32](1),
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							RestartPolicy: "Never",
-							Containers: []corev1.Container{
-								{
-									Name:      "c",
-									Image:     "pause",
-									Command:   []string{},
-									Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
-								},
-							},
-							NodeSelector: map[string]string{},
-						},
-					},
-				},
-			},
+			PaddleReplicaSpecs: make(map[kftraining.ReplicaType]*kftraining.ReplicaSpec),
 		},
 	}}
+}
+
+type PaddleReplicaSpecRequirement struct {
+	ReplicaType   kftraining.ReplicaType
+	Name          string
+	ReplicaCount  int32
+	Annotations   map[string]string
+	RestartPolicy kftraining.RestartPolicy
+}
+
+func (j *PaddleJobWrapper) PaddleReplicaSpecs(replicaSpecs ...PaddleReplicaSpecRequirement) *PaddleJobWrapper {
+	j = j.PaddleReplicaSpecsDefault()
+	for _, rs := range replicaSpecs {
+		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
+		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
+		j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "paddle"
+
+		if rs.Annotations != nil {
+			j.Spec.PaddleReplicaSpecs[rs.ReplicaType].Template.ObjectMeta.Annotations = rs.Annotations
+		}
+	}
+
+	return j
+}
+
+func (j *PaddleJobWrapper) PaddleReplicaSpecsDefault() *PaddleJobWrapper {
+	j.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster] = &kftraining.ReplicaSpec{
+		Replicas: ptr.To[int32](1),
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: "Never",
+				Containers: []corev1.Container{
+					{
+						Name:      "c",
+						Image:     "pause",
+						Command:   []string{},
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+					},
+				},
+				NodeSelector: map[string]string{},
+			},
+		},
+	}
+
+	j.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker] = &kftraining.ReplicaSpec{
+		Replicas: ptr.To[int32](1),
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: "Never",
+				Containers: []corev1.Container{
+					{
+						Name:      "c",
+						Image:     "pause",
+						Command:   []string{},
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+					},
+				},
+				NodeSelector: map[string]string{},
+			},
+		},
+	}
+
+	return j
+}
+
+// Clone returns deep copy of the PaddleJobWrapper.
+func (j *PaddleJobWrapper) Clone() *PaddleJobWrapper {
+	return &PaddleJobWrapper{PaddleJob: *j.DeepCopy()}
+}
+
+// Label sets the label key and value
+func (j *PaddleJobWrapper) Label(key, value string) *PaddleJobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[key] = value
+	return j
 }
 
 // PriorityClass updates job priorityclass.
@@ -164,5 +207,11 @@ func (j *PaddleJobWrapper) Active(rType kftraining.ReplicaType, c int32) *Paddle
 	j.Status.ReplicaStatuses[rType] = &kftraining.ReplicaStatus{
 		Active: c,
 	}
+	return j
+}
+
+// StatusConditions updates status conditions of the PaddleJob.
+func (j *PaddleJobWrapper) StatusConditions(conditions ...kftraining.JobCondition) *PaddleJobWrapper {
+	j.Status.Conditions = conditions
 	return j
 }

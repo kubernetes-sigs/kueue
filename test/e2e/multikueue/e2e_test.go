@@ -40,10 +40,12 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
+	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -456,6 +458,90 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					workerTfJob := &kftraining.TFJob{}
 					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(tfJob), workerTfJob)).To(utiltesting.BeNotFoundError())
 					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(tfJob), workerTfJob)).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should run a kubeflow PaddleJob on worker if admitted", func() {
+			// Since it requires 1600M memory, this job can only be admitted in worker 2.
+			paddleJob := testingpaddlejob.MakePaddleJob("paddlejob1", managerNs.Name).
+				Queue(managerLq.Name).
+				PaddleReplicaSpecs(
+					testingpaddlejob.PaddleReplicaSpecRequirement{
+						ReplicaType:   kftraining.PaddleJobReplicaTypeMaster,
+						ReplicaCount:  1,
+						RestartPolicy: "OnFailure",
+					},
+					testingpaddlejob.PaddleReplicaSpecRequirement{
+						ReplicaType:   kftraining.PaddleJobReplicaTypeWorker,
+						ReplicaCount:  1,
+						RestartPolicy: "OnFailure",
+					},
+				).
+				Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceCPU, "0.2").
+				Request(kftraining.PaddleJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
+				Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceCPU, "0.2").
+				Request(kftraining.PaddleJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0").
+				Args([]string{"1ms"}).
+				Obj()
+
+			ginkgo.By("Creating the PaddleJob", func() {
+				gomega.Expect(k8sManagerClient.Create(ctx, paddleJob)).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadpaddlejob.GetWorkloadNameForPaddleJob(paddleJob.Name, paddleJob.UID), Namespace: managerNs.Name}
+
+			// the execution should be given to the worker
+			ginkgo.By("Waiting to be admitted in worker2 and manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+						Name:    multiKueueAc.Name,
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker2"`,
+					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the PaddleJob to finish", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdPaddleJob := &kftraining.PaddleJob{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(paddleJob), createdPaddleJob)).To(gomega.Succeed())
+					g.Expect(createdPaddleJob.Status.ReplicaStatuses[kftraining.PaddleJobReplicaTypeMaster]).To(gomega.BeComparableTo(
+						&kftraining.ReplicaStatus{
+							Active:    0,
+							Succeeded: 1,
+							Selector:  fmt.Sprintf("training.kubeflow.org/job-name=%s,training.kubeflow.org/operator-name=paddlejob-controller,training.kubeflow.org/replica-type=master", createdPaddleJob.Name),
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration))
+
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: fmt.Sprintf("PaddleJob %s is successfully completed.", paddleJob.Name),
+					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking no objects are left in the worker clusters and the PaddleJob is completed", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerWl := &kueue.Workload{}
+					g.Expect(k8sWorker1Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					workerPaddleJob := &kftraining.PaddleJob{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(paddleJob), workerPaddleJob)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(paddleJob), workerPaddleJob)).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
