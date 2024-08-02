@@ -48,6 +48,6 @@ for PLATFORM in ${PLATFORMS} ; do
   mkdir -p ${BUILD_PATH}/tmp
   cp ${ROOT_PATH}/LICENSE ${BUILD_PATH}/tmp
   cp ${BUILD_PATH}/${FULL_NAME}${EXTENSION} ${BUILD_PATH}/tmp/${BUILD_NAME}${EXTENSION}
-  (cd ${BUILD_PATH}/tmp && tar -czf ${BUILD_PATH}/${FULL_NAME}.tar.gz *)
+  (cd ${BUILD_PATH}/tmp && tar -czf ${BUILD_PATH}/${FULL_NAME}.tar.gz ./*)
   rm -R ${BUILD_PATH}/tmp
 done
