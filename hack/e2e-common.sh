@@ -79,7 +79,8 @@ function install_kubeflow {
     kubectl apply -k ${KUBEFLOW_MANIFEST}
 }
 
-export INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
+INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
+export INITIAL_IMAGE
 
 function restore_managers_image {
     (cd config/components/manager && $KUSTOMIZE edit set image controller=$INITIAL_IMAGE)

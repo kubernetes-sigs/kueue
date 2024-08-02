@@ -18,10 +18,6 @@ disable=SC2086
 # https://github.com/koalaman/shellcheck/wiki/SC2034
 disable=SC2034
 
-# Declare and assign separately to avoid masking return values
-# https://github.com/koalaman/shellcheck/wiki/SC2155
-disable=SC2155
-
 # Quote this to prevent word splitting
 # https://github.com/koalaman/shellcheck/wiki/SC2046
 disable=SC2046

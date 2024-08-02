@@ -38,7 +38,9 @@ then
 	chart_version=${EXTRA_TAG}
 fi
 
-readonly default_image_repo=$(${YQ} ".controllerManager.manager.image.repository" charts/kueue/values.yaml)
+default_image_repo=$(${YQ} ".controllerManager.manager.image.repository" charts/kueue/values.yaml)
+readonly default_image_repo
+
 # Update the image repo, tag and policy
 ${YQ}  e  ".controllerManager.manager.image.repository = \"${image_repository}\" | .controllerManager.manager.image.tag = \"${chart_version}\" | .controllerManager.manager.image.pullPolicy = \"IfNotPresent\"" -i charts/kueue/values.yaml
 

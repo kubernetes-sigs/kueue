@@ -24,7 +24,9 @@ export EXEC_DEPLOYMENT_YAML="$CL2_HOME_DIR/pkg/execservice/manifest/exec_deploym
 
 cp -r "$CL2_HOME_DIR/pkg/prometheus/manifests/" tmp_manifests
 trap 'rm -r tmp_manifests' EXIT
-export PROMETHEUS_MANIFEST_PATH=$(pwd)/tmp_manifests
+
+PROMETHEUS_MANIFEST_PATH=$(pwd)/tmp_manifests
+export PROMETHEUS_MANIFEST_PATH
 
 now=$(date +%Y-%m-%d-%H.%M.%S)
 
