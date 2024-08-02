@@ -73,7 +73,7 @@ updates:
       - dependency-name: k8s.io/*
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
-  # Maintain dependencies for site
+  # Maintain gomod dependencies for site
   - package-ecosystem: "gomod"
     directory: "/site"
     schedule:
@@ -90,6 +90,20 @@ updates:
       # Allow patches and security updates.
       - dependency-name: k8s.io/*
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  # Maintain npm dependencies for site
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+    groups:
+      all:
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
