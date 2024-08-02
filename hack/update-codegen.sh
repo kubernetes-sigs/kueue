@@ -19,9 +19,10 @@ set -o nounset
 set -o pipefail
 
 GO_CMD=${1:-go}
-KUEUE_ROOT=$(realpath $(dirname ${BASH_SOURCE[0]})/..)
+CURRENT_DIR=$(dirname ${BASH_SOURCE[0]})
+KUEUE_ROOT=$(realpath ${CURRENT_DIR}/..)
 CODEGEN_PKG=$($GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
-cd $(dirname ${BASH_SOURCE[0]})/..
+cd ${CURRENT_DIR}/..
 
 # shellcheck source=/dev/null
 source "${CODEGEN_PKG}/kube_codegen.sh"

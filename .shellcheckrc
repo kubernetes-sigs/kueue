@@ -14,6 +14,3 @@ external-sources=true
 # https://github.com/koalaman/shellcheck/wiki/SC2086
 disable=SC2086
 
-# Quote this to prevent word splitting
-# https://github.com/koalaman/shellcheck/wiki/SC2046
-disable=SC2046

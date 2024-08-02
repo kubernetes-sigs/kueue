@@ -25,7 +25,8 @@ LD_FLAGS=${LD_FLAGS:-}
 BUILD_NAME=${BUILD_NAME:-kueuectl}
 PLATFORMS=${PLATFORMS:-linux/amd64}
 
-ROOT_PATH=$(realpath $(dirname ${BASH_SOURCE[0]})/..)
+CURRENT_DIR=$(dirname ${BASH_SOURCE[0]})
+ROOT_PATH=$(realpath ${CURRENT_DIR}/..)
 BUILD_PATH=${ROOT_PATH}/${BUILD_DIR}
 
 mkdir -p ${BUILD_PATH}

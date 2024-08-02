@@ -33,12 +33,13 @@ mkdir -p ${DEST_CRD_DIR} "${DEST_RBAC_DIR}" ${DEST_WEBHOOK_DIR} ${DEST_VISIBILIT
 
 # Add more excluded files separated by spaces
 EXCLUDE_FILES='kustomization.yaml kustomizeconfig.yaml'
+EXCLUDE_FILES_ARGS=$(printf "! -name %s " $EXCLUDE_FILES)
 
 # Copy all YAML files from the source directory to the destination directory
 cp ${SRC_CRD_DIR}/*.yaml ${DEST_CRD_DIR}
-find $SRC_RBAC_DIR -name "*.yaml" $(printf "! -name %s " $EXCLUDE_FILES) -exec cp "{}" $DEST_RBAC_DIR \;
-find $SRC_WEBHOOK_DIR -name "*.yaml" $(printf "! -name %s " $EXCLUDE_FILES) -exec cp "{}" $DEST_WEBHOOK_DIR \;
-find $SRC_VISIBILITY_DIR -name "*.yaml" $(printf "! -name %s " $EXCLUDE_FILES) -exec cp "{}" $DEST_VISIBILITY_DIR \;
+find $SRC_RBAC_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_RBAC_DIR \;
+find $SRC_WEBHOOK_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_WEBHOOK_DIR \;
+find $SRC_VISIBILITY_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_VISIBILITY_DIR \;
 $YQ -N -s '.kind' ${DEST_WEBHOOK_DIR}/manifests.yaml
 rm ${DEST_WEBHOOK_DIR}/manifests.yaml
 files=("MutatingWebhookConfiguration.yml" "ValidatingWebhookConfiguration.yml")
