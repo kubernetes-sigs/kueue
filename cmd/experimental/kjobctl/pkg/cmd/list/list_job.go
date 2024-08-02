@@ -29,26 +29,31 @@ import (
 	batchv1 "k8s.io/client-go/kubernetes/typed/batch/v1"
 	"k8s.io/utils/clock"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 const (
 	jobExample = `  # List Job
-  kjobctl list job`
+  kjobctl list job
+  
+  # List Job with profile filter
+  kjobctl list job --profile my-profile`
 )
 
 type JobOptions struct {
 	Clock      clock.Clock
 	PrintFlags *genericclioptions.PrintFlags
 
-	Limit              int64
-	AllNamespaces      bool
-	Namespace          string
-	ProfileFilter      string
-	FieldSelector      string
-	LabelSelector      string
-	ClusterQueueFilter string
+	Limit            int64
+	AllNamespaces    bool
+	Namespace        string
+	ProfileFilter    string
+	LocalQueueFilter string
+	FieldSelector    string
+	LabelSelector    string
 
 	Client batchv1.BatchV1Interface
 
@@ -67,7 +72,12 @@ func NewJobCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 	o := NewJobOptions(streams, clock)
 
 	cmd := &cobra.Command{
-		Use:                   "job [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]",
+		Use: "job" +
+			" [--profile PROFILE_NAME]" +
+			" [--localqueue LOCALQUEUE_NAME]" +
+			" [--selector key1=value1]" +
+			" [--field-selector key1=value1]" +
+			" [--all-namespaces]",
 		DisableFlagsInUseLine: true,
 		Short:                 "List Job",
 		Example:               jobExample,
@@ -87,6 +97,10 @@ func NewJobCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 	util.AddFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	util.AddLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	util.AddProfileFlagVar(cmd, &o.ProfileFilter)
+	util.AddLocalQueueFlagVar(cmd, &o.LocalQueueFilter)
+
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("profile", completion.ApplicationProfileNameFunc(clientGetter)))
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter)))
 
 	return cmd
 }
@@ -142,13 +156,17 @@ func (o *JobOptions) Run(ctx context.Context) error {
 	}
 
 	opts := metav1.ListOptions{
-		LabelSelector: constants.ProfileLabel,
 		FieldSelector: o.FieldSelector,
 		Limit:         o.Limit,
 	}
 
 	if len(o.ProfileFilter) > 0 {
-		opts.LabelSelector = fmt.Sprintf("%s,%s=%s", opts.LabelSelector, constants.ProfileLabel, o.ProfileFilter)
+		opts.LabelSelector = fmt.Sprintf("%s=%s", constants.ProfileLabel, o.ProfileFilter)
+	} else {
+		opts.LabelSelector = constants.ProfileLabel
+	}
+	if len(o.LocalQueueFilter) > 0 {
+		opts.LabelSelector = fmt.Sprintf("%s,%s=%s", opts.LabelSelector, kueueconstants.QueueLabel, o.LocalQueueFilter)
 	}
 	if len(o.LabelSelector) > 0 {
 		opts.LabelSelector = fmt.Sprintf("%s,%s", opts.LabelSelector, o.LabelSelector)

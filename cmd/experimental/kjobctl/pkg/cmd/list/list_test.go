@@ -47,6 +47,7 @@ func TestListCmd(t *testing.T) {
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", "ns1").
 					Profile("profile1").
+					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
@@ -55,6 +56,7 @@ func TestListCmd(t *testing.T) {
 					Obj(),
 				wrappers.MakeJob("j2", "ns2").
 					Profile("profile2").
+					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
@@ -62,9 +64,9 @@ func TestListCmd(t *testing.T) {
 					Succeeded(3).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   PROFILE    COMPLETIONS   DURATION   AGE
-ns1         j1     profile1   3/3           60m        60m
-ns2         j2     profile2   3/3           60m        60m
+			wantOut: `NAMESPACE   NAME   PROFILE    LOCAL QUEUE   COMPLETIONS   DURATION   AGE
+ns1         j1     profile1   lq1           3/3           60m        60m
+ns2         j2     profile2   lq1           3/3           60m        60m
 `,
 		},
 	}
