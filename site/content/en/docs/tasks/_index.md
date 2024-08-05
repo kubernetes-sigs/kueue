@@ -46,11 +46,11 @@ As a batch user, you can learn how to:
 
 ### Serving user
 
-A _serving user_ runs [serving workloads](/docs/concepts/workload). 
+A _serving user_ runs [workloads](/docs/concepts/workload). 
 A serving user runs serving workloads, for example, to expose a trained AI/ML model for inference.
 
 As a serving user, you can learn how to:
-- [Run a Kueue managed Deployment](run/deployments).
+- [Run a Kueue managed Deployment](run/deployment).
 
 ### Platform developer
 
