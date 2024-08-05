@@ -30,57 +30,58 @@ export KUBEFLOW_CRDS=${ROOT_DIR}/dep-crds/training-operator/
 
 # $1 - cluster name
 function cluster_cleanup {
-	kubectl config use-context kind-$1
-        $KIND export logs $ARTIFACTS --name $1 || true
-        kubectl describe pods -n kueue-system > $ARTIFACTS/$1-kueue-system-pods.log || true
-        kubectl describe pods > $ARTIFACTS/$1-default-pods.log || true
-        $KIND delete cluster --name $1
+	kubectl config use-context "kind-$1"
+        $KIND export logs "$ARTIFACTS" --name "$1" || true
+        kubectl describe pods -n kueue-system > "$ARTIFACTS/$1-kueue-system-pods.log" || true
+        kubectl describe pods > "$ARTIFACTS/$1-default-pods.log" || true
+        $KIND delete cluster --name "$1"
 }
 
 # $1 cluster name
 # $2 cluster kind config
 function cluster_create {
-        $KIND create cluster --name $1 --image $E2E_KIND_VERSION --config $2 --wait 1m -v 5  > $ARTIFACTS/$1-create.log 2>&1 \
-		||  { echo "unable to start the $1 cluster "; cat $ARTIFACTS/$1-create.log ; }
-	kubectl config use-context kind-$1
-        kubectl get nodes > $ARTIFACTS/$1-nodes.log || true
-        kubectl describe pods -n kube-system > $ARTIFACTS/$1-system-pods.log || true
+        $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --config "$2" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
+		||  { echo "unable to start the $1 cluster "; cat "$ARTIFACTS/$1-create.log" ; }
+	kubectl config use-context "kind-$1"
+        kubectl get nodes > "$ARTIFACTS/$1-nodes.log" || true
+        kubectl describe pods -n kube-system > "$ARTIFACTS/$1-system-pods.log" || true
 }
 
 # $1 cluster
 function cluster_kind_load {
-	cluster_kind_load_image $1 $E2E_TEST_IMAGE
-	cluster_kind_load_image $1 $IMAGE_TAG
+	cluster_kind_load_image "$1" "$E2E_TEST_IMAGE"
+	cluster_kind_load_image "$1" "$IMAGE_TAG"
 }
 
 # $1 cluster
 # $2 image
 function cluster_kind_load_image {
-        $KIND load docker-image $2 --name $1
+        $KIND load docker-image "$2" --name "$1"
 }
 
 # $1 cluster
 function cluster_kueue_deploy {
-    kubectl config use-context kind-${1}
+    kubectl config use-context "kind-${1}"
     kubectl apply --server-side -k test/e2e/config
 }
 
 #$1 - cluster name
 function install_jobset {
-    cluster_kind_load_image ${1} ${JOBSET_IMAGE}
-    kubectl config use-context kind-${1}
-    kubectl apply --server-side -f ${JOBSET_MANIFEST}
+    cluster_kind_load_image "${1}" "${JOBSET_IMAGE}"
+    kubectl config use-context "kind-${1}"
+    kubectl apply --server-side -f "${JOBSET_MANIFEST}"
 }
 
 #$1 - cluster name
 function install_kubeflow {
-    cluster_kind_load_image ${1} ${KUBEFLOW_IMAGE}
-    kubectl config use-context kind-${1}
-    kubectl apply -k ${KUBEFLOW_MANIFEST}
+    cluster_kind_load_image "${1}" ${KUBEFLOW_IMAGE}
+    kubectl config use-context "kind-${1}"
+    kubectl apply -k "${KUBEFLOW_MANIFEST}"
 }
 
-export INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
+INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
+export INITIAL_IMAGE
 
 function restore_managers_image {
-    (cd config/components/manager && $KUSTOMIZE edit set image controller=$INITIAL_IMAGE)
+    (cd config/components/manager && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
 }

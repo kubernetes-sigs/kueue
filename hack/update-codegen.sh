@@ -19,10 +19,12 @@ set -o nounset
 set -o pipefail
 
 GO_CMD=${1:-go}
-KUEUE_ROOT=$(realpath $(dirname ${BASH_SOURCE[0]})/..)
+CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
+KUEUE_ROOT=$(realpath "${CURRENT_DIR}/..")
 CODEGEN_PKG=$($GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
-cd $(dirname ${BASH_SOURCE[0]})/..
+cd "${CURRENT_DIR}/.."
 
+# shellcheck source=/dev/null
 source "${CODEGEN_PKG}/kube_codegen.sh"
 
 # TODO: remove the workaround when the issue is solved in the code-generator
@@ -36,7 +38,7 @@ trap "rm sigs.k8s.io" EXIT
 kube::codegen::gen_helpers \
   --input-pkg-root sigs.k8s.io/kueue/apis \
   --output-base "${KUEUE_ROOT}" \
-  --boilerplate ${KUEUE_ROOT}/hack/boilerplate.go.txt
+  --boilerplate "${KUEUE_ROOT}/hack/boilerplate.go.txt"
 
 # Generating OpenAPI for Kueue API extensions
 kube::codegen::gen_openapi \
@@ -50,7 +52,7 @@ kube::codegen::gen_client \
   --input-pkg-root sigs.k8s.io/kueue/apis \
   --output-pkg-root sigs.k8s.io/kueue/client-go \
   --output-base "${KUEUE_ROOT}" \
-  --boilerplate ${KUEUE_ROOT}/hack/boilerplate.go.txt \
+  --boilerplate "${KUEUE_ROOT}/hack/boilerplate.go.txt" \
   --with-watch \
   --with-applyconfig
 

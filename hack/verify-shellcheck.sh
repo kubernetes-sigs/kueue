@@ -21,7 +21,6 @@ set -o pipefail
 # allow overriding docker cli, which should work fine for this script
 DOCKER="${DOCKER:-docker}"
 
-SHELLCHECK_VERSION="0.9.0"
 SHELLCHECK_IMAGE="docker.io/koalaman/shellcheck-alpine:v0.9.0@sha256:e19ed93c22423970d56568e171b4512c9244fc75dd9114045016b4a0073ac4b7"
 
 # Initialize an empty array for scripts to check
