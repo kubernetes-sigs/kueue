@@ -327,6 +327,7 @@ rules:
   - xgboostjobs/status
   verbs:
   - get
+  - patch
   - update
 - apiGroups:
   - kueue.x-k8s.io

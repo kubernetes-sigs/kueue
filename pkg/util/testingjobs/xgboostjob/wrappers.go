@@ -42,44 +42,87 @@ func MakeXGBoostJob(name, ns string) *XGBoostJobWrapper {
 			RunPolicy: kftraining.RunPolicy{
 				Suspend: ptr.To(true),
 			},
-			XGBReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
-				kftraining.XGBoostJobReplicaTypeMaster: {
-					Replicas: ptr.To[int32](1),
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							RestartPolicy: "Never",
-							Containers: []corev1.Container{
-								{
-									Name:      "c",
-									Image:     "pause",
-									Command:   []string{},
-									Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
-								},
-							},
-							NodeSelector: map[string]string{},
-						},
-					},
-				},
-				kftraining.XGBoostJobReplicaTypeWorker: {
-					Replicas: ptr.To[int32](1),
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							RestartPolicy: "Never",
-							Containers: []corev1.Container{
-								{
-									Name:      "c",
-									Image:     "pause",
-									Command:   []string{},
-									Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
-								},
-							},
-							NodeSelector: map[string]string{},
-						},
-					},
-				},
-			},
+			XGBReplicaSpecs: make(map[kftraining.ReplicaType]*kftraining.ReplicaSpec),
 		},
 	}}
+}
+
+type XGBReplicaSpecRequirement struct {
+	ReplicaType   kftraining.ReplicaType
+	Name          string
+	ReplicaCount  int32
+	Annotations   map[string]string
+	RestartPolicy kftraining.RestartPolicy
+}
+
+func (j *XGBoostJobWrapper) XGBReplicaSpecs(replicaSpecs ...XGBReplicaSpecRequirement) *XGBoostJobWrapper {
+	j = j.XGBReplicaSpecsDefault()
+	for _, rs := range replicaSpecs {
+		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
+		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
+		j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "xgboost"
+
+		if rs.Annotations != nil {
+			j.Spec.XGBReplicaSpecs[rs.ReplicaType].Template.ObjectMeta.Annotations = rs.Annotations
+		}
+	}
+
+	return j
+}
+
+func (j *XGBoostJobWrapper) XGBReplicaSpecsDefault() *XGBoostJobWrapper {
+	j.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeMaster] = &kftraining.ReplicaSpec{
+		Replicas: ptr.To[int32](1),
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: "Never",
+				Containers: []corev1.Container{
+					{
+						Name:      "c",
+						Image:     "pause",
+						Command:   []string{},
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+					},
+				},
+				NodeSelector: map[string]string{},
+			},
+		},
+	}
+
+	j.Spec.XGBReplicaSpecs[kftraining.XGBoostJobReplicaTypeWorker] = &kftraining.ReplicaSpec{
+		Replicas: ptr.To[int32](1),
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: "Never",
+				Containers: []corev1.Container{
+					{
+						Name:      "c",
+						Image:     "pause",
+						Command:   []string{},
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+					},
+				},
+				NodeSelector: map[string]string{},
+			},
+		},
+	}
+
+	return j
+}
+
+// Clone returns deep copy of the XGBoostJobWrapper.
+func (j *XGBoostJobWrapper) Clone() *XGBoostJobWrapper {
+	return &XGBoostJobWrapper{XGBoostJob: *j.DeepCopy()}
+}
+
+// Label sets the label key and value
+func (j *XGBoostJobWrapper) Label(key, value string) *XGBoostJobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[key] = value
+	return j
 }
 
 // PriorityClass updates job priorityclass.
@@ -164,5 +207,11 @@ func (j *XGBoostJobWrapper) Active(rType kftraining.ReplicaType, c int32) *XGBoo
 	j.Status.ReplicaStatuses[rType] = &kftraining.ReplicaStatus{
 		Active: c,
 	}
+	return j
+}
+
+// StatusConditions updates status conditions of the XGBoostJob.
+func (j *XGBoostJobWrapper) StatusConditions(conditions ...kftraining.JobCondition) *XGBoostJobWrapper {
+	j.Status.Conditions = conditions
 	return j
 }
