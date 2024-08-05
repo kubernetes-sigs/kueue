@@ -72,6 +72,17 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	--min-replicas small-group=1 \ 
 	--max-replicas small-group=5 \ 
 	--localqueue my-local-queue-name`
+	createRayClusterLong = `Create a raycluster.
+
+KubeRay operator is required for RayCluster.
+How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.`
+	createRayClusterExample = `  # Create raycluster 
+  kjobctl create raycluster \ 
+	--profile my-application-profile  \
+	--replicas small-group=1 \
+	--min-replicas small-group=1 \ 
+	--max-replicas small-group=5 \ 
+	--localqueue my-local-queue-name`
 	profileFlagName     = "profile"
 	commandFlagName     = "cmd"
 	parallelismFlagName = "parallelism"
@@ -144,9 +155,14 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"job": {
 		ModeName: v1alpha1.JobMode,
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--request RESOURCE_NAME=QUANTITY] [--parallelism PARALLELISM] [--completions COMPLETIONS]"
+			subcmd.Use += " [--cmd COMMAND]" +
+				" [--request RESOURCE_NAME=QUANTITY]" +
+				" [--parallelism PARALLELISM]" +
+				" [--completions COMPLETIONS]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
+			subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
+				"Command which is associated with the resource.")
 			subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
 				"Request is a set of (resource name, quantity) pairs.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedParallelism, parallelismFlagName, 0,
@@ -158,9 +174,14 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"interactive": {
 		ModeName: v1alpha1.InteractiveMode,
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--request RESOURCE_NAME=QUANTITY] [--pod-running-timeout DURATION] [--rm]"
+			subcmd.Use += " [--cmd COMMAND]" +
+				" [--request RESOURCE_NAME=QUANTITY]" +
+				" [--pod-running-timeout DURATION]" +
+				" [--rm]"
 			subcmd.Short = "Create an interactive shell"
 			subcmd.Example = createInteractiveExample
+			subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
+				"Command which is associated with the resource.")
 			subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
 				"Request is a set of (resource name, quantity) pairs.")
 			subcmd.Flags().DurationVar(&o.PodRunningTimeout, podRunningTimeout, podRunningTimeoutDefault,
@@ -172,10 +193,32 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"rayjob": {
 		ModeName: v1alpha1.RayJobMode,
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
+			subcmd.Use += " [--cmd COMMAND]" +
+				" [--replicas [WORKER_GROUP]=REPLICAS]" +
+				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
 			subcmd.Short = "Create a rayjob"
 			subcmd.Long = createRayJobLong
 			subcmd.Example = createRayJobExample
+			subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
+				"Command which is associated with the resource.")
+			subcmd.Flags().StringToIntVar(&o.Replicas, replicasFlagName, nil,
+				"Replicas is the number of desired Pods for this worker group.")
+			subcmd.Flags().StringToIntVar(&o.MinReplicas, minReplicasFlagName, nil,
+				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
+			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
+				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
+		},
+	},
+	"raycluster": {
+		ModeName: v1alpha1.RayClusterMode,
+		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
+			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS]" +
+				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
+			subcmd.Short = "Create a raycluster"
+			subcmd.Long = createRayClusterLong
+			subcmd.Example = createRayClusterExample
 			subcmd.Flags().StringToIntVar(&o.Replicas, replicasFlagName, nil,
 				"Replicas is the number of desired Pods for this worker group.")
 			subcmd.Flags().StringToIntVar(&o.MinReplicas, minReplicasFlagName, nil,
@@ -190,17 +233,23 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 	o := NewCreateOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:     "create",
-		Short:   "Create a task",
-		Example: fmt.Sprintf("%s\n\n%s\n\n%s", createJobExample, createInteractiveExample, createRayJobExample),
+		Use:   "create",
+		Short: "Create a task",
+		Example: fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s",
+			createJobExample,
+			createInteractiveExample,
+			createRayJobExample,
+			createRayClusterExample,
+		),
 	}
 
 	for modeName, modeSubcommand := range createModeSubcommands {
 		subcmd := &cobra.Command{
 			Use: fmt.Sprintf("%s"+
 				" --profile APPLICATION_PROFILE_NAME"+
-				" [--cmd COMMAND]"+
-				" [--localqueue LOCAL_QUEUE_NAME]", modeName),
+				" [--localqueue LOCAL_QUEUE_NAME]",
+				modeName,
+			),
 			DisableFlagsInUseLine: true,
 			Args:                  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -219,8 +268,6 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 
 		subcmd.Flags().StringVarP(&o.ProfileName, profileFlagName, "p", "",
 			"Application profile contains a template (with defaults set) for running a specific type of application.")
-		subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
-			"Command which is associated with the resource.")
 		subcmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
 			"Kueue localqueue name which is associated with the resource.")
 		modeSubcommand.Setup(subcmd, o)
