@@ -15,6 +15,7 @@ spec:
     - name: RayJob
       template: sample-ray-job-template
       requiredFlags: []
+  volumeBundles: ["ray-job-volume-bundle"]
 ---
 apiVersion: v1
 kind: PodTemplate

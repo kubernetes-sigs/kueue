@@ -2,17 +2,17 @@
 apiVersion: kjobctl.x-k8s.io/v1alpha1
 kind: VolumeBundle
 metadata:
-  name: sample-volume-bundle
+  name: ray-job-volume-bundle
 spec:
   volumes:
-    - name: code-sample
+    - name: ray-job-code-sample
       configMap:
         name: ray-job-code-sample
         items:
           - key: sample_code.py
             path: sample_code.py
   containerVolumeMounts:
-    - name: code-sample
+    - name: ray-job-code-sample
       mountPath: /home/ray/samples
   envVars:
     - name: ENTRYPOINT_PATH
