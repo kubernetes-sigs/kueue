@@ -335,7 +335,11 @@ func TestCreateCmd(t *testing.T) {
 			args: []string{"rayjob", "--profile", "profile", "--replicas", "g1=5"},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
-					WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+					WithRayClusterSpec(
+						wrappers.MakeRayClusterSpec().
+							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+							Obj(),
+					).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
@@ -382,7 +386,11 @@ func TestCreateCmd(t *testing.T) {
 			args: []string{"rayjob", "--profile", "profile", "--min-replicas", "g1=5"},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
-					WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+					WithRayClusterSpec(
+						wrappers.MakeRayClusterSpec().
+							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+							Obj(),
+					).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
@@ -406,7 +414,11 @@ func TestCreateCmd(t *testing.T) {
 			args: []string{"rayjob", "--profile", "profile", "--max-replicas", "g1=5"},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
-					WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+					WithRayClusterSpec(
+						wrappers.MakeRayClusterSpec().
+							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+							Obj(),
+					).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).

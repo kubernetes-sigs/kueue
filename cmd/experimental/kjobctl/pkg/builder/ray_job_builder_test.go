@@ -46,63 +46,66 @@ func TestRayJobBuilder(t *testing.T) {
 	userID := os.Getenv(constants.SystemEnvVarNameUser)
 
 	testRayJobTemplateWrapper := wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
-		WithWorkerGroupSpec(
-			*wrappers.MakeWorkerGroupSpec("g1").
-				WithInitContainer(
-					*wrappers.MakeContainer("ic1", "").
-						WithEnvVar(corev1.EnvVar{Name: "e0", Value: "default-value0"}).
-						WithVolumeMount(corev1.VolumeMount{Name: "vm0", MountPath: "/etc/default-config0"}).
-						Obj(),
-				).
-				WithContainer(
-					*wrappers.MakeContainer("c1", "").
-						WithRequest(corev1.ResourceCPU, resource.MustParse("1")).
+		WithRayClusterSpec(wrappers.MakeRayClusterSpec().
+			WithWorkerGroupSpec(
+				*wrappers.MakeWorkerGroupSpec("g1").
+					WithInitContainer(
+						*wrappers.MakeContainer("ic1", "").
+							WithEnvVar(corev1.EnvVar{Name: "e0", Value: "default-value0"}).
+							WithVolumeMount(corev1.VolumeMount{Name: "vm0", MountPath: "/etc/default-config0"}).
+							Obj(),
+					).
+					WithContainer(
+						*wrappers.MakeContainer("c1", "").
+							WithRequest(corev1.ResourceCPU, resource.MustParse("1")).
+							WithEnvVar(corev1.EnvVar{Name: "e1", Value: "default-value1"}).
+							WithEnvVar(corev1.EnvVar{Name: "e2", Value: "default-value2"}).
+							WithVolumeMount(corev1.VolumeMount{Name: "vm1", MountPath: "/etc/default-config1"}).
+							WithVolumeMount(corev1.VolumeMount{Name: "vm2", MountPath: "/etc/default-config2"}).
+							Obj(),
+					).
+					WithContainer(*wrappers.MakeContainer("c2", "").
+						WithRequest(corev1.ResourceCPU, resource.MustParse("2")).
 						WithEnvVar(corev1.EnvVar{Name: "e1", Value: "default-value1"}).
 						WithEnvVar(corev1.EnvVar{Name: "e2", Value: "default-value2"}).
 						WithVolumeMount(corev1.VolumeMount{Name: "vm1", MountPath: "/etc/default-config1"}).
 						WithVolumeMount(corev1.VolumeMount{Name: "vm2", MountPath: "/etc/default-config2"}).
 						Obj(),
-				).
-				WithContainer(*wrappers.MakeContainer("c2", "").
-					WithRequest(corev1.ResourceCPU, resource.MustParse("2")).
-					WithEnvVar(corev1.EnvVar{Name: "e1", Value: "default-value1"}).
-					WithEnvVar(corev1.EnvVar{Name: "e2", Value: "default-value2"}).
-					WithVolumeMount(corev1.VolumeMount{Name: "vm1", MountPath: "/etc/default-config1"}).
-					WithVolumeMount(corev1.VolumeMount{Name: "vm2", MountPath: "/etc/default-config2"}).
+					).
+					WithVolume("v1", "default-config1").
+					WithVolume("v2", "default-config2").
 					Obj(),
-				).
-				WithVolume("v1", "default-config1").
-				WithVolume("v2", "default-config2").
-				Obj(),
-		).
-		WithWorkerGroupSpec(
-			*wrappers.MakeWorkerGroupSpec("g2").
-				WithInitContainer(
-					*wrappers.MakeContainer("ic1", "").
-						WithEnvVar(corev1.EnvVar{Name: "e0", Value: "default-value0"}).
-						WithVolumeMount(corev1.VolumeMount{Name: "vm0", MountPath: "/etc/default-config0"}).
-						Obj(),
-				).
-				WithContainer(
-					*wrappers.MakeContainer("c1", "").
-						WithRequest(corev1.ResourceCPU, resource.MustParse("1")).
+			).
+			WithWorkerGroupSpec(
+				*wrappers.MakeWorkerGroupSpec("g2").
+					WithInitContainer(
+						*wrappers.MakeContainer("ic1", "").
+							WithEnvVar(corev1.EnvVar{Name: "e0", Value: "default-value0"}).
+							WithVolumeMount(corev1.VolumeMount{Name: "vm0", MountPath: "/etc/default-config0"}).
+							Obj(),
+					).
+					WithContainer(
+						*wrappers.MakeContainer("c1", "").
+							WithRequest(corev1.ResourceCPU, resource.MustParse("1")).
+							WithEnvVar(corev1.EnvVar{Name: "e1", Value: "default-value1"}).
+							WithEnvVar(corev1.EnvVar{Name: "e2", Value: "default-value2"}).
+							WithVolumeMount(corev1.VolumeMount{Name: "vm1", MountPath: "/etc/default-config1"}).
+							WithVolumeMount(corev1.VolumeMount{Name: "vm2", MountPath: "/etc/default-config2"}).
+							Obj(),
+					).
+					WithContainer(*wrappers.MakeContainer("c2", "").
+						WithRequest(corev1.ResourceCPU, resource.MustParse("2")).
 						WithEnvVar(corev1.EnvVar{Name: "e1", Value: "default-value1"}).
 						WithEnvVar(corev1.EnvVar{Name: "e2", Value: "default-value2"}).
 						WithVolumeMount(corev1.VolumeMount{Name: "vm1", MountPath: "/etc/default-config1"}).
 						WithVolumeMount(corev1.VolumeMount{Name: "vm2", MountPath: "/etc/default-config2"}).
 						Obj(),
-				).
-				WithContainer(*wrappers.MakeContainer("c2", "").
-					WithRequest(corev1.ResourceCPU, resource.MustParse("2")).
-					WithEnvVar(corev1.EnvVar{Name: "e1", Value: "default-value1"}).
-					WithEnvVar(corev1.EnvVar{Name: "e2", Value: "default-value2"}).
-					WithVolumeMount(corev1.VolumeMount{Name: "vm1", MountPath: "/etc/default-config1"}).
-					WithVolumeMount(corev1.VolumeMount{Name: "vm2", MountPath: "/etc/default-config2"}).
+					).
+					WithVolume("v1", "default-config1").
+					WithVolume("v2", "default-config2").
 					Obj(),
-				).
-				WithVolume("v1", "default-config1").
-				WithVolume("v2", "default-config2").
-				Obj(),
+			).
+			Obj(),
 		)
 
 	testCases := map[string]struct {
@@ -144,15 +147,19 @@ func TestRayJobBuilder(t *testing.T) {
 				Label(constants.ProfileLabel, "profile").
 				Spec(
 					testRayJobTemplateWrapper.Clone().
-						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
-						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
-						WithEnvVar(corev1.EnvVar{
-							Name:  constants.EnvVarTaskID,
-							Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
-						}).
-						WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
-						WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
-						Obj().Template.Spec,
+						WithRayClusterSpec(
+							wrappers.FromRayClusterSpec(*testRayJobTemplateWrapper.Clone().Template.Spec.RayClusterSpec).
+								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+								WithEnvVar(corev1.EnvVar{
+									Name:  constants.EnvVarTaskID,
+									Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+								}).
+								WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+								WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+								Obj(),
+						).
+						Template.Spec,
 				).
 				Obj(),
 		},
@@ -185,23 +192,27 @@ func TestRayJobBuilder(t *testing.T) {
 				Spec(
 					testRayJobTemplateWrapper.Clone().
 						Entrypoint("sleep").
-						Replicas("g1", 10).
-						Replicas("g2", 20).
-						MinReplicas("g1", 10).
-						MinReplicas("g2", 20).
-						MaxReplicas("g1", 15).
-						MaxReplicas("g2", 25).
-						WithVolume("v3", "config3").
-						WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
-						WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
-						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
-						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
-						WithEnvVar(corev1.EnvVar{
-							Name:  constants.EnvVarTaskID,
-							Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
-						}).
-						WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
-						WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+						WithRayClusterSpec(
+							wrappers.FromRayClusterSpec(*testRayJobTemplateWrapper.Clone().Template.Spec.RayClusterSpec).
+								Replicas("g1", 10).
+								Replicas("g2", 20).
+								MinReplicas("g1", 10).
+								MinReplicas("g2", 20).
+								MaxReplicas("g1", 15).
+								MaxReplicas("g2", 25).
+								WithVolume("v3", "config3").
+								WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
+								WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
+								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+								WithEnvVar(corev1.EnvVar{
+									Name:  constants.EnvVarTaskID,
+									Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+								}).
+								WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+								WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+								Obj(),
+						).
 						Obj().Template.Spec,
 				).
 				Obj(),
