@@ -243,6 +243,8 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 		bImpl = newInteractiveBuilder(b)
 	case v1alpha1.RayJobMode:
 		bImpl = newRayJobBuilder(b)
+	case v1alpha1.RayClusterMode:
+		bImpl = newRayClusterBuilder(b)
 	}
 
 	if bImpl == nil {
