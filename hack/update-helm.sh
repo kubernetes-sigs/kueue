@@ -14,6 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+set -o errexit
+set -o nounset
+set -o pipefail
+
 # Set the source and destination directories
 SRC_CRD_DIR=config/components/crd/bases
 SRC_RBAC_DIR=config/components/rbac
