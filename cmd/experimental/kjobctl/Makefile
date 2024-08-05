@@ -62,8 +62,8 @@ generate: gomod-download controller-gen ## Generate code containing DeepCopy, De
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
 
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify manifests generate generate-kjobctl-docs
-	git --no-pager diff --exit-code config/crd apis client-go docs
+verify: gomod-verify ci-lint fmt-verify manifests generate generate-kjobctl-docs embeded-manifest
+	git --no-pager diff --exit-code config/crd apis client-go docs pkg/cmd/printcrds/embed
 
 .PHONY: gomod-verify
 gomod-verify:
@@ -98,7 +98,7 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: test
-test: embeded-manifest verify vet test-unit test-integration ## Run all tests.
+test: verify vet test-unit test-integration ## Run all tests.
 
 .PHONY: test-unit
 test-unit: gomod-download gotestsum embeded-manifest ## Run unit tests.
