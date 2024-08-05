@@ -320,7 +320,6 @@ rules:
   - xgboostjobs/finalizers
   verbs:
   - get
-  - patch
   - update
 - apiGroups:
   - kubeflow.org
