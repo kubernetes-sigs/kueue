@@ -21,6 +21,7 @@ import (
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -50,6 +51,7 @@ func NewResourceDescriber(mapping *meta.RESTMapping) (ResourceDescriber, error) 
 func DescriberFor(kind schema.GroupKind) (ResourceDescriber, bool) {
 	describers := map[schema.GroupKind]ResourceDescriber{
 		{Group: batchv1.GroupName, Kind: "Job"}: &JobDescriber{},
+		{Group: corev1.GroupName, Kind: "Pod"}:  &PodDescriber{},
 	}
 
 	f, ok := describers[kind]
@@ -100,6 +102,61 @@ func describeJob(job *batchv1.Job) (string, error) {
 		}
 
 		describePodTemplate(&job.Spec.Template, w)
+
+		return nil
+	})
+}
+
+// PodDescriber generates information about a pod.
+type PodDescriber struct{}
+
+func (d *PodDescriber) Describe(object *unstructured.Unstructured) (string, error) {
+	pod := &corev1.Pod{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), pod)
+	if err != nil {
+		return "", err
+	}
+
+	return describePod(pod)
+}
+
+func describePod(pod *corev1.Pod) (string, error) {
+	return tabbedString(func(out io.Writer) error {
+		w := describehelper.NewPrefixWriter(out)
+
+		w.Write(IndentLevelZero, "Name:\t%s\n", pod.Name)
+		w.Write(IndentLevelZero, "Namespace:\t%s\n", pod.Namespace)
+		if pod.Status.StartTime != nil {
+			w.Write(IndentLevelZero, "Start Time:\t%s\n", pod.Status.StartTime.Time.Format(time.RFC1123Z))
+		}
+		printLabelsMultiline(w, "Labels", pod.Labels)
+
+		if pod.DeletionTimestamp != nil && pod.Status.Phase != corev1.PodFailed && pod.Status.Phase != corev1.PodSucceeded {
+			w.Write(IndentLevelZero, "Status:\tTerminating (lasts %s)\n", translateTimestampSince(*pod.DeletionTimestamp))
+			w.Write(IndentLevelZero, "Termination Grace Period:\t%ds\n", *pod.DeletionGracePeriodSeconds)
+		} else {
+			w.Write(IndentLevelZero, "Status:\t%s\n", string(pod.Status.Phase))
+		}
+		if len(pod.Status.Reason) > 0 {
+			w.Write(IndentLevelZero, "Reason:\t%s\n", pod.Status.Reason)
+		}
+		if len(pod.Status.Message) > 0 {
+			w.Write(IndentLevelZero, "Message:\t%s\n", pod.Status.Message)
+		}
+
+		if len(pod.Spec.InitContainers) > 0 {
+			describeContainers("Init Containers", pod.Spec.InitContainers, w, "")
+		}
+		describeContainers("Containers", pod.Spec.Containers, w, "")
+		if len(pod.Spec.EphemeralContainers) > 0 {
+			var ec []corev1.Container
+			for i := range pod.Spec.EphemeralContainers {
+				ec = append(ec, corev1.Container(pod.Spec.EphemeralContainers[i].EphemeralContainerCommon))
+			}
+			describeContainers("Ephemeral Containers", ec, w, "")
+		}
+
+		describeVolumes(pod.Spec.Volumes, w, "")
 
 		return nil
 	})
