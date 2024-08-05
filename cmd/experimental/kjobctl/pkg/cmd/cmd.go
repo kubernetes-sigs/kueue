@@ -25,9 +25,9 @@ import (
 	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/crds"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/create"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/list"
+	crds "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/printcrds"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 )
 

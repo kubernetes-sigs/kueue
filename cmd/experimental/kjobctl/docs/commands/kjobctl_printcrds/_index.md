@@ -3,7 +3,7 @@ The file is auto-generated from the Go source code of the component using the
 [generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
 -->
 
-# kjobctl crds
+# kjobctl printcrds
 
 
 ## Synopsis
@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Print the kjobctl CRDs
 
 ```
-kjobctl crds [flags]
+kjobctl printcrds [flags]
 ```
 
 
@@ -20,10 +20,10 @@ kjobctl crds [flags]
 
 ```
   # Install or update the kjobctl CRDs 
-  kjobctl crds | kubectl apply --server-side -f -
+  kjobctl printcrds | kubectl apply --server-side -f -
 
   # Remove the kjobctl CRDs
-  kjobctl crds | kubectl delete --ignore-not-found=true -f -
+  kjobctl printcrds | kubectl delete --ignore-not-found=true -f -
   
 ```
 
@@ -43,7 +43,7 @@ kjobctl crds [flags]
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for crds</p>
+            <p>help for printcrds</p>
         </td>
     </tr>
     </tbody>

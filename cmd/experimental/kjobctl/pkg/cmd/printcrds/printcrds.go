@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package crds
+package printcrds
 
 import (
 	"bytes"
@@ -27,10 +27,10 @@ import (
 
 const (
 	crdsExample = `  # Install or update the kjobctl CRDs 
-  kjobctl crds | kubectl apply --server-side -f -
+  kjobctl printcrds | kubectl apply --server-side -f -
 
   # Remove the kjobctl CRDs
-  kjobctl crds | kubectl delete --ignore-not-found=true -f -
+  kjobctl printcrds | kubectl delete --ignore-not-found=true -f -
   `
 )
 
@@ -39,7 +39,7 @@ var crds []byte
 
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "crds",
+		Use:          "printcrds",
 		Short:        "Print the kjobctl CRDs",
 		Example:      crdsExample,
 		SilenceUsage: false,

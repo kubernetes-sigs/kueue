@@ -17,7 +17,7 @@ TOOLS_DIR ?= $(PROJECT_DIR)/hack/tools
 
 MANIFEST_DIR := $(PROJECT_DIR)/config/crd
 MANIFEST_SOURCES := $(shell find $(MANIFEST_DIR) -name "*.yaml")
-EMBEDDED_MANIFEST_DIR := $(PROJECT_DIR)/pkg/cmd/crds/embed
+EMBEDDED_MANIFEST_DIR := $(PROJECT_DIR)/pkg/cmd/printcrds/embed
 EMBEDDED_MANIFEST := $(EMBEDDED_MANIFEST_DIR)/manifest.gz
 
 # Number of processes to use during integration tests to run specs within a

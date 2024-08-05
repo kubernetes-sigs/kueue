@@ -199,7 +199,7 @@ ML/AI/Batch Jobs Made Easy
 
 ## See Also
 
-* [kjobctl crds](kjobctl_crds/_index.md)	 - Print the kjobctl CRDs
 * [kjobctl create](kjobctl_create/_index.md)	 - Create a task
 * [kjobctl list](kjobctl_list/_index.md)	 - Display resources
+* [kjobctl printcrds](kjobctl_printcrds/_index.md)	 - Print the kjobctl CRDs
 
