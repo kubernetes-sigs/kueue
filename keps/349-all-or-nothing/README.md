@@ -337,6 +337,9 @@ First one tracks the time between job getting unsuspended (the time of unsuspend
 Second one tracks the time between changing `PodsReady` condition to `false` after the job is running and reaching the
 `PodsReady=true` condition once again.
 
+We introduce new `WorkloadWaitForPodsReadyStart` and `WorkloadWaitForPodsReadyReplacement` reasons to distinguish the reasons of setting the `PodsReady=false` condition.
+`WorkloadWaitForPodsReadyStart` will be set before the job started, and `WorkloadWaitForPodsReadyReplacement` after.
+
 When any of the timeouts is exceeded, the Kueue's Job
 Controller suspends the Job corresponding to the workload and puts into the
 ClusterQueue's `inadmissibleWorkloads` list. The timeouts are enforced only when
