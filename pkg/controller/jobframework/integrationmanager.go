@@ -199,23 +199,25 @@ func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[st
 }
 
 func (m *integrationManager) canEnableIntegration(integration string, enabledSet, visited sets.Set[string]) error {
-	// is the integration real?
+	if !enabledSet.Has(integration) {
+		return fmt.Errorf("%q %w", integration, errIntegrationNotEnabled)
+	}
+
+	if visited.Has(integration) {
+		return fmt.Errorf("%q %w", integration, errCircularIntegrationDependency)
+	}
+	visited.Insert(integration)
+	defer visited.Delete(integration)
+
+	// is the integration provided in he built-in set of integrations
 	cbs, found := m.integrations[integration]
 	if !found {
 		return fmt.Errorf("%q %w", integration, errIntegrationNotFound)
 	}
-	if len(cbs.DependencyList) != 0 {
-		newVisited := visited.Clone().Insert(integration)
-		for _, dep := range cbs.DependencyList {
-			if !enabledSet.Has(dep) {
-				return fmt.Errorf("%q: %q %w", integration, dep, errIntegrationNotEnabled)
-			}
-			if newVisited.Has(dep) {
-				return fmt.Errorf("%q: %q %w", integration, dep, errCircularIntegrationDependency)
-			}
-			if err := m.canEnableIntegration(dep, enabledSet, newVisited); err != nil {
-				return fmt.Errorf("%q: %w", integration, err)
-			}
+
+	for _, dep := range cbs.DependencyList {
+		if err := m.canEnableIntegration(dep, enabledSet, visited); err != nil {
+			return fmt.Errorf("%q: %w", integration, err)
 		}
 	}
 	return nil
