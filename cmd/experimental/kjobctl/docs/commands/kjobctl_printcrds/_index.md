@@ -3,18 +3,55 @@ The file is auto-generated from the Go source code of the component using the
 [generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
 -->
 
-# kjobctl
+# kjobctl printcrds
 
 
 ## Synopsis
 
 
-ML/AI/Batch Jobs Made Easy
+Print the kjobctl CRDs
+
+```
+kjobctl printcrds [flags]
+```
+
+
+## Examples
+
+```
+  # Install or update the kjobctl CRDs 
+  kjobctl printcrds | kubectl apply --server-side -f -
+
+  # Remove the kjobctl CRDs
+  kjobctl printcrds | kubectl delete --ignore-not-found=true -f -
+  
+```
 
 
 ## Options
 
 
+<table style="width: 100%; table-layout: fixed;">
+    <colgroup>
+        <col span="1" style="width: 10px;" />
+        <col span="1" />
+    </colgroup>
+    <tbody>
+    <tr>
+        <td colspan="2">-h, --help</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>help for printcrds</p>
+        </td>
+    </tr>
+    </tbody>
+</table>
+
+
+
+## Options inherited from parent commands
 <table style="width: 100%; table-layout: fixed;">
     <colgroup>
         <col span="1" style="width: 10px;" />
@@ -112,15 +149,6 @@ ML/AI/Batch Jobs Made Easy
         </td>
     </tr>
     <tr>
-        <td colspan="2">-h, --help</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for kjobctl</p>
-        </td>
-    </tr>
-    <tr>
         <td colspan="2">--insecure-skip-tls-verify</td>
     </tr>
     <tr>
@@ -199,8 +227,5 @@ ML/AI/Batch Jobs Made Easy
 
 ## See Also
 
-* [kjobctl create](kjobctl_create/_index.md)	 - Create a task
-* [kjobctl describe](kjobctl_describe/_index.md)	 - Show details of a specific resource or group of resources.
-* [kjobctl list](kjobctl_list/_index.md)	 - Display resources
-* [kjobctl printcrds](kjobctl_printcrds/_index.md)	 - Print the kjobctl CRDs
+* [kjobctl](../kjobctl.md)	 - ML/AI/Batch Jobs Made Easy
 

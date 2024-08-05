@@ -15,6 +15,11 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ARTIFACTS ?= $(PROJECT_DIR)/bin
 TOOLS_DIR ?= $(PROJECT_DIR)/hack/tools
 
+MANIFEST_DIR := $(PROJECT_DIR)/config/crd
+MANIFEST_SOURCES := $(shell find $(MANIFEST_DIR) -name "*.yaml")
+EMBEDDED_MANIFEST_DIR := $(PROJECT_DIR)/pkg/cmd/printcrds/embed
+EMBEDDED_MANIFEST := $(EMBEDDED_MANIFEST_DIR)/manifest.gz
+
 # Number of processes to use during integration tests to run specs within a
 # suite in parallel. Suites still run sequentially. User may set this value to 1
 # to run without parallelism.
@@ -76,6 +81,13 @@ fmt-verify:
 	    exit 1; \
 	fi
 
+$(EMBEDDED_MANIFEST): kustomize $(MANIFEST_SOURCES) 
+	mkdir -p  $(EMBEDDED_MANIFEST_DIR)
+	# This is embedded in the kjobctl binary. 
+	$(KUSTOMIZE) build $(MANIFEST_DIR) | $(GO_CMD) run $(PROJECT_DIR)/hack/tools/gzip/gzip.go > $(EMBEDDED_MANIFEST)
+
+embeded-manifest: $(EMBEDDED_MANIFEST)
+
 .PHONY: gomod-download
 gomod-download:
 	$(GO_CMD) mod download
@@ -85,14 +97,14 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: test
-test: verify vet test-unit test-integration ## Run all tests.
+test: embeded-manifest verify vet test-unit test-integration ## Run all tests.
 
 .PHONY: test-unit
-test-unit: gomod-download gotestsum ## Run unit tests.
+test-unit: gomod-download gotestsum embeded-manifest ## Run unit tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: gomod-download envtest ginkgo ## Run integration tests.
+test-integration: gomod-download envtest ginkgo embeded-manifest ## Run integration tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
@@ -120,8 +132,9 @@ install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
+
 .PHONY: kubectl-kjob
-kubectl-kjob: ## Build kubectl-kjob binary file to bin directory.
+kubectl-kjob: embeded-manifest ## Build kubectl-kjob binary file to bin directory.
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kjob cmd/main.go
 
 .PHONY: kjobctl-docs
@@ -202,5 +215,6 @@ package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
 GOBIN=$(LOCALBIN) go install $${package} ;\
 mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
-}
+} ;\
+ln -sf $(1) "$$(echo "$(1)" | sed "s/-$(3)$$//")"
 endef
