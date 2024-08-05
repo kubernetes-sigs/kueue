@@ -20,8 +20,9 @@ set -o pipefail
 
 # allow overriding docker cli, which should work fine for this script
 DOCKER="${DOCKER:-docker}"
+CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
 
-SHELLCHECK_IMAGE="docker.io/koalaman/shellcheck-alpine:v0.10.0"
+SHELLCHECK_IMAGE=$(grep '^FROM' "${CURRENT_DIR}/Dockerfile" | awk '{print $2}')
 
 # Initialize an empty array for scripts to check
 scripts_to_check=()

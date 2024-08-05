@@ -167,7 +167,7 @@ lint-fix: golangci-lint
 
 .PHONY: shell-lint
 shell-lint: ## Run shell linting.
-	$(PROJECT_DIR)/hack/verify-shellcheck.sh
+	$(PROJECT_DIR)/hack/shellcheck/verify.sh
 
 .PHONY: verify
 verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref generate-kueuectl-docs prepare-release-branch
