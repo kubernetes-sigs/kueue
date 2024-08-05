@@ -239,6 +239,7 @@ type WaitForPodsReady struct {
 	// After exceeding the timeout the corresponding job gets suspended again
 	// and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
 	// enforced only if waitForPodsReady.enable=true. If unspecified, it defaults to 5min.
+	// +optional
 	ReplacementTimeoutSeconds *int64
 }
 
