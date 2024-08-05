@@ -31,15 +31,19 @@ type ApplicationProfileMode string
 const (
 	InteractiveMode ApplicationProfileMode = "Interactive"
 	JobMode         ApplicationProfileMode = "Job"
+	RayJobMode      ApplicationProfileMode = "RayJob"
 )
 
-// +kubebuilder:validation:Enum=cmd;parallelism;completions;request;localqueue
+// +kubebuilder:validation:Enum=cmd;parallelism;completions;replicas;min-replicas;max-replicas;request;localqueue
 type Flag string
 
 const (
 	CmdFlag         Flag = "cmd"
 	ParallelismFlag Flag = "parallelism"
 	CompletionsFlag Flag = "completions"
+	ReplicasFlag    Flag = "replicas"
+	MinReplicasFlag Flag = "min-replicas"
+	MaxReplicasFlag Flag = "max-replicas"
 	RequestFlag     Flag = "request"
 	LocalQueueFlag  Flag = "localqueue"
 )
@@ -50,29 +54,37 @@ const (
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type TemplateReference string
 
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job') && !('replicas' in self.requiredFlags)", message="replicas flag can be used only on RayJob mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job') && !('min-replicas' in self.requiredFlags)", message="min-replicas flag can be used only on RayJob mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job') && !('max-replicas' in self.requiredFlags)", message="max-replicas flag can be used only on RayJob mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || (self.name == 'Interactive' || self.name == 'Job') || self.name == 'RayJob' && !('request' in self.requiredFlags)", message="request flag can be used only on Job and Interactive modes"
 type SupportedMode struct {
 	// name determines which template will be used and which object will eventually be created.
-	// Possible values are Interactive and Job.
+	// Possible values are Interactive, Job and RayJob.
 	//
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=Interactive;Job
+	// +kubebuilder:validation:Enum=Interactive;Job;RayJob
 	Name ApplicationProfileMode `json:"name"`
 
 	// template is the name of the template.
 	// Template type depends on ApplicationProfileMode:
 	//   - on Interactive mode it must be v1/PodTemplate
 	//   - on Job mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
+	//   - on RayJob mode it must be kjobctl.x-k8s.io/v1alpha1/RayJobTemplate
 	//
 	// +kubebuilder:validation:Required
 	Template TemplateReference `json:"template"`
 
 	// requiredFlags point which cli flags are required to be passed in order to fill the gaps in the templates.
-	// Possible values are cmd, parallelism, completions, request, localqueue.
+	// Possible values are cmd, parallelism, completions, replicas, min-replicas, max-replicas, request, localqueue.
+	// replicas, min-replicas and max-replicas flags used only for RayJob mode.
+	// request flag used only for Interactive and Job modes.
 	//
 	// cmd and requests values are going to be added only to the first primary container.
 	//
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MaxItems=8
 	RequiredFlags []Flag `json:"requiredFlags,omitempty"`
 }
 

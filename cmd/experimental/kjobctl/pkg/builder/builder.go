@@ -44,6 +44,9 @@ var (
 	noCommandSpecifiedErr                  = errors.New("no command specified")
 	noParallelismSpecifiedErr              = errors.New("no parallelism specified")
 	noCompletionsSpecifiedErr              = errors.New("no completions specified")
+	noReplicasSpecifiedErr                 = errors.New("no replicas specified")
+	noMinReplicasSpecifiedErr              = errors.New("no min-replicas specified")
+	noMaxReplicasSpecifiedErr              = errors.New("no max-replicas specified")
 	noRequestsSpecifiedErr                 = errors.New("no requests specified")
 	noLocalQueueSpecifiedErr               = errors.New("no local queue specified")
 )
@@ -64,6 +67,9 @@ type Builder struct {
 	command     []string
 	parallelism *int32
 	completions *int32
+	replicas    map[string]int
+	minReplicas map[string]int
+	maxReplicas map[string]int
 	requests    corev1.ResourceList
 	localQueue  string
 
@@ -105,6 +111,21 @@ func (b *Builder) WithParallelism(parallelism *int32) *Builder {
 
 func (b *Builder) WithCompletions(completions *int32) *Builder {
 	b.completions = completions
+	return b
+}
+
+func (b *Builder) WithReplicas(replicas map[string]int) *Builder {
+	b.replicas = replicas
+	return b
+}
+
+func (b *Builder) WithMinReplicas(minReplicas map[string]int) *Builder {
+	b.minReplicas = minReplicas
+	return b
+}
+
+func (b *Builder) WithMaxReplicas(maxReplicas map[string]int) *Builder {
+	b.maxReplicas = maxReplicas
 	return b
 }
 
@@ -185,6 +206,18 @@ func (b *Builder) validateFlags() error {
 		return noCompletionsSpecifiedErr
 	}
 
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.ReplicasFlag) && b.replicas == nil {
+		return noReplicasSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MinReplicasFlag) && b.minReplicas == nil {
+		return noMinReplicasSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MaxReplicasFlag) && b.maxReplicas == nil {
+		return noMaxReplicasSpecifiedErr
+	}
+
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.RequestFlag) && b.requests == nil {
 		return noRequestsSpecifiedErr
 	}
@@ -208,6 +241,8 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 		bImpl = newJobBuilder(b)
 	case v1alpha1.InteractiveMode:
 		bImpl = newInteractiveBuilder(b)
+	case v1alpha1.RayJobMode:
+		bImpl = newRayJobBuilder(b)
 	}
 
 	if bImpl == nil {
@@ -226,9 +261,8 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 }
 
 func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
-	bundle := mergeBundles(b.volumeBundles)
+	b.buildPodSpecVolumesAndEnv(&templateSpec)
 
-	templateSpec.Volumes = append(templateSpec.Volumes, bundle.Spec.Volumes...)
 	for i := range templateSpec.Containers {
 		container := &templateSpec.Containers[i]
 
@@ -239,6 +273,17 @@ func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
 		if i == 0 && len(b.requests) > 0 {
 			container.Resources.Requests = b.requests
 		}
+	}
+
+	return templateSpec
+}
+
+func (b *Builder) buildPodSpecVolumesAndEnv(templateSpec *corev1.PodSpec) {
+	bundle := mergeBundles(b.volumeBundles)
+
+	templateSpec.Volumes = append(templateSpec.Volumes, bundle.Spec.Volumes...)
+	for i := range templateSpec.Containers {
+		container := &templateSpec.Containers[i]
 
 		container.VolumeMounts = append(container.VolumeMounts, bundle.Spec.ContainerVolumeMounts...)
 		container.Env = append(container.Env, bundle.Spec.EnvVars...)
@@ -252,8 +297,6 @@ func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {
 		initContainer.Env = append(initContainer.Env, bundle.Spec.EnvVars...)
 		initContainer.Env = append(initContainer.Env, b.additionalEnvironmentVariables()...)
 	}
-
-	return templateSpec
 }
 
 func (b *Builder) additionalEnvironmentVariables() []corev1.EnvVar {

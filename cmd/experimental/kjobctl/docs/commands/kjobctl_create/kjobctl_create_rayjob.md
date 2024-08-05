@@ -3,29 +3,32 @@ The file is auto-generated from the Go source code of the component using the
 [generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
 -->
 
-# kjobctl create job
+# kjobctl create rayjob
 
 
 ## Synopsis
 
 
-Create a job
+Create a rayjob.
+
+KubeRay operator is required for RayJob.
+How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
 
 ```
-kjobctl create job --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--localqueue LOCAL_QUEUE_NAME] [--request RESOURCE_NAME=QUANTITY] [--parallelism PARALLELISM] [--completions COMPLETIONS]
+kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--localqueue LOCAL_QUEUE_NAME] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
 ```
 
 
 ## Examples
 
 ```
-  # Create job 
-  kjobctl create job \ 
+  # Create rayjob 
+  kjobctl create rayjob \ 
 	--profile my-application-profile  \
-	--cmd &#34;sleep 5&#34; \
-	--parallelism 4 \
-	--completions 4 \ 
-	--request cpu=500m,ram=4Gi \
+	--cmd &#34;python /home/ray/samples/sample_code.py&#34; \
+	--replicas small-group=1 \
+	--min-replicas small-group=1 \ 
+	--max-replicas small-group=5 \ 
 	--localqueue my-local-queue-name
 ```
 
@@ -58,15 +61,6 @@ kjobctl create job --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--localqu
         </td>
     </tr>
     <tr>
-        <td colspan="2">--completions int</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Completions specifies the desired number of successfully finished pods.</p>
-        </td>
-    </tr>
-    <tr>
         <td colspan="2">--dry-run string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;none&#34;</td>
     </tr>
     <tr>
@@ -81,7 +75,7 @@ kjobctl create job --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--localqu
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for job</p>
+            <p>help for rayjob</p>
         </td>
     </tr>
     <tr>
@@ -94,21 +88,30 @@ kjobctl create job --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--localqu
         </td>
     </tr>
     <tr>
+        <td colspan="2">--max-replicas &lt;comma-separated &#39;key=int&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--min-replicas &lt;comma-separated &#39;key=int&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>MinReplicas denotes the minimum number of desired Pods for this worker group.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-o, --output string</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--parallelism int</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Parallelism specifies the maximum desired number of pods the job should run at any given time.</p>
         </td>
     </tr>
     <tr>
@@ -121,12 +124,12 @@ kjobctl create job --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--localqu
         </td>
     </tr>
     <tr>
-        <td colspan="2">--request &lt;comma-separated &#39;key=value&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
+        <td colspan="2">--replicas &lt;comma-separated &#39;key=int&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Request is a set of (resource name, quantity) pairs.</p>
+            <p>Replicas is the number of desired Pods for this worker group.</p>
         </td>
     </tr>
     <tr>

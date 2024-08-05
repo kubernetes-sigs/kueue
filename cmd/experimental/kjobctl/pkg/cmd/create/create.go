@@ -60,10 +60,25 @@ const (
 	--profile my-application-profile  \
 	--pod-running-timeout 30s \
 	--rm`
+	createRayJobLong = `Create a rayjob.
+
+KubeRay operator is required for RayJob.
+How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.`
+	createRayJobExample = `  # Create rayjob 
+  kjobctl create rayjob \ 
+	--profile my-application-profile  \
+	--cmd "python /home/ray/samples/sample_code.py" \
+	--replicas small-group=1 \
+	--min-replicas small-group=1 \ 
+	--max-replicas small-group=5 \ 
+	--localqueue my-local-queue-name`
 	profileFlagName     = "profile"
 	commandFlagName     = "cmd"
 	parallelismFlagName = "parallelism"
 	completionsFlagName = "completions"
+	replicasFlagName    = string(v1alpha1.ReplicasFlag)
+	minReplicasFlagName = string(v1alpha1.MinReplicasFlag)
+	maxReplicasFlagName = string(v1alpha1.MaxReplicasFlag)
 	requestFlagName     = "request"
 	localQueueFlagName  = "localqueue"
 	podRunningTimeout   = "pod-running-timeout"
@@ -90,6 +105,9 @@ type CreateOptions struct {
 	Command              []string
 	Parallelism          *int32
 	Completions          *int32
+	Replicas             map[string]int
+	MinReplicas          map[string]int
+	MaxReplicas          map[string]int
 	Requests             corev1.ResourceList
 	LocalQueue           string
 	PodRunningTimeout    time.Duration
@@ -126,9 +144,11 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"job": {
 		ModeName: v1alpha1.JobMode,
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--parallelism PARALLELISM] [--completions COMPLETIONS]"
+			subcmd.Use += " [--request RESOURCE_NAME=QUANTITY] [--parallelism PARALLELISM] [--completions COMPLETIONS]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
+			subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
+				"Request is a set of (resource name, quantity) pairs.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedParallelism, parallelismFlagName, 0,
 				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
@@ -138,13 +158,30 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"interactive": {
 		ModeName: v1alpha1.InteractiveMode,
 		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--pod-running-timeout DURATION] [--rm]"
+			subcmd.Use += " [--request RESOURCE_NAME=QUANTITY] [--pod-running-timeout DURATION] [--rm]"
 			subcmd.Short = "Create an interactive shell"
 			subcmd.Example = createInteractiveExample
+			subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
+				"Request is a set of (resource name, quantity) pairs.")
 			subcmd.Flags().DurationVar(&o.PodRunningTimeout, podRunningTimeout, podRunningTimeoutDefault,
 				"The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running.")
 			subcmd.Flags().BoolVar(&o.RemoveInteractivePod, "rm", false,
 				"Remove pod when interactive session exits.")
+		},
+	},
+	"rayjob": {
+		ModeName: v1alpha1.RayJobMode,
+		Setup: func(subcmd *cobra.Command, o *CreateOptions) {
+			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
+			subcmd.Short = "Create a rayjob"
+			subcmd.Long = createRayJobLong
+			subcmd.Example = createRayJobExample
+			subcmd.Flags().StringToIntVar(&o.Replicas, replicasFlagName, nil,
+				"Replicas is the number of desired Pods for this worker group.")
+			subcmd.Flags().StringToIntVar(&o.MinReplicas, minReplicasFlagName, nil,
+				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
+			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
+				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
 		},
 	},
 }
@@ -155,7 +192,7 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 	cmd := &cobra.Command{
 		Use:     "create",
 		Short:   "Create a task",
-		Example: fmt.Sprintf("%s\n\n%s", createJobExample, createInteractiveExample),
+		Example: fmt.Sprintf("%s\n\n%s\n\n%s", createJobExample, createInteractiveExample, createRayJobExample),
 	}
 
 	for modeName, modeSubcommand := range createModeSubcommands {
@@ -163,7 +200,6 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			Use: fmt.Sprintf("%s"+
 				" --profile APPLICATION_PROFILE_NAME"+
 				" [--cmd COMMAND]"+
-				" [--request RESOURCE_NAME=QUANTITY]"+
 				" [--localqueue LOCAL_QUEUE_NAME]", modeName),
 			DisableFlagsInUseLine: true,
 			Args:                  cobra.NoArgs,
@@ -185,8 +221,6 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			"Application profile contains a template (with defaults set) for running a specific type of application.")
 		subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
 			"Command which is associated with the resource.")
-		subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
-			"Request is a set of (resource name, quantity) pairs.")
 		subcmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
 			"Kueue localqueue name which is associated with the resource.")
 		modeSubcommand.Setup(subcmd, o)
@@ -280,6 +314,9 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithCommand(o.Command).
 		WithParallelism(o.Parallelism).
 		WithCompletions(o.Completions).
+		WithReplicas(o.Replicas).
+		WithMinReplicas(o.MinReplicas).
+		WithMaxReplicas(o.MaxReplicas).
 		WithRequests(o.Requests).
 		WithLocalQueue(o.LocalQueue).
 		Do(ctx)

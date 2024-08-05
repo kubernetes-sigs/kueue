@@ -226,6 +226,8 @@ func getValueType(flag *pflag.Flag) string {
 		return "durations"
 	case "stringToString":
 		return "<comma-separated 'key=value' pairs>"
+	case "stringToInt":
+		return "<comma-separated 'key=int' pairs>"
 	default:
 		return name
 	}

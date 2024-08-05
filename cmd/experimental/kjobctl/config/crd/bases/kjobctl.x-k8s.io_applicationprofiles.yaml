@@ -46,15 +46,18 @@ spec:
                     name:
                       description: |-
                         name determines which template will be used and which object will eventually be created.
-                        Possible values are Interactive and Job.
+                        Possible values are Interactive, Job and RayJob.
                       enum:
                       - Interactive
                       - Job
+                      - RayJob
                       type: string
                     requiredFlags:
                       description: |-
                         requiredFlags point which cli flags are required to be passed in order to fill the gaps in the templates.
-                        Possible values are cmd, parallelism, completions, request, localqueue.
+                        Possible values are cmd, parallelism, completions, replicas, min-replicas, max-replicas, request, localqueue.
+                        replicas, min-replicas and max-replicas flags used only for RayJob mode.
+                        request flag used only for Interactive and Job modes.
 
 
                         cmd and requests values are going to be added only to the first primary container.
@@ -63,9 +66,13 @@ spec:
                         - cmd
                         - parallelism
                         - completions
+                        - replicas
+                        - min-replicas
+                        - max-replicas
                         - request
                         - localqueue
                         type: string
+                      maxItems: 8
                       type: array
                       x-kubernetes-list-type: set
                     template:
@@ -74,6 +81,7 @@ spec:
                         Template type depends on ApplicationProfileMode:
                           - on Interactive mode it must be v1/PodTemplate
                           - on Job mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
+                          - on RayJob mode it must be kjobctl.x-k8s.io/v1alpha1/RayJobTemplate
                       maxLength: 253
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
@@ -81,6 +89,24 @@ spec:
                   - name
                   - template
                   type: object
+                  x-kubernetes-validations:
+                  - message: replicas flag can be used only on RayJob mode
+                    rule: '!has(self.requiredFlags) || self.name == ''RayJob'' ||
+                      (self.name == ''Interactive'' || self.name == ''Job'') && !(''replicas''
+                      in self.requiredFlags)'
+                  - message: min-replicas flag can be used only on RayJob mode
+                    rule: '!has(self.requiredFlags) || self.name == ''RayJob'' ||
+                      (self.name == ''Interactive'' || self.name == ''Job'') && !(''min-replicas''
+                      in self.requiredFlags)'
+                  - message: max-replicas flag can be used only on RayJob mode
+                    rule: '!has(self.requiredFlags) || self.name == ''RayJob'' ||
+                      (self.name == ''Interactive'' || self.name == ''Job'') && !(''max-replicas''
+                      in self.requiredFlags)'
+                  - message: request flag can be used only on Job and Interactive
+                      modes
+                    rule: '!has(self.requiredFlags) || (self.name == ''Interactive''
+                      || self.name == ''Job'') || self.name == ''RayJob'' && !(''request''
+                      in self.requiredFlags)'
                 type: array
                 x-kubernetes-list-map-keys:
                 - name

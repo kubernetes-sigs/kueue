@@ -29,6 +29,15 @@ Create a task
 	--profile my-application-profile  \
 	--pod-running-timeout 30s \
 	--rm
+
+  # Create rayjob 
+  kjobctl create rayjob \ 
+	--profile my-application-profile  \
+	--cmd &#34;python /home/ray/samples/sample_code.py&#34; \
+	--replicas small-group=1 \
+	--min-replicas small-group=1 \ 
+	--max-replicas small-group=5 \ 
+	--localqueue my-local-queue-name
 ```
 
 
@@ -234,4 +243,5 @@ Create a task
 * [kjobctl](../kjobctl.md)	 - ML/AI/Batch Jobs Made Easy
 * [kjobctl create interactive](kjobctl_create_interactive.md)	 - Create an interactive shell
 * [kjobctl create job](kjobctl_create_job.md)	 - Create a job
+* [kjobctl create rayjob](kjobctl_create_rayjob.md)	 - Create a rayjob
 

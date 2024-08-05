@@ -1,0 +1,54 @@
+---
+apiVersion: kjobctl.x-k8s.io/v1alpha1
+kind: VolumeBundle
+metadata:
+  name: ray-job-volume-bundle
+spec:
+  volumes:
+    - name: ray-job-code-sample
+      configMap:
+        name: ray-job-code-sample
+        items:
+          - key: sample_code.py
+            path: sample_code.py
+  containerVolumeMounts:
+    - name: ray-job-code-sample
+      mountPath: /home/ray/samples
+  envVars:
+    - name: ENTRYPOINT_PATH
+      value: /home/ray/samples
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-job-code-sample
+data:
+  sample_code.py: |
+    import ray
+    import os
+    import requests
+
+    ray.init()
+
+    @ray.remote
+    class Counter:
+        def __init__(self):
+            # Used to verify runtimeEnv
+            self.name = os.getenv("counter_name")
+            assert self.name == "test_counter"
+            self.counter = 0
+
+        def inc(self):
+            self.counter += 1
+
+        def get_counter(self):
+            return "{} got {}".format(self.name, self.counter)
+
+    counter = Counter.remote()
+
+    for _ in range(5):
+        ray.get(counter.inc.remote())
+        print(ray.get(counter.get_counter.remote()))
+
+    # Verify that the correct runtime env was used for the job.
+    assert requests.__version__ == "2.26.0"

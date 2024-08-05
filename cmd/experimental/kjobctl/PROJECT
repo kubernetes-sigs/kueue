@@ -32,4 +32,12 @@ resources:
   kind: JobTemplate
   path: sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: x-k8s.io
+  group: kjobctl
+  kind: RayJobTemplate
+  path: sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1
+  version: v1alpha1
 version: "3"

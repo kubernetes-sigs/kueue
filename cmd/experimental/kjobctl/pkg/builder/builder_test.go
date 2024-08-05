@@ -134,6 +134,48 @@ func TestBuilder(t *testing.T) {
 			},
 			wantErr: noCompletionsSpecifiedErr,
 		},
+		"shouldn't build job because replicas not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.JobMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.ReplicasFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noReplicasSpecifiedErr,
+		},
+		"shouldn't build job because min-replicas not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.JobMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MinReplicasFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMinReplicasSpecifiedErr,
+		},
+		"shouldn't build job because max-replicas not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.JobMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MaxReplicasFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMaxReplicasSpecifiedErr,
+		},
 		"shouldn't build job because request not specified with required flags": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",

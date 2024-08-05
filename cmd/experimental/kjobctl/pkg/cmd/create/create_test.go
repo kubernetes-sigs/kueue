@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -132,6 +133,27 @@ func TestCreateCmd(t *testing.T) {
 			},
 			// Fake dynamic client not generating name. That's why we have <unknown>.
 			wantOut: "job.batch/<unknown> created\n",
+		},
+		"should create rayjob": {
+			args: []string{"rayjob", "--profile", "profile"},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
+					Obj(),
+			},
+			gvk: schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayJob"},
+			wantList: &rayv1.RayJobList{
+				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
+				Items: []rayv1.RayJob{
+					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
+						GenerateName("profile-").
+						Profile("profile").
+						Obj(),
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "rayjob.ray.io/<unknown> created\n",
 		},
 		"should create job with short profile flag": {
 			args: []string{"job", "-p", "profile"},
@@ -309,6 +331,101 @@ func TestCreateCmd(t *testing.T) {
 			// Fake dynamic client not generating name. That's why we have <unknown>.
 			wantOut: "job.batch/<unknown> created\n",
 		},
+		"should create ray job with replicas replacement": {
+			args: []string{"rayjob", "--profile", "profile", "--replicas", "g1=5"},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
+					WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
+					Obj(),
+			},
+			gvk: schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayJob"},
+			wantList: &rayv1.RayJobList{
+				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
+				Items: []rayv1.RayJob{
+					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
+						GenerateName("profile-").
+						Profile("profile").
+						WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Replicas(5).Obj()).
+						Obj(),
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "rayjob.ray.io/<unknown> created\n",
+		},
+		"should create ray job with cmd replacement": {
+			args: []string{"rayjob", "--profile", "profile", "--cmd", "sleep   3s"},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
+					Obj(),
+			},
+			gvk: schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayJob"},
+			wantList: &rayv1.RayJobList{
+				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
+				Items: []rayv1.RayJob{
+					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
+						GenerateName("profile-").
+						Profile("profile").
+						Entrypoint("sleep 3s").
+						Obj(),
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "rayjob.ray.io/<unknown> created\n",
+		},
+		"should create ray job with min-replicas replacement": {
+			args: []string{"rayjob", "--profile", "profile", "--min-replicas", "g1=5"},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
+					WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
+					Obj(),
+			},
+			gvk: schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayJob"},
+			wantList: &rayv1.RayJobList{
+				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
+				Items: []rayv1.RayJob{
+					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
+						GenerateName("profile-").
+						Profile("profile").
+						WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").MinReplicas(5).Obj()).
+						Obj(),
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "rayjob.ray.io/<unknown> created\n",
+		},
+		"should create ray job with max-replicas replacement": {
+			args: []string{"rayjob", "--profile", "profile", "--max-replicas", "g1=5"},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
+					WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
+					Obj(),
+			},
+			gvk: schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayJob"},
+			wantList: &rayv1.RayJobList{
+				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
+				Items: []rayv1.RayJob{
+					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
+						GenerateName("profile-").
+						Profile("profile").
+						WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").MaxReplicas(5).Obj()).
+						Obj(),
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "rayjob.ray.io/<unknown> created\n",
+		},
 		"shouldn't create job with client dry run": {
 			args: []string{"job", "--profile", "profile", "--dry-run", "client"},
 			kjobctlObjs: []runtime.Object{
@@ -332,6 +449,7 @@ func TestCreateCmd(t *testing.T) {
 
 			scheme := runtime.NewScheme()
 			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+			utilruntime.Must(rayv1.AddToScheme(scheme))
 
 			clientset := kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...)
 			dynamicClient := fake.NewSimpleDynamicClient(scheme)
