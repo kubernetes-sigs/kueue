@@ -44,6 +44,14 @@ As a batch user, you can learn how to:
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
 
+### Serving user
+
+A _serving user_ runs [workloads](/docs/concepts/workload). 
+A serving user runs serving workloads, for example, to expose a trained AI/ML model for inference.
+
+As a serving user, you can learn how to:
+- [Run a Kueue managed Deployment](run/deployment).
+
 ### Platform developer
 
 A _platform developer_ integrates Kueue with other software and/or contributes to Kueue.
