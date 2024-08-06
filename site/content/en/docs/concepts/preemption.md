@@ -54,10 +54,10 @@ Kueue offers two preemption algorithms. The main difference between them is the 
 preemptions from a ClusterQueue to others in the Cohort, when the usage of the preempting ClusterQueue is
 already above the nominal quota. The algorithms are:
 
-- **[Classic Preemption](#classic-preemption)**: Preemption in the cohort only happens when:
+- **[Classic Preemption](#classic-preemption)**: Preemption in the cohort only happens when either of the following occurs:
+  - the usage of the preempting ClusterQueue will be under the nominal quota after the ongoing admission process
   - all the candidates for preemption belong to the same ClusterQueue as the preempting Workload 
     or other borrowing ClusterQueues within the same cohort matching the preemptor's queue `borrowWithinCohort` policy.
-  - the usage of the preempting ClusterQueue will be under the nominal quota after the ongoing admission process
 
 
   In other words, ClusterQueues can only borrow quota from others in the cohort if they do not preempt admitted Workloads from
