@@ -17,32 +17,33 @@ tags, and then generate with `hack/update-toc.sh`.
 -->
 
 <!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-- [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1](#story-1)
-    - [Story 2](#story-2)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-  - [Risks and Mitigations](#risks-and-mitigations)
-- [Design Details](#design-details)
-  - [Kueue Configuration API](#kueue-configuration-api)
-  - [PodsReady workload condition](#podsready-workload-condition)
-  - [Waiting for PodsReady condition](#waiting-for-podsready-condition)
-  - [Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)
-  - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
-    - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
-  - [Graduation Criteria](#graduation-criteria)
-- [Implementation History](#implementation-history)
-- [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-    - [Delay job start instead of workload admission](#delay-job-start-instead-of-workload-admission)
-    - [Pod Resource Reservation](#pod-resource-reservation)
-    - [More granular configuration to enable the mechanism](#more-granular-configuration-to-enable-the-mechanism)
+- [KEP-349: All-or-nothing semantics for job resource assignment](#kep-349-all-or-nothing-semantics-for-job-resource-assignment)
+	- [Summary](#summary)
+	- [Motivation](#motivation)
+		- [Goals](#goals)
+		- [Non-Goals](#non-goals)
+	- [Proposal](#proposal)
+		- [User Stories (Optional)](#user-stories-optional)
+			- [Story 1](#story-1)
+			- [Story 2](#story-2)
+		- [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+		- [Risks and Mitigations](#risks-and-mitigations)
+	- [Design Details](#design-details)
+		- [Kueue Configuration API](#kueue-configuration-api)
+		- [PodsReady workload condition](#podsready-workload-condition)
+		- [Waiting for PodsReady condition](#waiting-for-podsready-condition)
+		- [Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)
+		- [Test Plan](#test-plan)
+				- [Prerequisite testing updates](#prerequisite-testing-updates)
+			- [Unit Tests](#unit-tests)
+			- [Integration tests](#integration-tests)
+		- [Graduation Criteria](#graduation-criteria)
+	- [Implementation History](#implementation-history)
+	- [Drawbacks](#drawbacks)
+	- [Alternatives](#alternatives)
+			- [Delay job start instead of workload admission](#delay-job-start-instead-of-workload-admission)
+			- [Pod Resource Reservation](#pod-resource-reservation)
+			- [More granular configuration to enable the mechanism](#more-granular-configuration-to-enable-the-mechanism)
 <!-- /toc -->
 
 ## Summary
@@ -241,6 +242,8 @@ We introduce a new workload condition, called `PodsReady`, to indicate
 if the workload's startup requirements are satisfied. More precisely, we add
 the condition when `job.status.ready + job.status.uncountedTerimnatedPods + job.status.succeeded` is greater or equal
 than `job.spec.parallelism`.
+
+Note that we count `job.status.uncountedTerminatedPods` - this is meant to prevent flickering of the `PodsReady` condition when pods are transitioning to the `Succeeded` state.
 
 Note that, we don't take failed pods into account when verifying if the
 `PodsReady` condition should be added. However, a buggy admitted workload is
