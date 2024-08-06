@@ -68,7 +68,7 @@ A _cohort_ is a group of ClusterQueues that can borrow unused quota from each ot
 
 ### Queueing
 
-_Queueing_ is the state of a Workload since the time it is created until it Kueue admits it on a ClusterQueue.
+_Queueing_ is the state of a Workload since the time it is created until Kueue admits it on a ClusterQueue.
 Typically, the Workload will compete with other Workloads for available
 quota based on the fair sharing rules of the ClusterQueue.
 
