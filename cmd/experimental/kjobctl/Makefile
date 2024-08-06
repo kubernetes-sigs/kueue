@@ -71,7 +71,7 @@ generate: gomod-download controller-gen ## Generate code containing DeepCopy, De
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
 
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify manifests generate generate-kjobctl-docs embeded-manifest
+verify: gomod-verify ci-lint shell-lint fmt-verify manifests generate generate-kjobctl-docs embeded-manifest
 	git --no-pager diff --exit-code config/crd apis client-go docs pkg/cmd/printcrds/embed
 
 .PHONY: gomod-verify
@@ -82,6 +82,10 @@ gomod-verify:
 .PHONY: ci-lint
 ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 15m0s
+
+.PHONY: shell-lint
+shell-lint: ## Run shell linting.
+	$(PROJECT_DIR)/hack/shellcheck/verify.sh
 
 .PHONY: fmt-verify
 fmt-verify:
