@@ -119,9 +119,18 @@ updates:
           - "minor"
           - "patch"
 
-  # Maintain shellcheck dependency
+  # Maintain kueue shellcheck dependency
   - package-ecosystem: "docker"
     directory: "/hack/shellcheck"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+
+  # Maintain kjobctl shellcheck dependency
+  - package-ecosystem: "docker"
+    directory: "/cmd/experimental/kjobctl/hack/shellcheck"
     schedule:
       interval: "weekly"
     labels:
