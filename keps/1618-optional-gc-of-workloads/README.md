@@ -152,9 +152,6 @@ the system. The goal here is to make this feel real for users without getting
 bogged down.
 -->
 
-Based on how the retention policy is configured for finished Workloads, 
-several user stories are proposed below.
-
 #### Story 1 - Configurable retention for finished Workloads
 
 As a Kueue administrator, I want to control the retention of 
