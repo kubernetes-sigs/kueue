@@ -51,9 +51,13 @@ The webhook server in kueue uses an internal cert management for provisioning ce
 ## Install a released version
 
 To install a released version of Kueue in your cluster, run the following command:
-
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
+```
+
+To wait for Kueue to be fully available, run:
+```shell
+kubectl wait deploy/kueue-controller-manager -nkueue-system --for=condition=available --timeout=5m
 ```
 
 ### Add metrics scraping for prometheus-operator
