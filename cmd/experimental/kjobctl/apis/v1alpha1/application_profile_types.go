@@ -62,7 +62,7 @@ type TemplateReference string
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Interactive' || self.name == 'Job' || self.name == 'RayJob' || self.name == 'RayCluster' && !('cmd' in self.requiredFlags)", message="cmd flag can be used only on Job, Interactive and RayJob modes"
 type SupportedMode struct {
 	// name determines which template will be used and which object will eventually be created.
-	// Possible values are Interactive, Job RayJob and RayCluster.
+	// Possible values are Interactive, Job, RayJob and RayCluster.
 	//
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=Interactive;Job;RayJob;RayCluster
@@ -82,7 +82,7 @@ type SupportedMode struct {
 	// Possible values are cmd, parallelism, completions, replicas, min-replicas, max-replicas, request, localqueue.
 	// replicas, min-replicas and max-replicas flags used only for RayJob and RayCluster mode.
 	// request flag used only for Interactive and Job modes.
-	// cmd flag used only for Interactive, Job, RayJob
+	// cmd flag used only for Interactive, Job, RayJob.
 	//
 	// cmd and requests values are going to be added only to the first primary container.
 	//
