@@ -16,7 +16,7 @@ Check the [kubectl documentation](https://kubernetes.io/docs/tasks/access-applic
 
 ## In the Worker Cluster
 
-{{% alert title="Note" color="note" %}}
+{{% alert title="Note" color="primary" %}}
 Make sure your current _kubectl_ configuration points to the worker cluster.
 
 Run:
@@ -51,7 +51,7 @@ To create a Kubeconfig that can be used in the manager cluster to delegate Jobs 
 
 ## In the Manager Cluster
 
-{{% alert title="Note" color="note" %}}
+{{% alert title="Note" color="primary" %}}
 Make sure your current _kubectl_ configuration points to the manager cluster.
 
 Run:
