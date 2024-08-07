@@ -127,8 +127,6 @@ and make progress.
 -->
 
 - Support the deletion/expiration of any kueue-authored Kubernetes object other than finished Workloads.
-- Configure retention policies (like `.spec.ttlSecondsAfterFinished`) that are attached to 
-individual Kubernetes objects.
 
 ## Proposal
 
@@ -431,7 +429,3 @@ information to express the idea and why it was not acceptable.
 
 - Leave the current state of things as is, not implementing any garbage 
 collection mechanism for finished Workloads.
-- Implement retention policies attached per object (like `.spec.ttlSecondsAfterFinished`) instead of having 
-global retention policies configured at the kueue level. However, this would complicate the 
-implementation and add complexity to the feature itself. For example, during the reconfiguration 
-of an existing retention policy, all existing Kubernetes objects would need to be updated with the new policy.
