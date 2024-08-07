@@ -1,72 +1,127 @@
 apiVersion: ray.io/v1
 kind: RayCluster
 metadata:
-  name: raycluster-sample
-  namespace: default
   labels:
-    kueue.x-k8s.io/queue-name: local-queue
+    kueue.x-k8s.io/queue-name: user-queue
+    controller-tools.k8s.io: "1.0"
+    # A unique identifier for the head node and workers of this cluster.
+  name: raycluster-complete
 spec:
+  rayVersion: '2.9.0'
+  # Ray head pod configuration
   headGroupSpec:
-    rayStartParams:
-      dashboard-host: 0.0.0.0
+    # Kubernetes Service Type. This is an optional field, and the default value is ClusterIP.
+    # Refer to https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types.
     serviceType: ClusterIP
+    # The `rayStartParams` are used to configure the `ray start` command.
+    # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
+    # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
+    rayStartParams:
+      dashboard-host: '0.0.0.0'
+    # pod template
     template:
       metadata:
-        annotations: {}
+        # Custom labels. NOTE: To avoid conflicts with KubeRay operator, do not define custom labels start with `raycluster`.
+        # Refer to https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+        labels: {}
       spec:
-        affinity: {}
         containers:
-        - env: []
-          image: rayproject/ray:2.7.0
-          imagePullPolicy: IfNotPresent
-          name: ray-head
-          resources:
-            limits:
-              cpu: "1"
-              memory: 2G
-            requests:
-              cpu: "1"
-              memory: 2G
-          securityContext: {}
-          volumeMounts:
-          - mountPath: /tmp/ray
-            name: log-volume
-        imagePullSecrets: []
-        nodeSelector: {}
-        tolerations: []
+          - name: ray-head
+            image: rayproject/ray:2.9.0
+            ports:
+              - containerPort: 6379
+                name: gcs
+              - containerPort: 8265
+                name: dashboard
+              - containerPort: 10001
+                name: client
+            lifecycle:
+              preStop:
+                exec:
+                  command: ["/bin/sh","-c","ray stop"]
+            volumeMounts:
+              - mountPath: /tmp/ray
+                name: ray-logs
+            # The resource requests and limits in this config are too small for production!
+            # For an example with more realistic resource configuration, see
+            # ray-cluster.autoscaler.large.yaml.
+            # It is better to use a few large Ray pod than many small ones.
+            # For production, it is ideal to size each Ray pod to take up the
+            # entire Kubernetes node on which it is scheduled.
+            resources:
+              limits:
+                cpu: "1"
+                memory: "2G"
+              requests:
+                # For production use-cases, we recommend specifying integer CPU reqests and limits.
+                # We also recommend setting requests equal to limits for both CPU and memory.
+                # For this example, we use a 500m CPU request to accomodate resource-constrained local
+                # Kubernetes testing environments such as KinD and minikube.
+                cpu: "1"
+                memory: "2G"
         volumes:
-        - emptyDir: {}
-          name: log-volume
+          - name: ray-logs
+            emptyDir: {}
   workerGroupSpecs:
-  - groupName: workergroup
-    maxReplicas: 10
-    minReplicas: 1
-    rayStartParams: {}
-    replicas: 4
-    template:
-      metadata:
-        annotations: {}
-      spec:
-        affinity: {}
-        containers:
-        - env: []
-          image: rayproject/ray:2.7.0
-          imagePullPolicy: IfNotPresent
-          name: ray-worker
-          resources:
-            limits:
-              cpu: "1"
-              memory: 1G
-            requests:
-              cpu: "1"
-              memory: 1G
-          securityContext: {}
-          volumeMounts:
-          - mountPath: /tmp/ray
-            name: log-volume
-        imagePullSecrets: []
-        nodeSelector: {}
-        tolerations: []
-        volumes:
-        - emptyDir: {}
-          name: log-volume
+    # the pod replicas in this group typed worker
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 10
+      # logical group name, for this called small-group, also can be functional
+      groupName: small-group
+      # If worker pods need to be added, we can increment the replicas.
+      # If worker pods need to be removed, we decrement the replicas, and populate the workersToDelete list.
+      # The operator will remove pods from the list until the desired number of replicas is satisfied.
+      # If the difference between the current replica count and the desired replicas is greater than the
+      # number of entries in workersToDelete, random worker pods will be deleted.
+      #scaleStrategy:
+      #  workersToDelete:
+      #  - raycluster-complete-worker-small-group-bdtwh
+      #  - raycluster-complete-worker-small-group-hv457
+      #  - raycluster-complete-worker-small-group-k8tj7
+      # The `rayStartParams` are used to configure the `ray start` command.
+      # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
+      # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
+      rayStartParams: {}
+      #pod template
+      template:
+        spec:
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.9.0
+              lifecycle:
+                preStop:
+                  exec:
+                    command: ["/bin/sh","-c","ray stop"]
+              # use volumeMounts.Optional.
+              # Refer to https://kubernetes.io/docs/concepts/storage/volumes/
+              volumeMounts:
+                - mountPath: /tmp/ray
+                  name: ray-logs
+              # The resource requests and limits in this config are too small for production!
+              # For an example with more realistic resource configuration, see
+              # ray-cluster.autoscaler.large.yaml.
+              # It is better to use a few large Ray pod than many small ones.
+              # For production, it is ideal to size each Ray pod to take up the
+              # entire Kubernetes node on which it is scheduled.
+              resources:
+                limits:
+                  cpu: "1"
+                  memory: "1G"
+                # For production use-cases, we recommend specifying integer CPU reqests and limits.
+                # We also recommend setting requests equal to limits for both CPU and memory.
+                # For this example, we use a 500m CPU request to accomodate resource-constrained local
+                # Kubernetes testing environments such as KinD and minikube.
+                requests:
+                  # For production use-cases, we recommend specifying integer CPU reqests and limits.
+                  # We also recommend setting requests equal to limits for both CPU and memory.
+                  # For this example, we use a 500m CPU request to accomodate resource-constrained local
+                  # Kubernetes testing environments such as KinD and minikube.
+                  cpu: "1"
+                  # For production use-cases, we recommend allocating at least 8Gb memory for each Ray container.
+                  memory: "1G"
+          # use volumes
+          # Refer to https://kubernetes.io/docs/concepts/storage/volumes/
+          volumes:
+            - name: ray-logs
+              emptyDir: {}

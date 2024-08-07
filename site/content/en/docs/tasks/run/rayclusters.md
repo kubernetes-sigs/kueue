@@ -1,7 +1,7 @@
 ---
 title: "Run A RayCluster"
 linkTitle: "RayClusters"
-date: 2024-01-17
+date: 2024-08-07
 weight: 6
 description: >
   Run a RayCluster on Kueue.
@@ -13,7 +13,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay 1.1.0 or newer.
+1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay v1.1.0 or newer.
 
 2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
@@ -35,10 +35,8 @@ The target [local queue](/docs/concepts/local_queue) should be specified in the 
 
 ```yaml
 metadata:
-  name: raycluster-sample
-  namespace: default
   labels:
-    kueue.x-k8s.io/queue-name: local-queue
+    kueue.x-k8s.io/queue-name: user-queue
 ```
 
 ### b. Configure the resource needs
@@ -46,41 +44,21 @@ metadata:
 The resource needs of the workload can be configured in the `spec`.
 
 ```yaml
-    headGroupSpec:
-       spec:
-        affinity: {}
+spec:
+  headGroupSpec:
+    template:
+      spec:
         containers:
-        - env: []
-          image: rayproject/ray:2.7.0
-          imagePullPolicy: IfNotPresent
-          name: ray-head
-          resources:
-            limits:
-              cpu: "1"
-              memory: 2G
-            requests:
-              cpu: "1"
-              memory: 2G
-          securityContext: {}
-          volumeMounts:
-          - mountPath: /tmp/ray
-            name: log-volume
-    workerGroupSpecs:
-      template:
+          - resources:
+              requests:
+                cpu: "1"
+  workerGroupSpecs:
+    - template:
         spec:
-          affinity: {}
           containers:
-          - env: []
-          image: rayproject/ray:2.7.0
-          imagePullPolicy: IfNotPresent
-          name: ray-worker
-          resources:
-            limits:
-            cpu: "1"
-            memory: 1G
-            requests:
-            cpu: "1"
-            memory: 1G
+            - resources:
+                requests:
+                  cpu: "1"
 ```
 
 Note that a RayCluster will hold resource quotas while it exists. For optimal resource management, you should delete a RayCluster that is no longer in use.
@@ -95,4 +73,9 @@ The RayCluster looks like the following:
 
 {{< include "examples/jobs/ray-cluster-sample.yaml" "yaml" >}}
 
-You can submit a Ray Job using the [CLI](https://docs.ray.io/en/latest/cluster/running-applications/job-submission/quickstart.html) or log into the Ray Head and execute a job following this [example](https://ray-project.github.io/kuberay/deploy/helm-cluster/#end-to-end-example) with kind cluster. 
+You can submit a Ray Job using the [CLI](https://docs.ray.io/en/latest/cluster/running-applications/job-submission/quickstart.html) or log into the Ray Head and execute a job following this [example](https://ray-project.github.io/kuberay/deploy/helm-cluster/#end-to-end-example) with kind cluster.
+
+{{% alert title="Note" color="primary" %}}
+The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-cluster.complete.yaml)
+and only has the `queue-name` label added and requests updated.
+{{% /alert %}}
