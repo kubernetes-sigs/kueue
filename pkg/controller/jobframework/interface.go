@@ -172,6 +172,11 @@ type MultiKueueAdapter interface {
 	GVK() schema.GroupVersionKind
 }
 
+type UpdateRemoteJob interface {
+	UpdateRemoteJobStatus(localJob, remoteJob interface{}) 
+	UpdateRemoteJobSpec(localJob, remoteJob interface{})
+}
+
 // MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter
 // to receive job related watch events from the worker cluster.
 // If not implemented, MultiKueue will only receive events related to the job's workload.
