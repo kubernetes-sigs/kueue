@@ -16,7 +16,7 @@ Check the [kubectl documentation](https://kubernetes.io/docs/tasks/access-applic
 
 ## In the Worker Cluster
 
-{{% alert title="Note" color="note" %}}
+{{% alert title="Note" color="primary" %}}
 Make sure your current _kubectl_ configuration points to the worker cluster.
 
 Run:
@@ -56,7 +56,7 @@ for more details). Please use version v1.7.0 or a newer version for MultiKueue.
 
 ## In the Manager Cluster
 
-{{% alert title="Note" color="note" %}}
+{{% alert title="Note" color="primary" %}}
 Make sure your current _kubectl_ configuration points to the manager cluster.
 
 Run:
