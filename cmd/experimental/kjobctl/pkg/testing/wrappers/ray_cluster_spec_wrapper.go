@@ -26,9 +26,7 @@ type RayClusterSpecWrapper struct{ rayv1.RayClusterSpec }
 
 // MakeRayClusterSpec creates a wrapper for a RayClusterSpec
 func MakeRayClusterSpec() *RayClusterSpecWrapper {
-	return &RayClusterSpecWrapper{
-		RayClusterSpec: rayv1.RayClusterSpec{},
-	}
+	return &RayClusterSpecWrapper{}
 }
 
 // FromRayClusterSpec creates a wrapper for a RayClusterSpec.
