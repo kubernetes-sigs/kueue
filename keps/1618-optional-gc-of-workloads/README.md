@@ -244,7 +244,7 @@ proposal will be implemented, this is the place to discuss them.
 type Configuration struct {
     //...
     // ObjectRetentionPolicies provides configuration options for retention of Kueue owned
-    // resources.
+    // objects. A nil value will disable automatic deletion for all objects.
     ObjectRetentionPolicies *ObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
 }
 
