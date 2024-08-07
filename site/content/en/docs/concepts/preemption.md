@@ -76,9 +76,9 @@ to issue preemptions when one of the following is true:
 
 ### Candidates
 
-The list of preemption candidates is compiled from Workloads within the Cluster Queue satisfying 
-the `withinClusterQueue` policy, and Workloads within the cohort which satisfy the `reclaimWithinCohort`
-policy of other ClusterQueues that are actively borrowing.
+The list of preemption candidates is compiled from Workloads which either:
+- belong to the same ClusterQueue as the preemptor Workload, and satisfying the `withinClusterQueue` policy of the preemptor's Cluster Queue
+- belong to other ClusterQueues in the cohort, which are actively borrowing, and satisfying the `reclaimWithinCohort` and `borrowWithinCohort` policies of the preemptor's Cluster Queue.
 
 The list of candidates is sorted based on the following preference checks for
 tie-breaking:
