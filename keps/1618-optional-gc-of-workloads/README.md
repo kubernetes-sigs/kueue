@@ -159,41 +159,15 @@ bogged down.
 Based on how the retention policy is configured for finished Workloads, 
 several user stories are proposed below.
 
-#### Story 0 - Retention policy for finished Workloads is misconfigured
+#### Story 1 - Configurable retention for finished Workloads
 
-If the finished Workloads policy is not configured correctly 
-(the provided value is not a valid `time.Duration`), kueue will fail to start 
-during configuration parsing.
+As a kueue administrator, I want to control the retention of 
+finished Workloads to minimize the memory footprint and optimize 
+storage usage in my Kubernetes cluster. I want the flexibility to 
+configure a retention period to automatically delete Workloads after a 
+specified duration or to immediately delete them upon completion.
 
-#### Story 1 - Retention policy for finished Workloads is not configured (default)
-
-**This story ensures backward compatibility.**
-
-If the object retention policy section is not configured, 
-or finished Workloads retention is either not configured or set to `null`, 
-Workload objects will not be deleted by kueue.
-
-#### Story 2 - Retention policy for finished Workloads is configured and set to a value > 0s
-
-If the object retention policy is configured to a value greater than 0 seconds, 
-the finished Workload retention policy will be evaluated against every 
-completed Workload. The flow is as follows:
-
-1. During kueue's initial reconciliation loop, all previously finished Workloads 
-will be evaluated against the Workload retention policy. They will either be 
-deleted immediately if they are already expired or requeued for reconciliation 
-after their retention period has expired.
-
-2. During subsequent reconciliation loops, each Workload will be evaluated 
-using the same approach as in step 1. However, the evaluation will occur 
-during the next reconciliation loop after the Workload was declared finished. 
-Based on the evaluation result against the retention policy, the Workload will 
-either be requeued for later reconciliation or deleted.
-
-#### Story 3 - Retention policy for finished Workloads is configured and set to 0s
-
-When the object retention policy is set to 0 seconds, finished Workloads will be 
-deleted immediately during the first reconciliation loop after they are declared finished.
+**Note:** Immediate deletion can be configured by setting the retention period to 0 seconds.
 
 ### Notes/Constraints/Caveats
 
@@ -221,6 +195,14 @@ finalizer when the Workload state transitions to finished. If that behavior ever
 changes, or if there is an external source of a finalizer being attached 
 to the Workload, it will be marked for deletion by the Kubernetes client 
 but will not actually be deleted until the finalizer is removed.
+- If the retention policy for finished Workloads is misconfigured 
+(the provided value is not a valid time.Duration), kueue will fail to start 
+during configuration parsing.
+- In the default scenario, where the object retention policy section 
+is not configured or finished Workloads retention is either not configured 
+or set to null, the existing behavior is maintained for backward compatibility. 
+This means that Workload objects will not be deleted by kueue, 
+aligning with the behavior before the introduction of this feature.
 
 ### Risks and Mitigations
 
@@ -282,6 +264,20 @@ type ObjectRetentionPolicies struct {
     FinishedWorkloadRetention *metav1.Duration `json:"finishedWorkloadRetention"`
 }
 ```
+
+### Behavior
+The new behavior is as follows:
+
+1. During kueue's initial reconciliation loop, all previously finished Workloads
+   will be evaluated against the Workload retention policy. They will either be
+   deleted immediately if they are already expired or requeued for reconciliation
+   after their retention period has expired.
+
+2. During subsequent reconciliation loops, each Workload will be evaluated
+   using the same approach as in step 1. However, the evaluation will occur
+   during the next reconciliation loop after the Workload was declared finished.
+   Based on the evaluation result against the retention policy, the Workload will
+   either be requeued for later reconciliation or deleted.
 
 ### Test Plan
 
@@ -361,7 +357,8 @@ Describe what tests will be added to ensure proper quality of the enhancement.
 After the implementation PR is merged, add the names of the tests here.
 -->
 
-- TBA
+- Added behavior `Workload controller with resource retention` 
+in `test/integration/controller/core/workload_controller_test.go`
 
 
 [//]: # (### Graduation Criteria)
