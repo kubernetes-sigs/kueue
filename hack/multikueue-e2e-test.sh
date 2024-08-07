@@ -107,4 +107,5 @@ startup
 kind_load
 kueue_deploy
 
-$GINKGO "$GINKGO_ARGS" --junit-report=junit.xml --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
+# shellcheck disable=SC2086
+$GINKGO $GINKGO_ARGS --junit-report=junit.xml --output-dir="$ARTIFACTS" -v ./test/e2e/multikueue/...
