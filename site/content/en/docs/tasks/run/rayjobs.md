@@ -1,7 +1,7 @@
 ---
 title: "Run A RayJob"
 linkTitle: "RayJobs"
-date: 2023-05-18
+date: 2024-08-07
 weight: 6
 description: >
   Run a Kueue scheduled RayJob.
@@ -14,9 +14,11 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
+1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay v1.1.0 or newer.
 
-2. See [KubeRay Installation](https://ray-project.github.io/kuberay/deploy/installation/) for installation and configuration details of KubeRay.
+2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
+
+3. See [KubeRay Installation](https://ray-project.github.io/kuberay/deploy/installation/) for installation and configuration details of KubeRay.
 
 {{% alert title="Note" color="primary" %}}
 In order to use RayJob you need to restart Kueue after the installation.
@@ -43,6 +45,8 @@ metadata:
 The resource needs of the workload can be configured in the `spec.rayClusterSpec`.
 
 ```yaml
+spec:
+  rayClusterSpec:
     headGroupSpec:
       template:
         spec:
@@ -85,3 +89,8 @@ kubectl apply -f ray-job-code-sample.yaml
 # to observe the queueing and admission of the jobs.
 kubectl create -f ray-job-sample.yaml
 ```
+
+{{% alert title="Note" color="primary" %}}
+The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.1.1/ray-operator/config/samples/ray-job.sample.yaml) 
+and only has the `queue-name` label added and requests updated.
+{{% /alert %}}
