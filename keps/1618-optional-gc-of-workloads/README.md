@@ -175,11 +175,6 @@ This might be a good place to talk about core concepts and how they relate.
 the word "Resources" was used, but based on feedback from `@alculquicondor`, it was changed 
 because "Resources" bears too many meanings in the context of Kueue 
 (Kubernetes resources, physical resources, etc.).
-- A different implementation was proposed initially. The deletion logic was not 
-supposed to be part of the `Reconcile` function but rather was supposed to have 
-its own handler/watcher pair. During implementation, this proved challenging 
-without substantial changes to the code. Also, creating a watcher for 
-completed Workloads proved to be very complex.
 - The deletion mechanism assumes that finished Workload objects do not have 
 any finalizers attached to them. After an investigation by `@mimowo`, 
 the [exact place in the code](https://github.com/kubernetes-sigs/kueue/blob/a128ae3354a56670ffa58695fef1eca270fe3a47/pkg/controller/jobframework/reconciler.go#L332-L340) 
@@ -424,3 +419,11 @@ information to express the idea and why it was not acceptable.
 
 - Leave the current state of things as is, not implementing any garbage 
 collection mechanism for finished Workloads.
+- Initially, a different approach was hypothesized where the deletion logic
+  would not be integrated into the `Reconcile` function. Instead, a
+  dedicated handler and watcher pair would manage the cleanup of finished Workloads. This approach had the following advantages and disadvantages::
+  - Cons:
+    - Kueue's internal state management for Workloads happens within the `WorkloadReconciler`. Moving the deletion logic elsewhere would split up code meant to handle a single resource's lifecycle.
+    - Implementing a watcher specifically for expired Workloads turned out to be unexpectedly complex, leading to this approach being abandoned.
+  - Pros:
+    - A separate handler/watcher could offload the deletion logic, making the already large and intricate Reconcile function more focused and potentially easier to maintain.
