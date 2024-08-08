@@ -1398,7 +1398,7 @@ func TestReconcile(t *testing.T) {
 					},
 					EventType: corev1.EventTypeNormal,
 					Reason: "Deleted",
-					Message: "Deleted workload wl",
+					Message: "Deleted finished workload due to elapsed retention:  ns/wl",
 				},
 			},
 			wantError: nil,
