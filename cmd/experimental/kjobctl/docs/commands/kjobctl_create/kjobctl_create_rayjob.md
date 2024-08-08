@@ -124,6 +124,15 @@ kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUE
         </td>
     </tr>
     <tr>
+        <td colspan="2">--raycluster string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Ray cluster name where ray job will crate.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">--replicas &lt;comma-separated &#39;key=int&#39; pairs&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: []</td>
     </tr>
     <tr>

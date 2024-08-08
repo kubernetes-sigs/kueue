@@ -93,6 +93,7 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	requestFlagName     = "request"
 	localQueueFlagName  = "localqueue"
 	podRunningTimeout   = "pod-running-timeout"
+	rayClusterFlagName  = string(v1alpha1.RayClusterFlag)
 )
 
 var (
@@ -123,6 +124,7 @@ type CreateOptions struct {
 	LocalQueue           string
 	PodRunningTimeout    time.Duration
 	RemoveInteractivePod bool
+	RayCluster           string
 
 	UserSpecifiedCommand     string
 	UserSpecifiedParallelism int32
@@ -208,6 +210,13 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
 			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
+			subcmd.Flags().StringVar(&o.RayCluster, rayClusterFlagName, "",
+				"Ray cluster name where ray job will crate.")
+
+			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, replicasFlagName)
+			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, minReplicasFlagName)
+			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, maxReplicasFlagName)
+			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, localQueueFlagName)
 		},
 	},
 	"raycluster": {
@@ -366,6 +375,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithMaxReplicas(o.MaxReplicas).
 		WithRequests(o.Requests).
 		WithLocalQueue(o.LocalQueue).
+		WithRayCluster(o.RayCluster).
 		Do(ctx)
 	if err != nil {
 		return err

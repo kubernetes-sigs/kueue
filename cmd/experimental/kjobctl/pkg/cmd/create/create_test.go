@@ -459,6 +459,50 @@ func TestCreateCmd(t *testing.T) {
 			// Fake dynamic client not generating name. That's why we have <unknown>.
 			wantOut: "rayjob.ray.io/<unknown> created\n",
 		},
+		"should create ray job with raycluster replacement": {
+			args: []string{"rayjob", "--profile", "profile", "--raycluster", "rc1"},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
+					WithRayClusterSpec(
+						wrappers.MakeRayClusterSpec().
+							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+							Obj(),
+					).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
+					Obj(),
+			},
+			gvk: schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayJob"},
+			wantList: &rayv1.RayJobList{
+				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
+				Items: []rayv1.RayJob{
+					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
+						GenerateName("profile-").
+						Profile("profile").
+						WithRayClusterLabelSelector("rc1").
+						Obj(),
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "rayjob.ray.io/<unknown> created\n",
+		},
+		"shouldn't create ray job with raycluster and localqueue replacements because mutually exclusive": {
+			args:    []string{"rayjob", "--profile", "profile", "--raycluster", "rc1", "--localqueue", "lq1"},
+			wantErr: "if any flags in the group [raycluster localqueue] are set none of the others can be; [localqueue raycluster] were all set",
+		},
+		"shouldn't create ray job with raycluster and replicas replacements because mutually exclusive": {
+			args:    []string{"rayjob", "--profile", "profile", "--raycluster", "rc1", "--replicas", "g1=5"},
+			wantErr: "if any flags in the group [raycluster replicas] are set none of the others can be; [raycluster replicas] were all set",
+		},
+		"shouldn't create ray job with raycluster and min-replicas replacements because mutually exclusive": {
+			args:    []string{"rayjob", "--profile", "profile", "--raycluster", "rc1", "--min-replicas", "g1=5"},
+			wantErr: "if any flags in the group [raycluster min-replicas] are set none of the others can be; [min-replicas raycluster] were all set",
+		},
+		"shouldn't create ray job with raycluster and max-replicas replacements because mutually exclusive": {
+			args:    []string{"rayjob", "--profile", "profile", "--raycluster", "rc1", "--max-replicas", "g1=5"},
+			wantErr: "if any flags in the group [raycluster max-replicas] are set none of the others can be; [max-replicas raycluster] were all set",
+		},
 		"shouldn't create job with client dry run": {
 			args: []string{"job", "--profile", "profile", "--dry-run", "client"},
 			kjobctlObjs: []runtime.Object{

@@ -52,6 +52,7 @@ var (
 	noMaxReplicasSpecifiedErr              = errors.New("no max-replicas specified")
 	noRequestsSpecifiedErr                 = errors.New("no requests specified")
 	noLocalQueueSpecifiedErr               = errors.New("no local queue specified")
+	noRayClusterSpecifiedErr               = errors.New("no raycluster specified")
 )
 
 type builder interface {
@@ -75,6 +76,7 @@ type Builder struct {
 	maxReplicas map[string]int
 	requests    corev1.ResourceList
 	localQueue  string
+	rayCluster  string
 
 	profile       *v1alpha1.ApplicationProfile
 	mode          *v1alpha1.SupportedMode
@@ -139,6 +141,11 @@ func (b *Builder) WithRequests(requests corev1.ResourceList) *Builder {
 
 func (b *Builder) WithLocalQueue(localQueue string) *Builder {
 	b.localQueue = localQueue
+	return b
+}
+
+func (b *Builder) WithRayCluster(rayCluster string) *Builder {
+	b.rayCluster = rayCluster
 	return b
 }
 
@@ -227,6 +234,10 @@ func (b *Builder) validateFlags() error {
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.LocalQueueFlag) && b.localQueue == "" {
 		return noLocalQueueSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.RayClusterFlag) && b.rayCluster == "" {
+		return noRayClusterSpecifiedErr
 	}
 
 	return nil
