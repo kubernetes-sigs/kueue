@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -71,7 +71,7 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 
 type Controller struct {
 	client            client.Client
-	record            record.EventRecorder
+	record            events.EventRecorder
 	helper            *provisioningConfigHelper
 	maxRetries        int32
 	minBackoffSeconds int32
@@ -108,7 +108,7 @@ func WithMinBackoffSeconds(minBackoffSeconds int32) Option {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
 
-func NewController(client client.Client, record record.EventRecorder, opts ...Option) (*Controller, error) {
+func NewController(client client.Client, record events.EventRecorder, opts ...Option) (*Controller, error) {
 	helper, err := newProvisioningConfigHelper(client)
 	if err != nil {
 		return nil, err
@@ -300,7 +300,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			if err := c.client.Create(ctx, req); err != nil {
 				return nil, err
 			}
-			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)
+			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
 		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, requestName, prc); err != nil {
@@ -577,7 +577,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			return err
 		}
 		for i := range recorderMessages {
-			c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
+			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "AdmissionCheckUpdated", "", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
 	return nil

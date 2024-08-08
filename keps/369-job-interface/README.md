@@ -225,7 +225,7 @@ Besides, we'll provide a full controller for developers to follow, all they need
 type reconcileOptions struct {
   client                     client.Client
   scheme                     *runtime.Scheme
-  record                     record.EventRecorder
+  record                     events.EventRecorder
   manageJobsWithoutQueueName bool
   waitForPodsReady           bool
 }

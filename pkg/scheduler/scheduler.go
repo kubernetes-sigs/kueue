@@ -30,7 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -63,7 +63,7 @@ type Scheduler struct {
 	queues                  *queue.Manager
 	cache                   *cache.Cache
 	client                  client.Client
-	recorder                record.EventRecorder
+	recorder                events.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
@@ -104,7 +104,7 @@ func WithFairSharing(fs *config.FairSharing) Option {
 	}
 }
 
-func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
+func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -572,10 +572,10 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 		err := s.applyAdmission(ctx, newWorkload)
 		if err == nil {
 			waitTime := workload.QueuedWaitTime(newWorkload)
-			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "QuotaReserved", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
+			s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "QuotaReserved", "", "Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 			metrics.QuotaReservedWorkload(admission.ClusterQueue, waitTime)
 			if workload.IsAdmitted(newWorkload) {
-				s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
+				s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 				metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
 				if len(newWorkload.Status.AdmissionChecks) > 0 {
 					metrics.AdmissionChecksWaitTime(admission.ClusterQueue, 0)
@@ -668,6 +668,6 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 				log.Error(err, "Could not update Workload status")
 			}
 		}
-		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
+		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeNormal, "Pending", "", api.TruncateEventMessage(e.inadmissibleMsg))
 	}
 }
