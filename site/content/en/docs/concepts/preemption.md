@@ -54,12 +54,17 @@ Kueue offers two preemption algorithms. The main difference between them is the 
 preemptions from a ClusterQueue to others in the Cohort, when the usage of the preempting ClusterQueue is
 already above the nominal quota. The algorithms are:
 
-- **[Classic Preemption](#classic-preemption)**: Preemption in the cohort only happens when the usage of the preempting ClusterQueue
-  will be under the nominal quota after the ongoing admission process, or when all the candidates for preemption belong to
-  the same ClusterQueue as the preempting Workload. In other words, ClusterQueues
-  can only borrow quota from others in the cohort if they do not preempt admitted Workloads from
-  other ClusterQueues. ClusterQueues in a cohort borrow resources in a first-come first-served fashion.
+- **[Classic Preemption](#classic-preemption)**: Preemption in the cohort can only happen when any of the following occurs:
+  - The usage of the ClusterQueue for the incoming workload will be under the nominal quota after the ongoing admission process
+  - Preemption while borrowing is enabled for the workload's ClusterQueue
+  - All candidates for preemption belong to the same ClusterQueue as the preempting Workload
+
+  In the above scenarios, a workload can only be considered for preemption, in favor a workload from another ClusterQueue, 
+  if it belongs to a ClusterQueue which is running over its nominal quota. 
+  ClusterQueues in a cohort borrow resources in a first-come first-served fashion.
+  
   This algorithm is the most lightweight of the two.
+
 - **[Fair sharing](#fair-sharing)**: ClusterQueues with pending Workloads can preempt other Workloads in their cohort
   until the preempting ClusterQueue obtains an equal or weighted share of the borrowable resources.
   The borrowable resources are the unused nominal quota of all the ClusterQueues in the cohort.
@@ -73,9 +78,9 @@ to issue preemptions when one of the following is true:
 
 ### Candidates
 
-The list of preemption candidates is compiled from Workloads within the Cluster
-Queue satisfying the `withinClusterQueue` policy, and Workloads within the
-cohort which satisfy the `reclaimWithinCohort` policy.
+The list of preemption candidates is compiled from Workloads which either:
+- belong to the same ClusterQueue as the preemptor Workload, and satisfying the `withinClusterQueue` policy of the preemptor's Cluster Queue
+- belong to other ClusterQueues in the cohort, which are actively borrowing, and satisfying the `reclaimWithinCohort` and `borrowWithinCohort` policies of the preemptor's Cluster Queue.
 
 The list of candidates is sorted based on the following preference checks for
 tie-breaking:
