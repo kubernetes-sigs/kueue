@@ -92,8 +92,7 @@ We do not set any expiration on these objects, so by default, they are kept inde
 including the amount of jobs created, their complexity, and frequency over time, these objects can accumulate, 
 leading to unnecessary use of etcd storage and a gradual increase in Kueue's memory footprint. Some of these objects, 
 like finished Workloads, do not contain any useful information that could be used for additional purposes, such as debugging. 
-That's why, based on user feedback in [#1618](https://github.com/kubernetes-sigs/kueue/issues/1618)
-or [#1789](https://github.com/kubernetes-sigs/kueue/issues/1789), a mechanism for garbage collection of finished Workloads 
+That's why, based on user feedback in [#1618](https://github.com/kubernetes-sigs/kueue/issues/1618), a mechanism for garbage collection of finished Workloads 
 is being proposed.
 
 With this mechanism in place, deleting finished Workloads has several benefits:
@@ -191,6 +190,12 @@ is not configured or finished Workloads retention is either not configured
 or set to null, the existing behavior is maintained for backward compatibility. 
 This means that Workload objects will not be deleted by Kueue, 
 aligning with the behavior before the introduction of this feature.
+- Finished Workloads are not the only objects that should be cleaned up.
+Another type is orphaned Workloads, as described in
+[#1789](https://github.com/kubernetes-sigs/kueue/issues/1789).
+Although dealing with these workloads could be an extension to this KEP,
+it is not the primary concern at the moment. The initial implementation of cleaning up 
+finished workloads mentioned in this KEP does not address orphaned Workloads.
 
 ### Risks and Mitigations
 
