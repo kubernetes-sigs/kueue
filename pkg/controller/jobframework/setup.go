@@ -51,6 +51,10 @@ func SetupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 func (m *integrationManager) setupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
+	if err := m.checkEnabledListDependencies(options.EnabledFrameworks); err != nil {
+		return fmt.Errorf("check enabled frameworks list: %w", err)
+	}
+
 	for fwkName := range options.EnabledExternalFrameworks {
 		if err := RegisterExternalJobType(fwkName); err != nil {
 			return err

@@ -20,12 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/set"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -37,6 +39,9 @@ var (
 	errDuplicateFrameworkName = errors.New("duplicate framework name")
 	errMissingMandatoryField  = errors.New("mandatory field missing")
 	errFrameworkNameFormat    = errors.New("misformatted external framework name")
+
+	errIntegrationNotFound              = errors.New("integration not found")
+	errDependecncyIntegrationNotEnabled = errors.New("integration not enabled")
 )
 
 type JobReconcilerInterface interface {
@@ -69,6 +74,8 @@ type IntegrationCallbacks struct {
 	CanSupportIntegration func(opts ...Option) (bool, error)
 	// The job's MultiKueue adapter (optional)
 	MultiKueueAdapter MultiKueueAdapter
+	// The list of integration that need to be enabled along with the current one.
+	DependencyList []string
 }
 
 type integrationManager struct {
@@ -176,6 +183,23 @@ func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference)
 		}
 	}
 
+	return nil
+}
+
+func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[string]) error {
+	enabled := enabledSet.UnsortedList()
+	slices.Sort(enabled)
+	for _, integration := range enabled {
+		cbs, found := m.integrations[integration]
+		if !found {
+			return fmt.Errorf("%q %w", integration, errIntegrationNotFound)
+		}
+		for _, dep := range cbs.DependencyList {
+			if !enabledSet.Has(dep) {
+				return fmt.Errorf("%q %w %q", integration, errDependecncyIntegrationNotEnabled, dep)
+			}
+		}
+	}
 	return nil
 }
 
