@@ -23,11 +23,6 @@ import (
 
 // RayClusterTemplateSpec describes the data a raycluster should have when created from a template
 type RayClusterTemplateSpec struct {
-	// Standard object's metadata.
-	//
-	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
 	// Specification of the desired behavior of the raycluster.
 	//
 	// +kubebuilder:validation:Required
