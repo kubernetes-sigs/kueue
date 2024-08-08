@@ -23,7 +23,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -68,22 +67,7 @@ func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, error) {
 	}
 
 	if rayJob.Spec.RayClusterSpec != nil {
-		b.buildPodSpecVolumesAndEnv(&rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec)
-
-		for index := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
-			workerGroupSpec := &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[index]
-			if replicas, ok := b.replicas[workerGroupSpec.GroupName]; ok {
-				workerGroupSpec.Replicas = ptr.To(int32(replicas))
-			}
-			if minReplicas, ok := b.minReplicas[workerGroupSpec.GroupName]; ok {
-				workerGroupSpec.MinReplicas = ptr.To(int32(minReplicas))
-			}
-			if maxReplicas, ok := b.maxReplicas[workerGroupSpec.GroupName]; ok {
-				workerGroupSpec.MaxReplicas = ptr.To(int32(maxReplicas))
-			}
-
-			b.buildPodSpecVolumesAndEnv(&workerGroupSpec.Template.Spec)
-		}
+		b.buildRayClusterSpec(rayJob.Spec.RayClusterSpec)
 	}
 
 	return rayJob, nil
