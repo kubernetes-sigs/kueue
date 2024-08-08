@@ -463,7 +463,7 @@ func TestEnabledIntegrationsDependencies(t *testing.T) {
 				"i1": {"i2"},
 			},
 			enabled:   []string{"i1"},
-			wantError: errIntegrationNotEnabled,
+			wantError: errDependecncyIntegrationNotEnabled,
 		},
 		"dependecncy not found": {
 			integrationsDependencies: map[string][]string{
@@ -471,15 +471,6 @@ func TestEnabledIntegrationsDependencies(t *testing.T) {
 			},
 			enabled:   []string{"i1", "i2"},
 			wantError: errIntegrationNotFound,
-		},
-		"circular dependecncy": {
-			integrationsDependencies: map[string][]string{
-				"i1": {"i2"},
-				"i2": {"i3"},
-				"i3": {"i1"},
-			},
-			enabled:   []string{"i1", "i2", "i3"},
-			wantError: errCircularIntegrationDependency,
 		},
 		"no error": {
 			integrationsDependencies: map[string][]string{

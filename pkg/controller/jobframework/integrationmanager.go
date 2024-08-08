@@ -40,9 +40,8 @@ var (
 	errMissingMandatoryField  = errors.New("mandatory field missing")
 	errFrameworkNameFormat    = errors.New("misformatted external framework name")
 
-	errIntegrationNotFound           = errors.New("integration not found")
-	errIntegrationNotEnabled         = errors.New("integration not enabled")
-	errCircularIntegrationDependency = errors.New("circular integration dependency")
+	errIntegrationNotFound              = errors.New("integration not found")
+	errDependecncyIntegrationNotEnabled = errors.New("integration not enabled")
 )
 
 type JobReconcilerInterface interface {
@@ -191,33 +190,14 @@ func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[st
 	enabled := enabledSet.UnsortedList()
 	slices.Sort(enabled)
 	for _, integration := range enabled {
-		if err := m.canEnableIntegration(integration, enabledSet, sets.New[string]()); err != nil {
-			return err
+		cbs, found := m.integrations[integration]
+		if !found {
+			return fmt.Errorf("%q %w", integration, errIntegrationNotFound)
 		}
-	}
-	return nil
-}
-
-func (m *integrationManager) canEnableIntegration(integration string, enabledSet, visited sets.Set[string]) error {
-	if !enabledSet.Has(integration) {
-		return fmt.Errorf("%q %w", integration, errIntegrationNotEnabled)
-	}
-
-	if visited.Has(integration) {
-		return fmt.Errorf("%q %w", integration, errCircularIntegrationDependency)
-	}
-	visited.Insert(integration)
-	defer visited.Delete(integration)
-
-	// is the integration provided in he built-in set of integrations
-	cbs, found := m.integrations[integration]
-	if !found {
-		return fmt.Errorf("%q %w", integration, errIntegrationNotFound)
-	}
-
-	for _, dep := range cbs.DependencyList {
-		if err := m.canEnableIntegration(dep, enabledSet, visited); err != nil {
-			return fmt.Errorf("%q: %w", integration, err)
+		for _, dep := range cbs.DependencyList {
+			if !enabledSet.Has(dep) {
+				return fmt.Errorf("%q %w %q", integration, errDependecncyIntegrationNotEnabled, dep)
+			}
 		}
 	}
 	return nil
