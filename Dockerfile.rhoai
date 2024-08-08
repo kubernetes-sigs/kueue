@@ -1,9 +1,23 @@
-# Build the manager binary
-FROM registry.access.redhat.com/ubi9/go-toolset:1.21 as builder
+# Start of Go versioning workaround for lack of go-toolset for version 1.22
+FROM registry-proxy.engineering.redhat.com/rh-osbs/openshift-golang-builder:v1.22.2 AS golang
+
+FROM registry.access.redhat.com/ubi9/ubi:latest AS builder
+
+ARG GOLANG_VERSION=1.22.2
+
+# Install system dependencies
+RUN dnf upgrade -y && dnf install -y \
+    gcc \
+    make \
+    openssl-devel \
+    && dnf clean all && rm -rf /var/cache/yum
+
+# Install Go
+ENV PATH=/usr/local/go/bin:$PATH
+
+COPY --from=golang /usr/lib/golang /usr/local/go
 
 WORKDIR /workspace
-
-RUN git config --global --add safe.directory /workspace
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
