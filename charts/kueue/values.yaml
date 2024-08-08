@@ -119,7 +119,7 @@ managerConfig:
     #resources:
     #  excludeResourcePrefixes: []
     #objectRetentionPolicies:
-    #  finishedWorkloadRetention: null # null indicates infinite retention, 0 means no retention at all
+    #  finishedWorkloadRetention: null # null indicates infinite retention, 0s means no retention at all
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:
