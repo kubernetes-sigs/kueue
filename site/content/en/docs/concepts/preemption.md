@@ -54,15 +54,17 @@ Kueue offers two preemption algorithms. The main difference between them is the 
 preemptions from a ClusterQueue to others in the Cohort, when the usage of the preempting ClusterQueue is
 already above the nominal quota. The algorithms are:
 
-- **[Classic Preemption](#classic-preemption)**: Preemption in the cohort only happens when either of the following occurs:
-  - the usage of the preempting ClusterQueue will be under the nominal quota after the ongoing admission process
-  - all the candidates for preemption belong to the same ClusterQueue as the preempting Workload 
-    or other borrowing ClusterQueues within the same cohort matching the preemptor's queue `borrowWithinCohort` policy.
+- **[Classic Preemption](#classic-preemption)**: Preemption in the cohort can only happen when any of the following occurs:
+  - The usage of the ClusterQueue for the incoming workload will be under the nominal quota after the ongoing admission process
+  - Preemption while borrowing is enabled for the workload's ClusterQueue
+  - All candidates for preemption belong to the same ClusterQueue as the preempting Workload
 
-
-  In other words, ClusterQueues can only borrow quota from others in the cohort if they do not preempt admitted Workloads from
-  other ClusterQueues that are not borrowing. ClusterQueues in a cohort borrow resources in a first-come first-served fashion.
+  In the above scenarios, a workload can only be considered for preemption, in favor a workload from another ClusterQueue, 
+  if it belongs to a ClusterQueue which is running over its nominal quota. 
+  ClusterQueues in a cohort borrow resources in a first-come first-served fashion.
+  
   This algorithm is the most lightweight of the two.
+
 - **[Fair sharing](#fair-sharing)**: ClusterQueues with pending Workloads can preempt other Workloads in their cohort
   until the preempting ClusterQueue obtains an equal or weighted share of the borrowable resources.
   The borrowable resources are the unused nominal quota of all the ClusterQueues in the cohort.
