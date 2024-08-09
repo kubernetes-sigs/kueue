@@ -92,7 +92,10 @@ func (j *RayJob) GVK() schema.GroupVersionKind {
 }
 
 func (j *RayJob) PodLabelSelector() string {
-	return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Name)
+	if j.Status.RayClusterName != "" {
+		return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Name)
+	}
+	return ""
 }
 
 func (j *RayJob) PodSets() []kueue.PodSet {
