@@ -473,10 +473,11 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 			assignment := flvAssigner.Assign(log, nextCounts)
 			if assignment.RepresentativeMode() == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
-			}
-			preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
-			if len(preemptionTargets) > 0 {
-				return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
+			} else if assignment.RepresentativeMode() == flavorassigner.Preempt {
+				preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
+				if len(preemptionTargets) > 0 {
+					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
+				}
 			}
 			return nil, false
 		})
