@@ -76,6 +76,10 @@ type Configuration struct {
 
 	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
+
+	// ObjectRetentionPolicies provides configuration options for retention of Kueue owned
+	// objects. A nil value will disable automatic deletion for all objects.
+	ObjectRetentionPolicies *ObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
 }
 
 type ControllerManager struct {
@@ -399,4 +403,16 @@ type FairSharing struct {
 	//   newest start time first.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
+}
+
+type ObjectRetentionPolicies struct {
+	// FinishedWorkloadRetention is the duration to retain finished Workloads.
+	// A duration of 0 will delete finished Workloads immediately.
+	// A nil value will disable automatic deletion.
+	// The value is represented using the metav1.Duration format, allowing for flexible
+	// specification of time units (e.g., "24h", "1h30m", "30s").
+	//
+	// Defaults to null.
+	// +optional
+	FinishedWorkloadRetention *metav1.Duration `json:"finishedWorkloadRetention"`
 }

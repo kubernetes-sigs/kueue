@@ -193,4 +193,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if fs := cfg.FairSharing; fs != nil && fs.Enable && len(fs.PreemptionStrategies) == 0 {
 		fs.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare}
 	}
+	if cfg.ObjectRetentionPolicies == nil {
+		cfg.ObjectRetentionPolicies = &ObjectRetentionPolicies{}
+	}
 }

@@ -298,6 +298,17 @@ webhook:
 		t.Fatal(err)
 	}
 
+	objectRetentionPoliciesConfig := filepath.Join(tmpDir, "objectRetentionPolicies.yaml")
+	if err := os.WriteFile(objectRetentionPoliciesConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+namespace: kueue-system
+objectRetentionPolicies:
+  finishedWorkloadRetention: 30m
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 		Metrics: metricsserver.Options{
@@ -369,6 +380,8 @@ webhook:
 		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 	}
 
+	defaultObjectRetentionPolicies := &configapi.ObjectRetentionPolicies{}
+
 	testcases := []struct {
 		name              string
 		configFile        string
@@ -380,12 +393,13 @@ webhook:
 			name:       "default config",
 			configFile: "",
 			wantConfiguration: configapi.Configuration{
-				Namespace:              ptr.To(configapi.DefaultNamespace),
-				InternalCertManagement: enableDefaultInternalCertManagement,
-				ClientConnection:       defaultClientConnection,
-				Integrations:           defaultIntegrations,
-				QueueVisibility:        defaultQueueVisibility,
-				MultiKueue:             defaultMultiKueue,
+				Namespace:               ptr.To(configapi.DefaultNamespace),
+				InternalCertManagement:  enableDefaultInternalCertManagement,
+				ClientConnection:        defaultClientConnection,
+				Integrations:            defaultIntegrations,
+				QueueVisibility:         defaultQueueVisibility,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -441,8 +455,9 @@ webhook:
 						PodSelector: &metav1.LabelSelector{},
 					},
 				},
-				QueueVisibility: defaultQueueVisibility,
-				MultiKueue:      defaultMultiKueue,
+				QueueVisibility:         defaultQueueVisibility,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -461,6 +476,7 @@ webhook:
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
 				MultiKueue:                 defaultMultiKueue,
+				ObjectRetentionPolicies:    defaultObjectRetentionPolicies,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
@@ -495,10 +511,11 @@ webhook:
 					WebhookServiceName: ptr.To("kueue-tenant-a-webhook-service"),
 					WebhookSecretName:  ptr.To("kueue-tenant-a-webhook-server-cert"),
 				},
-				ClientConnection: defaultClientConnection,
-				Integrations:     defaultIntegrations,
-				QueueVisibility:  defaultQueueVisibility,
-				MultiKueue:       defaultMultiKueue,
+				ClientConnection:        defaultClientConnection,
+				Integrations:            defaultIntegrations,
+				QueueVisibility:         defaultQueueVisibility,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -515,10 +532,11 @@ webhook:
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				ClientConnection: defaultClientConnection,
-				Integrations:     defaultIntegrations,
-				QueueVisibility:  defaultQueueVisibility,
-				MultiKueue:       defaultMultiKueue,
+				ClientConnection:        defaultClientConnection,
+				Integrations:            defaultIntegrations,
+				QueueVisibility:         defaultQueueVisibility,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -537,6 +555,7 @@ webhook:
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
 				MultiKueue:                 defaultMultiKueue,
+				ObjectRetentionPolicies:    defaultObjectRetentionPolicies,
 			},
 
 			wantOptions: ctrl.Options{
@@ -579,10 +598,11 @@ webhook:
 						BackoffMaxSeconds:  ptr.To[int32](1800),
 					},
 				},
-				ClientConnection: defaultClientConnection,
-				Integrations:     defaultIntegrations,
-				QueueVisibility:  defaultQueueVisibility,
-				MultiKueue:       defaultMultiKueue,
+				ClientConnection:        defaultClientConnection,
+				Integrations:            defaultIntegrations,
+				QueueVisibility:         defaultQueueVisibility,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -617,9 +637,10 @@ webhook:
 					QPS:   ptr.To[float32](50),
 					Burst: ptr.To[int32](100),
 				},
-				Integrations:    defaultIntegrations,
-				QueueVisibility: defaultQueueVisibility,
-				MultiKueue:      defaultMultiKueue,
+				Integrations:            defaultIntegrations,
+				QueueVisibility:         defaultQueueVisibility,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -638,9 +659,10 @@ webhook:
 					QPS:   ptr.To[float32](50),
 					Burst: ptr.To[int32](100),
 				},
-				Integrations:    defaultIntegrations,
-				QueueVisibility: defaultQueueVisibility,
-				MultiKueue:      defaultMultiKueue,
+				Integrations:            defaultIntegrations,
+				QueueVisibility:         defaultQueueVisibility,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -702,8 +724,9 @@ webhook:
 						PodSelector: &metav1.LabelSelector{},
 					},
 				},
-				QueueVisibility: defaultQueueVisibility,
-				MultiKueue:      defaultMultiKueue,
+				QueueVisibility:         defaultQueueVisibility,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -742,7 +765,8 @@ webhook:
 						MaxCount: 0,
 					},
 				},
-				MultiKueue: defaultMultiKueue,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -800,7 +824,8 @@ webhook:
 						},
 					},
 				},
-				MultiKueue: defaultMultiKueue,
+				MultiKueue:              defaultMultiKueue,
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -839,6 +864,7 @@ webhook:
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 				},
+				ObjectRetentionPolicies: defaultObjectRetentionPolicies,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -849,6 +875,27 @@ webhook:
 				errors.New("unknown field \"invalidField\""),
 				errors.New("unknown field \"namespaces\""),
 			}),
+		},
+		{
+			name:       "objectRetentionPolicies config",
+			configFile: objectRetentionPoliciesConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
+				QueueVisibility:            defaultQueueVisibility,
+				MultiKueue:                 defaultMultiKueue,
+				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
+					FinishedWorkloadRetention: &metav1.Duration{Duration: 30 * time.Minute},
+				},
+			},
+			wantOptions: defaultControlOptions,
 		},
 	}
 
@@ -961,6 +1008,9 @@ func TestEncode(t *testing.T) {
 					"gcInterval":        "1m0s",
 					"origin":            "multikueue",
 					"workerLostTimeout": "15m0s",
+				},
+				"objectRetentionPolicies": map[string]any{
+					"finishedWorkloadRetention": nil,
 				},
 			},
 		},

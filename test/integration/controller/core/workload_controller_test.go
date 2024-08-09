@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -426,6 +427,94 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			}, util.Timeout, util.Interval).Should(gomega.Equal(updatedPriority))
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
 			gomega.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Workload controller with resource retention", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns              *corev1.Namespace
+		createdWorkload kueue.Workload
+		localQueue      *kueue.LocalQueue
+		clusterQueue    *kueue.ClusterQueue
+		flavor          *kueue.ResourceFlavor
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetupWithWorkloadRetentionEnabled)
+	})
+	ginkgo.AfterAll(func() {
+		fwk.Teardown()
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "core-workload-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.AfterEach(func() {
+		createdWorkload = kueue.Workload{}
+		clusterQueue = nil
+		localQueue = nil
+		flavor = nil
+	})
+
+	ginkgo.When("a workload with retention period", func() {
+		ginkgo.BeforeEach(func() {
+			flavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = testing.MakeClusterQueue("cq").
+				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = testing.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("should delete the workload after retention period elapses", func() {
+			// Create workload
+			wl := testing.MakeWorkload("wl-to-expire", ns.Name).Queue("q").Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			// Simulate admission
+			admission := testing.MakeAdmission("cq").Obj()
+			gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
+			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, &createdWorkload, admission)).Should(gomega.Succeed())
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, &createdWorkload)
+
+			// Mark as Finished
+			gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdWorkload.Status.Conditions = append(createdWorkload.Status.Conditions, metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "FinishedByTest",
+					Message:            "Finished for testing purposes",
+				})
+				g.Expect(k8sClient.Status().Update(ctx, &createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("workload should not be deleted before retention period")
+			gomega.Consistently(func() error {
+				return k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)
+			}, 2*time.Second, time.Second).Should(gomega.Succeed())
+
+			ginkgo.By("workload should be deleted after the retention period")
+			gomega.Eventually(func() error {
+				return k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)
+			}, 2*time.Second, time.Second).ShouldNot(gomega.Succeed())
 		})
 	})
 })

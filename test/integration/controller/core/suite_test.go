@@ -20,9 +20,11 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -62,6 +64,35 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	controllersCfg := &config.Configuration{}
+	mgr.GetScheme().Default(controllersCfg)
+
+	controllersCfg.Metrics.EnableClusterQueueResources = true
+	controllersCfg.QueueVisibility = &config.QueueVisibility{
+		UpdateIntervalSeconds: 2,
+		ClusterQueues: &config.ClusterQueueVisibility{
+			MaxCount: 3,
+		},
+	}
+
+	cCache := cache.New(mgr.GetClient())
+	queues := queue.NewManager(mgr.GetClient(), cCache)
+
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+}
+
+func managerSetupWithWorkloadRetentionEnabled(ctx context.Context, mgr manager.Manager) {
+	objectRetention := &config.ObjectRetentionPolicies{FinishedWorkloadRetention: &v1.Duration{
+		Duration: 3 * time.Second,
+	}}
+
+	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	failedWebhook, err := webhooks.Setup(mgr)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+	controllersCfg := &config.Configuration{ObjectRetentionPolicies: objectRetention}
 	mgr.GetScheme().Default(controllersCfg)
 
 	controllersCfg.Metrics.EnableClusterQueueResources = true

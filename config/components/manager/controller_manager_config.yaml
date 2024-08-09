@@ -62,3 +62,5 @@ integrations:
 #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
 #resources:
 #  excludeResourcePrefixes: []
+#objectRetentionPolicies:
+#  finishedWorkloadRetention: null # null indicates infinite retention, 0s means no retention at all
