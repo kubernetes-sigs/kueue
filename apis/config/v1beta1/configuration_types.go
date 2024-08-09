@@ -128,6 +128,14 @@ type ControllerWebhook struct {
 	// must be named tls.key and tls.crt, respectively.
 	// +optional
 	CertDir string `json:"certDir,omitempty"`
+
+	// MutatingWebhookConfigurationName is the name of the K8s MutatingWebhookConfiguration
+	// +optional
+	MutatingWebhookConfigurationName *string `json:"mutatingWebhookConfigurationName,omitempty"`
+
+	// ValidatingWebhookConfigurationName is the name of the K8s ValidatingWebhookConfiguration
+	// +optional
+	ValidatingWebhookConfigurationName *string `json:"validatingWebhookConfigurationName,omitempty"`
 }
 
 // ControllerMetrics defines the metrics configs.
