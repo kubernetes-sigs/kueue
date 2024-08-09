@@ -204,6 +204,20 @@ func TestBuilder(t *testing.T) {
 			},
 			wantErr: noLocalQueueSpecifiedErr,
 		},
+		"shouldn't build job because raycluster not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.RayJobMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.RayJobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.RayClusterFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noRayClusterSpecifiedErr,
+		},
 		"should build job": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",

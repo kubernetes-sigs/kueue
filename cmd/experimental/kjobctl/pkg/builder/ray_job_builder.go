@@ -21,8 +21,11 @@ import (
 	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutil "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type rayJobBuilder struct {
@@ -51,7 +54,14 @@ func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, error) {
 		rayJob.Spec.Entrypoint = strings.Join(b.command, " ")
 	}
 
-	if rayJob.Spec.RayClusterSpec != nil {
+	if len(b.rayCluster) != 0 {
+		delete(rayJob.ObjectMeta.Labels, kueueconstants.QueueLabel)
+		rayJob.Spec.RayClusterSpec = nil
+		if rayJob.Spec.ClusterSelector == nil {
+			rayJob.Spec.ClusterSelector = map[string]string{}
+		}
+		rayJob.Spec.ClusterSelector[rayutil.RayClusterLabelKey] = b.rayCluster
+	} else if rayJob.Spec.RayClusterSpec != nil {
 		b.buildRayClusterSpec(rayJob.Spec.RayClusterSpec)
 	}
 

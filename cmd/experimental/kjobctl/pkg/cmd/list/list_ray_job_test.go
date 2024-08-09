@@ -1,7 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
+Copyright %s Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
@@ -54,6 +52,7 @@ func TestRayJobCmd(t *testing.T) {
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
@@ -62,14 +61,15 @@ func TestRayJobCmd(t *testing.T) {
 				wrappers.MakeRayJob("rj2", "ns1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
 					EndTime(testStartTime.Add(-1 * time.Hour)).
 					Obj(),
 			},
-			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
-rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
+			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+rj1    profile1   localqueue1   rc1                SUCCEEDED    Complete            %s   %s   120m
 `,
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
@@ -83,6 +83,7 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
@@ -92,14 +93,15 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
 					EndTime(testStartTime.Add(-1 * time.Hour)).
 					Obj(),
 			},
-			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
-rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
+			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+rj1    profile1   localqueue1   rc1                SUCCEEDED    Complete            %s   %s   120m
 `,
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
@@ -112,6 +114,7 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
@@ -121,14 +124,15 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile2").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
 					EndTime(testStartTime.Add(-1 * time.Hour)).
 					Obj(),
 			},
-			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
-rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
+			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+rj1    profile1   localqueue1   rc1                SUCCEEDED    Complete            %s   %s   120m
 `,
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
@@ -141,6 +145,7 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
@@ -150,14 +155,15 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile2").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
 					EndTime(testStartTime.Add(-1 * time.Hour)).
 					Obj(),
 			},
-			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
-rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
+			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+rj1    profile1   localqueue1   rc1                SUCCEEDED    Complete            %s   %s   120m
 `,
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
@@ -170,6 +176,7 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
@@ -179,14 +186,15 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue2").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
 					EndTime(testStartTime.Add(-1 * time.Hour)).
 					Obj(),
 			},
-			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
-rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
+			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+rj1    profile1   localqueue1   rc1                SUCCEEDED    Complete            %s   %s   120m
 `,
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
@@ -199,6 +207,7 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
@@ -208,14 +217,15 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue2").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
 					EndTime(testStartTime.Add(-1 * time.Hour)).
 					Obj(),
 			},
-			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
-rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
+			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+rj1    profile1   localqueue1   rc1                SUCCEEDED    Complete            %s   %s   120m
 `,
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
@@ -229,6 +239,7 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
@@ -238,14 +249,15 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
 					EndTime(testStartTime.Add(-1 * time.Hour)).
 					Obj(),
 			},
-			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
-rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
+			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+rj1    profile1   localqueue1   rc1                SUCCEEDED    Complete            %s   %s   120m
 `,
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
@@ -259,6 +271,7 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
@@ -268,14 +281,15 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
 					EndTime(testStartTime.Add(-1 * time.Hour)).
 					Obj(),
 			},
-			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
-rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
+			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+rj1    profile1   localqueue1   rc1                SUCCEEDED    Complete            %s   %s   120m
 `,
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
@@ -288,6 +302,7 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
@@ -297,14 +312,15 @@ rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
 					Profile("profile1").
 					LocalQueue("localqueue1").
 					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
 					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
 					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
 					StartTime(testStartTime.Add(-2 * time.Hour)).
 					EndTime(testStartTime.Add(-1 * time.Hour)).
 					Obj(),
 			},
-			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
-rj1    profile1   localqueue1   SUCCEEDED    Complete            %s   %s   120m
+			wantOut: fmt.Sprintf(`NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+rj1    profile1   localqueue1   rc1                SUCCEEDED    Complete            %s   %s   120m
 `,
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),

@@ -120,6 +120,7 @@ func TestRayJobBuilder(t *testing.T) {
 		maxReplicas map[string]int
 		requests    corev1.ResourceList
 		localQueue  string
+		rayCluster  string
 		kjobctlObjs []runtime.Object
 		wantObj     runtime.Object
 		wantErr     error
@@ -223,6 +224,35 @@ func TestRayJobBuilder(t *testing.T) {
 				).
 				Obj(),
 		},
+		"should build ray job with raycluster replacement": {
+			namespace:  metav1.NamespaceDefault,
+			profile:    "profile",
+			mode:       v1alpha1.RayJobMode,
+			command:    []string{"python /home/ray/samples/sample_code.py"},
+			requests:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+			localQueue: "lq1",
+			rayCluster: "rc1",
+			kjobctlObjs: []runtime.Object{
+				testRayJobTemplateWrapper.Clone().Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayJobMode, Template: "ray-job-template"}).
+					WithVolumeBundleReferences("vb1", "vb2").
+					Obj(),
+				wrappers.MakeVolumeBundle("vb1", metav1.NamespaceDefault).
+					WithVolume("v3", "config3").
+					WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
+					WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
+					Obj(),
+				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
+			},
+			wantObj: wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
+				Label(constants.ProfileLabel, "profile").
+				WithRayClusterLabelSelector("rc1").
+				Entrypoint("python /home/ray/samples/sample_code.py").
+				Obj(),
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -241,6 +271,7 @@ func TestRayJobBuilder(t *testing.T) {
 				WithMinReplicas(tc.minReplicas).
 				WithMaxReplicas(tc.maxReplicas).
 				WithLocalQueue(tc.localQueue).
+				WithRayCluster(tc.rayCluster).
 				Do(ctx)
 
 			var opts []cmp.Option
