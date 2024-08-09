@@ -21,9 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	batchv1 "k8s.io/api/batch/v1"
-
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -93,7 +92,7 @@ func (j *RayJob) GVK() schema.GroupVersionKind {
 
 func (j *RayJob) PodLabelSelector() string {
 	if j.Status.RayClusterName != "" {
-		return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Name)
+		return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Status.RayClusterName)
 	}
 	return ""
 }
