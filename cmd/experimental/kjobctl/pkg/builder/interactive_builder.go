@@ -22,9 +22,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type interactiveBuilder struct {
@@ -44,16 +41,8 @@ func (b *interactiveBuilder) build(ctx context.Context) (runtime.Object, error) 
 			Kind:       "Pod",
 			APIVersion: "v1",
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:    b.profile.Namespace,
-			GenerateName: b.profile.Name + "-",
-			Labels:       map[string]string{},
-		},
-		Spec: template.Template.Spec,
-	}
-
-	if b.profile != nil {
-		pod.Labels[constants.ProfileLabel] = b.profile.Name
+		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		Spec:       template.Template.Spec,
 	}
 
 	pod.Spec = b.buildPodSpec(pod.Spec)
@@ -61,10 +50,6 @@ func (b *interactiveBuilder) build(ctx context.Context) (runtime.Object, error) 
 	if len(pod.Spec.Containers) > 0 {
 		pod.Spec.Containers[0].TTY = true
 		pod.Spec.Containers[0].Stdin = true
-	}
-
-	if len(b.localQueue) > 0 {
-		pod.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
 	}
 
 	return pod, nil

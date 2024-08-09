@@ -86,6 +86,15 @@ func (j *JobWrapper) Label(key, value string) *JobWrapper {
 	return j
 }
 
+// Annotation sets the label key and value.
+func (j *JobWrapper) Annotation(key, value string) *JobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string)
+	}
+	j.ObjectMeta.Annotations[key] = value
+	return j
+}
+
 // WithContainer add container on the pod template.
 func (j *JobWrapper) WithContainer(container corev1.Container) *JobWrapper {
 	j.Job.Spec.Template.Spec.Containers = append(j.Job.Spec.Template.Spec.Containers, container)

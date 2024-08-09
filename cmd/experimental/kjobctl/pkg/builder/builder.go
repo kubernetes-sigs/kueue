@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 var (
@@ -262,6 +263,29 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 	}
 
 	return bImpl.build(ctx)
+}
+
+func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {
+	objectMeta := metav1.ObjectMeta{
+		Namespace:    b.profile.Namespace,
+		GenerateName: b.profile.Name + "-",
+		Labels:       templateObjectMeta.Labels,
+		Annotations:  templateObjectMeta.Annotations,
+	}
+
+	if objectMeta.Labels == nil {
+		objectMeta.Labels = map[string]string{}
+	}
+
+	if b.profile != nil {
+		objectMeta.Labels[constants.ProfileLabel] = b.profile.Name
+	}
+
+	if len(b.localQueue) > 0 {
+		objectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
+	}
+
+	return objectMeta
 }
 
 func (b *Builder) buildPodSpec(templateSpec corev1.PodSpec) corev1.PodSpec {

@@ -79,6 +79,15 @@ func (j *RayJobWrapper) Label(key, value string) *RayJobWrapper {
 	return j
 }
 
+// Annotation sets the label key and value.
+func (j *RayJobWrapper) Annotation(key, value string) *RayJobWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string)
+	}
+	j.ObjectMeta.Annotations[key] = value
+	return j
+}
+
 // WithWorkerGroupSpec add worker group to the ray cluster template.
 func (j *RayJobWrapper) WithWorkerGroupSpec(spec rayv1.WorkerGroupSpec) *RayJobWrapper {
 	if j.RayJob.Spec.RayClusterSpec == nil {

@@ -22,9 +22,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type jobBuilder struct {
@@ -45,16 +42,8 @@ func (b *jobBuilder) build(ctx context.Context) (runtime.Object, error) {
 			Kind:       "Job",
 			APIVersion: "batch/v1",
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:    b.profile.Namespace,
-			GenerateName: b.profile.Name + "-",
-			Labels:       map[string]string{},
-		},
-		Spec: template.Template.Spec,
-	}
-
-	if b.profile != nil {
-		job.Labels[constants.ProfileLabel] = b.profile.Name
+		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		Spec:       template.Template.Spec,
 	}
 
 	job.Spec.Template.Spec = b.buildPodSpec(job.Spec.Template.Spec)
@@ -65,10 +54,6 @@ func (b *jobBuilder) build(ctx context.Context) (runtime.Object, error) {
 
 	if b.completions != nil {
 		job.Spec.Completions = b.completions
-	}
-
-	if len(b.localQueue) > 0 {
-		job.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
 	}
 
 	return job, nil

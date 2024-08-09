@@ -47,6 +47,8 @@ func TestInteractiveBuilder(t *testing.T) {
 	userID := os.Getenv(constants.SystemEnvVarNameUser)
 
 	testPodTemplateWrapper := wrappers.MakePodTemplate("pod-template", metav1.NamespaceDefault).
+		Label("foo", "bar").
+		Annotation("foo", "baz").
 		WithInitContainer(
 			*wrappers.MakeContainer("ic1", "").
 				WithEnvVar(corev1.EnvVar{Name: "e0", Value: "default-value0"}).
@@ -107,6 +109,8 @@ func TestInteractiveBuilder(t *testing.T) {
 					Obj(),
 			},
 			wantObj: wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
 				Label(constants.ProfileLabel, "profile").
 				Spec(
 					testPodTemplateWrapper.Clone().
@@ -145,6 +149,8 @@ func TestInteractiveBuilder(t *testing.T) {
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
 			wantObj: wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
 				Label(constants.ProfileLabel, "profile").
 				Label(kueueconstants.QueueLabel, "lq1").
 				Spec(

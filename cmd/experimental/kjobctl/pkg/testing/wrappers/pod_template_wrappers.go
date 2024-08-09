@@ -46,6 +46,24 @@ func (p *PodTemplateWrapper) Clone() *PodTemplateWrapper {
 	}
 }
 
+// Label sets the label key and value.
+func (p *PodTemplateWrapper) Label(key, value string) *PodTemplateWrapper {
+	if p.Labels == nil {
+		p.Labels = make(map[string]string)
+	}
+	p.ObjectMeta.Labels[key] = value
+	return p
+}
+
+// Annotation sets the label key and value.
+func (p *PodTemplateWrapper) Annotation(key, value string) *PodTemplateWrapper {
+	if p.Annotations == nil {
+		p.Annotations = make(map[string]string)
+	}
+	p.ObjectMeta.Annotations[key] = value
+	return p
+}
+
 // WithInitContainer add container to the pod template.
 func (p *PodTemplateWrapper) WithInitContainer(container corev1.Container) *PodTemplateWrapper {
 	p.PodTemplate.Template.Spec.InitContainers = append(p.PodTemplate.Template.Spec.InitContainers, container)

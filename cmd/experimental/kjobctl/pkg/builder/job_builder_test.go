@@ -47,6 +47,8 @@ func TestJobBuilder(t *testing.T) {
 	userID := os.Getenv(constants.SystemEnvVarNameUser)
 
 	testJobTemplateWrapper := wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).
+		Label("foo", "bar").
+		Annotation("foo", "baz").
 		Parallelism(1).
 		Completions(1).
 		WithInitContainer(
@@ -110,6 +112,8 @@ func TestJobBuilder(t *testing.T) {
 					Obj(),
 			},
 			wantObj: wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
 				Label(constants.ProfileLabel, "profile").
 				Spec(
 					testJobTemplateWrapper.Clone().
@@ -148,6 +152,8 @@ func TestJobBuilder(t *testing.T) {
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
 			wantObj: wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
 				Label(constants.ProfileLabel, "profile").
 				Label(kueueconstants.QueueLabel, "lq1").
 				Spec(

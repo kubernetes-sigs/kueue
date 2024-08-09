@@ -40,6 +40,9 @@ spec:
             description: Template defines rayclusters that will be created from this
               raycluster template.
             properties:
+              metadata:
+                description: Standard object's metadata.
+                type: object
               spec:
                 description: Specification of the desired behavior of the raycluster.
                 properties:
