@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -104,6 +105,59 @@ very-long-job-name   profile1                 0/3                      %s
 				duration.HumanDuration(executeTime.Sub(j1.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(j2.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(j3.CreationTimestamp.Time)),
+			)))
+		})
+	})
+
+	ginkgo.When("List RayJobs", func() {
+		var (
+			rj1 *rayv1.RayJob
+			rj2 *rayv1.RayJob
+			rj3 *rayv1.RayJob
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			rj1 = wrappers.MakeRayJob("rj1", ns.Name).
+				Profile("profile1").
+				Suspend(true).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rj1)).To(gomega.Succeed())
+
+			rj2 = wrappers.MakeRayJob("rj2", ns.Name).
+				Profile("profile1").
+				Suspend(true).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rj2)).To(gomega.Succeed())
+
+			rj3 = wrappers.MakeRayJob("very-long-job-name", ns.Name).
+				Profile("profile1").
+				Suspend(true).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rj3)).To(gomega.Succeed())
+		})
+
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should print jobs list with paging", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kjobctl := cmd.NewKjobctlCmd(cmd.KjobctlOptions{ConfigFlags: configFlags, IOStreams: streams,
+				Clock: testingclock.NewFakeClock(executeTime)})
+
+			os.Setenv(list.KjobctlListRequestLimitEnvName, "1")
+			kjobctl.SetArgs([]string{"list", "rayjob", "--namespace", ns.Name})
+			err := kjobctl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                 PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME   END TIME   AGE
+rj1                  profile1                                                                          %s
+rj2                  profile1                                                                          %s
+very-long-job-name   profile1                                                                          %s
+`,
+				duration.HumanDuration(executeTime.Sub(rj1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(rj2.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(rj3.CreationTimestamp.Time)),
 			)))
 		})
 	})

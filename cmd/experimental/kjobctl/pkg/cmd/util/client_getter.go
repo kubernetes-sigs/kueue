@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	rayversioned "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/dynamic"
@@ -33,6 +34,7 @@ type ClientGetter interface {
 	K8sClientset() (k8s.Interface, error)
 	KueueClientset() (kueueversioned.Interface, error)
 	KjobctlClientset() (kjobctlversioned.Interface, error)
+	RayClientset() (rayversioned.Interface, error)
 	DynamicClient() (dynamic.Interface, error)
 	NewResourceBuilder() *resource.Builder
 }
@@ -84,6 +86,20 @@ func (cg *clientGetterImpl) KjobctlClientset() (kjobctlversioned.Interface, erro
 	}
 
 	clientset, err := kjobctlversioned.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset, nil
+}
+
+func (cg *clientGetterImpl) RayClientset() (rayversioned.Interface, error) {
+	config, err := cg.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := rayversioned.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}

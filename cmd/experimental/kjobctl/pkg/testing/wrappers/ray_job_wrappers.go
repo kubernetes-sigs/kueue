@@ -17,8 +17,11 @@ limitations under the License.
 package wrappers
 
 import (
+	"time"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -48,6 +51,12 @@ func (j *RayJobWrapper) Obj() *rayv1.RayJob {
 // GenerateName updates generateName.
 func (j *RayJobWrapper) GenerateName(v string) *RayJobWrapper {
 	j.ObjectMeta.GenerateName = v
+	return j
+}
+
+// CreationTimestamp sets the .metadata.creationTimestamp
+func (j *RayJobWrapper) CreationTimestamp(t time.Time) *RayJobWrapper {
+	j.RayJob.ObjectMeta.CreationTimestamp = metav1.NewTime(t)
 	return j
 }
 
@@ -90,5 +99,35 @@ func (j *RayJobWrapper) Spec(spec rayv1.RayJobSpec) *RayJobWrapper {
 // Entrypoint set entrypoint.
 func (j *RayJobWrapper) Entrypoint(entrypoint string) *RayJobWrapper {
 	j.RayJob.Spec.Entrypoint = entrypoint
+	return j
+}
+
+// JobStatus set jobStatus.
+func (j *RayJobWrapper) JobStatus(jobStatus rayv1.JobStatus) *RayJobWrapper {
+	j.RayJob.Status.JobStatus = jobStatus
+	return j
+}
+
+// JobDeploymentStatus set jobDeploymentStatus.
+func (j *RayJobWrapper) JobDeploymentStatus(jobDeploymentStatus rayv1.JobDeploymentStatus) *RayJobWrapper {
+	j.RayJob.Status.JobDeploymentStatus = jobDeploymentStatus
+	return j
+}
+
+// StartTime set startTime.
+func (j *RayJobWrapper) StartTime(startTime time.Time) *RayJobWrapper {
+	j.RayJob.Status.StartTime = ptr.To(metav1.NewTime(startTime))
+	return j
+}
+
+// EndTime set endTime.
+func (j *RayJobWrapper) EndTime(endTime time.Time) *RayJobWrapper {
+	j.RayJob.Status.EndTime = ptr.To(metav1.NewTime(endTime))
+	return j
+}
+
+// Suspend set suspend.
+func (j *RayJobWrapper) Suspend(suspend bool) *RayJobWrapper {
+	j.RayJob.Spec.Suspend = suspend
 	return j
 }

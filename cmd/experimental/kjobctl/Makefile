@@ -15,6 +15,7 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ARTIFACTS ?= $(PROJECT_DIR)/bin
 TOOLS_DIR ?= $(PROJECT_DIR)/hack/tools
 CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
+EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
 
 MANIFEST_DIR := $(PROJECT_DIR)/config/crd
 MANIFEST_SOURCES := $(shell find $(MANIFEST_DIR) -name "*.yaml")
@@ -118,7 +119,7 @@ test-unit: gomod-download gotestsum embeded-manifest ## Run unit tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: gomod-download envtest ginkgo embeded-manifest ## Run integration tests.
+test-integration: gomod-download envtest ginkgo embeded-manifest ray-operator-crd ## Run integration tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
@@ -217,6 +218,14 @@ gotestsum: ## Download gotestsum locally if necessary.
 .PHONY: ginkgo
 ginkgo: ## Download ginkgo locally if necessary.
 	$(call go-install-tool,$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo,$(GINKGO_VERSION))
+
+##@ External CRDs
+
+RAY_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
+.PHONY: ray-operator-crd
+ray-operator-crd: ## Copy the CRDs from the ray-operator to the dep-crds directory.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/ray-operator/
+	cp -f $(RAY_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/ray-operator/
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary (ideally with version)
