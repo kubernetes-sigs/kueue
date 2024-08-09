@@ -23,9 +23,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type rayJobBuilder struct {
@@ -46,20 +43,8 @@ func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, error) {
 			Kind:       "RayJob",
 			APIVersion: "ray.io/v1",
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:    b.profile.Namespace,
-			GenerateName: b.profile.Name + "-",
-			Labels:       map[string]string{},
-		},
-		Spec: template.Template.Spec,
-	}
-
-	if b.profile != nil {
-		rayJob.Labels[constants.ProfileLabel] = b.profile.Name
-	}
-
-	if len(b.localQueue) > 0 {
-		rayJob.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
+		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		Spec:       template.Template.Spec,
 	}
 
 	if b.command != nil {

@@ -209,7 +209,10 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).Obj(),
+				wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).
+					Label("foo", "bar").
+					Annotation("foo", "baz").
+					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(v1alpha1.SupportedMode{
 						Name:     v1alpha1.JobMode,
@@ -218,6 +221,8 @@ func TestBuilder(t *testing.T) {
 					Obj(),
 			},
 			wantObj: wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
 				Label(constants.ProfileLabel, "profile").
 				Obj(),
 		},

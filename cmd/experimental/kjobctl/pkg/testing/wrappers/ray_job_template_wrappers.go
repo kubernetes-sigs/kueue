@@ -50,6 +50,24 @@ func (w *RayJobTemplateWrapper) Clone() *RayJobTemplateWrapper {
 	}
 }
 
+// Label sets the label key and value.
+func (w *RayJobTemplateWrapper) Label(key, value string) *RayJobTemplateWrapper {
+	if w.Labels == nil {
+		w.Labels = make(map[string]string)
+	}
+	w.ObjectMeta.Labels[key] = value
+	return w
+}
+
+// Annotation sets the label key and value.
+func (w *RayJobTemplateWrapper) Annotation(key, value string) *RayJobTemplateWrapper {
+	if w.Annotations == nil {
+		w.Annotations = make(map[string]string)
+	}
+	w.ObjectMeta.Annotations[key] = value
+	return w
+}
+
 // Entrypoint set entrypoint.
 func (w *RayJobTemplateWrapper) Entrypoint(entrypoint string) *RayJobTemplateWrapper {
 	w.Template.Spec.Entrypoint = entrypoint

@@ -69,6 +69,15 @@ func (j *PodWrapper) Label(key, value string) *PodWrapper {
 	return j
 }
 
+// Annotation sets the label key and value.
+func (j *PodWrapper) Annotation(key, value string) *PodWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string)
+	}
+	j.ObjectMeta.Annotations[key] = value
+	return j
+}
+
 // WithContainer add container on the pod template.
 func (j *PodWrapper) WithContainer(container corev1.Container) *PodWrapper {
 	j.Pod.Spec.Containers = append(j.Pod.Spec.Containers, container)

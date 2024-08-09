@@ -22,9 +22,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type rayClusterBuilder struct {
@@ -45,20 +42,8 @@ func (b *rayClusterBuilder) build(ctx context.Context) (runtime.Object, error) {
 			Kind:       "RayCluster",
 			APIVersion: "ray.io/v1",
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:    b.profile.Namespace,
-			GenerateName: b.profile.Name + "-",
-			Labels:       map[string]string{},
-		},
-		Spec: template.Template.Spec,
-	}
-
-	if b.profile != nil {
-		rayCluster.Labels[constants.ProfileLabel] = b.profile.Name
-	}
-
-	if len(b.localQueue) > 0 {
-		rayCluster.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
+		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		Spec:       template.Template.Spec,
 	}
 
 	b.buildRayClusterSpec(&rayCluster.Spec)

@@ -45,6 +45,24 @@ func (j *JobTemplateWrapper) Obj() *v1alpha1.JobTemplate {
 	return &j.JobTemplate
 }
 
+// Label sets the label key and value.
+func (j *JobTemplateWrapper) Label(key, value string) *JobTemplateWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.ObjectMeta.Labels[key] = value
+	return j
+}
+
+// Annotation sets the label key and value.
+func (j *JobTemplateWrapper) Annotation(key, value string) *JobTemplateWrapper {
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string)
+	}
+	j.ObjectMeta.Annotations[key] = value
+	return j
+}
+
 // Completions updates the completions on the job template.
 func (j *JobTemplateWrapper) Completions(completion int32) *JobTemplateWrapper {
 	j.Template.Spec.Completions = ptr.To(completion)

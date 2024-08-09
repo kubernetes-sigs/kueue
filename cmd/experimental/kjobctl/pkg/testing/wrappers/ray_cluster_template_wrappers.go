@@ -50,6 +50,24 @@ func (w *RayClusterTemplateWrapper) Clone() *RayClusterTemplateWrapper {
 	}
 }
 
+// Label sets the label key and value.
+func (w *RayClusterTemplateWrapper) Label(key, value string) *RayClusterTemplateWrapper {
+	if w.Labels == nil {
+		w.Labels = make(map[string]string)
+	}
+	w.ObjectMeta.Labels[key] = value
+	return w
+}
+
+// Annotation sets the label key and value.
+func (w *RayClusterTemplateWrapper) Annotation(key, value string) *RayClusterTemplateWrapper {
+	if w.Annotations == nil {
+		w.Annotations = make(map[string]string)
+	}
+	w.ObjectMeta.Annotations[key] = value
+	return w
+}
+
 // Spec set entrypoint.
 func (w *RayClusterTemplateWrapper) Spec(spec rayv1.RayClusterSpec) *RayClusterTemplateWrapper {
 	w.Template.Spec = spec
