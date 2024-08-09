@@ -268,7 +268,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 					continue
 				}
 				if mode == flavorassigner.Preempt && cycleCohortsSkipPreemption.Has(cq.Cohort.Name) {
-					setSkipped(e, "Workload skipped because its premption calculations were invalidated by another workload")
+					setSkipped(e, "Workload skipped because its preemption calculations were invalidated by another workload")
 					continue
 				}
 			}
@@ -450,7 +450,7 @@ type partialAssignment struct {
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueues[wl.ClusterQueue]
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap))
 	fullAssignment := flvAssigner.Assign(log, nil)
 	var faPreemptionTargets []*preemption.Target
 
