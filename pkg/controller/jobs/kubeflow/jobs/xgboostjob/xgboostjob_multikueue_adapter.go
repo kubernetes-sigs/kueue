@@ -18,70 +18,40 @@ package xgboostjob
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	kfcommon "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/common"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 type multikueueAdapter struct{}
 
 var _ jobframework.MultiKueueAdapter = (*multikueueAdapter)(nil)
+var _ jobframework.UpdateRemoteJob = (*multikueueAdapter)(nil)
+
+func (b *multikueueAdapter) UpdateRemoteJobStatus(localJob, remoteJob interface{}) {
+	localJob.(*kftraining.XGBoostJob).Status = remoteJob.(*kftraining.XGBoostJob).Status
+}
+
+func (b *multikueueAdapter) UpdateRemoteJobSpec(localJob, remoteJob interface{}) {
+	*remoteJob.(*kftraining.XGBoostJob) = kftraining.XGBoostJob{
+		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.(*kftraining.XGBoostJob).ObjectMeta),
+		Spec:       *localJob.(*kftraining.XGBoostJob).Spec.DeepCopy(),
+	}
+}
 
 func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
-	localJob := kftraining.XGBoostJob{}
-	err := localClient.Get(ctx, key, &localJob)
-	if err != nil {
-		return err
-	}
-
-	remoteJob := &kftraining.XGBoostJob{}
-	err = remoteClient.Get(ctx, key, remoteJob)
-	if client.IgnoreNotFound(err) != nil {
-		return err
-	}
-
-	// if the remote exists, just copy the status
-	if err == nil {
-		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
-			localJob.Status = remoteJob.Status
-			return true, nil
-		})
-	}
-
-	remoteJob = &kftraining.XGBoostJob{
-		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
-		Spec:       *localJob.Spec.DeepCopy(),
-	}
-
-	// add the prebuilt workload
-	if remoteJob.Labels == nil {
-		remoteJob.Labels = make(map[string]string, 2)
-	}
-	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
-
-	return remoteClient.Create(ctx, remoteJob)
+	return kfcommon.SyncJob[*kftraining.XGBoostJob](ctx, localClient, remoteClient, key, workloadName, origin, b)
 }
 
 func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
-	job := kftraining.XGBoostJob{}
-	err := remoteClient.Get(ctx, key, &job)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
+	return kfcommon.DeleteRemoteObject[*kftraining.XGBoostJob](ctx, remoteClient, key)
 }
 
 func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
@@ -103,15 +73,5 @@ func (*multikueueAdapter) GetEmptyList() client.ObjectList {
 }
 
 func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
-	xgBoostJob, isXgBoostJob := o.(*kftraining.XGBoostJob)
-	if !isXgBoostJob {
-		return types.NamespacedName{}, errors.New("not a XgBoostJob")
-	}
-
-	prebuiltWl, hasPrebuiltWorkload := xgBoostJob.Labels[constants.PrebuiltWorkloadLabel]
-	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for XgBoostJob: %s", klog.KObj(xgBoostJob))
-	}
-
-	return types.NamespacedName{Name: prebuiltWl, Namespace: xgBoostJob.Namespace}, nil
+	return kfcommon.WorkloadKeyFor[*kftraining.XGBoostJob](o, kftraining.XGBoostJobKind)
 }
