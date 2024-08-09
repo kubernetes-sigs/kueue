@@ -150,3 +150,9 @@ func (j *RayJobWrapper) WithRayClusterLabelSelector(v string) *RayJobWrapper {
 	j.RayJob.Spec.ClusterSelector[rayutil.RayClusterLabelKey] = v
 	return j
 }
+
+// RayClusterName set rayClusterName.
+func (j *RayJobWrapper) RayClusterName(rayClusterName string) *RayJobWrapper {
+	j.RayJob.Status.RayClusterName = rayClusterName
+	return j
+}
