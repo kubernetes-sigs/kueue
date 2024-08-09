@@ -125,6 +125,9 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 			if o.ForObject == nil {
 				return nil
 			}
+			if len(o.PodLabelSelector) == 0 {
+				return nil
+			}
 			return o.Run(cmd.Context(), clientGetter)
 		},
 	}
@@ -196,6 +199,11 @@ func (o *PodOptions) Complete(cmd *cobra.Command, clientGetter util.ClientGetter
 	o.PodLabelSelector, err = o.getPodLabelSelector()
 	if err != nil {
 		return err
+	}
+
+	if len(o.PodLabelSelector) == 0 {
+		o.printNoResourcesFound()
+		return nil
 	}
 
 	return nil

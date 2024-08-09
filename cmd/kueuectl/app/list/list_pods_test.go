@@ -572,6 +572,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 						batchv1.JobNameLabel: "test-job",
 					},
 				},
+				Status: rayv1.RayJobStatus{RayClusterName: "test-cluster"},
 			},
 			pods: []corev1.Pod{
 				{
