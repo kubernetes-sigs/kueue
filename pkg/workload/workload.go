@@ -540,6 +540,12 @@ func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 			return &evictedCond.LastTransitionTime
 		}
 	}
+	if !features.Enabled(features.PrioritySortingWithinCohort) {
+		if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil &&
+			evictedCond.Status != metav1.ConditionTrue {
+			return &evictedCond.LastTransitionTime
+		}
+	}
 	return &w.CreationTimestamp
 }
 
