@@ -348,35 +348,23 @@ After the implementation PR is merged, add the names of the tests here.
 in `test/integration/controller/core/workload_controller_test.go`
 
 
-[//]: # (### Graduation Criteria)
+### Graduation Criteria
 
-[//]: # ()
-[//]: # (<!--)
+<!--
 
-[//]: # ()
-[//]: # (Clearly define what it means for the feature to be implemented and)
+Clearly define what it means for the feature to be implemented and
+considered stable.
 
-[//]: # (considered stable.)
+If the feature you are introducing has high complexity, consider adding graduation
+milestones with these graduation criteria:
+- [Maturity levels (`alpha`, `beta`, `stable`)][maturity-levels]
+- [Feature gate][feature gate] lifecycle
+- [Deprecation policy][deprecation-policy]
 
-[//]: # ()
-[//]: # (If the feature you are introducing has high complexity, consider adding graduation)
-
-[//]: # (milestones with these graduation criteria:)
-
-[//]: # (- [Maturity levels &#40;`alpha`, `beta`, `stable`&#41;][maturity-levels])
-
-[//]: # (- [Feature gate][feature gate] lifecycle)
-
-[//]: # (- [Deprecation policy][deprecation-policy])
-
-[//]: # ()
-[//]: # ([feature gate]: https://git.k8s.io/community/contributors/devel/sig-architecture/feature-gates.md)
-
-[//]: # ([maturity-levels]: https://git.k8s.io/community/contributors/devel/sig-architecture/api_changes.md#alpha-beta-and-stable-versions)
-
-[//]: # ([deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
-
-[//]: # (-->)
+[feature gate]: https://git.k8s.io/community/contributors/devel/sig-architecture/feature-gates.md
+[maturity-levels]: https://git.k8s.io/community/contributors/devel/sig-architecture/api_changes.md#alpha-beta-and-stable-versions
+[deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
+-->
 
 ## Implementation History
 
