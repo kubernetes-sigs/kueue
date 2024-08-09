@@ -2313,6 +2313,67 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
 			},
 		},
+		"prefer reclamation over priority based preemption": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").
+							Resource("gpu", "10").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").
+							Resource("gpu", "10").FlavorQuotas,
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").
+							Resource("gpu", "0").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").
+							Resource("gpu", "0").FlavorQuotas,
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-beta", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request("gpu", "6").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-beta/b1"),
+			wantLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment("gpu", "on-demand", "5").Obj(),
+				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment("gpu", "spot", "5").Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
