@@ -427,6 +427,10 @@ func (p *Pod) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (p *Pod) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s", GroupNameLabel, p.pod.Labels[GroupNameLabel])
+}
+
 func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, stopReason jobframework.StopReason, eventMsg string) ([]client.Object, error) {
 	var podsInGroup []corev1.Pod
 
