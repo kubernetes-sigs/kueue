@@ -24,6 +24,14 @@ if [[ "$#" -lt 2 ]]; then
 	exit 1
 fi
 
+git --no-pager diff --exit-code || {
+	echo "
+
+The git tree is not clean.
+Commit your changes or reset the git tree before running $0"
+	exit 1
+}
+
 REV_1="$1"
 REV_2="$2"
 NUM_IT=${3:-5}
