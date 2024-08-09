@@ -211,7 +211,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
 			subcmd.Flags().StringVar(&o.RayCluster, rayClusterFlagName, "",
-				"Ray cluster name where ray job will crate.")
+				"Existing ray cluster on which the job will be created.")
 
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, replicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, minReplicasFlagName)

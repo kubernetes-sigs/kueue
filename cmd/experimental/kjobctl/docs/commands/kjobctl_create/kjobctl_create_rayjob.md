@@ -129,7 +129,7 @@ kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUE
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Ray cluster name where ray job will crate.</p>
+            <p>Existing ray cluster on which the job will be created.</p>
         </td>
     </tr>
     <tr>
