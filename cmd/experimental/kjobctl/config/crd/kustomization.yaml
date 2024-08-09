@@ -6,6 +6,7 @@ resources:
 - bases/kjobctl.x-k8s.io_jobtemplates.yaml
 - bases/kjobctl.x-k8s.io_rayjobtemplates.yaml
 - bases/kjobctl.x-k8s.io_applicationprofiles.yaml
+- bases/kjobctl.x-k8s.io_rayclustertemplates.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches: []

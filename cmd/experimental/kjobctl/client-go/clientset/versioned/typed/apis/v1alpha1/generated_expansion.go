@@ -21,6 +21,8 @@ type ApplicationProfileExpansion interface{}
 
 type JobTemplateExpansion interface{}
 
+type RayClusterTemplateExpansion interface{}
+
 type RayJobTemplateExpansion interface{}
 
 type VolumeBundleExpansion interface{}

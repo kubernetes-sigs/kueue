@@ -18,7 +18,6 @@ package builder
 
 import (
 	"context"
-	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,22 +27,22 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-type rayJobBuilder struct {
+type rayClusterBuilder struct {
 	*Builder
 }
 
-var _ builder = (*rayJobBuilder)(nil)
+var _ builder = (*rayClusterBuilder)(nil)
 
-func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, error) {
-	template, err := b.kjobctlClientset.KjobctlV1alpha1().RayJobTemplates(b.profile.Namespace).
+func (b *rayClusterBuilder) build(ctx context.Context) (runtime.Object, error) {
+	template, err := b.kjobctlClientset.KjobctlV1alpha1().RayClusterTemplates(b.profile.Namespace).
 		Get(ctx, string(b.mode.Template), metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	rayJob := &rayv1.RayJob{
+	rayCluster := &rayv1.RayCluster{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "RayJob",
+			Kind:       "RayCluster",
 			APIVersion: "ray.io/v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
@@ -55,24 +54,18 @@ func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, error) {
 	}
 
 	if b.profile != nil {
-		rayJob.Labels[constants.ProfileLabel] = b.profile.Name
+		rayCluster.Labels[constants.ProfileLabel] = b.profile.Name
 	}
 
 	if len(b.localQueue) > 0 {
-		rayJob.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
+		rayCluster.ObjectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
 	}
 
-	if b.command != nil {
-		rayJob.Spec.Entrypoint = strings.Join(b.command, " ")
-	}
+	b.buildRayClusterSpec(&rayCluster.Spec)
 
-	if rayJob.Spec.RayClusterSpec != nil {
-		b.buildRayClusterSpec(rayJob.Spec.RayClusterSpec)
-	}
-
-	return rayJob, nil
+	return rayCluster, nil
 }
 
-func newRayJobBuilder(b *Builder) *rayJobBuilder {
-	return &rayJobBuilder{Builder: b}
+func newRayClusterBuilder(b *Builder) *rayClusterBuilder {
+	return &rayClusterBuilder{Builder: b}
 }

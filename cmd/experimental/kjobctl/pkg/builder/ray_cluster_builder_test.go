@@ -41,12 +41,12 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-func TestRayJobBuilder(t *testing.T) {
+func TestRayClusterBuilder(t *testing.T) {
 	testStartTime := time.Now()
 	userID := os.Getenv(constants.SystemEnvVarNameUser)
 
-	testRayJobTemplateWrapper := wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
-		WithRayClusterSpec(wrappers.MakeRayClusterSpec().
+	testRayClusterTemplateWrapper := wrappers.MakeRayClusterTemplate("ray-cluster-template", metav1.NamespaceDefault).
+		Spec(*wrappers.MakeRayClusterSpec().
 			WithWorkerGroupSpec(
 				*wrappers.MakeWorkerGroupSpec("g1").
 					WithInitContainer(
@@ -122,33 +122,33 @@ func TestRayJobBuilder(t *testing.T) {
 		wantObj     runtime.Object
 		wantErr     error
 	}{
-		"shouldn't build ray job because template not found": {
+		"shouldn't build ray cluster because template not found": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",
-			mode:      v1alpha1.RayJobMode,
+			mode:      v1alpha1.RayClusterMode,
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayJobMode, Template: "ray-job-template"}).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayClusterMode, Template: "ray-cluster-template"}).
 					Obj(),
 			},
-			wantErr: apierrors.NewNotFound(schema.GroupResource{Group: "kjobctl.x-k8s.io", Resource: "rayjobtemplates"}, "ray-job-template"),
+			wantErr: apierrors.NewNotFound(schema.GroupResource{Group: "kjobctl.x-k8s.io", Resource: "rayclustertemplates"}, "ray-cluster-template"),
 		},
-		"should build ray job without replacements": {
+		"should build ray cluster without replacements": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",
-			mode:      v1alpha1.RayJobMode,
+			mode:      v1alpha1.RayClusterMode,
 			kjobctlObjs: []runtime.Object{
-				testRayJobTemplateWrapper.Clone().Obj(),
+				testRayClusterTemplateWrapper.Clone().Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayJobMode, Template: "ray-job-template"}).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayClusterMode, Template: "ray-cluster-template"}).
 					Obj(),
 			},
-			wantObj: wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-").
+			wantObj: wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-").
 				Label(constants.ProfileLabel, "profile").
 				Spec(
-					testRayJobTemplateWrapper.Clone().
-						WithRayClusterSpec(
-							wrappers.FromRayClusterSpec(*testRayJobTemplateWrapper.Clone().Template.Spec.RayClusterSpec).
+					testRayClusterTemplateWrapper.Clone().
+						Spec(
+							*wrappers.FromRayClusterSpec(testRayClusterTemplateWrapper.Clone().Template.Spec).
 								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
 								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
 								WithEnvVar(corev1.EnvVar{
@@ -163,10 +163,10 @@ func TestRayJobBuilder(t *testing.T) {
 				).
 				Obj(),
 		},
-		"should build ray job with replacements": {
+		"should build ray cluster with replacements": {
 			namespace:   metav1.NamespaceDefault,
 			profile:     "profile",
-			mode:        v1alpha1.RayJobMode,
+			mode:        v1alpha1.RayClusterMode,
 			command:     []string{"sleep"},
 			replicas:    map[string]int{"g1": 10, "g2": 20},
 			minReplicas: map[string]int{"g1": 10, "g2": 20},
@@ -174,9 +174,9 @@ func TestRayJobBuilder(t *testing.T) {
 			requests:    corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
 			localQueue:  "lq1",
 			kjobctlObjs: []runtime.Object{
-				testRayJobTemplateWrapper.Clone().Obj(),
+				testRayClusterTemplateWrapper.Clone().Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
-					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayJobMode, Template: "ray-job-template"}).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayClusterMode, Template: "ray-cluster-template"}).
 					WithVolumeBundleReferences("vb1", "vb2").
 					Obj(),
 				wrappers.MakeVolumeBundle("vb1", metav1.NamespaceDefault).
@@ -186,14 +186,13 @@ func TestRayJobBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObj: wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-").
+			wantObj: wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-").
 				Label(constants.ProfileLabel, "profile").
 				Label(kueueconstants.QueueLabel, "lq1").
 				Spec(
-					testRayJobTemplateWrapper.Clone().
-						Entrypoint("sleep").
-						WithRayClusterSpec(
-							wrappers.FromRayClusterSpec(*testRayJobTemplateWrapper.Clone().Template.Spec.RayClusterSpec).
+					testRayClusterTemplateWrapper.Clone().
+						Spec(
+							*wrappers.FromRayClusterSpec(testRayClusterTemplateWrapper.Clone().Template.Spec).
 								Replicas("g1", 10).
 								Replicas("g2", 20).
 								MinReplicas("g1", 10).

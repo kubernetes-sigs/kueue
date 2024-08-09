@@ -24,10 +24,12 @@ import (
 	"slices"
 	"time"
 
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8s "k8s.io/client-go/kubernetes"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
@@ -243,6 +245,8 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 		bImpl = newInteractiveBuilder(b)
 	case v1alpha1.RayJobMode:
 		bImpl = newRayJobBuilder(b)
+	case v1alpha1.RayClusterMode:
+		bImpl = newRayClusterBuilder(b)
 	}
 
 	if bImpl == nil {
@@ -296,6 +300,26 @@ func (b *Builder) buildPodSpecVolumesAndEnv(templateSpec *corev1.PodSpec) {
 		initContainer.VolumeMounts = append(initContainer.VolumeMounts, bundle.Spec.ContainerVolumeMounts...)
 		initContainer.Env = append(initContainer.Env, bundle.Spec.EnvVars...)
 		initContainer.Env = append(initContainer.Env, b.additionalEnvironmentVariables()...)
+	}
+}
+
+func (b *Builder) buildRayClusterSpec(spec *rayv1.RayClusterSpec) {
+	b.buildPodSpecVolumesAndEnv(&spec.HeadGroupSpec.Template.Spec)
+
+	for index := range spec.WorkerGroupSpecs {
+		workerGroupSpec := &spec.WorkerGroupSpecs[index]
+
+		if replicas, ok := b.replicas[workerGroupSpec.GroupName]; ok {
+			workerGroupSpec.Replicas = ptr.To(int32(replicas))
+		}
+		if minReplicas, ok := b.minReplicas[workerGroupSpec.GroupName]; ok {
+			workerGroupSpec.MinReplicas = ptr.To(int32(minReplicas))
+		}
+		if maxReplicas, ok := b.maxReplicas[workerGroupSpec.GroupName]; ok {
+			workerGroupSpec.MaxReplicas = ptr.To(int32(maxReplicas))
+		}
+
+		b.buildPodSpecVolumesAndEnv(&workerGroupSpec.Template.Spec)
 	}
 }
 

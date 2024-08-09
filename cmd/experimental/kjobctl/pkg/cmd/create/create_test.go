@@ -155,6 +155,27 @@ func TestCreateCmd(t *testing.T) {
 			// Fake dynamic client not generating name. That's why we have <unknown>.
 			wantOut: "rayjob.ray.io/<unknown> created\n",
 		},
+		"should create raycluster": {
+			args: []string{"raycluster", "--profile", "profile"},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayClusterTemplate("ray-cluster-template", metav1.NamespaceDefault).Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayClusterMode, "ray-cluster-template").Obj()).
+					Obj(),
+			},
+			gvk: schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"},
+			wantList: &rayv1.RayClusterList{
+				TypeMeta: metav1.TypeMeta{Kind: "RayClusterList", APIVersion: "ray.io/v1"},
+				Items: []rayv1.RayCluster{
+					*wrappers.MakeRayCluster("", metav1.NamespaceDefault).
+						GenerateName("profile-").
+						Profile("profile").
+						Obj(),
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "raycluster.ray.io/<unknown> created\n",
+		},
 		"should create job with short profile flag": {
 			args: []string{"job", "-p", "profile"},
 			kjobctlObjs: []runtime.Object{
@@ -335,7 +356,11 @@ func TestCreateCmd(t *testing.T) {
 			args: []string{"rayjob", "--profile", "profile", "--replicas", "g1=5"},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
-					WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+					WithRayClusterSpec(
+						wrappers.MakeRayClusterSpec().
+							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+							Obj(),
+					).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
@@ -382,7 +407,11 @@ func TestCreateCmd(t *testing.T) {
 			args: []string{"rayjob", "--profile", "profile", "--min-replicas", "g1=5"},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
-					WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+					WithRayClusterSpec(
+						wrappers.MakeRayClusterSpec().
+							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+							Obj(),
+					).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
@@ -406,7 +435,11 @@ func TestCreateCmd(t *testing.T) {
 			args: []string{"rayjob", "--profile", "profile", "--max-replicas", "g1=5"},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
-					WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+					WithRayClusterSpec(
+						wrappers.MakeRayClusterSpec().
+							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Obj()).
+							Obj(),
+					).
 					Obj(),
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).

@@ -15,6 +15,9 @@ spec:
     - name: RayJob
       template: sample-ray-job-template
       requiredFlags: []
+    - name: RayCluster
+      template: sample-ray-cluster-template
+      requiredFlags: []
   volumeBundles: ["ray-job-volume-bundle"]
 ---
 apiVersion: v1
@@ -141,3 +144,57 @@ template:
                       cpu: "1"
                     requests:
                       cpu: "200m"
+
+---
+apiVersion: kjobctl.x-k8s.io/v1alpha1
+kind: RayClusterTemplate
+metadata:
+  name: sample-ray-cluster-template
+  namespace: default
+template:
+  spec:
+    rayVersion: '2.9.0' # should match the Ray version in the image of the containers
+    # Ray head pod template
+    headGroupSpec:
+      rayStartParams: { }
+      #pod template
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.9.0
+              resources:
+                limits:
+                  cpu: 1
+                  memory: 2Gi
+                requests:
+                  cpu: 500m
+                  memory: 2Gi
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265 # Ray dashboard
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+    workerGroupSpecs:
+      # the pod replicas in this group typed worker
+      - replicas: 1
+        minReplicas: 1
+        maxReplicas: 5
+        # logical group name, for this called small-group, also can be functional
+        groupName: small-group
+        rayStartParams: { }
+        #pod template
+        template:
+          spec:
+            containers:
+              - name: ray-worker # must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc'
+                image: rayproject/ray:2.9.0
+                resources:
+                  limits:
+                    cpu: 1
+                    memory: 1Gi
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi

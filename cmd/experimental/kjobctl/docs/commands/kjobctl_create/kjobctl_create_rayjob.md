@@ -15,7 +15,7 @@ KubeRay operator is required for RayJob.
 How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
 
 ```
-kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--cmd COMMAND] [--localqueue LOCAL_QUEUE_NAME] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
+kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--cmd COMMAND] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
 ```
 
 
