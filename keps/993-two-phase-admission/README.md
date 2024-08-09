@@ -12,6 +12,7 @@
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [Preemption Admission Check Controller](#preemption-admission-check-controller)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -206,7 +207,7 @@ pass AND there are some AdmissionChecks configured, AND the
 workload is not in on-hold retry state from some check, it will:
 
 1. Fill the Admission field in workload, with the desired flavor assignment. 
-2. Not do any preemptions yet (unless BookCapacity is set to true).
+2. Not do any preemptions yet (unless the check uses `Anytime` preemption policy).
 3. Set "QuotaReserved" to true.
 
 Kueue will only pass as many pods into "QuotaReserved" as there would
@@ -252,6 +253,42 @@ The controller implementing a particular check should:
   particular controller and are past AdmissionPrecheck.
 * After approving the workload, keep an eye on the check if it starts failing,
   fail the check and cause the workload to move back to the suspended state.
+
+### Preemption Admission Check Controller
+
+In this proposal, the time to evict the preemption candidates varies based on the preemptor state.
+The scheduler will not issue the eviction during it's process instead it will set a `Pending` admission check
+that is manged by a single instance of a new built-in admission check controller.
+
+The **Preemption Admission Check Controller** will:
+
+- Watch for a change in state of the workloads pending preemption.
+- Watch for workloads that are finishing execution and therefore releasing quota.
+- Watch for AdmissionCheck changes, since the preemption policy can change.
+
+The preemption controller uses the kueue cache, since it needs to check the state of workloads admitted to the ClusterQueues.
+
+At every run the controller will get the list of workloads pending preemption.
+
+The workloads pending preemption are divided into:
+- `preemtingLater` - Workloads having at least one check that uses AfterCheckPassedOrOnDemand policy with the state `pending`.
+- `preemtingNow` - Workloads that expect to be able to issue evictions or potentially change their preemption state in the current cycle.
+
+Then:
+1. Remove all workloads from the snapshot.
+2. For every workload in `preemtingNow` , in the order of their priority:
+  - If it can fit without the need of evicting other workloads
+    - Set its admission check to `Ready`
+    - Add it to the snapshot
+  - If it cannot fit
+    - Get an updated list of eviction candidates
+      - If the updated list is not empty.
+        - Issue the eviction to the candidates.
+        - Add it to the snapshot
+      - If the updated list is empty, meaning the preemption cannot be done.
+        - Set its admission check to `Retry`, the quota reservation will be lost and the workload placed in the queue waiting for a new QuotaReservation.
+
+**NOTE** The list of candidates is picked out from the list of workloads holding a QuotaReservation, regardless if they are fully Admitted or not.
 
 ### Test Plan
 
