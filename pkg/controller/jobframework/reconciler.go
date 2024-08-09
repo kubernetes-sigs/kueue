@@ -89,6 +89,7 @@ type Options struct {
 	LabelKeysToCopy           []string
 	Queues                    *queue.Manager
 	Cache                     *cache.Cache
+	IntegrationRetryInterval  *metav1.Duration
 }
 
 // Option configures the reconciler.
@@ -143,6 +144,12 @@ func WithEnabledFrameworks(frameworks []string) Option {
 			return
 		}
 		o.EnabledFrameworks = sets.New(frameworks...)
+	}
+}
+
+func WithRetryInterval(interval *metav1.Duration) Option {
+	return func(o *Options) {
+		o.IntegrationRetryInterval = interval
 	}
 }
 

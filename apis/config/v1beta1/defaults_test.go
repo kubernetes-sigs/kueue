@@ -59,7 +59,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		Burst: ptr.To(DefaultClientConnectionBurst),
 	}
 	defaultIntegrations := &Integrations{
-		Frameworks: []string{defaultJobFrameworkName},
+		Frameworks:               []string{defaultJobFrameworkName},
+		IntegrationRetryInterval: &metav1.Duration{Duration: DefaultIntegrationRetryInterval},
 		PodOptions: &PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -81,7 +82,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	overwriteNamespaceIntegrations := &Integrations{
-		Frameworks: []string{defaultJobFrameworkName},
+		Frameworks:               []string{defaultJobFrameworkName},
+		IntegrationRetryInterval: &metav1.Duration{Duration: DefaultIntegrationRetryInterval},
 		PodOptions: &PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -465,8 +467,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations: &Integrations{
-					Frameworks: []string{"a", "b"},
-					PodOptions: defaultIntegrations.PodOptions,
+					Frameworks:               []string{"a", "b"},
+					IntegrationRetryInterval: &metav1.Duration{Duration: DefaultIntegrationRetryInterval},
+					PodOptions:               defaultIntegrations.PodOptions,
 				},
 				QueueVisibility: defaultQueueVisibility,
 				MultiKueue:      defaultMultiKueue,

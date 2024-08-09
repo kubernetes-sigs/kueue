@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -41,6 +42,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
+
+const integrationRetryInterval = 20 * time.Millisecond
 
 func TestSetupControllers(t *testing.T) {
 	availableIntegrations := map[string]IntegrationCallbacks{
@@ -68,6 +71,14 @@ func TestSetupControllers(t *testing.T) {
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
 		},
+		"ray.io/raycluster": {
+			NewReconciler:         testNewReconciler,
+			SetupWebhook:          testSetupWebhook,
+			JobType:               &rayv1.RayCluster{},
+			SetupIndexes:          testSetupIndexes,
+			AddToScheme:           testAddToScheme,
+			CanSupportIntegration: testCanSupportIntegration,
+		},
 	}
 
 	cases := map[string]struct {
@@ -75,6 +86,7 @@ func TestSetupControllers(t *testing.T) {
 		mapperGVKs              []schema.GroupVersionKind
 		wantError               error
 		wantEnabledIntegrations []string
+		afterSetup              func(mgr ctrlmgr.Manager, manager *integrationManager)
 	}{
 		"setup controllers succeed": {
 			opts: []Option{
@@ -83,6 +95,7 @@ func TestSetupControllers(t *testing.T) {
 					"Foo.v1.example.com",
 					"Bar.v2.example.com",
 				}),
+				WithRetryInterval(&metav1.Duration{Duration: integrationRetryInterval}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
@@ -93,16 +106,30 @@ func TestSetupControllers(t *testing.T) {
 		"mapper doesn't have kubeflow.org/mpijob, but no error occur": {
 			opts: []Option{
 				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob"}),
+				WithRetryInterval(&metav1.Duration{Duration: integrationRetryInterval}),
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
 			},
 			wantEnabledIntegrations: []string{"batch/job"},
 		},
+		"mapper doesn't have ray.io/raycluster when Controllers have been setup, but eventually does": {
+			opts: []Option{
+				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"}),
+				WithRetryInterval(&metav1.Duration{Duration: integrationRetryInterval}),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+				kubeflow.SchemeGroupVersionKind,
+				// Not including RayCluster
+			},
+			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
+			afterSetup:              testDelayedIntegration,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manager := integrationManager{}
+			manager := &integrationManager{}
 			for name, cbs := range availableIntegrations {
 				err := manager.register(name, cbs)
 				if err != nil {
@@ -134,15 +161,35 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			gotError := manager.setupControllers(mgr, logger, tc.opts...)
+			gotError := manager.setupControllers(context.Background(), mgr, logger, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantEnabledIntegrations, manager.enabledIntegrations.SortedList()); len(diff) != 0 {
+			if tc.afterSetup != nil {
+				tc.afterSetup(mgr, manager)
+			}
+
+			diff := cmp.Diff(tc.wantEnabledIntegrations, manager.getEnabledIntegrations().SortedList())
+			if len(diff) != 0 {
 				t.Errorf("Unexpected enabled integrations (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func testDelayedIntegration(mgr ctrlmgr.Manager, manager *integrationManager) {
+	rayGVK := schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
+	restMapperMutex.Lock()
+	mgr.GetRESTMapper().(*apimeta.DefaultRESTMapper).Add(rayGVK, apimeta.RESTScopeNamespace)
+	restMapperMutex.Unlock()
+	// Wait for setup to complete
+	for {
+		_, ok := manager.getEnabledIntegrations()["ray.io/raycluster"]
+		if ok {
+			break // Exit loop if RayCluster is enabled
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

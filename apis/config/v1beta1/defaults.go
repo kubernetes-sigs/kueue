@@ -49,6 +49,7 @@ const (
 	DefaultMultiKueueWorkerLostTimeout                  = 15 * time.Minute
 	DefaultRequeuingBackoffBaseSeconds                  = 60
 	DefaultRequeuingBackoffMaxSeconds                   = 3600
+	DefaultIntegrationRetryInterval                     = 20 * time.Second
 )
 
 func getOperatorNamespace() string {
@@ -143,6 +144,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.Integrations.Frameworks == nil {
 		cfg.Integrations.Frameworks = []string{defaultJobFrameworkName}
+	}
+	if cfg.Integrations.IntegrationRetryInterval == nil {
+		cfg.Integrations.IntegrationRetryInterval = &metav1.Duration{Duration: DefaultIntegrationRetryInterval}
 	}
 	if cfg.QueueVisibility == nil {
 		cfg.QueueVisibility = &QueueVisibility{}

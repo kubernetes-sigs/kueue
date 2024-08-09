@@ -48,6 +48,7 @@ integrations:
   - "kubeflow.org/pytorchjob"
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
+  integrationRetryInterval: 20s
 #  - "pod"
 #  externalFrameworks:
 #  - "Foo.v1.example.com"
