@@ -409,6 +409,33 @@ must be named tls.key and tls.crt, respectively.</p>
 </tbody>
 </table>
 
+## `DeploymentIntegrationOptions`     {#DeploymentIntegrationOptions}
+    
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>namespaceSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>NamespaceSelector can be used to omit some namespaces from pod reconciliation</p>
+</td>
+</tr>
+<tr><td><code>deploymentSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>DeploymentSelector can be used to choose what deployments to reconcile</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `FairSharing`     {#FairSharing}
     
 
@@ -488,6 +515,7 @@ Possible options:</p>
 <li>&quot;kubeflow.org/tfjob&quot;</li>
 <li>&quot;kubeflow.org/xgboostjob&quot;</li>
 <li>&quot;pod&quot;</li>
+<li>&quot;deployment&quot;</li>
 </ul>
 </td>
 </tr>

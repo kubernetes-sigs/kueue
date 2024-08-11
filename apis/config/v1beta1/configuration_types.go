@@ -318,6 +318,7 @@ type Integrations struct {
 	//  - "kubeflow.org/tfjob"
 	//  - "kubeflow.org/xgboostjob"
 	//  - "pod"
+	//  - "deployment"
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
@@ -342,6 +343,13 @@ type PodIntegrationOptions struct {
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 	// PodSelector can be used to choose what pods to reconcile
 	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
+}
+
+type DeploymentIntegrationOptions struct {
+	// NamespaceSelector can be used to omit some namespaces from pod reconciliation
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+	// DeploymentSelector can be used to choose what deployments to reconcile
+	DeploymentSelector *metav1.LabelSelector `json:"deploymentSelector,omitempty"`
 }
 
 type QueueVisibility struct {

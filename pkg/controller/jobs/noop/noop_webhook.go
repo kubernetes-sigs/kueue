@@ -22,19 +22,22 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
 type webhook struct {
 }
 
-// SetupWebhook configures the webhook for batchJob.
-func SetupWebhook(mgr ctrl.Manager, apiType runtime.Object) error {
-	wh := &webhook{}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(apiType).
-		WithDefaulter(wh).
-		WithValidator(wh).
-		Complete()
+func NewSetupWebhookFactory(apiType runtime.Object) func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	return func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+		wh := &webhook{}
+		return ctrl.NewWebhookManagedBy(mgr).
+			For(apiType).
+			WithDefaulter(wh).
+			WithValidator(wh).
+			Complete()
+	}
 }
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
