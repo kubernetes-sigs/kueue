@@ -243,7 +243,7 @@ func (b *Builder) validateFlags() error {
 	return nil
 }
 
-func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
+func (b *Builder) Do(ctx context.Context) ([]runtime.Object, error) {
 	if err := b.validateGeneral(); err != nil {
 		return nil, err
 	}
@@ -273,7 +273,14 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, error) {
 		return nil, err
 	}
 
-	return bImpl.build(ctx)
+	objs := make([]runtime.Object, 0)
+	o, err := bImpl.build(ctx)
+	if err != nil {
+		return nil, err
+	}
+	objs = append(objs, o)
+
+	return objs, nil
 }
 
 func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {

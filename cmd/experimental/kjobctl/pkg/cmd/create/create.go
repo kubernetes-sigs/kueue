@@ -363,7 +363,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 }
 
 func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter, runTime time.Time) error {
-	obj, err := builder.NewBuilder(clientGetter, runTime).
+	objs, err := builder.NewBuilder(clientGetter, runTime).
 		WithNamespace(o.Namespace).
 		WithProfileName(o.ProfileName).
 		WithModeName(o.ModeName).
@@ -380,6 +380,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 	if err != nil {
 		return err
 	}
+	obj := objs[0]
 
 	if o.DryRunStrategy != util.DryRunClient {
 		obj, err = o.createObject(ctx, clientGetter, obj)

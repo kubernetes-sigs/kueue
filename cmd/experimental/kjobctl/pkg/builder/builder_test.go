@@ -44,7 +44,7 @@ func TestBuilder(t *testing.T) {
 		profile     string
 		mode        v1alpha1.ApplicationProfileMode
 		kjobctlObjs []runtime.Object
-		wantObj     runtime.Object
+		wantObj     []runtime.Object
 		wantErr     error
 	}{
 		"shouldn't build job because no namespace specified": {
@@ -234,11 +234,13 @@ func TestBuilder(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantObj: wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
-				Annotation("foo", "baz").
-				Label("foo", "bar").
-				Label(constants.ProfileLabel, "profile").
-				Obj(),
+			wantObj: []runtime.Object{
+				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+					Annotation("foo", "baz").
+					Label("foo", "bar").
+					Label(constants.ProfileLabel, "profile").
+					Obj(),
+			},
 		},
 	}
 	for name, tc := range testCases {

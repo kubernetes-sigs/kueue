@@ -121,7 +121,7 @@ func TestRayClusterBuilder(t *testing.T) {
 		requests    corev1.ResourceList
 		localQueue  string
 		kjobctlObjs []runtime.Object
-		wantObj     runtime.Object
+		wantObj     []runtime.Object
 		wantErr     error
 	}{
 		"shouldn't build ray cluster because template not found": {
@@ -145,27 +145,29 @@ func TestRayClusterBuilder(t *testing.T) {
 					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayClusterMode, Template: "ray-cluster-template"}).
 					Obj(),
 			},
-			wantObj: wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-").
-				Annotation("foo", "baz").
-				Label("foo", "bar").
-				Label(constants.ProfileLabel, "profile").
-				Spec(
-					testRayClusterTemplateWrapper.Clone().
-						Spec(
-							*wrappers.FromRayClusterSpec(testRayClusterTemplateWrapper.Clone().Template.Spec).
-								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
-								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
-								WithEnvVar(corev1.EnvVar{
-									Name:  constants.EnvVarTaskID,
-									Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
-								}).
-								WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
-								WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
-								Obj(),
-						).
-						Template.Spec,
-				).
-				Obj(),
+			wantObj: []runtime.Object{
+				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-").
+					Annotation("foo", "baz").
+					Label("foo", "bar").
+					Label(constants.ProfileLabel, "profile").
+					Spec(
+						testRayClusterTemplateWrapper.Clone().
+							Spec(
+								*wrappers.FromRayClusterSpec(testRayClusterTemplateWrapper.Clone().Template.Spec).
+									WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+									WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+									WithEnvVar(corev1.EnvVar{
+										Name:  constants.EnvVarTaskID,
+										Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+									}).
+									WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+									WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+									Obj(),
+							).
+							Template.Spec,
+					).
+					Obj(),
+			},
 		},
 		"should build ray cluster with replacements": {
 			namespace:   metav1.NamespaceDefault,
@@ -190,37 +192,39 @@ func TestRayClusterBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObj: wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-").
-				Annotation("foo", "baz").
-				Label("foo", "bar").
-				Label(constants.ProfileLabel, "profile").
-				Label(kueueconstants.QueueLabel, "lq1").
-				Spec(
-					testRayClusterTemplateWrapper.Clone().
-						Spec(
-							*wrappers.FromRayClusterSpec(testRayClusterTemplateWrapper.Clone().Template.Spec).
-								Replicas("g1", 10).
-								Replicas("g2", 20).
-								MinReplicas("g1", 10).
-								MinReplicas("g2", 20).
-								MaxReplicas("g1", 15).
-								MaxReplicas("g2", 25).
-								WithVolume("v3", "config3").
-								WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
-								WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
-								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
-								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
-								WithEnvVar(corev1.EnvVar{
-									Name:  constants.EnvVarTaskID,
-									Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
-								}).
-								WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
-								WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
-								Obj(),
-						).
-						Obj().Template.Spec,
-				).
-				Obj(),
+			wantObj: []runtime.Object{
+				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-").
+					Annotation("foo", "baz").
+					Label("foo", "bar").
+					Label(constants.ProfileLabel, "profile").
+					Label(kueueconstants.QueueLabel, "lq1").
+					Spec(
+						testRayClusterTemplateWrapper.Clone().
+							Spec(
+								*wrappers.FromRayClusterSpec(testRayClusterTemplateWrapper.Clone().Template.Spec).
+									Replicas("g1", 10).
+									Replicas("g2", 20).
+									MinReplicas("g1", 10).
+									MinReplicas("g2", 20).
+									MaxReplicas("g1", 15).
+									MaxReplicas("g2", 25).
+									WithVolume("v3", "config3").
+									WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
+									WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
+									WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+									WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+									WithEnvVar(corev1.EnvVar{
+										Name:  constants.EnvVarTaskID,
+										Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+									}).
+									WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+									WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+									Obj(),
+							).
+							Obj().Template.Spec,
+					).
+					Obj(),
+			},
 		},
 	}
 	for name, tc := range testCases {
