@@ -169,23 +169,11 @@ func canBorrowWithinCohort(cq *cache.ClusterQueueSnapshot, wl *kueue.Workload) (
 	return true, &threshold
 }
 
-// In cluster queue preemption reasons
-const (
-	InClusterQueueReason string = "InClusterQueue"
-)
-
-// In cohort preemption reasons
-const (
-	InCohortReclamationReason           string = "InCohortReclamation"
-	InCohortFairSharingReason           string = "InCohortFairSharing"
-	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
-)
-
 var HumanReadablePreemptionReasons = map[string]string{
-	InClusterQueueReason:                "prioritization in the ClusterQueue",
-	InCohortReclamationReason:           "reclamation within the cohort",
-	InCohortFairSharingReason:           "fair sharing within the cohort",
-	InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
+	kueue.InClusterQueueReason:                "prioritization in the ClusterQueue",
+	kueue.InCohortReclamationReason:           "reclamation within the cohort",
+	kueue.InCohortFairSharingReason:           "fair sharing within the cohort",
+	kueue.InCohortReclaimWhileBorrowingReason: "reclamation within the cohort while borrowing",
 }
 
 // IssuePreemptions marks the target workloads as evicted.
@@ -240,12 +228,12 @@ func minimalPreemptions(log logr.Logger, requests resources.FlavorResourceQuanti
 	fits := false
 	for _, candWl := range candidates {
 		candCQ := snapshot.ClusterQueues[candWl.ClusterQueue]
-		reason := InClusterQueueReason
+		reason := kueue.InClusterQueueReason
 		if cq != candCQ {
 			if !cqIsBorrowing(candCQ, frsNeedPreemption) {
 				continue
 			}
-			reason = InCohortReclamationReason
+			reason = kueue.InCohortReclamationReason
 			if allowBorrowingBelowPriority != nil {
 				if priority.Priority(candWl.Obj) >= *allowBorrowingBelowPriority {
 					// We set allowBorrowing=false if there is a candidate with priority
@@ -262,7 +250,7 @@ func minimalPreemptions(log logr.Logger, requests resources.FlavorResourceQuanti
 					// the function.
 					allowBorrowing = false
 				} else {
-					reason = InCohortReclaimWhileBorrowingReason
+					reason = kueue.InCohortReclaimWhileBorrowingReason
 				}
 			}
 		}
@@ -355,7 +343,7 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl workload.Info, requests 
 			snapshot.RemoveWorkload(candWl)
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,
-				Reason:       InClusterQueueReason,
+				Reason:       kueue.InClusterQueueReason,
 			})
 			if workloadFits(requests, nominatedCQ, true) {
 				fits = true
@@ -376,9 +364,9 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl workload.Info, requests 
 			strategy := p.fsStrategies[0](newNominatedShareValue, candCQ.share, newCandShareVal)
 			if belowThreshold || strategy {
 				snapshot.RemoveWorkload(candWl)
-				reason := InCohortFairSharingReason
+				reason := kueue.InCohortFairSharingReason
 				if !strategy {
-					reason = InCohortReclaimWhileBorrowingReason
+					reason = kueue.InCohortReclaimWhileBorrowingReason
 				}
 
 				targets = append(targets, &Target{
@@ -415,7 +403,7 @@ func (p *Preemptor) fairPreemptions(log logr.Logger, wl workload.Info, requests 
 				snapshot.RemoveWorkload(candWl)
 				targets = append(targets, &Target{
 					WorkloadInfo: candWl,
-					Reason:       InCohortFairSharingReason,
+					Reason:       kueue.InCohortFairSharingReason,
 				})
 				if workloadFits(requests, nominatedCQ, true) {
 					fits = true
