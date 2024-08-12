@@ -110,7 +110,12 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
 		for res, q := range ps.Requests {
-			flv := a.PodSets[i].Flavors[res].Name
+			aps := a.PodSets[i]
+			flv := aps.Flavors[res].Name
+			// in case of partial admission scale down the quantity
+			if aps.Count != ps.Count {
+				q = q * int64(aps.Count) / int64(ps.Count)
+			}
 			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
 	}
