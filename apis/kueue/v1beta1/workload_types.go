@@ -334,6 +334,25 @@ const (
 	WorkloadDeactivationTarget = "DeactivationTarget"
 )
 
+// Reasons for the WorkloadPreempted condition.
+const (
+	// InClusterQueueReason indicates the Workload was preempted due to
+	// prioritization in the ClusterQueue.
+	InClusterQueueReason string = "InClusterQueue"
+
+	// InCohortReclamationReason indicates the Workload was preempted due to
+	// reclamation within the Cohort.
+	InCohortReclamationReason string = "InCohortReclamation"
+
+	// InCohortFairSharingReason indicates the Workload was preempted due to
+	// fair sharing within the cohort.
+	InCohortFairSharingReason string = "InCohortFairSharing"
+
+	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted
+	// due to reclamation within the cohort while borrowing.
+	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
+)
+
 const (
 	// WorkloadInadmissible means that the Workload can't reserve quota
 	// due to LocalQueue or ClusterQueue doesn't exist or inactive.
