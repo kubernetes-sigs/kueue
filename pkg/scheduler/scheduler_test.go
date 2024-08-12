@@ -2562,45 +2562,153 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 	}
+	inputForOrderingPreemptedWorkloads := []entry{
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "old-mid-recently-preempted-in-queue",
+					CreationTimestamp: metav1.NewTime(now),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: ptr.To[int32](1),
+				}, Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadPreempted,
+							Status:             metav1.ConditionTrue,
+							Reason:             kueue.InClusterQueueReason,
+							LastTransitionTime: metav1.NewTime(now.Add(5 * time.Second)),
+						},
+					},
+				}},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "old-mid-recently-reclaimed-while-borrowing",
+					CreationTimestamp: metav1.NewTime(now),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: ptr.To[int32](1),
+				}, Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadPreempted,
+							Status:             metav1.ConditionTrue,
+							Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+							LastTransitionTime: metav1.NewTime(now.Add(6 * time.Second)),
+						},
+					},
+				}},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "old-mid-more-recently-reclaimed-while-borrowing",
+					CreationTimestamp: metav1.NewTime(now),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: ptr.To[int32](1),
+				}, Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadPreempted,
+							Status:             metav1.ConditionTrue,
+							Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+							LastTransitionTime: metav1.NewTime(now.Add(7 * time.Second)),
+						},
+					},
+				}},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "old-mid-not-preempted-yet",
+					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: ptr.To[int32](1),
+				}},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "preemptor",
+					CreationTimestamp: metav1.NewTime(now.Add(7 * time.Second)),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: ptr.To[int32](2),
+				}},
+			},
+		},
+	}
 	for _, tc := range []struct {
 		name             string
+		input            []entry
 		prioritySorting  bool
 		workloadOrdering workload.Ordering
 		wantOrder        []string
 	}{
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
+			input:            input,
 			prioritySorting:  true,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
 		},
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
+			input:            input,
 			prioritySorting:  true,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Eviction timestamp",
+			input:            input,
 			prioritySorting:  false,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Creation timestamp",
+			input:            input,
 			prioritySorting:  false,
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
+		},
+		{
+			name:            "Some workloads are preempted; Priority sorting is disabled",
+			input:           inputForOrderingPreemptedWorkloads,
+			prioritySorting: false,
+			wantOrder: []string{
+				"old-mid-recently-preempted-in-queue",
+				"old-mid-not-preempted-yet",
+				"old-mid-recently-reclaimed-while-borrowing",
+				"preemptor",
+				"old-mid-more-recently-reclaimed-while-borrowing",
+			},
+		},
+		{
+			name:            "Some workloads are preempted; Priority sorting is enabled",
+			input:           inputForOrderingPreemptedWorkloads,
+			prioritySorting: true,
+			wantOrder: []string{
+				"preemptor",
+				"old-mid-recently-preempted-in-queue",
+				"old-mid-recently-reclaimed-while-borrowing",
+				"old-mid-more-recently-reclaimed-while-borrowing",
+				"old-mid-not-preempted-yet",
+			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Cleanup(features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting))
 			sort.Sort(entryOrdering{
-				entries:          input,
+				entries:          tc.input,
 				workloadOrdering: tc.workloadOrdering},
 			)
-			order := make([]string, len(input))
-			for i, e := range input {
+			order := make([]string, len(tc.input))
+			for i, e := range tc.input {
 				order[i] = e.Obj.Name
 			}
 			if diff := cmp.Diff(tc.wantOrder, order); diff != "" {
