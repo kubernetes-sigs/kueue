@@ -161,4 +161,120 @@ very-long-job-name   profile1                                                   
 			)))
 		})
 	})
+
+	ginkgo.When("List RayClusters", func() {
+		var (
+			rc1 *rayv1.RayCluster
+			rc2 *rayv1.RayCluster
+			rc3 *rayv1.RayCluster
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			rc1 = wrappers.MakeRayCluster("rc1", ns.Name).
+				Profile("profile1").
+				Spec(*wrappers.MakeRayClusterSpec().
+					HeadGroupSpec(rayv1.HeadGroupSpec{
+						RayStartParams: make(map[string]string),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{Name: "ray-head", Image: "rayproject/ray:2.9.0"},
+								},
+							},
+						},
+					}).
+					WithWorkerGroupSpec(rayv1.WorkerGroupSpec{
+						RayStartParams: make(map[string]string),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{Name: "ray-worker", Image: "rayproject/ray:2.9.0"},
+								},
+							},
+						},
+					}).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rc1)).To(gomega.Succeed())
+
+			rc2 = wrappers.MakeRayCluster("rc2", ns.Name).
+				Profile("profile1").
+				Spec(*wrappers.MakeRayClusterSpec().
+					HeadGroupSpec(rayv1.HeadGroupSpec{
+						RayStartParams: make(map[string]string),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{Name: "ray-head", Image: "rayproject/ray:2.9.0"},
+								},
+							},
+						},
+					}).
+					WithWorkerGroupSpec(rayv1.WorkerGroupSpec{
+						RayStartParams: make(map[string]string),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{Name: "ray-worker", Image: "rayproject/ray:2.9.0"},
+								},
+							},
+						},
+					}).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rc2)).To(gomega.Succeed())
+
+			rc3 = wrappers.MakeRayCluster("very-long-ray-cluster-name", ns.Name).
+				Profile("profile1").
+				Spec(*wrappers.MakeRayClusterSpec().
+					HeadGroupSpec(rayv1.HeadGroupSpec{
+						RayStartParams: make(map[string]string),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{Name: "ray-head", Image: "rayproject/ray:2.9.0"},
+								},
+							},
+						},
+					}).
+					WithWorkerGroupSpec(rayv1.WorkerGroupSpec{
+						RayStartParams: make(map[string]string),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{Name: "ray-worker", Image: "rayproject/ray:2.9.0"},
+								},
+							},
+						},
+					}).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rc3)).To(gomega.Succeed())
+		})
+
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should print ray clusters list with paging", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kjobctl := cmd.NewKjobctlCmd(cmd.KjobctlOptions{ConfigFlags: configFlags, IOStreams: streams,
+				Clock: testingclock.NewFakeClock(executeTime)})
+
+			os.Setenv(list.KjobctlListRequestLimitEnvName, "1")
+			kjobctl.SetArgs([]string{"list", "raycluster", "--namespace", ns.Name})
+			err := kjobctl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         PROFILE    LOCAL QUEUE   DESIRED WORKERS   AVAILABLE WORKERS   CPUS   MEMORY   GPUS   STATUS   AGE
+rc1                          profile1                 0                 0                   0      0        0               %s
+rc2                          profile1                 0                 0                   0      0        0               %s
+very-long-ray-cluster-name   profile1                 0                 0                   0      0        0               %s
+`,
+				duration.HumanDuration(executeTime.Sub(rc1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(rc2.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(rc3.CreationTimestamp.Time)),
+			)))
+		})
+	})
 })

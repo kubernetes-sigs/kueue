@@ -48,6 +48,12 @@ func (w *RayClusterSpecWrapper) Clone() *RayClusterSpecWrapper {
 	}
 }
 
+// HeadGroupSpec add worker group to the ray cluster spec.
+func (w *RayClusterSpecWrapper) HeadGroupSpec(spec rayv1.HeadGroupSpec) *RayClusterSpecWrapper {
+	w.RayClusterSpec.HeadGroupSpec = spec
+	return w
+}
+
 // WithWorkerGroupSpec add worker group to the ray cluster spec.
 func (w *RayClusterSpecWrapper) WithWorkerGroupSpec(spec rayv1.WorkerGroupSpec) *RayClusterSpecWrapper {
 	w.RayClusterSpec.WorkerGroupSpecs = append(w.RayClusterSpec.WorkerGroupSpecs, spec)

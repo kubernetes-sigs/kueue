@@ -17,7 +17,10 @@ limitations under the License.
 package wrappers
 
 import (
+	"time"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
@@ -48,6 +51,12 @@ func (j *RayClusterWrapper) Obj() *rayv1.RayCluster {
 // GenerateName updates generateName.
 func (j *RayClusterWrapper) GenerateName(v string) *RayClusterWrapper {
 	j.ObjectMeta.GenerateName = v
+	return j
+}
+
+// CreationTimestamp sets the .metadata.creationTimestamp
+func (j *RayClusterWrapper) CreationTimestamp(t time.Time) *RayClusterWrapper {
+	j.RayCluster.ObjectMeta.CreationTimestamp = metav1.NewTime(t)
 	return j
 }
 
@@ -88,5 +97,41 @@ func (j *RayClusterWrapper) WithWorkerGroupSpec(spec rayv1.WorkerGroupSpec) *Ray
 // Spec set job spec.
 func (j *RayClusterWrapper) Spec(spec rayv1.RayClusterSpec) *RayClusterWrapper {
 	j.RayCluster.Spec = spec
+	return j
+}
+
+// DesiredWorkerReplicas set DesiredWorkerReplicas.
+func (j *RayClusterWrapper) DesiredWorkerReplicas(desiredWorkerReplicas int32) *RayClusterWrapper {
+	j.RayCluster.Status.DesiredWorkerReplicas = desiredWorkerReplicas
+	return j
+}
+
+// AvailableWorkerReplicas set AvailableWorkerReplicas.
+func (j *RayClusterWrapper) AvailableWorkerReplicas(availableWorkerReplicas int32) *RayClusterWrapper {
+	j.RayCluster.Status.AvailableWorkerReplicas = availableWorkerReplicas
+	return j
+}
+
+// DesiredCPU set DesiredCPU.
+func (j *RayClusterWrapper) DesiredCPU(desiredCPU resource.Quantity) *RayClusterWrapper {
+	j.RayCluster.Status.DesiredCPU = desiredCPU
+	return j
+}
+
+// DesiredMemory set DesiredMemory.
+func (j *RayClusterWrapper) DesiredMemory(desiredMemory resource.Quantity) *RayClusterWrapper {
+	j.RayCluster.Status.DesiredMemory = desiredMemory
+	return j
+}
+
+// DesiredGPU set DesiredGPU.
+func (j *RayClusterWrapper) DesiredGPU(desiredGPU resource.Quantity) *RayClusterWrapper {
+	j.RayCluster.Status.DesiredGPU = desiredGPU
+	return j
+}
+
+// State set State.
+func (j *RayClusterWrapper) State(state rayv1.ClusterState) *RayClusterWrapper {
+	j.RayCluster.Status.State = state
 	return j
 }
