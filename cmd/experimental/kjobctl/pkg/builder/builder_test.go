@@ -218,6 +218,188 @@ func TestBuilder(t *testing.T) {
 			},
 			wantErr: noRayClusterSpecifiedErr,
 		},
+		"shouldn't build job because array not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.ArrayFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noArraySpecifiedErr,
+		},
+		"shouldn't build job because cpusPerTask not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.CpusPerTaskFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noCpusPerTaskSpecifiedErr,
+		},
+		"shouldn't build job because error not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.ErrorFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noErrorSpecifiedErr,
+		},
+		"shouldn't build job because gpusPerTask not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.GpusPerTaskFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noGpusPerTaskSpecifiedErr,
+		},
+		"shouldn't build job because input not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.InputFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noInputSpecifiedErr,
+		},
+		"shouldn't build job because jobName not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.JobNameFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noJobNameSpecifiedErr,
+		},
+		"shouldn't build job because memPerCPU not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MemPerCPUFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMemPerCPUSpecifiedErr,
+		},
+		"shouldn't build job because memPerGPU not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MemPerGPUFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMemPerGPUSpecifiedErr,
+		},
+		"shouldn't build job because memPerTask not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MemPerTaskFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMemPerTaskSpecifiedErr,
+		},
+		"shouldn't build job because nodes not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.NodesFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noNodesSpecifiedErr,
+		},
+		"shouldn't build job because nTasks not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.NTasksFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noNTasksSpecifiedErr,
+		},
+		"shouldn't build job because output not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.OutputFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noOutputSpecifiedErr,
+		},
+		"shouldn't build job because partition not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.PartitionFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noPartitionSpecifiedErr,
+		},
 		"should build job": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",

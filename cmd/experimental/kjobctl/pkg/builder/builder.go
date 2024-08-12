@@ -53,6 +53,19 @@ var (
 	noRequestsSpecifiedErr                 = errors.New("no requests specified")
 	noLocalQueueSpecifiedErr               = errors.New("no local queue specified")
 	noRayClusterSpecifiedErr               = errors.New("no raycluster specified")
+	noArraySpecifiedErr                    = errors.New("no array specified")
+	noCpusPerTaskSpecifiedErr              = errors.New("no cpus-per-task specified")
+	noErrorSpecifiedErr                    = errors.New("no error specified")
+	noGpusPerTaskSpecifiedErr              = errors.New("no gpus-per-task specified")
+	noInputSpecifiedErr                    = errors.New("no input specified")
+	noJobNameSpecifiedErr                  = errors.New("no job-name specified")
+	noMemPerCPUSpecifiedErr                = errors.New("no mem-per-cpu specified")
+	noMemPerGPUSpecifiedErr                = errors.New("no mem-per-gpu specified")
+	noMemPerTaskSpecifiedErr               = errors.New("no mem-per-task specified")
+	noNodesSpecifiedErr                    = errors.New("no nodes specified")
+	noNTasksSpecifiedErr                   = errors.New("no ntasks specified")
+	noOutputSpecifiedErr                   = errors.New("no output specified")
+	noPartitionSpecifiedErr                = errors.New("no partition specified")
 )
 
 type builder interface {
@@ -77,6 +90,19 @@ type Builder struct {
 	requests    corev1.ResourceList
 	localQueue  string
 	rayCluster  string
+	array       string
+	cpusPerTask *int32
+	err         string
+	gpusPerTask *int32
+	input       string
+	jobName     string
+	memPerCPU   string
+	memPerGPU   string
+	memPerTask  string
+	nodes       *int32
+	nTasks      *int32
+	output      string
+	partition   string
 
 	profile       *v1alpha1.ApplicationProfile
 	mode          *v1alpha1.SupportedMode
@@ -146,6 +172,71 @@ func (b *Builder) WithLocalQueue(localQueue string) *Builder {
 
 func (b *Builder) WithRayCluster(rayCluster string) *Builder {
 	b.rayCluster = rayCluster
+	return b
+}
+
+func (b *Builder) WithArray(array string) *Builder {
+	b.array = array
+	return b
+}
+
+func (b *Builder) WithCpusPerTask(cpusPerTask *int32) *Builder {
+	b.cpusPerTask = cpusPerTask
+	return b
+}
+
+func (b *Builder) WithError(err string) *Builder {
+	b.err = err
+	return b
+}
+
+func (b *Builder) WithGpusPerTask(gpusPerTask *int32) *Builder {
+	b.gpusPerTask = gpusPerTask
+	return b
+}
+
+func (b *Builder) WithInput(input string) *Builder {
+	b.input = input
+	return b
+}
+
+func (b *Builder) WithJobName(jobName string) *Builder {
+	b.jobName = jobName
+	return b
+}
+
+func (b *Builder) WithMemPerCPU(memPerCPU string) *Builder {
+	b.memPerCPU = memPerCPU
+	return b
+}
+
+func (b *Builder) WithMemPerGPU(memPerGPU string) *Builder {
+	b.memPerGPU = memPerGPU
+	return b
+}
+
+func (b *Builder) WithMemPerTask(memPerTask string) *Builder {
+	b.memPerTask = memPerTask
+	return b
+}
+
+func (b *Builder) WithNodes(nodes *int32) *Builder {
+	b.nodes = nodes
+	return b
+}
+
+func (b *Builder) WithNTasks(nTasks *int32) *Builder {
+	b.nTasks = nTasks
+	return b
+}
+
+func (b *Builder) WithOutput(output string) *Builder {
+	b.output = output
+	return b
+}
+
+func (b *Builder) WithPartition(partition string) *Builder {
+	b.partition = partition
 	return b
 }
 
@@ -240,6 +331,58 @@ func (b *Builder) validateFlags() error {
 		return noRayClusterSpecifiedErr
 	}
 
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.ArrayFlag) && b.array == "" {
+		return noArraySpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.CpusPerTaskFlag) && b.cpusPerTask == nil {
+		return noCpusPerTaskSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.ErrorFlag) && b.err == "" {
+		return noErrorSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.GpusPerTaskFlag) && b.gpusPerTask == nil {
+		return noGpusPerTaskSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.InputFlag) && b.input == "" {
+		return noInputSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.JobNameFlag) && b.jobName == "" {
+		return noJobNameSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MemPerCPUFlag) && b.memPerCPU == "" {
+		return noMemPerCPUSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MemPerGPUFlag) && b.memPerGPU == "" {
+		return noMemPerGPUSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MemPerTaskFlag) && b.memPerTask == "" {
+		return noMemPerTaskSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.NodesFlag) && b.nodes == nil {
+		return noNodesSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.NTasksFlag) && b.nTasks == nil {
+		return noNTasksSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.OutputFlag) && b.output == "" {
+		return noOutputSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.PartitionFlag) && b.partition == "" {
+		return noPartitionSpecifiedErr
+	}
+
 	return nil
 }
 
@@ -259,6 +402,8 @@ func (b *Builder) Do(ctx context.Context) ([]runtime.Object, error) {
 		bImpl = newRayJobBuilder(b)
 	case v1alpha1.RayClusterMode:
 		bImpl = newRayClusterBuilder(b)
+	case v1alpha1.SlurmMode:
+		bImpl = newSlurmBuilder(b)
 	}
 
 	if bImpl == nil {

@@ -249,13 +249,15 @@ func TestRayJobBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObj: wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-").
-				Annotation("foo", "baz").
-				Label("foo", "bar").
-				Label(constants.ProfileLabel, "profile").
-				WithRayClusterLabelSelector("rc1").
-				Entrypoint("python /home/ray/samples/sample_code.py").
-				Obj(),
+			wantObj: []runtime.Object{
+				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-").
+					Annotation("foo", "baz").
+					Label("foo", "bar").
+					Label(constants.ProfileLabel, "profile").
+					WithRayClusterLabelSelector("rc1").
+					Entrypoint("python /home/ray/samples/sample_code.py").
+					Obj(),
+			},
 		},
 	}
 	for name, tc := range testCases {
