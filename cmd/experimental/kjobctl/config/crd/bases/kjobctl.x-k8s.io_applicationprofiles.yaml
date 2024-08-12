@@ -46,12 +46,13 @@ spec:
                     name:
                       description: |-
                         name determines which template will be used and which object will eventually be created.
-                        Possible values are Interactive, Job, RayJob and RayCluster.
+                        Possible values are Interactive, Job, RayJob, RayCluster and Slurm.
                       enum:
                       - Interactive
                       - Job
                       - RayJob
                       - RayCluster
+                      - Slurm
                       type: string
                     requiredFlags:
                       description: |-
@@ -62,6 +63,8 @@ spec:
                         The request flag used only for Interactive and Job modes.
                         The cmd flag used only for Interactive, Job, and RayJob.
                         If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
+                        For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem-per-cpu,
+                        mem-per-gpu, mem-per-task, nodes, ntasks, output, partition.
 
 
                         cmd and requests values are going to be added only to the first primary container.
@@ -76,6 +79,19 @@ spec:
                         - request
                         - localqueue
                         - raycluster
+                        - array
+                        - cpus-per-task
+                        - error
+                        - gpus-per-task
+                        - input
+                        - job-name
+                        - mem-per-cpu
+                        - mem-per-gpu
+                        - mem-per-task
+                        - nodes
+                        - ntasks
+                        - output
+                        - partition
                         type: string
                       maxItems: 8
                       type: array
@@ -88,6 +104,7 @@ spec:
                           - on Job mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
                           - on RayJob mode it must be kjobctl.x-k8s.io/v1alpha1/RayJobTemplate
                           - on RayCluster mode it must be kjobctl.x-k8s.io/v1alpha1/RayClusterTemplate
+                          - on Slurm mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
                       maxLength: 253
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                       type: string
@@ -131,6 +148,45 @@ spec:
                       || (!(''localqueue'' in self.requiredFlags) && !(''replicas''
                       in self.requiredFlags)  && !(''min-replicas'' in self.requiredFlags)  &&
                       !(''max-replicas'' in self.requiredFlags) )'
+                  - message: array flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''array''
+                      in self.requiredFlags)'
+                  - message: cpus-per-task flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''cpus-per-task''
+                      in self.requiredFlags)'
+                  - message: error flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''error''
+                      in self.requiredFlags)'
+                  - message: gpus-per-task flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''gpus-per-task''
+                      in self.requiredFlags)'
+                  - message: input flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''input''
+                      in self.requiredFlags)'
+                  - message: job-name flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''job-name''
+                      in self.requiredFlags)'
+                  - message: mem-per-cpu flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''mem-per-cpu''
+                      in self.requiredFlags)'
+                  - message: mem-per-gpu flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''mem-per-gpu''
+                      in self.requiredFlags)'
+                  - message: mem-per-task flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''mem-per-task''
+                      in self.requiredFlags)'
+                  - message: nodes flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''nodes''
+                      in self.requiredFlags)'
+                  - message: ntasks flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''ntasks''
+                      in self.requiredFlags)'
+                  - message: output flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''output''
+                      in self.requiredFlags)'
+                  - message: partition flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''partition''
+                      in self.requiredFlags)'
                 type: array
                 x-kubernetes-list-map-keys:
                 - name

@@ -33,9 +33,10 @@ const (
 	JobMode         ApplicationProfileMode = "Job"
 	RayJobMode      ApplicationProfileMode = "RayJob"
 	RayClusterMode  ApplicationProfileMode = "RayCluster"
+	SlurmMode       ApplicationProfileMode = "Slurm"
 )
 
-// +kubebuilder:validation:Enum=cmd;parallelism;completions;replicas;min-replicas;max-replicas;request;localqueue;raycluster
+// +kubebuilder:validation:Enum=cmd;parallelism;completions;replicas;min-replicas;max-replicas;request;localqueue;raycluster;array;cpus-per-task;error;gpus-per-task;input;job-name;mem-per-cpu;mem-per-gpu;mem-per-task;nodes;ntasks;output;partition
 type Flag string
 
 const (
@@ -48,6 +49,19 @@ const (
 	RequestFlag     Flag = "request"
 	LocalQueueFlag  Flag = "localqueue"
 	RayClusterFlag  Flag = "raycluster"
+	ArrayFlag       Flag = "array"
+	CpusPerTaskFlag Flag = "cpus-per-task"
+	ErrorFlag       Flag = "error"
+	GpusPerTaskFlag Flag = "gpus-per-task"
+	InputFlag       Flag = "input"
+	JobNameFlag     Flag = "job-name"
+	MemPerCpuFlag   Flag = "mem-per-cpu"
+	MemPerGpuFlag   Flag = "mem-per-gpu"
+	MemPerTaskFlag  Flag = "mem-per-task"
+	NodesFlag       Flag = "nodes"
+	NTasksFlag      Flag = "ntasks"
+	OutputFlag      Flag = "output"
+	PartitionFlag   Flag = "partition"
 )
 
 // TemplateReference is the name of the template.
@@ -63,12 +77,25 @@ type TemplateReference string
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Interactive' || self.name == 'Job' || self.name == 'RayJob' || self.name == 'RayCluster' && !('cmd' in self.requiredFlags)", message="cmd flag can be used only on Job, Interactive and RayJob modes"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || (self.name == 'Interactive' || self.name == 'Job' || self.name == 'RayCluster') && !('raycluster' in self.requiredFlags)", message="raycluster flag can be used only on RayJob mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('raycluster' in self.requiredFlags) || (!('localqueue' in self.requiredFlags) && !('replicas' in self.requiredFlags)  && !('min-replicas' in self.requiredFlags)  && !('max-replicas' in self.requiredFlags) )", message="if raycluster flag are set none of localqueue, replicas, min-replicas and max-replicas can be"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('array' in self.requiredFlags)", message="array flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('cpus-per-task' in self.requiredFlags)", message="cpus-per-task flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('error' in self.requiredFlags)", message="error flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('gpus-per-task' in self.requiredFlags)", message="gpus-per-task flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('input' in self.requiredFlags)", message="input flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('job-name' in self.requiredFlags)", message="job-name flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('mem-per-cpu' in self.requiredFlags)", message="mem-per-cpu flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('mem-per-gpu' in self.requiredFlags)", message="mem-per-gpu flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('mem-per-task' in self.requiredFlags)", message="mem-per-task flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('nodes' in self.requiredFlags)", message="nodes flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('ntasks' in self.requiredFlags)", message="ntasks flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('output' in self.requiredFlags)", message="output flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' && !('partition' in self.requiredFlags)", message="partition flag can be used only on Slurm mode"
 type SupportedMode struct {
 	// name determines which template will be used and which object will eventually be created.
-	// Possible values are Interactive, Job, RayJob and RayCluster.
+	// Possible values are Interactive, Job, RayJob, RayCluster and Slurm.
 	//
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=Interactive;Job;RayJob;RayCluster
+	// +kubebuilder:validation:Enum=Interactive;Job;RayJob;RayCluster;Slurm
 	Name ApplicationProfileMode `json:"name"`
 
 	// template is the name of the template.
@@ -77,6 +104,7 @@ type SupportedMode struct {
 	//   - on Job mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
 	//   - on RayJob mode it must be kjobctl.x-k8s.io/v1alpha1/RayJobTemplate
 	//   - on RayCluster mode it must be kjobctl.x-k8s.io/v1alpha1/RayClusterTemplate
+	//   - on Slurm mode it must be kjobctl.x-k8s.io/v1alpha1/JobTemplate
 	//
 	// +kubebuilder:validation:Required
 	Template TemplateReference `json:"template"`
@@ -88,6 +116,8 @@ type SupportedMode struct {
 	// The request flag used only for Interactive and Job modes.
 	// The cmd flag used only for Interactive, Job, and RayJob.
 	// If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
+	// For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem-per-cpu,
+	// mem-per-gpu, mem-per-task, nodes, ntasks, output, partition.
 	//
 	// cmd and requests values are going to be added only to the first primary container.
 	//
