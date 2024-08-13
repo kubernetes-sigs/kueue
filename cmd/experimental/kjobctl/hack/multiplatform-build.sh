@@ -18,7 +18,6 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-GO_BUILD_ENV=${GO_BUILD_ENV:-}
 GO_CMD=${GO_CMD:-go}
 LD_FLAGS=${LD_FLAGS:-}
 
@@ -43,7 +42,7 @@ for PLATFORM in ${PLATFORMS} ; do
 
   echo "Building for $PLATFORM platform"
   FULL_NAME=${BUILD_NAME}-${GOOS}-${GOARCH}
-  ${GO_BUILD_ENV} "${GO_CMD}" build -ldflags="${LD_FLAGS}" -o "${BUILD_PATH}/${FULL_NAME}${EXTENSION}" "$1"
+  "${GO_CMD}" build -ldflags="${LD_FLAGS}" -o "${BUILD_PATH}/${FULL_NAME}${EXTENSION}" "$1"
 
   mkdir -p "${BUILD_PATH}/tmp"
   cp "${ROOT_PATH}/LICENSE" "${BUILD_PATH}/tmp"
