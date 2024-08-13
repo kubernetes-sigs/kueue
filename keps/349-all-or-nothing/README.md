@@ -242,6 +242,8 @@ if the workload's startup requirements are satisfied. More precisely, we add
 the condition when `job.status.ready + job.status.uncountedTerimnatedPods + job.status.succeeded` is greater or equal
 than `job.spec.parallelism`.
 
+Note that we count `job.status.uncountedTerminatedPods` - this is meant to prevent flickering of the `PodsReady` condition when pods are transitioning to the `Succeeded` state.
+
 Note that, we don't take failed pods into account when verifying if the
 `PodsReady` condition should be added. However, a buggy admitted workload is
 eliminated as the corresponding job fails due to exceeding the `.spec.backoffLimit`
