@@ -20,6 +20,7 @@ import (
 	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutil "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -138,5 +139,20 @@ func (j *RayJobWrapper) EndTime(endTime time.Time) *RayJobWrapper {
 // Suspend set suspend.
 func (j *RayJobWrapper) Suspend(suspend bool) *RayJobWrapper {
 	j.RayJob.Spec.Suspend = suspend
+	return j
+}
+
+// WithRayClusterLabelSelector sets the ClusterSelector.
+func (j *RayJobWrapper) WithRayClusterLabelSelector(v string) *RayJobWrapper {
+	if j.RayJob.Spec.ClusterSelector == nil {
+		j.RayJob.Spec.ClusterSelector = map[string]string{}
+	}
+	j.RayJob.Spec.ClusterSelector[rayutil.RayClusterLabelKey] = v
+	return j
+}
+
+// RayClusterName set rayClusterName.
+func (j *RayJobWrapper) RayClusterName(rayClusterName string) *RayJobWrapper {
+	j.RayJob.Status.RayClusterName = rayClusterName
 	return j
 }

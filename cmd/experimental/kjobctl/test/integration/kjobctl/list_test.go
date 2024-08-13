@@ -150,10 +150,10 @@ very-long-job-name   profile1                 0/3                      %s
 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
-			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                 PROFILE    LOCAL QUEUE   JOB STATUS   DEPLOYMENT STATUS   START TIME   END TIME   AGE
-rj1                  profile1                                                                          %s
-rj2                  profile1                                                                          %s
-very-long-job-name   profile1                                                                          %s
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                 PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME   END TIME   AGE
+rj1                  profile1                                                                                             %s
+rj2                  profile1                                                                                             %s
+very-long-job-name   profile1                                                                                             %s
 `,
 				duration.HumanDuration(executeTime.Sub(rj1.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(rj2.CreationTimestamp.Time)),
