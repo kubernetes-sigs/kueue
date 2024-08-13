@@ -21,7 +21,7 @@ controllerManager:
       pullPolicy: IfNotPresent
   manager:
     image:
-      repository: gcr.io/k8s-staging-kueue/kueue
+      repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
       # This should be set to 'IfNotPresent' for released version      
       pullPolicy: Always
     podAnnotations: {}

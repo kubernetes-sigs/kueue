@@ -32,7 +32,7 @@ DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
 # TODO(#52): Add kueue to k8s gcr registry
-STAGING_IMAGE_REGISTRY := gcr.io/k8s-staging-kueue
+STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
@@ -212,7 +212,7 @@ image-push: image-build
 
 .PHONY: helm-chart-push
 helm-chart-push: yq helm
-	EXTRA_TAG="$(EXTRA_TAG)" GIT_TAG="$(GIT_TAG)" HELM_CHART_REPO="$(HELM_CHART_REPO)" IMAGE_REPO="$(IMAGE_REPO)" HELM="$(HELM)" YQ="$(YQ)" ./hack/push-chart.sh
+	EXTRA_TAG="$(EXTRA_TAG)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" HELM_CHART_REPO="$(HELM_CHART_REPO)" IMAGE_REPO="$(IMAGE_REPO)" HELM="$(HELM)" YQ="$(YQ)" ./hack/push-chart.sh
 
 # Build an amd64 image that can be used for Kind E2E tests.
 .PHONY: kind-image-build
@@ -226,7 +226,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=gcr.io/k8s-staging-kueue/kueue:$(RELEASE_BRANCH))
+clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -293,7 +293,7 @@ update-security-insights: yq
 ##@ Debug
 
 # Build an image that can be used with kubectl debug
-# Developers don't need to build this image, as it will be available as gcr.io/k8s-staging-kueue/debug
+# Developers don't need to build this image, as it will be available as us-central1-docker.pkg.dev/k8s-staging-images/kueue/debug
 .PHONY: debug-image-push
 debug-image-push: ## Build and push the debug image to the registry
 	$(IMAGE_BUILD_CMD) -t $(IMAGE_REGISTRY)/debug:$(GIT_TAG) \
@@ -321,7 +321,7 @@ importer-image-build:
 importer-image-push: PUSH=--push
 importer-image-push: importer-image-build
 
-# Build a docker local gcr.io/k8s-staging-kueue/importer image
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer image
 .PHONY: importer-image
 importer-image: PLATFORMS=linux/amd64
 importer-image: PUSH=--load

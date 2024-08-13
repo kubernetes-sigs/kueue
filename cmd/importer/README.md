@@ -161,8 +161,8 @@ Make the created image accessible by your cluster.
 (cd cmd/importer/run-in-cluster && kustomize edit set image importer=<image:tag>)
 ```
 You can use the image that you built in step one or one of images published in
-https://gcr.io/k8s-staging-kueue/importer, for example:
-`gcr.io/k8s-staging-kueue/importer:main-latest`
+https://us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer, for example:
+`us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer:main-latest`
 
 3. Update the importer args in `cmd/importer/run-in-cluster/importer.yaml` as needed.
 
