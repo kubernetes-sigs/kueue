@@ -104,7 +104,7 @@ func (c *ClusterQueueSnapshot) borrowingLimit(fr resources.FlavorResource) *int6
 // The methods below implement several interfaces. See
 // dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
 
-func (c *ClusterQueueSnapshot) hasCohort() bool {
+func (c *ClusterQueueSnapshot) HasCohort() bool {
 	return c.Cohort != nil
 }
 func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {

@@ -36,6 +36,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -456,6 +457,64 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"two": sets.New("a", "c", "e", "f"),
 			},
 			enableLendingLimit: true,
+		},
+		{
+			// Cohort one is deleted, as its members move
+			// to another Cohort (or no Cohort). Cohort two
+			// is deleted as all of its members are deleted.
+			name: "implicit Cohorts created and deleted",
+			operation: func(cache *Cache) error {
+				_ = setup(cache)
+				updateCqs := []kueue.ClusterQueue{
+					utiltesting.MakeClusterQueue("a").NamespaceSelector(nil).Cohort("three").ClusterQueue,
+					utiltesting.MakeClusterQueue("b").NamespaceSelector(nil).ClusterQueue,
+					utiltesting.MakeClusterQueue("c").NamespaceSelector(nil).Cohort("three").ClusterQueue,
+				}
+				for _, c := range updateCqs {
+					_ = cache.UpdateClusterQueue(&c)
+				}
+				deleteCqs := []kueue.ClusterQueue{
+					utiltesting.MakeClusterQueue("d").Cohort("two").ClusterQueue,
+					utiltesting.MakeClusterQueue("e").Cohort("two").ClusterQueue,
+					utiltesting.MakeClusterQueue("f").Cohort("two").ClusterQueue,
+				}
+				for _, c := range deleteCqs {
+					cache.DeleteClusterQueue(&c)
+				}
+				return nil
+			},
+			wantClusterQueues: map[string]*clusterQueue{
+				"a": {
+					Name:                          "a",
+					AllocatableResourceGeneration: 2,
+					FlavorFungibility:             defaultFlavorFungibility,
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
+					NamespaceSelector:             labels.Nothing(),
+				},
+				"b": {
+					Name:                          "b",
+					AllocatableResourceGeneration: 2,
+					FlavorFungibility:             defaultFlavorFungibility,
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
+					NamespaceSelector:             labels.Nothing(),
+				},
+				"c": {
+					Name:                          "c",
+					AllocatableResourceGeneration: 1,
+					FlavorFungibility:             defaultFlavorFungibility,
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
+					NamespaceSelector:             labels.Nothing(),
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{
+				"three": sets.New("a", "c"),
+			},
 		},
 		{
 			name: "delete",
@@ -985,18 +1044,18 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			if err := tc.operation(cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
-			if diff := cmp.Diff(tc.wantClusterQueues, cache.clusterQueues,
-				cmpopts.IgnoreFields(clusterQueue{}, "Cohort", "ResourceGroups"),
+			if diff := cmp.Diff(tc.wantClusterQueues, cache.hm.ClusterQueues,
+				cmpopts.IgnoreFields(clusterQueue{}, "ResourceGroups"),
 				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment"),
-				cmpopts.IgnoreUnexported(clusterQueue{}),
+				cmpopts.IgnoreUnexported(clusterQueue{}, hierarchy.WiredClusterQueue[*clusterQueue, *cohort]{}),
 				cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 
-			gotCohorts := make(map[string]sets.Set[string], len(cache.cohorts))
-			for name, cohort := range cache.cohorts {
+			gotCohorts := make(map[string]sets.Set[string], len(cache.hm.Cohorts))
+			for name, cohort := range cache.hm.Cohorts {
 				gotCohort := sets.New[string]()
-				for cq := range cohort.Members {
+				for _, cq := range cohort.Members() {
 					gotCohort.Insert(cq.Name)
 				}
 				gotCohorts[name] = gotCohort
@@ -1611,7 +1670,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 			gotResult := make(map[string]result)
-			for name, cq := range cache.clusterQueues {
+			for name, cq := range cache.hm.ClusterQueues {
 				gotResult[name] = result{
 					Workloads:     sets.KeySet(cq.Workloads),
 					UsedResources: cq.Usage,
@@ -2471,7 +2530,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				}
 			}
 			cacheQueues := make(map[string]*queue)
-			for _, cacheCQ := range cache.clusterQueues {
+			for _, cacheCQ := range cache.hm.ClusterQueues {
 				for qKey, cacheQ := range cacheCQ.localQueues {
 					if _, ok := cacheQueues[qKey]; ok {
 						t.Fatalf("The cache have a duplicated localQueue %q across multiple clusterQueues", qKey)
@@ -2724,7 +2783,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(cache *Cache) error {
-				wl := cache.clusterQueues["one"].Workloads["/a"].Obj
+				wl := cache.hm.ClusterQueues["one"].Workloads["/a"].Obj
 				newWl := wl.DeepCopy()
 				apimeta.SetStatusCondition(&newWl.Status.Conditions, metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -2747,7 +2806,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(cache *Cache) error {
-				wl := cache.clusterQueues["one"].Workloads["/a"].Obj
+				wl := cache.hm.ClusterQueues["one"].Workloads["/a"].Obj
 				newWl := wl.DeepCopy()
 				apimeta.SetStatusCondition(&newWl.Status.Conditions, metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -2794,7 +2853,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(cache *Cache) error {
-				wl2 := cache.clusterQueues["two"].Workloads["/b"].Obj
+				wl2 := cache.hm.ClusterQueues["two"].Workloads["/b"].Obj
 				newWl2 := wl2.DeepCopy()
 				apimeta.SetStatusCondition(&newWl2.Status.Conditions, metav1.Condition{
 					Type:   kueue.WorkloadPodsReady,
@@ -2817,7 +2876,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return nil
 			},
 			operation: func(cache *Cache) error {
-				wl := cache.clusterQueues["one"].Workloads["/a"].Obj
+				wl := cache.hm.ClusterQueues["one"].Workloads["/a"].Obj
 				return cache.DeleteWorkload(wl)
 			},
 			wantReady: true,
@@ -2834,7 +2893,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				return cache.AssumeWorkload(wl)
 			},
 			operation: func(cache *Cache) error {
-				wl := cache.clusterQueues["one"].Workloads["/a"].Obj
+				wl := cache.hm.ClusterQueues["one"].Workloads["/a"].Obj
 				return cache.ForgetWorkload(wl)
 			},
 			wantReady: true,
@@ -2874,16 +2933,15 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 // TestIsAssumedOrAdmittedCheckWorkload verifies if workload is in Assumed map from cache or if it is Admitted in one ClusterQueue
 func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 	tests := []struct {
-		name     string
-		cache    *Cache
-		workload workload.Info
-		expected bool
+		name             string
+		clusterQueues    map[string]*clusterQueue
+		assumedWorkloads map[string]string
+		workload         workload.Info
+		expected         bool
 	}{
 		{
-			name: "Workload Is Assumed and not Admitted",
-			cache: &Cache{
-				assumedWorkloads: map[string]string{"workload_namespace/workload_name": "test", "test2": "test2"},
-			},
+			name:             "Workload Is Assumed and not Admitted",
+			assumedWorkloads: map[string]string{"workload_namespace/workload_name": "test", "test2": "test2"},
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
@@ -2894,23 +2952,21 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 				},
 			},
 			expected: true,
-		}, {
+		},
+		{
 			name: "Workload Is not Assumed but is Admitted",
-			cache: &Cache{
-				clusterQueues: map[string]*clusterQueue{
-					"ClusterQueue1": {
-						Name: "ClusterQueue1",
-						Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
-							Obj: &kueue.Workload{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:      "workload_name",
-									Namespace: "workload_namespace",
-								},
+			clusterQueues: map[string]*clusterQueue{
+				"ClusterQueue1": {
+					Name: "ClusterQueue1",
+					Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "workload_name",
+								Namespace: "workload_namespace",
 							},
-						}},
+						},
 					}},
-			},
-
+				}},
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
@@ -2921,23 +2977,23 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 				},
 			},
 			expected: true,
-		}, {
+		},
+		{
 			name: "Workload Is Assumed and Admitted",
-			cache: &Cache{
-				clusterQueues: map[string]*clusterQueue{
-					"ClusterQueue1": {
-						Name: "ClusterQueue1",
-						Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
-							Obj: &kueue.Workload{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:      "workload_name",
-									Namespace: "workload_namespace",
-								},
+
+			clusterQueues: map[string]*clusterQueue{
+				"ClusterQueue1": {
+					Name: "ClusterQueue1",
+					Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "workload_name",
+								Namespace: "workload_namespace",
 							},
-						}},
+						},
 					}},
-				assumedWorkloads: map[string]string{"workload_namespace/workload_name": "test", "test2": "test2"},
-			},
+				}},
+			assumedWorkloads: map[string]string{"workload_namespace/workload_name": "test", "test2": "test2"},
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
@@ -2948,22 +3004,22 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 				},
 			},
 			expected: true,
-		}, {
+		},
+		{
 			name: "Workload Is not Assumed and is not Admitted",
-			cache: &Cache{
-				clusterQueues: map[string]*clusterQueue{
-					"ClusterQueue1": {
-						Name: "ClusterQueue1",
-						Workloads: map[string]*workload.Info{"workload_namespace2/workload_name2": {
-							Obj: &kueue.Workload{
-								ObjectMeta: metav1.ObjectMeta{
-									Name:      "workload_name2",
-									Namespace: "workload_namespace2",
-								},
+			clusterQueues: map[string]*clusterQueue{
+				"ClusterQueue1": {
+					Name: "ClusterQueue1",
+					Workloads: map[string]*workload.Info{"workload_namespace2/workload_name2": {
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "workload_name2",
+								Namespace: "workload_namespace2",
 							},
-						}},
+						},
 					}},
-			},
+				}},
+
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
@@ -2978,7 +3034,10 @@ func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.cache.IsAssumedOrAdmittedWorkload(tc.workload) != tc.expected {
+			cache := New(utiltesting.NewFakeClient())
+			cache.hm.ClusterQueues = tc.clusterQueues
+			cache.assumedWorkloads = tc.assumedWorkloads
+			if cache.IsAssumedOrAdmittedWorkload(tc.workload) != tc.expected {
 				t.Error("Unexpected response")
 			}
 		})

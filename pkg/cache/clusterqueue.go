@@ -32,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -47,7 +48,6 @@ var (
 // holds admitted workloads.
 type clusterQueue struct {
 	Name              string
-	Cohort            *cohort
 	ResourceGroups    []ResourceGroup
 	quotas            map[resources.FlavorResource]*ResourceQuota
 	Usage             resources.FlavorResourceQuantities
@@ -80,12 +80,22 @@ type clusterQueue struct {
 	admittedWorkloadsCount                             int
 	isStopped                                          bool
 	workloadInfoOptions                                []workload.InfoOption
+
+	hierarchy.WiredClusterQueue[*clusterQueue, *cohort]
+}
+
+func (c *clusterQueue) GetName() string {
+	return c.Name
 }
 
 // cohort is a set of ClusterQueues that can borrow resources from each other.
 type cohort struct {
-	Name    string
-	Members sets.Set[*clusterQueue]
+	Name string
+	hierarchy.WiredCohort[*clusterQueue, *cohort]
+}
+
+func (c *cohort) GetName() string {
+	return c.Name
 }
 
 type ResourceGroup struct {
@@ -112,16 +122,16 @@ type queue struct {
 	admittedUsage resources.FlavorResourceQuantities
 }
 
-func newCohort(name string, size int) *cohort {
+func cohortFactory(name string) *cohort {
 	return &cohort{
-		Name:    name,
-		Members: make(sets.Set[*clusterQueue], size),
+		name,
+		hierarchy.NewWiredCohort[*clusterQueue, *cohort](),
 	}
 }
 
 func (c *cohort) CalculateLendable() map[corev1.ResourceName]int64 {
 	lendable := make(map[corev1.ResourceName]int64)
-	for member := range c.Members {
+	for _, member := range c.Members() {
 		for _, fr := range flavorResources(member) {
 			quota := member.QuotaFor(fr)
 			if features.Enabled(features.LendingLimit) && quota.LendingLimit != nil {
@@ -596,16 +606,12 @@ func (c *ClusterQueueSnapshot) UsedCohortQuota(fr resources.FlavorResource) (val
 // The methods below implement several interfaces. See
 // dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
 
-func (c *clusterQueue) hasCohort() bool {
-	return c.Cohort != nil
-}
-
 func (c *clusterQueue) fairWeight() *resource.Quantity {
 	return &c.FairWeight
 }
 
 func (c *clusterQueue) lendableResourcesInCohort() map[corev1.ResourceName]int64 {
-	return c.Cohort.CalculateLendable()
+	return c.Cohort().CalculateLendable()
 }
 
 func (c *clusterQueue) usageFor(fr resources.FlavorResource) int64 {
@@ -639,7 +645,7 @@ func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.Flav
 }
 
 type dominantResourceShareNode interface {
-	hasCohort() bool
+	HasCohort() bool
 	fairWeight() *resource.Quantity
 	lendableResourcesInCohort() map[corev1.ResourceName]int64
 
@@ -647,7 +653,7 @@ type dominantResourceShareNode interface {
 }
 
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities, m int64) (int, corev1.ResourceName) {
-	if !node.hasCohort() {
+	if !node.HasCohort() {
 		return 0, ""
 	}
 	if node.fairWeight().IsZero() {

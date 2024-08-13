@@ -94,11 +94,11 @@ func (c *Cache) Snapshot() Snapshot {
 	defer c.RUnlock()
 
 	snap := Snapshot{
-		ClusterQueues:            make(map[string]*ClusterQueueSnapshot, len(c.clusterQueues)),
+		ClusterQueues:            make(map[string]*ClusterQueueSnapshot, len(c.hm.ClusterQueues)),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[string](),
 	}
-	for _, cq := range c.clusterQueues {
+	for _, cq := range c.hm.ClusterQueues {
 		if !cq.Active() {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
@@ -109,7 +109,7 @@ func (c *Cache) Snapshot() Snapshot {
 		// Shallow copy is enough
 		snap.ResourceFlavors[name] = rf
 	}
-	for _, cohort := range c.cohorts {
+	for _, cohort := range c.hm.Cohorts {
 		cohort.snapshotInto(snap.ClusterQueues)
 	}
 	return snap
@@ -143,13 +143,13 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
 	cohortSnap := &CohortSnapshot{
 		Name:                 c.Name,
-		Members:              make(sets.Set[*ClusterQueueSnapshot], c.Members.Len()),
+		Members:              make(sets.Set[*ClusterQueueSnapshot], len(c.Members())),
 		Lendable:             c.CalculateLendable(),
 		Usage:                make(resources.FlavorResourceQuantities),
 		RequestableResources: make(resources.FlavorResourceQuantities),
 	}
 	cohortSnap.AllocatableResourceGeneration = 0
-	for cq := range c.Members {
+	for _, cq := range c.Members() {
 		if cq.Active() {
 			cqSnap := cqs[cq.Name]
 			cqSnap.accumulateResources(cohortSnap)
