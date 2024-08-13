@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl1, lowWl2)
 			util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPreemption, 2)
-			util.ExpectPreemptedWorkloadsTotalMetric(cq.Name, preemption.InClusterQueueReason, 2)
+			util.ExpectPreemptedWorkloadsTotalMetric(cq.Name, kueue.InClusterQueueReason, 2)
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl2)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
@@ -282,12 +282,12 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 			ginkgo.By("Verify the Preempted condition", func() {
-				util.ExpectPreemptedCondition(ctx, k8sClient, preemption.InClusterQueueReason, metav1.ConditionTrue, alphaLowWl, alphaMidWl)
-				util.ExpectPreemptedCondition(ctx, k8sClient, preemption.InCohortReclamationReason, metav1.ConditionTrue, betaMidWl, alphaMidWl)
-				util.ExpectPreemptedWorkloadsTotalMetric(alphaCQ.Name, preemption.InClusterQueueReason, 1)
-				util.ExpectPreemptedWorkloadsTotalMetric(alphaCQ.Name, preemption.InCohortReclamationReason, 1)
-				util.ExpectPreemptedWorkloadsTotalMetric(betaCQ.Name, preemption.InClusterQueueReason, 0)
-				util.ExpectPreemptedWorkloadsTotalMetric(betaCQ.Name, preemption.InCohortReclamationReason, 0)
+				util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, alphaLowWl, alphaMidWl)
+				util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InCohortReclamationReason, metav1.ConditionTrue, betaMidWl, alphaMidWl)
+				util.ExpectPreemptedWorkloadsTotalMetric(alphaCQ.Name, kueue.InClusterQueueReason, 1)
+				util.ExpectPreemptedWorkloadsTotalMetric(alphaCQ.Name, kueue.InCohortReclamationReason, 1)
+				util.ExpectPreemptedWorkloadsTotalMetric(betaCQ.Name, kueue.InClusterQueueReason, 0)
+				util.ExpectPreemptedWorkloadsTotalMetric(betaCQ.Name, kueue.InCohortReclamationReason, 0)
 			})
 
 			ginkgo.By("Verify the Preempted condition on re-admission, as the preemptor is finished", func() {
@@ -301,7 +301,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[preemption.InClusterQueueReason]),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InClusterQueueReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -311,7 +311,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Type:    kueue.WorkloadPreempted,
 						Status:  metav1.ConditionFalse,
 						Reason:  "QuotaReserved",
-						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[preemption.InCohortReclamationReason]),
+						Message: fmt.Sprintf("Previously: Preempted to accommodate a workload (UID: %s) due to %s", alphaMidWl.UID, preemption.HumanReadablePreemptionReasons[kueue.InCohortReclamationReason]),
 					}, conditionCmpOpts))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -693,9 +693,9 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, aStandardVeryHighWl)).To(gomega.Succeed())
 
-			util.ExpectPreemptedCondition(ctx, k8sClient, preemption.InCohortReclaimWhileBorrowingReason, metav1.ConditionTrue, aBestEffortLowWl, aStandardVeryHighWl)
-			util.ExpectPreemptedWorkloadsTotalMetric(aStandardCQ.Name, preemption.InCohortReclaimWhileBorrowingReason, 1)
-			util.ExpectPreemptedWorkloadsTotalMetric(aBestEffortCQ.Name, preemption.InCohortReclaimWhileBorrowingReason, 0)
+			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InCohortReclaimWhileBorrowingReason, metav1.ConditionTrue, aBestEffortLowWl, aStandardVeryHighWl)
+			util.ExpectPreemptedWorkloadsTotalMetric(aStandardCQ.Name, kueue.InCohortReclaimWhileBorrowingReason, 1)
+			util.ExpectPreemptedWorkloadsTotalMetric(aBestEffortCQ.Name, kueue.InCohortReclaimWhileBorrowingReason, 0)
 
 			ginkgo.By("Finish eviction fo the a-best-effort-low workload")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, aBestEffortLowWl)
@@ -781,6 +781,123 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3,
 				testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "alpha", "4").Obj())
+		})
+	})
+
+	ginkgo.Context("When borrowWithinCohort is used and PrioritySortingWithinCohort disabled", func() {
+		var (
+			aCQ, bCQ, cCQ *kueue.ClusterQueue
+			aLQ, bLQ      *kueue.LocalQueue
+			defaultFlavor *kueue.ResourceFlavor
+		)
+
+		ginkgo.BeforeEach(func() {
+			gomega.Expect(features.SetEnable(features.PrioritySortingWithinCohort, false)).To(gomega.Succeed())
+			defaultFlavor = testing.MakeResourceFlavor("default").Obj()
+			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
+
+			aCQ = testing.MakeClusterQueue("a-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0", "10").Obj(),
+				).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.Preempt,
+				}).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aCQ)).To(gomega.Succeed())
+			aLQ = testing.MakeLocalQueue("a-lq", ns.Name).ClusterQueue(aCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, aLQ)).To(gomega.Succeed())
+
+			bCQ = testing.MakeClusterQueue("b-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5", "5").Obj(),
+				).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.Preempt,
+				}).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					BorrowWithinCohort: &kueue.BorrowWithinCohort{
+						Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+						MaxPriorityThreshold: ptr.To(veryHighPriority),
+					},
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, bCQ)).To(gomega.Succeed())
+			bLQ = testing.MakeLocalQueue("b-lq", ns.Name).ClusterQueue(bCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, bLQ)).To(gomega.Succeed())
+
+			cCQ = testing.MakeClusterQueue("c-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.Preempt,
+				}).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cCQ)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(features.SetEnable(features.PrioritySortingWithinCohort, true)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, aCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, bCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cCQ, true)
+		})
+
+		ginkgo.It("should allow preempting workloads while borrowing", func() {
+			var aWl, b1Wl, b2Wl *kueue.Workload
+
+			ginkgo.By("Create a mid priority workload in aCQ and await for admission", func() {
+				aWl = testing.MakeWorkload("a-low", ns.Name).
+					Queue(aLQ.Name).
+					Priority(midPriority).
+					Request(corev1.ResourceCPU, "4").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, aWl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, aWl)
+			})
+
+			ginkgo.By("Create a high priority workload b1 in bCQ and await for admission", func() {
+				b1Wl = testing.MakeWorkload("b1-high", ns.Name).
+					Queue(bLQ.Name).
+					Priority(highPriority).
+					Request(corev1.ResourceCPU, "4").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, b1Wl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, b1Wl)
+			})
+
+			ginkgo.By("Create a high priority workload b2 in bCQ", func() {
+				b2Wl = testing.MakeWorkload("b2-high", ns.Name).
+					Queue(bLQ.Name).
+					Priority(highPriority).
+					Request(corev1.ResourceCPU, "4").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, b2Wl)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Await for preemption of the workload in aCQ and admission of b2", func() {
+				util.FinishEvictionForWorkloads(ctx, k8sClient, aWl)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, aWl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, b2Wl)
+			})
 		})
 	})
 })

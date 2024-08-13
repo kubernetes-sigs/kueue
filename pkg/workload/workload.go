@@ -540,6 +540,15 @@ func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 			return &evictedCond.LastTransitionTime
 		}
 	}
+	if !features.Enabled(features.PrioritySortingWithinCohort) {
+		if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil &&
+			preemptedCond.Status == metav1.ConditionTrue &&
+			preemptedCond.Reason == kueue.InCohortReclaimWhileBorrowingReason {
+			// We add an epsilon to make sure the timestamp of the preempted
+			// workload is strictly greater that the preemptor's
+			return &metav1.Time{Time: preemptedCond.LastTransitionTime.Add(time.Millisecond)}
+		}
+	}
 	return &w.CreationTimestamp
 }
 
