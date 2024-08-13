@@ -29,10 +29,10 @@ type slurmBuilder struct {
 
 var _ builder = (*slurmBuilder)(nil)
 
-func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, error) {
+func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	// TODO: Implement method...
 
-	return &batchv1.Job{}, nil
+	return []runtime.Object{&batchv1.Job{}}, nil
 }
 
 func newSlurmBuilder(b *Builder) *slurmBuilder {

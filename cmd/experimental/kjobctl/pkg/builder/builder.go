@@ -69,7 +69,7 @@ var (
 )
 
 type builder interface {
-	build(ctx context.Context) (runtime.Object, error)
+	build(ctx context.Context) ([]runtime.Object, error)
 }
 
 type Builder struct {
@@ -418,14 +418,7 @@ func (b *Builder) Do(ctx context.Context) ([]runtime.Object, error) {
 		return nil, err
 	}
 
-	objs := make([]runtime.Object, 0)
-	o, err := bImpl.build(ctx)
-	if err != nil {
-		return nil, err
-	}
-	objs = append(objs, o)
-
-	return objs, nil
+	return bImpl.build(ctx)
 }
 
 func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {
