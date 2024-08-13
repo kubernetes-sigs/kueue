@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	kfcommon "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/common"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 )
 
@@ -45,7 +46,7 @@ func init() {
 		JobType:                &kftraining.PaddleJob{},
 		AddToScheme:            kftraining.AddToScheme,
 		IsManagingObjectsOwner: isPaddleJob,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      kfcommon.NewAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, kftraining.PaddleJobKind),
 	}))
 }
 

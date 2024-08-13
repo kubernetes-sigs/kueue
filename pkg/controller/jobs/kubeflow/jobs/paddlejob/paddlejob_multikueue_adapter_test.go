@@ -31,6 +31,8 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	kfcommon "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/common"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	kfutiltesting "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
@@ -52,7 +54,7 @@ func TestMultikueueAdapter(t *testing.T) {
 		managersPaddleJobs []kftraining.PaddleJob
 		workerPaddleJobs   []kftraining.PaddleJob
 
-		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
+		operation func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError              error
 		wantManagersPaddleJobs []kftraining.PaddleJob
@@ -62,7 +64,8 @@ func TestMultikueueAdapter(t *testing.T) {
 			managersPaddleJobs: []kftraining.PaddleJob{
 				*paddleJobBuilder.Clone().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "paddlejob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -87,7 +90,7 @@ func TestMultikueueAdapter(t *testing.T) {
 					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "paddlejob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -111,7 +114,7 @@ func TestMultikueueAdapter(t *testing.T) {
 					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "paddlejob1", Namespace: TestNamespace})
 			},
 		},
@@ -129,7 +132,7 @@ func TestMultikueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multikueueAdapter{}
+			adapter := kfcommon.NewAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, kftraining.PaddleJobKind)
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

@@ -17,12 +17,7 @@ limitations under the License.
 package paddlejob
 
 import (
-	"context"
-
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -30,48 +25,19 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
-type multikueueAdapter struct{}
+var _ jobframework.MultiKueueAdapter = kfcommon.NewAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, kftraining.PaddleJobKind)
 
-var _ jobframework.MultiKueueAdapter = (*multikueueAdapter)(nil)
-var _ jobframework.UpdateRemoteJob = (*multikueueAdapter)(nil)
-
-func (b *multikueueAdapter) UpdateRemoteJobStatus(localJob, remoteJob interface{}) {
-	localJob.(*kftraining.PaddleJob).Status = remoteJob.(*kftraining.PaddleJob).Status
+func copyJobStatus(dst, src *kftraining.PaddleJob) {
+	dst.Status = src.Status
 }
 
-func (b *multikueueAdapter) UpdateRemoteJobSpec(localJob, remoteJob interface{}) {
-	*remoteJob.(*kftraining.PaddleJob) = kftraining.PaddleJob{
-		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.(*kftraining.PaddleJob).ObjectMeta),
-		Spec:       *localJob.(*kftraining.PaddleJob).Spec.DeepCopy(),
+func copyJobSpec(dst, src *kftraining.PaddleJob) {
+	*dst = kftraining.PaddleJob{
+		ObjectMeta: api.CloneObjectMetaForCreation(&src.ObjectMeta),
+		Spec:       *src.Spec.DeepCopy(),
 	}
 }
 
-func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
-	return kfcommon.SyncJob[*kftraining.PaddleJob](ctx, localClient, remoteClient, key, workloadName, origin, b)
-}
-
-func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
-	return kfcommon.DeleteRemoteObject[*kftraining.PaddleJob](ctx, remoteClient, key)
-}
-
-func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
-	return false
-}
-
-func (b *multikueueAdapter) IsJobManagedByKueue(context.Context, client.Client, types.NamespacedName) (bool, string, error) {
-	return true, "", nil
-}
-
-func (b *multikueueAdapter) GVK() schema.GroupVersionKind {
-	return gvk
-}
-
-var _ jobframework.MultiKueueWatcher = (*multikueueAdapter)(nil)
-
-func (*multikueueAdapter) GetEmptyList() client.ObjectList {
+func getEmptyList() client.ObjectList {
 	return &kftraining.PaddleJobList{}
-}
-
-func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
-	return kfcommon.WorkloadKeyFor[*kftraining.PaddleJob](o, kftraining.PaddleJobKind)
 }
