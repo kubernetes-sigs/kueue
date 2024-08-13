@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayfake "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned/fake"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -106,6 +107,37 @@ default     rj2    profile2   lq2                              SUCCEEDED    Comp
 				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
 				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
 			),
+		},
+		"should print raycluster list with all namespaces": {
+			args: []string{"raycluster", "--all-namespaces"},
+			rayObjs: []runtime.Object{
+				wrappers.MakeRayCluster("rc1", metav1.NamespaceDefault).
+					Profile("profile1").
+					LocalQueue("lq1").
+					DesiredWorkerReplicas(2).
+					AvailableWorkerReplicas(3).
+					DesiredCPU(resource.MustParse("5")).
+					DesiredMemory(resource.MustParse("10Gi")).
+					DesiredGPU(resource.MustParse("10")).
+					State(rayv1.Ready).
+					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
+					Obj(),
+				wrappers.MakeRayCluster("rc2", metav1.NamespaceDefault).
+					Profile("profile2").
+					LocalQueue("lq2").
+					DesiredWorkerReplicas(2).
+					AvailableWorkerReplicas(3).
+					DesiredCPU(resource.MustParse("5")).
+					DesiredMemory(resource.MustParse("10Gi")).
+					DesiredGPU(resource.MustParse("10")).
+					State(rayv1.Ready).
+					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
+					Obj(),
+			},
+			wantOut: `NAMESPACE   NAME   PROFILE    LOCAL QUEUE   DESIRED WORKERS   AVAILABLE WORKERS   CPUS   MEMORY   GPUS   STATUS   AGE
+default     rc1    profile1   lq1           2                 3                   5      10Gi     10     ready    120m
+default     rc2    profile2   lq2           2                 3                   5      10Gi     10     ready    120m
+`,
 		},
 	}
 	for name, tc := range testCases {
