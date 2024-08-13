@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"os"
 	"slices"
 	"time"
@@ -91,14 +92,14 @@ type Builder struct {
 	localQueue  string
 	rayCluster  string
 	array       string
-	cpusPerTask *int32
+	cpusPerTask *resource.Quantity
 	err         string
-	gpusPerTask *int32
+	gpusPerTask *resource.Quantity
 	input       string
 	jobName     string
-	memPerCPU   string
-	memPerGPU   string
-	memPerTask  string
+	memPerCPU   *resource.Quantity
+	memPerGPU   *resource.Quantity
+	memPerTask  *resource.Quantity
 	nodes       *int32
 	nTasks      *int32
 	output      string
@@ -180,7 +181,7 @@ func (b *Builder) WithArray(array string) *Builder {
 	return b
 }
 
-func (b *Builder) WithCpusPerTask(cpusPerTask *int32) *Builder {
+func (b *Builder) WithCpusPerTask(cpusPerTask *resource.Quantity) *Builder {
 	b.cpusPerTask = cpusPerTask
 	return b
 }
@@ -190,7 +191,7 @@ func (b *Builder) WithError(err string) *Builder {
 	return b
 }
 
-func (b *Builder) WithGpusPerTask(gpusPerTask *int32) *Builder {
+func (b *Builder) WithGpusPerTask(gpusPerTask *resource.Quantity) *Builder {
 	b.gpusPerTask = gpusPerTask
 	return b
 }
@@ -205,17 +206,17 @@ func (b *Builder) WithJobName(jobName string) *Builder {
 	return b
 }
 
-func (b *Builder) WithMemPerCPU(memPerCPU string) *Builder {
+func (b *Builder) WithMemPerCPU(memPerCPU *resource.Quantity) *Builder {
 	b.memPerCPU = memPerCPU
 	return b
 }
 
-func (b *Builder) WithMemPerGPU(memPerGPU string) *Builder {
+func (b *Builder) WithMemPerGPU(memPerGPU *resource.Quantity) *Builder {
 	b.memPerGPU = memPerGPU
 	return b
 }
 
-func (b *Builder) WithMemPerTask(memPerTask string) *Builder {
+func (b *Builder) WithMemPerTask(memPerTask *resource.Quantity) *Builder {
 	b.memPerTask = memPerTask
 	return b
 }
@@ -355,15 +356,15 @@ func (b *Builder) validateFlags() error {
 		return noJobNameSpecifiedErr
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MemPerCPUFlag) && b.memPerCPU == "" {
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MemPerCPUFlag) && b.memPerCPU == nil {
 		return noMemPerCPUSpecifiedErr
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MemPerGPUFlag) && b.memPerGPU == "" {
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MemPerGPUFlag) && b.memPerGPU == nil {
 		return noMemPerGPUSpecifiedErr
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MemPerTaskFlag) && b.memPerTask == "" {
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.MemPerTaskFlag) && b.memPerTask == nil {
 		return noMemPerTaskSpecifiedErr
 	}
 
