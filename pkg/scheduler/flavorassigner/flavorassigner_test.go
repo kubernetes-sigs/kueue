@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -39,6 +40,12 @@ import (
 type cohortResources struct {
 	requestableResources resources.FlavorResourceQuantities
 	usage                resources.FlavorResourceQuantities
+}
+
+type testOracle struct{}
+
+func (f *testOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) bool {
+	return cq.QuotaFor(fr).Nominal >= quantity+cq.Usage[fr]
 }
 
 func TestAssignFlavors(t *testing.T) {
@@ -1956,7 +1963,7 @@ func TestAssignFlavors(t *testing.T) {
 			}
 			clusterQueue.Usage = tc.clusterQueueUsage
 
-			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing)
+			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{})
 			assignment := flvAssigner.Assign(log, nil)
 			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
@@ -1964,6 +1971,159 @@ func TestAssignFlavors(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState")); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// We have 3 flavors: uno, due, tre. Each has 10 compute and 10 gpu.
+// These FlavorResources are provided by test-clusterqueue, and made
+// available to its Cohort.
+func TestReclaimBeforePriorityPreemption(t *testing.T) {
+	type rfMap = map[corev1.ResourceName]kueue.ResourceFlavorReference
+	cases := map[string]struct {
+		workloadRequests       *utiltesting.PodSetWrapper
+		testClusterQueueUsage  resources.FlavorResourceQuantities
+		otherClusterQueueUsage resources.FlavorResourceQuantities
+		flavorFungibility      *kueue.FlavorFungibility
+		wantMode               FlavorAssignmentMode
+		wantAssigment          rfMap
+	}{
+		"Select first flavor which fits": {
+			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10"),
+			testClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "uno", Resource: "gpu"}: 1,
+			},
+			otherClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "due", Resource: "gpu"}: 1,
+			},
+			wantMode:      Fit,
+			wantAssigment: rfMap{"gpu": "tre"},
+		},
+		"Select first flavor where gpu reclamation is possible": {
+			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10"),
+			testClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "uno", Resource: "gpu"}: 1,
+			},
+			otherClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "due", Resource: "gpu"}: 1,
+				{Flavor: "tre", Resource: "gpu"}: 1,
+			},
+			wantMode:      Preempt,
+			wantAssigment: rfMap{"gpu": "due"},
+		},
+		"Select first flavor when flavor fungibility is disabled": {
+			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10"),
+			testClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "uno", Resource: "gpu"}: 1,
+			},
+			otherClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "due", Resource: "gpu"}: 1,
+				{Flavor: "tre", Resource: "gpu"}: 1,
+			},
+			flavorFungibility: &kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
+			},
+			wantMode:      Preempt,
+			wantAssigment: rfMap{"gpu": "uno"},
+		},
+		"Select first flavor where priority based preemption is possible": {
+			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10"),
+			testClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "uno", Resource: "gpu"}: 1,
+				{Flavor: "due", Resource: "gpu"}: 1,
+				{Flavor: "tre", Resource: "gpu"}: 1,
+			},
+			wantMode:      Preempt,
+			wantAssigment: rfMap{"gpu": "uno"},
+		},
+		"Select second flavor where gpu reclamation is possible, as compute Fits": {
+			workloadRequests: utiltesting.MakePodSet("main", 1).Request("gpu", "10").Request("compute", "10"),
+			testClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "uno", Resource: "gpu"}:     1,
+				{Flavor: "uno", Resource: "compute"}: 1,
+				{Flavor: "due", Resource: "compute"}: 1,
+			},
+			otherClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "due", Resource: "gpu"}: 1,
+				{Flavor: "tre", Resource: "gpu"}: 1,
+			},
+			wantMode:      Preempt,
+			wantAssigment: rfMap{"gpu": "tre", "compute": "tre"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+				"uno": utiltesting.MakeResourceFlavor("uno").Obj(),
+				"due": utiltesting.MakeResourceFlavor("due").Obj(),
+				"tre": utiltesting.MakeResourceFlavor("tre").Obj(),
+			}
+			testCq := utiltesting.MakeClusterQueue("test-clusterqueue").
+				Cohort("cohort").
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanPreempt: kueue.TryNextFlavor,
+				}).
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("uno").Resource("compute", "10").Resource("gpu", "10").FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("due").Resource("compute", "10").Resource("gpu", "10").FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("tre").Resource("compute", "10").Resource("gpu", "10").FlavorQuotas,
+				).ClusterQueue
+			otherCq := utiltesting.MakeClusterQueue("other-clusterqueue").
+				Cohort("cohort").
+				ResourceGroup(
+					utiltesting.MakeFlavorQuotas("uno").Resource("compute", "0").Resource("gpu", "0").FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("due").Resource("compute", "0").Resource("gpu", "0").FlavorQuotas,
+					utiltesting.MakeFlavorQuotas("tre").Resource("compute", "0").Resource("gpu", "0").FlavorQuotas,
+				).ClusterQueue
+
+			wlInfo := workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						tc.workloadRequests.PodSet,
+					},
+				},
+			})
+
+			if tc.flavorFungibility != nil {
+				testCq.Spec.FlavorFungibility = tc.flavorFungibility
+			}
+
+			cache := cache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(context.Background(), &testCq); err != nil {
+				t.Fatalf("Failed to add CQ to cache")
+			}
+			if err := cache.AddClusterQueue(context.Background(), &otherCq); err != nil {
+				t.Fatalf("Failed to add CQ to cache")
+			}
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(rf)
+			}
+
+			snapshot := cache.Snapshot()
+			otherClusterQueue := snapshot.ClusterQueues["other-clusterqueue"]
+			otherClusterQueue.AddUsage(tc.otherClusterQueueUsage)
+
+			testClusterQueue := snapshot.ClusterQueues["test-clusterqueue"]
+			testClusterQueue.AddUsage(tc.testClusterQueueUsage)
+
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{})
+			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})
+			assignment := flvAssigner.Assign(log, nil)
+			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
+				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
+			}
+			if len(assignment.PodSets[0].Flavors) != len(tc.wantAssigment) {
+				t.Errorf("Wrong number of flavors. got %d, want %d", len(assignment.PodSets[0].Flavors), len(tc.wantAssigment))
+			}
+			for resourceName, wantFlavor := range tc.wantAssigment {
+				if gotFlavor := assignment.PodSets[0].Flavors[resourceName].Name; gotFlavor != wantFlavor {
+					t.Errorf("Unexpected flavor. got %s, want %s", gotFlavor, wantFlavor)
+				}
 			}
 		})
 	}
@@ -2077,7 +2237,7 @@ func TestDeletedFlavors(t *testing.T) {
 			cache.DeleteResourceFlavor(flavorMap["deleted-flavor"])
 			delete(flavorMap, "deleted-flavor")
 
-			flvAssigner := New(wlInfo, clusterQueue, flavorMap, false)
+			flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{})
 
 			assignment := flvAssigner.Assign(log, nil)
 			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
