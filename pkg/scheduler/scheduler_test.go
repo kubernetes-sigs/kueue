@@ -2313,6 +2313,195 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
 			},
 		},
+		"prefer reclamation over cq priority based preemption": {
+			// Flavor 1, on-demand, requires preemption of workload in CQ.
+			// Flavor 2, spot, requires preemption of workload in Cohort which
+			// is borrowing from CQ.
+			// Flavor 2 is a better assignment, so we preempt in it.
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "10").FlavorQuotas,
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").FlavorQuotas,
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-beta", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request("gpu", "6").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-beta/b1"),
+			wantLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment("gpu", "on-demand", "5").Obj(),
+				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment("gpu", "spot", "5").Obj(),
+			},
+		},
+		"prefer first preemption flavor when second flavor requires both reclaim and cq priority preemption": {
+			// Flavor 1, on-demand, requires preemption of workload in CQ.
+			// Flavor 2, spot, requires preemption of workload in Cohort and CQ
+			// Since Flavor 2 doesn't improve the assignment, we prefer Flavor 1.
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "10").FlavorQuotas,
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").FlavorQuotas,
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-beta", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request("gpu", "6").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-alpha/a1"),
+			wantLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment("gpu", "on-demand", "5").Obj(),
+				"eng-alpha/a2": *utiltesting.MakeAdmission("other-alpha").Assignment("gpu", "spot", "5").Obj(),
+				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment("gpu", "spot", "5").Obj(),
+			},
+		},
+		"prefer first preemption flavor when second flavor also requires cq preemption": {
+			// Flavor 1, on-demand, requires preemption of workload in CQ
+			// Flavor 2, spot, also requires preemption of workload in CQ,
+			// since the borrowing workload in Cohort is too high priority.
+			// Therefore, we choose Flavor 1.
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("other-alpha").
+					Cohort("other").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "10").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "10").FlavorQuotas,
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("other-beta").
+					Cohort("other").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("on-demand").Resource("gpu", "0").FlavorQuotas,
+						utiltesting.MakeFlavorQuotas("spot").Resource("gpu", "0").FlavorQuotas,
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("other", "eng-alpha").ClusterQueue("other-alpha").Obj(),
+				*utiltesting.MakeLocalQueue("other", "eng-beta").ClusterQueue("other-beta").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a1", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "6").
+					SimpleReserveQuota("other-alpha", "on-demand", now).
+					Obj(),
+				*utiltesting.MakeWorkload("a2", "eng-alpha").
+					Priority(50).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-alpha", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("b1", "eng-beta").
+					// b1 is too high priority for preemptor.
+					Priority(9001).
+					Queue("other").
+					Request("gpu", "5").
+					SimpleReserveQuota("other-beta", "spot", now).
+					Obj(),
+				*utiltesting.MakeWorkload("preemptor", "eng-alpha").
+					Priority(100).
+					Queue("other").
+					Request("gpu", "5").
+					Obj(),
+			},
+			wantPreempted: sets.New("eng-alpha/a1"),
+			wantLeft: map[string][]string{
+				"other-alpha": {"eng-alpha/preemptor"},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment("gpu", "on-demand", "6").Obj(),
+				"eng-alpha/a2": *utiltesting.MakeAdmission("other-alpha").Assignment("gpu", "spot", "5").Obj(),
+				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment("gpu", "spot", "5").Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {

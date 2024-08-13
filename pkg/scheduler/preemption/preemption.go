@@ -101,11 +101,17 @@ type Target struct {
 	Reason       string
 }
 
-// GetTargets returns the list of workloads that should be evicted in order to make room for wl.
+// GetTargets returns the list of workloads that should be evicted in
+// order to make room for wl.
 func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*Target {
 	frsNeedPreemption := flavorResourcesNeedPreemption(assignment)
-	cq := snapshot.ClusterQueues[wl.ClusterQueue]
+	requests := assignment.TotalRequestsFor(&wl)
+	return p.getTargets(log, wl, requests, frsNeedPreemption, snapshot)
+}
 
+func (p *Preemptor) getTargets(log logr.Logger, wl workload.Info, requests resources.FlavorResourceQuantities,
+	frsNeedPreemption sets.Set[resources.FlavorResource], snapshot *cache.Snapshot) []*Target {
+	cq := snapshot.ClusterQueues[wl.ClusterQueue]
 	candidates := p.findCandidates(wl.Obj, cq, frsNeedPreemption)
 	if len(candidates) == 0 {
 		return nil
@@ -113,7 +119,6 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, time.Now()))
 
 	sameQueueCandidates := candidatesOnlyFromQueue(candidates, wl.ClusterQueue)
-	requests := assignment.TotalRequestsFor(&wl)
 
 	// To avoid flapping, Kueue only allows preemption of workloads from the same
 	// queue if borrowing. Preemption of workloads from queues can happen only
