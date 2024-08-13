@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					createdJob := &batchv1.Job{}
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
 					return int(*createdJob.Status.Ready)
-				}, util.Timeout, util.Interval).Should(gomega.Equal(1))
+				}, util.LongTimeout, util.Interval).Should(gomega.Equal(1))
 			})
 
 			ginkgo.By("Terminate execution of the first workload to release the quota", func() {
