@@ -33,8 +33,10 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -132,6 +134,9 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 				Port:    webhookInstallOptions.LocalServingPort,
 				CertDir: webhookInstallOptions.LocalServingCertDir,
 			}),
+		Controller: crconfig.Controller{
+			SkipNameValidation: ptr.To(true),
+		},
 	}
 	mgr, err := ctrl.NewManager(cfg, mgrOpts)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")

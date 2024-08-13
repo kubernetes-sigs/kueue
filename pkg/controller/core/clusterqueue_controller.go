@@ -63,7 +63,7 @@ type ClusterQueueReconciler struct {
 	log                                  logr.Logger
 	qManager                             *queue.Manager
 	cache                                *cache.Cache
-	snapshotsQueue                       workqueue.Interface
+	snapshotsQueue                       workqueue.TypedInterface[string]
 	wlUpdateCh                           chan event.GenericEvent
 	rfUpdateCh                           chan event.GenericEvent
 	acUpdateCh                           chan event.GenericEvent
@@ -137,7 +137,7 @@ func NewClusterQueueReconciler(
 		log:                                  ctrl.Log.WithName("cluster-queue-reconciler"),
 		qManager:                             qMgr,
 		cache:                                cache,
-		snapshotsQueue:                       workqueue.New(),
+		snapshotsQueue:                       workqueue.NewTyped[string](),
 		wlUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		rfUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		acUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
@@ -452,16 +452,16 @@ type cqWorkloadHandler struct {
 	qManager *queue.Manager
 }
 
-func (h *cqWorkloadHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqWorkloadHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	w := e.Object.(*kueue.Workload)
 	req := h.requestForWorkloadClusterQueue(w)
 	if req != nil {
@@ -493,10 +493,10 @@ type cqNamespaceHandler struct {
 	cache    *cache.Cache
 }
 
-func (h *cqNamespaceHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldNs := e.ObjectOld.(*corev1.Namespace)
 	oldMatchingCqs := h.cache.MatchingClusterQueues(oldNs.Labels)
 	newNs := e.ObjectNew.(*corev1.Namespace)
@@ -510,26 +510,26 @@ func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, _ 
 	h.qManager.QueueInadmissibleWorkloads(ctx, cqs)
 }
 
-func (h *cqNamespaceHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqNamespaceHandler) Generic(context.Context, event.GenericEvent, workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 type cqResourceFlavorHandler struct {
 	cache *cache.Cache
 }
 
-func (h *cqResourceFlavorHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *cqResourceFlavorHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqResourceFlavorHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *cqResourceFlavorHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqResourceFlavorHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *cqResourceFlavorHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqResourceFlavorHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *cqResourceFlavorHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	rf, ok := e.Object.(*kueue.ResourceFlavor)
 	if !ok {
 		return
@@ -554,16 +554,16 @@ type cqSnapshotHandler struct {
 	queueVisibilityUpdateInterval time.Duration
 }
 
-func (h *cqAdmissionCheckHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *cqAdmissionCheckHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqAdmissionCheckHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *cqAdmissionCheckHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqAdmissionCheckHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *cqAdmissionCheckHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqAdmissionCheckHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *cqAdmissionCheckHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	ac, isAc := e.Object.(*kueue.AdmissionCheck)
 	if !isAc {
 		return
@@ -580,16 +580,16 @@ func (h *cqAdmissionCheckHandler) Generic(_ context.Context, e event.GenericEven
 	}
 }
 
-func (h *cqSnapshotHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *cqSnapshotHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqSnapshotHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *cqSnapshotHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqSnapshotHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *cqSnapshotHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *cqSnapshotHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *cqSnapshotHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	cq, isCq := e.Object.(*kueue.ClusterQueue)
 	if !isCq {
 		return
@@ -629,10 +629,10 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 		For(&kueue.ClusterQueue{}).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		Watches(&corev1.Namespace{}, &nsHandler).
-		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
-		WatchesRawSource(&source.Channel{Source: r.rfUpdateCh}, &rfHandler).
-		WatchesRawSource(&source.Channel{Source: r.acUpdateCh}, &acHandler).
-		WatchesRawSource(&source.Channel{Source: r.snapUpdateCh}, &snapHandler).
+		WatchesRawSource(source.Channel(r.wlUpdateCh, &wHandler)).
+		WatchesRawSource(source.Channel(r.rfUpdateCh, &rfHandler)).
+		WatchesRawSource(source.Channel(r.acUpdateCh, &acHandler)).
+		WatchesRawSource(source.Channel(r.snapUpdateCh, &snapHandler)).
 		WithEventFilter(r).
 		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
 }
@@ -739,19 +739,18 @@ func (r *ClusterQueueReconciler) takeSnapshot(ctx context.Context) {
 func (r *ClusterQueueReconciler) processNextSnapshot(ctx context.Context) bool {
 	log := ctrl.LoggerFrom(ctx).WithName("processNextSnapshot")
 
-	key, quit := r.snapshotsQueue.Get()
+	cqName, quit := r.snapshotsQueue.Get()
 	if quit {
 		return false
 	}
 
 	startTime := time.Now()
 	defer func() {
-		log.V(5).Info("Finished snapshot job", "key", key, "elapsed", time.Since(startTime))
+		log.V(5).Info("Finished snapshot job", "clusterQueue", klog.KRef("", cqName), "elapsed", time.Since(startTime))
 	}()
 
-	defer r.snapshotsQueue.Done(key)
+	defer r.snapshotsQueue.Done(cqName)
 
-	cqName := key.(string)
 	if r.qManager.UpdateSnapshot(cqName, r.queueVisibilityClusterQueuesMaxCount) {
 		log.V(5).Info("Triggering CQ update due to snapshot change", "clusterQueue", klog.KRef("", cqName))
 		r.snapUpdateCh <- event.GenericEvent{Object: &kueue.ClusterQueue{

@@ -21,14 +21,14 @@ import (
 	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
-// KubeConfigApplyConfiguration represents an declarative configuration of the KubeConfig type for use
+// KubeConfigApplyConfiguration represents a declarative configuration of the KubeConfig type for use
 // with apply.
 type KubeConfigApplyConfiguration struct {
 	Location     *string                `json:"location,omitempty"`
 	LocationType *v1alpha1.LocationType `json:"locationType,omitempty"`
 }
 
-// KubeConfigApplyConfiguration constructs an declarative configuration of the KubeConfig type for use with
+// KubeConfigApplyConfiguration constructs a declarative configuration of the KubeConfig type for use with
 // apply.
 func KubeConfig() *KubeConfigApplyConfiguration {
 	return &KubeConfigApplyConfiguration{}

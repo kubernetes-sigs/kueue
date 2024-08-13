@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// PendingWorkloadApplyConfiguration represents an declarative configuration of the PendingWorkload type for use
+// PendingWorkloadApplyConfiguration represents a declarative configuration of the PendingWorkload type for use
 // with apply.
 type PendingWorkloadApplyConfiguration struct {
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
@@ -33,7 +33,7 @@ type PendingWorkloadApplyConfiguration struct {
 	PositionInLocalQueue             *int32  `json:"positionInLocalQueue,omitempty"`
 }
 
-// PendingWorkloadApplyConfiguration constructs an declarative configuration of the PendingWorkload type for use with
+// PendingWorkloadApplyConfiguration constructs a declarative configuration of the PendingWorkload type for use with
 // apply.
 func PendingWorkload() *PendingWorkloadApplyConfiguration {
 	return &PendingWorkloadApplyConfiguration{}
@@ -211,4 +211,10 @@ func (b *PendingWorkloadApplyConfiguration) WithPositionInClusterQueue(value int
 func (b *PendingWorkloadApplyConfiguration) WithPositionInLocalQueue(value int32) *PendingWorkloadApplyConfiguration {
 	b.PositionInLocalQueue = &value
 	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *PendingWorkloadApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }

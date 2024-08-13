@@ -40,22 +40,24 @@ var volumebundlesKind = v1alpha1.SchemeGroupVersion.WithKind("VolumeBundle")
 
 // Get takes name of the volumeBundle, and returns the corresponding volumeBundle object, and an error if there is any.
 func (c *FakeVolumeBundles) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.VolumeBundle, err error) {
+	emptyResult := &v1alpha1.VolumeBundle{}
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(volumebundlesResource, c.ns, name), &v1alpha1.VolumeBundle{})
+		Invokes(testing.NewGetActionWithOptions(volumebundlesResource, c.ns, name, options), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.VolumeBundle), err
 }
 
 // List takes label and field selectors, and returns the list of VolumeBundles that match those selectors.
 func (c *FakeVolumeBundles) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.VolumeBundleList, err error) {
+	emptyResult := &v1alpha1.VolumeBundleList{}
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(volumebundlesResource, volumebundlesKind, c.ns, opts), &v1alpha1.VolumeBundleList{})
+		Invokes(testing.NewListActionWithOptions(volumebundlesResource, volumebundlesKind, c.ns, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 
 	label, _, _ := testing.ExtractFromListOptions(opts)
@@ -74,28 +76,30 @@ func (c *FakeVolumeBundles) List(ctx context.Context, opts v1.ListOptions) (resu
 // Watch returns a watch.Interface that watches the requested volumeBundles.
 func (c *FakeVolumeBundles) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(volumebundlesResource, c.ns, opts))
+		InvokesWatch(testing.NewWatchActionWithOptions(volumebundlesResource, c.ns, opts))
 
 }
 
 // Create takes the representation of a volumeBundle and creates it.  Returns the server's representation of the volumeBundle, and an error, if there is any.
 func (c *FakeVolumeBundles) Create(ctx context.Context, volumeBundle *v1alpha1.VolumeBundle, opts v1.CreateOptions) (result *v1alpha1.VolumeBundle, err error) {
+	emptyResult := &v1alpha1.VolumeBundle{}
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(volumebundlesResource, c.ns, volumeBundle), &v1alpha1.VolumeBundle{})
+		Invokes(testing.NewCreateActionWithOptions(volumebundlesResource, c.ns, volumeBundle, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.VolumeBundle), err
 }
 
 // Update takes the representation of a volumeBundle and updates it. Returns the server's representation of the volumeBundle, and an error, if there is any.
 func (c *FakeVolumeBundles) Update(ctx context.Context, volumeBundle *v1alpha1.VolumeBundle, opts v1.UpdateOptions) (result *v1alpha1.VolumeBundle, err error) {
+	emptyResult := &v1alpha1.VolumeBundle{}
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(volumebundlesResource, c.ns, volumeBundle), &v1alpha1.VolumeBundle{})
+		Invokes(testing.NewUpdateActionWithOptions(volumebundlesResource, c.ns, volumeBundle, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.VolumeBundle), err
 }
@@ -110,7 +114,7 @@ func (c *FakeVolumeBundles) Delete(ctx context.Context, name string, opts v1.Del
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeVolumeBundles) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(volumebundlesResource, c.ns, listOpts)
+	action := testing.NewDeleteCollectionActionWithOptions(volumebundlesResource, c.ns, opts, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1alpha1.VolumeBundleList{})
 	return err
@@ -118,11 +122,12 @@ func (c *FakeVolumeBundles) DeleteCollection(ctx context.Context, opts v1.Delete
 
 // Patch applies the patch and returns the patched volumeBundle.
 func (c *FakeVolumeBundles) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.VolumeBundle, err error) {
+	emptyResult := &v1alpha1.VolumeBundle{}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(volumebundlesResource, c.ns, name, pt, data, subresources...), &v1alpha1.VolumeBundle{})
+		Invokes(testing.NewPatchSubresourceActionWithOptions(volumebundlesResource, c.ns, name, pt, data, opts, subresources...), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.VolumeBundle), err
 }

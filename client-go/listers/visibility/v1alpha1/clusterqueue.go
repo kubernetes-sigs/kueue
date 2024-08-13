@@ -18,8 +18,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/listers"
 	"k8s.io/client-go/tools/cache"
 	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 )
@@ -38,30 +38,10 @@ type ClusterQueueLister interface {
 
 // clusterQueueLister implements the ClusterQueueLister interface.
 type clusterQueueLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*v1alpha1.ClusterQueue]
 }
 
 // NewClusterQueueLister returns a new ClusterQueueLister.
 func NewClusterQueueLister(indexer cache.Indexer) ClusterQueueLister {
-	return &clusterQueueLister{indexer: indexer}
-}
-
-// List lists all ClusterQueues in the indexer.
-func (s *clusterQueueLister) List(selector labels.Selector) (ret []*v1alpha1.ClusterQueue, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.ClusterQueue))
-	})
-	return ret, err
-}
-
-// Get retrieves the ClusterQueue from the index for a given name.
-func (s *clusterQueueLister) Get(name string) (*v1alpha1.ClusterQueue, error) {
-	obj, exists, err := s.indexer.GetByKey(name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("clusterqueue"), name)
-	}
-	return obj.(*v1alpha1.ClusterQueue), nil
+	return &clusterQueueLister{listers.New[*v1alpha1.ClusterQueue](indexer, v1alpha1.Resource("clusterqueue"))}
 }

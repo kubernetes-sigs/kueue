@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// ClusterQueueApplyConfiguration represents an declarative configuration of the ClusterQueue type for use
+// ClusterQueueApplyConfiguration represents a declarative configuration of the ClusterQueue type for use
 // with apply.
 type ClusterQueueApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
@@ -32,7 +32,7 @@ type ClusterQueueApplyConfiguration struct {
 	Status                           *ClusterQueueStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// ClusterQueue constructs an declarative configuration of the ClusterQueue type for use with
+// ClusterQueue constructs a declarative configuration of the ClusterQueue type for use with
 // apply.
 func ClusterQueue(name string) *ClusterQueueApplyConfiguration {
 	b := &ClusterQueueApplyConfiguration{}
@@ -214,4 +214,10 @@ func (b *ClusterQueueApplyConfiguration) WithSpec(value *ClusterQueueSpecApplyCo
 func (b *ClusterQueueApplyConfiguration) WithStatus(value *ClusterQueueStatusApplyConfiguration) *ClusterQueueApplyConfiguration {
 	b.Status = value
 	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *ClusterQueueApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }

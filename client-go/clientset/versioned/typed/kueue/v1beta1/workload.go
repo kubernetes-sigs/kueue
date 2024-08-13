@@ -19,14 +19,11 @@ package v1beta1
 
 import (
 	"context"
-	json "encoding/json"
-	"fmt"
-	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	rest "k8s.io/client-go/rest"
+	gentype "k8s.io/client-go/gentype"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -42,6 +39,7 @@ type WorkloadsGetter interface {
 type WorkloadInterface interface {
 	Create(ctx context.Context, workload *v1beta1.Workload, opts v1.CreateOptions) (*v1beta1.Workload, error)
 	Update(ctx context.Context, workload *v1beta1.Workload, opts v1.UpdateOptions) (*v1beta1.Workload, error)
+	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
 	UpdateStatus(ctx context.Context, workload *v1beta1.Workload, opts v1.UpdateOptions) (*v1beta1.Workload, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
@@ -50,206 +48,25 @@ type WorkloadInterface interface {
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.Workload, err error)
 	Apply(ctx context.Context, workload *kueuev1beta1.WorkloadApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.Workload, err error)
+	// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
 	ApplyStatus(ctx context.Context, workload *kueuev1beta1.WorkloadApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.Workload, err error)
 	WorkloadExpansion
 }
 
 // workloads implements WorkloadInterface
 type workloads struct {
-	client rest.Interface
-	ns     string
+	*gentype.ClientWithListAndApply[*v1beta1.Workload, *v1beta1.WorkloadList, *kueuev1beta1.WorkloadApplyConfiguration]
 }
 
 // newWorkloads returns a Workloads
 func newWorkloads(c *KueueV1beta1Client, namespace string) *workloads {
 	return &workloads{
-		client: c.RESTClient(),
-		ns:     namespace,
+		gentype.NewClientWithListAndApply[*v1beta1.Workload, *v1beta1.WorkloadList, *kueuev1beta1.WorkloadApplyConfiguration](
+			"workloads",
+			c.RESTClient(),
+			scheme.ParameterCodec,
+			namespace,
+			func() *v1beta1.Workload { return &v1beta1.Workload{} },
+			func() *v1beta1.WorkloadList { return &v1beta1.WorkloadList{} }),
 	}
-}
-
-// Get takes name of the workload, and returns the corresponding workload object, and an error if there is any.
-func (c *workloads) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.Workload, err error) {
-	result = &v1beta1.Workload{}
-	err = c.client.Get().
-		Namespace(c.ns).
-		Resource("workloads").
-		Name(name).
-		VersionedParams(&options, scheme.ParameterCodec).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// List takes label and field selectors, and returns the list of Workloads that match those selectors.
-func (c *workloads) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.WorkloadList, err error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	result = &v1beta1.WorkloadList{}
-	err = c.client.Get().
-		Namespace(c.ns).
-		Resource("workloads").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Watch returns a watch.Interface that watches the requested workloads.
-func (c *workloads) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	opts.Watch = true
-	return c.client.Get().
-		Namespace(c.ns).
-		Resource("workloads").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Watch(ctx)
-}
-
-// Create takes the representation of a workload and creates it.  Returns the server's representation of the workload, and an error, if there is any.
-func (c *workloads) Create(ctx context.Context, workload *v1beta1.Workload, opts v1.CreateOptions) (result *v1beta1.Workload, err error) {
-	result = &v1beta1.Workload{}
-	err = c.client.Post().
-		Namespace(c.ns).
-		Resource("workloads").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(workload).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Update takes the representation of a workload and updates it. Returns the server's representation of the workload, and an error, if there is any.
-func (c *workloads) Update(ctx context.Context, workload *v1beta1.Workload, opts v1.UpdateOptions) (result *v1beta1.Workload, err error) {
-	result = &v1beta1.Workload{}
-	err = c.client.Put().
-		Namespace(c.ns).
-		Resource("workloads").
-		Name(workload.Name).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(workload).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *workloads) UpdateStatus(ctx context.Context, workload *v1beta1.Workload, opts v1.UpdateOptions) (result *v1beta1.Workload, err error) {
-	result = &v1beta1.Workload{}
-	err = c.client.Put().
-		Namespace(c.ns).
-		Resource("workloads").
-		Name(workload.Name).
-		SubResource("status").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(workload).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Delete takes name of the workload and deletes it. Returns an error if one occurs.
-func (c *workloads) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	return c.client.Delete().
-		Namespace(c.ns).
-		Resource("workloads").
-		Name(name).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *workloads) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	var timeout time.Duration
-	if listOpts.TimeoutSeconds != nil {
-		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
-	}
-	return c.client.Delete().
-		Namespace(c.ns).
-		Resource("workloads").
-		VersionedParams(&listOpts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// Patch applies the patch and returns the patched workload.
-func (c *workloads) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.Workload, err error) {
-	result = &v1beta1.Workload{}
-	err = c.client.Patch(pt).
-		Namespace(c.ns).
-		Resource("workloads").
-		Name(name).
-		SubResource(subresources...).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Apply takes the given apply declarative configuration, applies it and returns the applied workload.
-func (c *workloads) Apply(ctx context.Context, workload *kueuev1beta1.WorkloadApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.Workload, err error) {
-	if workload == nil {
-		return nil, fmt.Errorf("workload provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(workload)
-	if err != nil {
-		return nil, err
-	}
-	name := workload.Name
-	if name == nil {
-		return nil, fmt.Errorf("workload.Name must be provided to Apply")
-	}
-	result = &v1beta1.Workload{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
-		Resource("workloads").
-		Name(*name).
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// ApplyStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
-func (c *workloads) ApplyStatus(ctx context.Context, workload *kueuev1beta1.WorkloadApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.Workload, err error) {
-	if workload == nil {
-		return nil, fmt.Errorf("workload provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(workload)
-	if err != nil {
-		return nil, err
-	}
-
-	name := workload.Name
-	if name == nil {
-		return nil, fmt.Errorf("workload.Name must be provided to Apply")
-	}
-
-	result = &v1beta1.Workload{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
-		Resource("workloads").
-		Name(*name).
-		SubResource("status").
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
 }

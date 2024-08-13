@@ -121,7 +121,7 @@ func (m *integrationManager) setupControllerAndWebhook(mgr ctrl.Manager, name st
 }
 
 func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
-	rateLimiter := workqueue.NewItemExponentialFailureRateLimiter(baseBackoffWaitForIntegration, maxBackoffWaitForIntegration)
+	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](baseBackoffWaitForIntegration, maxBackoffWaitForIntegration)
 	item := gvk.String()
 	for {
 		err := restMappingExists(mgr, gvk)

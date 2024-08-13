@@ -19,14 +19,11 @@ package v1beta1
 
 import (
 	"context"
-	json "encoding/json"
-	"fmt"
-	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	rest "k8s.io/client-go/rest"
+	gentype "k8s.io/client-go/gentype"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -54,143 +51,18 @@ type ProvisioningRequestConfigInterface interface {
 
 // provisioningRequestConfigs implements ProvisioningRequestConfigInterface
 type provisioningRequestConfigs struct {
-	client rest.Interface
+	*gentype.ClientWithListAndApply[*v1beta1.ProvisioningRequestConfig, *v1beta1.ProvisioningRequestConfigList, *kueuev1beta1.ProvisioningRequestConfigApplyConfiguration]
 }
 
 // newProvisioningRequestConfigs returns a ProvisioningRequestConfigs
 func newProvisioningRequestConfigs(c *KueueV1beta1Client) *provisioningRequestConfigs {
 	return &provisioningRequestConfigs{
-		client: c.RESTClient(),
+		gentype.NewClientWithListAndApply[*v1beta1.ProvisioningRequestConfig, *v1beta1.ProvisioningRequestConfigList, *kueuev1beta1.ProvisioningRequestConfigApplyConfiguration](
+			"provisioningrequestconfigs",
+			c.RESTClient(),
+			scheme.ParameterCodec,
+			"",
+			func() *v1beta1.ProvisioningRequestConfig { return &v1beta1.ProvisioningRequestConfig{} },
+			func() *v1beta1.ProvisioningRequestConfigList { return &v1beta1.ProvisioningRequestConfigList{} }),
 	}
-}
-
-// Get takes name of the provisioningRequestConfig, and returns the corresponding provisioningRequestConfig object, and an error if there is any.
-func (c *provisioningRequestConfigs) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
-	result = &v1beta1.ProvisioningRequestConfig{}
-	err = c.client.Get().
-		Resource("provisioningrequestconfigs").
-		Name(name).
-		VersionedParams(&options, scheme.ParameterCodec).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// List takes label and field selectors, and returns the list of ProvisioningRequestConfigs that match those selectors.
-func (c *provisioningRequestConfigs) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.ProvisioningRequestConfigList, err error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	result = &v1beta1.ProvisioningRequestConfigList{}
-	err = c.client.Get().
-		Resource("provisioningrequestconfigs").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Watch returns a watch.Interface that watches the requested provisioningRequestConfigs.
-func (c *provisioningRequestConfigs) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	opts.Watch = true
-	return c.client.Get().
-		Resource("provisioningrequestconfigs").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Watch(ctx)
-}
-
-// Create takes the representation of a provisioningRequestConfig and creates it.  Returns the server's representation of the provisioningRequestConfig, and an error, if there is any.
-func (c *provisioningRequestConfigs) Create(ctx context.Context, provisioningRequestConfig *v1beta1.ProvisioningRequestConfig, opts v1.CreateOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
-	result = &v1beta1.ProvisioningRequestConfig{}
-	err = c.client.Post().
-		Resource("provisioningrequestconfigs").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(provisioningRequestConfig).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Update takes the representation of a provisioningRequestConfig and updates it. Returns the server's representation of the provisioningRequestConfig, and an error, if there is any.
-func (c *provisioningRequestConfigs) Update(ctx context.Context, provisioningRequestConfig *v1beta1.ProvisioningRequestConfig, opts v1.UpdateOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
-	result = &v1beta1.ProvisioningRequestConfig{}
-	err = c.client.Put().
-		Resource("provisioningrequestconfigs").
-		Name(provisioningRequestConfig.Name).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(provisioningRequestConfig).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Delete takes name of the provisioningRequestConfig and deletes it. Returns an error if one occurs.
-func (c *provisioningRequestConfigs) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	return c.client.Delete().
-		Resource("provisioningrequestconfigs").
-		Name(name).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *provisioningRequestConfigs) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	var timeout time.Duration
-	if listOpts.TimeoutSeconds != nil {
-		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
-	}
-	return c.client.Delete().
-		Resource("provisioningrequestconfigs").
-		VersionedParams(&listOpts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// Patch applies the patch and returns the patched provisioningRequestConfig.
-func (c *provisioningRequestConfigs) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ProvisioningRequestConfig, err error) {
-	result = &v1beta1.ProvisioningRequestConfig{}
-	err = c.client.Patch(pt).
-		Resource("provisioningrequestconfigs").
-		Name(name).
-		SubResource(subresources...).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Apply takes the given apply declarative configuration, applies it and returns the applied provisioningRequestConfig.
-func (c *provisioningRequestConfigs) Apply(ctx context.Context, provisioningRequestConfig *kueuev1beta1.ProvisioningRequestConfigApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
-	if provisioningRequestConfig == nil {
-		return nil, fmt.Errorf("provisioningRequestConfig provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(provisioningRequestConfig)
-	if err != nil {
-		return nil, err
-	}
-	name := provisioningRequestConfig.Name
-	if name == nil {
-		return nil, fmt.Errorf("provisioningRequestConfig.Name must be provided to Apply")
-	}
-	result = &v1beta1.ProvisioningRequestConfig{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Resource("provisioningrequestconfigs").
-		Name(*name).
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
 }

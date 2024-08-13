@@ -549,7 +549,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		if managerK8sVersion.LessThan(versionutil.MustParseSemantic("1.30.0")) {
 			ginkgo.Skip("the managers kubernetes version is less then 1.30")
 		}
-		ginkgo.DeferCleanup(features.SetFeatureGateDuringTest(featuregatesT, features.MultiKueueBatchJobWithManagedBy, true))
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueBatchJobWithManagedBy, true)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueuealpha.MultiKueueControllerName).
 			Queue(managerLq.Name).

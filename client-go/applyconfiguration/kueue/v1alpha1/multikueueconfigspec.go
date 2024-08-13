@@ -17,13 +17,13 @@ limitations under the License.
 
 package v1alpha1
 
-// MultiKueueConfigSpecApplyConfiguration represents an declarative configuration of the MultiKueueConfigSpec type for use
+// MultiKueueConfigSpecApplyConfiguration represents a declarative configuration of the MultiKueueConfigSpec type for use
 // with apply.
 type MultiKueueConfigSpecApplyConfiguration struct {
 	Clusters []string `json:"clusters,omitempty"`
 }
 
-// MultiKueueConfigSpecApplyConfiguration constructs an declarative configuration of the MultiKueueConfigSpec type for use with
+// MultiKueueConfigSpecApplyConfiguration constructs a declarative configuration of the MultiKueueConfigSpec type for use with
 // apply.
 func MultiKueueConfigSpec() *MultiKueueConfigSpecApplyConfiguration {
 	return &MultiKueueConfigSpecApplyConfiguration{}

@@ -175,6 +175,7 @@ func newACReconciler(c client.Client, helper *multiKueueStoreHelper) *ACReconcil
 
 func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("multikueue-admissioncheck").
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueuealpha.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
 		Watches(&kueuealpha.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).
@@ -187,7 +188,7 @@ type mkConfigHandler struct {
 
 var _ handler.EventHandler = (*mkConfigHandler)(nil)
 
-func (m *mkConfigHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (m *mkConfigHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
 	if !isMKC {
 		return
@@ -198,7 +199,7 @@ func (m *mkConfigHandler) Create(ctx context.Context, event event.CreateEvent, q
 	}
 }
 
-func (m *mkConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (m *mkConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldMKC, isOldMKC := event.ObjectOld.(*kueuealpha.MultiKueueConfig)
 	newMKC, isNewMKC := event.ObjectNew.(*kueuealpha.MultiKueueConfig)
 	if !isOldMKC || !isNewMKC || equality.Semantic.DeepEqual(oldMKC.Spec.Clusters, newMKC.Spec.Clusters) {
@@ -210,7 +211,7 @@ func (m *mkConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q
 	}
 }
 
-func (m *mkConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (m *mkConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
 	if !isMKC {
 		return
@@ -221,7 +222,7 @@ func (m *mkConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q
 	}
 }
 
-func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
 	if !isMKC {
 		return
@@ -232,7 +233,7 @@ func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent,
 	}
 }
 
-func queueReconcileForConfigUsers(ctx context.Context, config string, c client.Client, q workqueue.RateLimitingInterface) error {
+func queueReconcileForConfigUsers(ctx context.Context, config string, c client.Client, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueue.AdmissionCheckList{}
 
 	if err := c.List(ctx, users, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); err != nil {
@@ -257,7 +258,7 @@ type mkClusterHandler struct {
 
 var _ handler.EventHandler = (*mkClusterHandler)(nil)
 
-func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
 	if !isMKC {
 		return
@@ -268,7 +269,7 @@ func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, 
 	}
 }
 
-func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldMKC, isOldMKC := event.ObjectOld.(*kueuealpha.MultiKueueCluster)
 	newMKC, isNewMKC := event.ObjectNew.(*kueuealpha.MultiKueueCluster)
 	if !isOldMKC || !isNewMKC {
@@ -284,7 +285,7 @@ func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, 
 	}
 }
 
-func (m *mkClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (m *mkClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
 	if !isMKC {
 		return
@@ -295,7 +296,7 @@ func (m *mkClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, 
 	}
 }
 
-func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
 	if !isMKC {
 		return
@@ -306,7 +307,7 @@ func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent
 	}
 }
 
-func (m *mkClusterHandler) queue(ctx context.Context, cluster *kueuealpha.MultiKueueCluster, q workqueue.RateLimitingInterface) error {
+func (m *mkClusterHandler) queue(ctx context.Context, cluster *kueuealpha.MultiKueueCluster, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueuealpha.MultiKueueConfigList{}
 	if err := m.client.List(ctx, users, client.MatchingFields{UsingMultiKueueClusters: cluster.Name}); err != nil {
 		return err

@@ -21,13 +21,13 @@ import (
 	resource "k8s.io/apimachinery/pkg/api/resource"
 )
 
-// FairSharingApplyConfiguration represents an declarative configuration of the FairSharing type for use
+// FairSharingApplyConfiguration represents a declarative configuration of the FairSharing type for use
 // with apply.
 type FairSharingApplyConfiguration struct {
 	Weight *resource.Quantity `json:"weight,omitempty"`
 }
 
-// FairSharingApplyConfiguration constructs an declarative configuration of the FairSharing type for use with
+// FairSharingApplyConfiguration constructs a declarative configuration of the FairSharing type for use with
 // apply.
 func FairSharing() *FairSharingApplyConfiguration {
 	return &FairSharingApplyConfiguration{}

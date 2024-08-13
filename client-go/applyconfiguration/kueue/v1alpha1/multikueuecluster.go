@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// MultiKueueClusterApplyConfiguration represents an declarative configuration of the MultiKueueCluster type for use
+// MultiKueueClusterApplyConfiguration represents a declarative configuration of the MultiKueueCluster type for use
 // with apply.
 type MultiKueueClusterApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
@@ -32,7 +32,7 @@ type MultiKueueClusterApplyConfiguration struct {
 	Status                           *MultiKueueClusterStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// MultiKueueCluster constructs an declarative configuration of the MultiKueueCluster type for use with
+// MultiKueueCluster constructs a declarative configuration of the MultiKueueCluster type for use with
 // apply.
 func MultiKueueCluster(name string) *MultiKueueClusterApplyConfiguration {
 	b := &MultiKueueClusterApplyConfiguration{}
@@ -214,4 +214,10 @@ func (b *MultiKueueClusterApplyConfiguration) WithSpec(value *MultiKueueClusterS
 func (b *MultiKueueClusterApplyConfiguration) WithStatus(value *MultiKueueClusterStatusApplyConfiguration) *MultiKueueClusterApplyConfiguration {
 	b.Status = value
 	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *MultiKueueClusterApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }

@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.16.2
   name: applicationprofiles.kjobctl.x-k8s.io
 spec:
   group: kjobctl.x-k8s.io
@@ -65,7 +65,6 @@ spec:
                         If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
                         For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem-per-cpu,
                         mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue.
-
 
                         cmd and requests values are going to be added only to the first primary container.
                       items:

@@ -18,10 +18,10 @@ limitations under the License.
 package v1beta1
 
 import (
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// ClusterQueueStatusApplyConfiguration represents an declarative configuration of the ClusterQueueStatus type for use
+// ClusterQueueStatusApplyConfiguration represents a declarative configuration of the ClusterQueueStatus type for use
 // with apply.
 type ClusterQueueStatusApplyConfiguration struct {
 	FlavorsReservation     []FlavorUsageApplyConfiguration                       `json:"flavorsReservation,omitempty"`
@@ -29,12 +29,12 @@ type ClusterQueueStatusApplyConfiguration struct {
 	PendingWorkloads       *int32                                                `json:"pendingWorkloads,omitempty"`
 	ReservingWorkloads     *int32                                                `json:"reservingWorkloads,omitempty"`
 	AdmittedWorkloads      *int32                                                `json:"admittedWorkloads,omitempty"`
-	Conditions             []v1.Condition                                        `json:"conditions,omitempty"`
+	Conditions             []v1.ConditionApplyConfiguration                      `json:"conditions,omitempty"`
 	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatusApplyConfiguration `json:"pendingWorkloadsStatus,omitempty"`
 	FairSharing            *FairSharingStatusApplyConfiguration                  `json:"fairSharing,omitempty"`
 }
 
-// ClusterQueueStatusApplyConfiguration constructs an declarative configuration of the ClusterQueueStatus type for use with
+// ClusterQueueStatusApplyConfiguration constructs a declarative configuration of the ClusterQueueStatus type for use with
 // apply.
 func ClusterQueueStatus() *ClusterQueueStatusApplyConfiguration {
 	return &ClusterQueueStatusApplyConfiguration{}
@@ -93,9 +93,12 @@ func (b *ClusterQueueStatusApplyConfiguration) WithAdmittedWorkloads(value int32
 // WithConditions adds the given value to the Conditions field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Conditions field.
-func (b *ClusterQueueStatusApplyConfiguration) WithConditions(values ...v1.Condition) *ClusterQueueStatusApplyConfiguration {
+func (b *ClusterQueueStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
 	for i := range values {
-		b.Conditions = append(b.Conditions, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithConditions")
+		}
+		b.Conditions = append(b.Conditions, *values[i])
 	}
 	return b
 }
