@@ -96,208 +96,240 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 func TestFitInCohort(t *testing.T) {
 	cases := map[string]struct {
-		request            resources.FlavorResourceQuantitiesFlat
+		request            resources.FlavorResourceQuantities
 		wantFit            bool
-		cq                 *ClusterQueueSnapshot
+		usage              resources.FlavorResourceQuantities
+		clusterQueue       []*kueue.ClusterQueue
 		enableLendingLimit bool
 	}{
 		"full cohort, empty request": {
-			request: resources.FlavorResourceQuantitiesFlat{},
+			request: resources.FlavorResourceQuantities{},
 			wantFit: true,
-			cq: &ClusterQueueSnapshot{
-				Name: "CQ",
-				Cohort: &CohortSnapshot{
-					Name: "C",
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-						{Flavor: "f2", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-						{Flavor: "f2", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
-					}.Unflatten(),
-				},
-				ResourceGroups: nil,
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
+				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
+				{Flavor: "f2", Resource: corev1.ResourceCPU}:    5_000,
+				{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
+			},
+			clusterQueue: []*kueue.ClusterQueue{
+				utiltesting.
+					MakeClusterQueue("CQ").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5").
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("f2").
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5").
+							Obj(),
+					).
+					Cohort("C").
+					Obj(),
 			},
 		},
 		"can fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1,
+			request: resources.FlavorResourceQuantities{
+				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: true,
-			cq: &ClusterQueueSnapshot{
-				Name: "CQ",
-				Cohort: &CohortSnapshot{
-					Name: "C",
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-						{Flavor: "f2", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-						{Flavor: "f2", Resource: corev1.ResourceCPU}:    4,
-						{Flavor: "f2", Resource: corev1.ResourceMemory}: 4,
-					}.Unflatten(),
-				},
-				ResourceGroups: nil,
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
+				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
+				{Flavor: "f2", Resource: corev1.ResourceCPU}:    4_000,
+				{Flavor: "f2", Resource: corev1.ResourceMemory}: 4,
+			},
+			clusterQueue: []*kueue.ClusterQueue{
+				utiltesting.
+					MakeClusterQueue("CQ").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5").
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("f2").
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5").
+							Obj(),
+					).
+					Cohort("C").
+					Obj(),
 			},
 		},
 		"full cohort, none fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1,
+			request: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1,
+				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: false,
-			cq: &ClusterQueueSnapshot{
-				Name: "CQ",
-				Cohort: &CohortSnapshot{
-					Name: "C",
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-						{Flavor: "f2", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-						{Flavor: "f2", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
-					}.Unflatten(),
-				},
-				ResourceGroups: nil,
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
+				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
+				{Flavor: "f2", Resource: corev1.ResourceCPU}:    5_000,
+				{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
+			},
+			clusterQueue: []*kueue.ClusterQueue{
+				utiltesting.
+					MakeClusterQueue("CQ").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5").
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("f2").
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5").
+							Obj(),
+					).
+					Cohort("C").
+					Obj(),
 			},
 		},
 		"one cannot fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1,
+			request: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    2,
+				{Flavor: "f2", Resource: corev1.ResourceCPU}:    2_000,
 				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: false,
-			cq: &ClusterQueueSnapshot{
-				Name: "CQ",
-				Cohort: &CohortSnapshot{
-					Name: "C",
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-						{Flavor: "f2", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f2", Resource: corev1.ResourceMemory}: 5,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    4,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 4,
-						{Flavor: "f2", Resource: corev1.ResourceCPU}:    4,
-						{Flavor: "f2", Resource: corev1.ResourceMemory}: 4,
-					}.Unflatten(),
-				},
-				ResourceGroups: nil,
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}:    4_000,
+				{Flavor: "f1", Resource: corev1.ResourceMemory}: 4,
+				{Flavor: "f2", Resource: corev1.ResourceCPU}:    4_000,
+				{Flavor: "f2", Resource: corev1.ResourceMemory}: 4,
+			},
+			clusterQueue: []*kueue.ClusterQueue{
+				utiltesting.
+					MakeClusterQueue("CQ").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5").
+							Obj(),
+						*utiltesting.MakeFlavorQuotas("f2").
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5").
+							Obj(),
+					).
+					Cohort("C").
+					Obj(),
 			},
 		},
 		"missing flavor": {
-			request: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "f2", Resource: corev1.ResourceCPU}:    1,
-				{Flavor: "f2", Resource: corev1.ResourceMemory}: 1,
+			request: resources.FlavorResourceQuantities{
+				{Flavor: "non-existent-flavor", Resource: corev1.ResourceCPU}:    1_000,
+				{Flavor: "non-existent-flavor", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: false,
-			cq: &ClusterQueueSnapshot{
-				Name: "CQ",
-				Cohort: &CohortSnapshot{
-					Name: "C",
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}:    5,
-						{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
-					}.Unflatten(),
-				},
-				ResourceGroups: nil,
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
+				{Flavor: "f1", Resource: corev1.ResourceMemory}: 5,
+			},
+			clusterQueue: []*kueue.ClusterQueue{
+				utiltesting.
+					MakeClusterQueue("CQ").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "5").
+							Resource(corev1.ResourceMemory, "5").
+							Obj(),
+					).
+					Cohort("C").
+					Obj(),
 			},
 		},
 		"missing resource": {
-			request: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1,
+			request: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}:    1_000,
 				{Flavor: "f1", Resource: corev1.ResourceMemory}: 1,
 			},
 			wantFit: false,
-			cq: &ClusterQueueSnapshot{
-				Name: "CQ",
-				Cohort: &CohortSnapshot{
-					Name: "C",
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}: 5,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}: 3,
-					}.Unflatten(),
-				},
-				ResourceGroups: nil,
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
+			},
+			clusterQueue: []*kueue.ClusterQueue{
+				utiltesting.
+					MakeClusterQueue("CQ").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "5").
+							Obj(),
+					).
+					Cohort("C").
+					Obj(),
 			},
 		},
 		"lendingLimit enabled can't fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3,
+			request: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
 			wantFit: false,
-			cq: &ClusterQueueSnapshot{
-				Name: "CQ-A",
-				Cohort: &CohortSnapshot{
-					Name: "C",
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource:
-						// CQ-A has 2 nominal cpu, CQ-B has 3 nominal cpu and 2 lendingLimit,
-						// so when lendingLimit enabled, the cohort's RequestableResources is 4 cpu.
-						corev1.ResourceCPU}: 4,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}: 2,
-					}.Unflatten(),
-				},
-				GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "f1", Resource: corev1.ResourceCPU}: 0,
-				}.Unflatten(),
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}: 2_000,
+			},
+			clusterQueue: []*kueue.ClusterQueue{
+				utiltesting.
+					MakeClusterQueue("CQ").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("2").
+							Append().
+							FlavorQuotas,
+					).
+					Cohort("C").
+					Obj(),
+				utiltesting.
+					MakeClusterQueue("CQ-B").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("3").
+							LendingLimit("2").
+							Append().
+							FlavorQuotas,
+					).
+					Cohort("C").
+					Obj(),
 			},
 			enableLendingLimit: true,
 		},
 		"lendingLimit enabled can fit": {
-			request: resources.FlavorResourceQuantitiesFlat{
-				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3,
+			request: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
 			wantFit: true,
-			cq: &ClusterQueueSnapshot{
-				Name: "CQ-A",
-				Cohort: &CohortSnapshot{
-					Name: "C",
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource:
-						// CQ-A has 2 nominal cpu, CQ-B has 3 nominal cpu and 2 lendingLimit,
-						// so when lendingLimit enabled, the cohort's RequestableResources is 4 cpu.
-						corev1.ResourceCPU}: 4,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "f1", Resource:
-						// CQ-B has admitted a workload with 2 cpus, but with 1 GuaranteedQuota,
-						// so when lendingLimit enabled, Cohort.Usage should be 2 - 1 = 1.
-						corev1.ResourceCPU}: 1,
-					}.Unflatten(),
-				},
-				GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-					{Flavor: "f1", Resource: corev1.ResourceCPU}: 2,
-				}.Unflatten(),
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}: 1_000,
+			},
+			clusterQueue: []*kueue.ClusterQueue{
+				utiltesting.
+					MakeClusterQueue("CQ").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("2").
+							Append().
+							FlavorQuotas,
+					).
+					Cohort("C").
+					Obj(),
+				utiltesting.
+					MakeClusterQueue("CQ-B").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("3").
+							LendingLimit("2").
+							Append().
+							FlavorQuotas,
+					).
+					Cohort("C").
+					Obj(),
 			},
 			enableLendingLimit: true,
 		},
@@ -306,7 +338,20 @@ func TestFitInCohort(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
-			got := tc.cq.FitInCohort(tc.request)
+			cache := New(utiltesting.NewFakeClient())
+
+			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f1").Obj())
+			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f2").Obj())
+
+			for _, cq := range tc.clusterQueue {
+				_ = cache.AddClusterQueue(context.Background(), cq)
+			}
+
+			snapshot := cache.Snapshot()
+			cq := snapshot.ClusterQueues["CQ"]
+			cq.AddUsage(tc.usage)
+
+			got := cq.FitInCohort(tc.request)
 			if got != tc.wantFit {
 				t.Errorf("Unexpected result, %v", got)
 			}
@@ -716,15 +761,15 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 
 func TestDominantResourceShare(t *testing.T) {
 	cases := map[string]struct {
-		usage               resources.FlavorResourceQuantitiesFlat
+		usage               resources.FlavorResourceQuantities
 		clusterQueue        *kueue.ClusterQueue
 		lendingClusterQueue *kueue.ClusterQueue
-		flvResQ             resources.FlavorResourceQuantitiesFlat
+		flvResQ             resources.FlavorResourceQuantities
 		wantDRValue         int
 		wantDRName          corev1.ResourceName
 	}{
 		"no cohort": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
@@ -737,7 +782,7 @@ func TestDominantResourceShare(t *testing.T) {
 				).Obj(),
 		},
 		"usage below nominal": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
@@ -761,7 +806,7 @@ func TestDominantResourceShare(t *testing.T) {
 				).Obj(),
 		},
 		"usage above nominal": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  7,
 			},
@@ -787,7 +832,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 200, // (7-5)*1000/10
 		},
 		"one resource above nominal": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  3,
 			},
@@ -813,7 +858,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 100, // (3-2)*1000/10
 		},
 		"usage with workload above nominal": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  2,
 			},
@@ -835,7 +880,7 @@ func TestDominantResourceShare(t *testing.T) {
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
 						FlavorQuotas,
 				).Obj(),
-			flvResQ: resources.FlavorResourceQuantitiesFlat{
+			flvResQ: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  4,
 			},
@@ -843,7 +888,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 300, // (1+4-2)*1000/10
 		},
 		"A resource with zero lendable": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  1,
 			},
@@ -865,7 +910,7 @@ func TestDominantResourceShare(t *testing.T) {
 						ResourceQuotaWrapper("example.com/gpu").NominalQuota("64").LendingLimit("0").Append().
 						FlavorQuotas,
 				).Obj(),
-			flvResQ: resources.FlavorResourceQuantitiesFlat{
+			flvResQ: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
 				{Flavor: "default", Resource: "example.com/gpu"}:  4,
 			},
@@ -873,7 +918,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 300, // (1+4-2)*1000/10
 		},
 		"multiple flavors": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 15_000,
 				{Flavor: "spot", Resource: corev1.ResourceCPU}:      5_000,
 			},
@@ -896,14 +941,14 @@ func TestDominantResourceShare(t *testing.T) {
 						ResourceQuotaWrapper("cpu").NominalQuota("100").Append().
 						FlavorQuotas,
 				).Obj(),
-			flvResQ: resources.FlavorResourceQuantitiesFlat{
+			flvResQ: resources.FlavorResourceQuantities{
 				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: 10_000,
 			},
 			wantDRName:  corev1.ResourceCPU,
 			wantDRValue: 25, // ((15+10-20)+0)*1000/200 (spot under nominal)
 		},
 		"above nominal with integer weight": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
@@ -926,7 +971,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 100, // ((7-5)*1000/10)/2
 		},
 		"above nominal with decimal weight": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
@@ -949,7 +994,7 @@ func TestDominantResourceShare(t *testing.T) {
 			wantDRValue: 400, // ((7-5)*1000/10)/(1/2)
 		},
 		"above nominal with zero weight": {
-			usage: resources.FlavorResourceQuantitiesFlat{
+			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: 7,
 			},
 			clusterQueue: utiltesting.MakeClusterQueue("cq").

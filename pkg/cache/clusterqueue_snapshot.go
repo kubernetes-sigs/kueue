@@ -48,11 +48,11 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 	return nil
 }
 
-func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantitiesFlat) {
+func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantities) {
 	c.addOrRemoveUsage(frq, 1)
 }
 
-func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantitiesFlat) bool {
+func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantities) bool {
 	for fr, q := range frq {
 		if c.Available(fr) < q {
 			return false
@@ -70,18 +70,18 @@ func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
 }
 
 func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
-	return c.usageFor(fr)+val > c.nominal(fr)
+	return c.Usage[fr]+val > c.nominal(fr)
 }
 
 func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) int64 {
 	if c.Cohort == nil {
-		return max(0, c.nominal(fr)-c.usageFor(fr))
+		return max(0, c.nominal(fr)-c.Usage[fr])
 	}
-	capacityAvailable := c.RequestableCohortQuota(fr.Flavor, fr.Resource) - c.UsedCohortQuota(fr.Flavor, fr.Resource)
+	capacityAvailable := c.RequestableCohortQuota(fr) - c.UsedCohortQuota(fr)
 
 	// if the borrowing limit exists, we cap our available capacity by the borrowing limit.
 	if borrowingLimit := c.borrowingLimit(fr); borrowingLimit != nil {
-		withBorrowingRemaining := c.nominal(fr) + *borrowingLimit - c.usageFor(fr)
+		withBorrowingRemaining := c.nominal(fr) + *borrowingLimit - c.Usage[fr]
 		capacityAvailable = min(capacityAvailable, withBorrowingRemaining)
 	}
 	return max(0, capacityAvailable)
@@ -115,7 +115,7 @@ func (c *ClusterQueueSnapshot) lendableResourcesInCohort() map[corev1.ResourceNa
 }
 
 func (c *ClusterQueueSnapshot) usageFor(fr resources.FlavorResource) int64 {
-	return c.Usage.For(fr)
+	return c.Usage[fr]
 }
 
 func (c *ClusterQueueSnapshot) resourceGroups() []ResourceGroup {

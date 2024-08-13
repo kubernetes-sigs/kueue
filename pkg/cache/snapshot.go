@@ -20,7 +20,6 @@ import (
 	"maps"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
@@ -53,7 +52,7 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq.addOrRemoveUsage(wl.FlavorResourceUsage(), 1)
 }
 
-func (c *ClusterQueueSnapshot) addOrRemoveUsage(usage resources.FlavorResourceQuantitiesFlat, m int64) {
+func (c *ClusterQueueSnapshot) addOrRemoveUsage(usage resources.FlavorResourceQuantities, m int64) {
 	updateFlavorUsage(usage, c.Usage, m)
 	if c.Cohort != nil {
 		if features.Enabled(features.LendingLimit) {
@@ -125,7 +124,7 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 		FlavorFungibility:             c.FlavorFungibility,
 		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
-		Usage:                         make(resources.FlavorResourceQuantities, len(c.Usage)),
+		Usage:                         maps.Clone(c.Usage),
 		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
@@ -134,9 +133,6 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 		Quotas:                        c.quotas,
 	}
 
-	for fName, rUsage := range c.Usage {
-		cc.Usage[fName] = maps.Clone(rUsage)
-	}
 	if features.Enabled(features.LendingLimit) {
 		cc.GuaranteedQuota = c.GuaranteedQuota
 	}
@@ -146,9 +142,11 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 
 func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
 	cohortSnap := &CohortSnapshot{
-		Name:     c.Name,
-		Members:  make(sets.Set[*ClusterQueueSnapshot], c.Members.Len()),
-		Lendable: c.CalculateLendable(),
+		Name:                 c.Name,
+		Members:              make(sets.Set[*ClusterQueueSnapshot], c.Members.Len()),
+		Lendable:             c.CalculateLendable(),
+		Usage:                make(resources.FlavorResourceQuantities),
+		RequestableResources: make(resources.FlavorResourceQuantities),
 	}
 	cohortSnap.AllocatableResourceGeneration = 0
 	for cq := range c.Members {
@@ -163,48 +161,31 @@ func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
 }
 
 func (c *ClusterQueueSnapshot) accumulateResources(cohort *CohortSnapshot) {
-	if cohort.RequestableResources == nil {
-		cohort.RequestableResources = make(resources.FlavorResourceQuantities, len(c.ResourceGroups))
-	}
 	for _, rg := range c.ResourceGroups {
 		for _, fName := range rg.Flavors {
-			res := cohort.RequestableResources[fName]
-			if res == nil {
-				res = make(map[corev1.ResourceName]int64, len(rg.CoveredResources))
-				cohort.RequestableResources[fName] = res
-			}
 			for rName := range rg.CoveredResources {
-				rQuota := c.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
+				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
+				rQuota := c.QuotaFor(fr)
 				// When feature LendingLimit enabled, cohort.RequestableResources indicates
 				// the sum of cq.NominalQuota and other cqs' LendingLimit (if not nil).
 				// If LendingLimit is not nil, we should count the lendingLimit as the requestable
 				// resource because we can't borrow more quota than lendingLimit.
 				if features.Enabled(features.LendingLimit) && rQuota.LendingLimit != nil {
-					res[rName] += *rQuota.LendingLimit
+					cohort.RequestableResources[fr] += *rQuota.LendingLimit
 				} else {
-					res[rName] += rQuota.Nominal
+					cohort.RequestableResources[fr] += rQuota.Nominal
 				}
 			}
 		}
 	}
-	if cohort.Usage == nil {
-		cohort.Usage = make(resources.FlavorResourceQuantities, len(c.Usage))
-	}
-	for fName, resUsages := range c.Usage {
-		used := cohort.Usage[fName]
-		if used == nil {
-			used = make(map[corev1.ResourceName]int64, len(resUsages))
-			cohort.Usage[fName] = used
+	for fr, val := range c.Usage {
+		// Similar to cohort.RequestableResources, we accumulate the usage above the guaranteed resources,
+		// here we should remove the guaranteed quota as well for that part can not be borrowed.
+		val -= c.guaranteedQuota(fr)
+		// if val < 0, it means the cq is not using any quota belongs to LendingLimit
+		if val < 0 {
+			val = 0
 		}
-		for res, val := range resUsages {
-			// Similar to cohort.RequestableResources, we accumulate the usage above the guaranteed resources,
-			// here we should remove the guaranteed quota as well for that part can not be borrowed.
-			val -= c.guaranteedQuota(fName, res)
-			// if val < 0, it means the cq is not using any quota belongs to LendingLimit
-			if val < 0 {
-				val = 0
-			}
-			used[res] += val
-		}
+		cohort.Usage[fr] += val
 	}
 }
