@@ -17,9 +17,10 @@ limitations under the License.
 package builder
 
 import (
+	"testing"
+
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/utils/ptr"
-	"testing"
 )
 
 func TestBuildEntrypointScript(t *testing.T) {

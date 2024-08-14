@@ -93,6 +93,8 @@ func parseArrayIndexes(str string) (arrayIndexes, error) {
 		return arrayIndexes, err
 	}
 
+	slices.Sort(indexes)
+
 	arrayIndexes.Indexes = indexes
 	arrayIndexes.Step = step
 	arrayIndexes.Parallelism = parallelism

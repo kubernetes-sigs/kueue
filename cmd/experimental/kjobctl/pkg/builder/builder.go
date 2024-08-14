@@ -20,13 +20,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"os"
 	"slices"
 	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8s "k8s.io/client-go/kubernetes"
@@ -56,7 +56,7 @@ var (
 	noRayClusterSpecifiedErr               = errors.New("no raycluster specified")
 	noArraySpecifiedErr                    = errors.New("no array specified")
 	noCpusPerTaskSpecifiedErr              = errors.New("no cpus-per-task specified")
-	noErrorSpecifiedErr                    = errors.New("no error specified")
+	noStderrSpecifiedErr                   = errors.New("no stderr specified")
 	noGpusPerTaskSpecifiedErr              = errors.New("no gpus-per-task specified")
 	noInputSpecifiedErr                    = errors.New("no input specified")
 	noJobNameSpecifiedErr                  = errors.New("no job-name specified")
@@ -65,7 +65,7 @@ var (
 	noMemPerTaskSpecifiedErr               = errors.New("no mem-per-task specified")
 	noNodesSpecifiedErr                    = errors.New("no nodes specified")
 	noNTasksSpecifiedErr                   = errors.New("no ntasks specified")
-	noOutputSpecifiedErr                   = errors.New("no output specified")
+	noStdoutSpecifiedErr                   = errors.New("no stdout specified")
 	noPartitionSpecifiedErr                = errors.New("no partition specified")
 )
 
@@ -91,9 +91,10 @@ type Builder struct {
 	requests    corev1.ResourceList
 	localQueue  string
 	rayCluster  string
+	script      string
 	array       string
 	cpusPerTask *resource.Quantity
-	err         string
+	stderr      string
 	gpusPerTask *resource.Quantity
 	input       string
 	jobName     string
@@ -102,7 +103,7 @@ type Builder struct {
 	memPerTask  *resource.Quantity
 	nodes       *int32
 	nTasks      *int32
-	output      string
+	stdout      string
 	partition   string
 
 	profile       *v1alpha1.ApplicationProfile
@@ -176,6 +177,11 @@ func (b *Builder) WithRayCluster(rayCluster string) *Builder {
 	return b
 }
 
+func (b *Builder) WithScript(script string) *Builder {
+	b.script = script
+	return b
+}
+
 func (b *Builder) WithArray(array string) *Builder {
 	b.array = array
 	return b
@@ -186,8 +192,8 @@ func (b *Builder) WithCpusPerTask(cpusPerTask *resource.Quantity) *Builder {
 	return b
 }
 
-func (b *Builder) WithError(err string) *Builder {
-	b.err = err
+func (b *Builder) WithStdErr(stderr string) *Builder {
+	b.stderr = stderr
 	return b
 }
 
@@ -231,8 +237,8 @@ func (b *Builder) WithNTasks(nTasks *int32) *Builder {
 	return b
 }
 
-func (b *Builder) WithOutput(output string) *Builder {
-	b.output = output
+func (b *Builder) WithStdOut(stdout string) *Builder {
+	b.stdout = stdout
 	return b
 }
 
@@ -340,8 +346,8 @@ func (b *Builder) validateFlags() error {
 		return noCpusPerTaskSpecifiedErr
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.ErrorFlag) && b.err == "" {
-		return noErrorSpecifiedErr
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.ErrorFlag) && b.stderr == "" {
+		return noStderrSpecifiedErr
 	}
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.GpusPerTaskFlag) && b.gpusPerTask == nil {
@@ -376,8 +382,8 @@ func (b *Builder) validateFlags() error {
 		return noNTasksSpecifiedErr
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.OutputFlag) && b.output == "" {
-		return noOutputSpecifiedErr
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.OutputFlag) && b.stdout == "" {
+		return noStdoutSpecifiedErr
 	}
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.PartitionFlag) && b.partition == "" {

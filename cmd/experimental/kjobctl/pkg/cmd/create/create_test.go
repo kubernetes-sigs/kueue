@@ -81,7 +81,7 @@ func TestCreateOptions_Complete(t *testing.T) {
 			cmd.SetErr(outErr)
 			cmd.SetArgs(tc.args)
 
-			gotErr := tc.options.Complete(tcg, cmd.Commands()[0])
+			gotErr := tc.options.Complete(tcg, cmd.Commands()[0], nil)
 
 			var gotErrStr string
 			if gotErr != nil {

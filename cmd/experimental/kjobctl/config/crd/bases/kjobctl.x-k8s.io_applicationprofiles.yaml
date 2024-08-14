@@ -63,8 +63,8 @@ spec:
                         The request flag used only for Interactive and Job modes.
                         The cmd flag used only for Interactive, Job, and RayJob.
                         If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
-                        For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem-per-cpu,
-                        mem-per-gpu, mem-per-task, nodes, ntasks, output, partition.
+                        For the Slurm mode, the possible values are: array, cpus-per-task, stderr, gpus-per-task, input, job-name, mem-per-cpu,
+                        mem-per-gpu, mem-per-task, nodes, ntasks, stdout, partition.
 
 
                         cmd and requests values are going to be added only to the first primary container.
@@ -81,7 +81,7 @@ spec:
                         - raycluster
                         - array
                         - cpus-per-task
-                        - error
+                        - stderr
                         - gpus-per-task
                         - input
                         - job-name
@@ -90,7 +90,7 @@ spec:
                         - mem-per-task
                         - nodes
                         - ntasks
-                        - output
+                        - stdout
                         - partition
                         type: string
                       maxItems: 8
@@ -154,8 +154,8 @@ spec:
                   - message: cpus-per-task flag can be used only on Slurm mode
                     rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''cpus-per-task''
                       in self.requiredFlags)'
-                  - message: error flag can be used only on Slurm mode
-                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''error''
+                  - message: stderr flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''stderr''
                       in self.requiredFlags)'
                   - message: gpus-per-task flag can be used only on Slurm mode
                     rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''gpus-per-task''
@@ -181,8 +181,8 @@ spec:
                   - message: ntasks flag can be used only on Slurm mode
                     rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''ntasks''
                       in self.requiredFlags)'
-                  - message: output flag can be used only on Slurm mode
-                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''output''
+                  - message: stdout flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''stdout''
                       in self.requiredFlags)'
                   - message: partition flag can be used only on Slurm mode
                     rule: '!has(self.requiredFlags) || self.name == ''Slurm'' && !(''partition''

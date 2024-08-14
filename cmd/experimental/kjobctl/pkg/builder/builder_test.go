@@ -258,7 +258,7 @@ func TestBuilder(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantErr: noErrorSpecifiedErr,
+			wantErr: noStderrSpecifiedErr,
 		},
 		"shouldn't build job because gpusPerTask not specified with required flags": {
 			namespace: metav1.NamespaceDefault,
@@ -384,7 +384,7 @@ func TestBuilder(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantErr: noOutputSpecifiedErr,
+			wantErr: noStdoutSpecifiedErr,
 		},
 		"shouldn't build job because partition not specified with required flags": {
 			namespace: metav1.NamespaceDefault,
