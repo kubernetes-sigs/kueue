@@ -18,35 +18,15 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# keep in sync with hack/verify-toc.sh
-TOOL_VERSION=b8c54a57d69f29386d055584e595f38d65ce2a1f
-
 # cd to the root path
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "${ROOT}"
 
-# create a temporary directory
-TMP_DIR=$(mktemp -d)
-
-# cleanup
-exitHandler() (
-  echo "Cleaning up..."
-  rm -rf "${TMP_DIR}"
-)
-trap exitHandler EXIT
-
-# Perform go install in a temp dir as we are not tracking this version in a go
-# module.
-# If we do the go install in the repo, it will create/update go.mod and go.sum.
-cd "${TMP_DIR}"
-GO111MODULE=on GOBIN="${TMP_DIR}" go install "sigs.k8s.io/mdtoc@${TOOL_VERSION}"
-export PATH="${TMP_DIR}:${PATH}"
-cd "${ROOT}"
-
+echo "Updating tables of contents if necessary..."
 # Update tables of contents if necessary.
 find keps -name '*.md' \
     | grep -Fxvf hack/.notableofcontents \
-    | xargs mdtoc --inplace --max-depth=5  || (
+    | xargs "${ROOT}/bin/mdtoc" --inplace --max-depth=5  || (
       echo "Failed generating TOC. If this failed silently and you are on mac, try 'brew install grep'"
       exit 1
     )
