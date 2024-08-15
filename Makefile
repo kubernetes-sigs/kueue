@@ -146,11 +146,11 @@ gomod-download:
 	$(GO_CMD) mod download
 
 .PHONY: toc-update
-toc-update:
+toc-update: mdtoc
 	./hack/update-toc.sh
 
 .PHONY: toc-verify
-toc-verify:
+toc-verify: mdtoc
 	./hack/verify-toc.sh
 
 .PHONY: vet
