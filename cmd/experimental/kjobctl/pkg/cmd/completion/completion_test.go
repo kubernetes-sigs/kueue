@@ -107,3 +107,29 @@ func TestRayClusterNameCompletionFunc(t *testing.T) {
 		t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
 	}
 }
+
+func TestPodNameCompletionFunc(t *testing.T) {
+	args := []string{"pod1"}
+	objs := []runtime.Object{
+		wrappers.MakePod("pod1", metav1.NamespaceDefault).Profile("p1").Obj(),
+		wrappers.MakePod("pod2", metav1.NamespaceDefault).Profile("p1").Obj(),
+		wrappers.MakePod("pod3", "test").Profile("p1").Obj(),
+		wrappers.MakePod("pod4", metav1.NamespaceDefault).Obj(),
+	}
+
+	wantNames := []string{"pod2"}
+	wantDirective := cobra.ShellCompDirectiveNoFileComp
+
+	tcg := cmdtesting.NewTestClientGetter()
+	tcg.WithK8sClientset(k8sfake.NewSimpleClientset(objs...))
+
+	complFn := PodNameFunc(tcg)
+	names, directive := complFn(&cobra.Command{}, args, "")
+	if diff := cmp.Diff(wantNames, names); diff != "" {
+		t.Errorf("Unexpected names (-want/+got)\n%s", diff)
+	}
+
+	if diff := cmp.Diff(wantDirective, directive); diff != "" {
+		t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
+	}
+}

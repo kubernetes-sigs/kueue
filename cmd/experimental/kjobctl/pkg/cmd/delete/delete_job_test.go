@@ -18,7 +18,6 @@ package delete
 
 import (
 	"context"
-	kubetesting "k8s.io/client-go/testing"
 	"slices"
 	"testing"
 
@@ -28,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	kubetesting "k8s.io/client-go/testing"
 
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"

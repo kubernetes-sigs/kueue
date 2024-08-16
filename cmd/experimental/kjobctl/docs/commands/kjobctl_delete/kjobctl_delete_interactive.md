@@ -3,13 +3,17 @@ The file is auto-generated from the Go source code of the component using the
 [generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
 -->
 
-# kjobctl delete
+# kjobctl delete interactive
 
 
 ## Synopsis
 
 
-Delete resources
+Delete interactive shell
+
+```
+kjobctl delete interactive NAME [--cascade STRATEGY] [--dry-run STRATEGY]
+```
 
 
 ## Examples
@@ -17,15 +21,6 @@ Delete resources
 ```
   # Delete interactive shell 
   kjobctl delete interactive my-application-profile-interactive-k2wzd
-
-  # Delete Job 
-  kjobctl delete job my-application-profile-job-k2wzd
-
-  # Delete RayJob 
-  kjobctl delete rayjob my-application-profile-rayjob-k2wzd
-
-  # Delete RayCluster 
-  kjobctl delete raycluster my-application-profile-raycluster-k2wzd
 ```
 
 
@@ -39,12 +34,66 @@ Delete resources
     </colgroup>
     <tbody>
     <tr>
+        <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: true</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, ignore any errors in templates when a field or map key is missing in the template. Only applies to golang and jsonpath output formats.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--cascade string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;background&#34;</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Must be &#34;background&#34;, &#34;orphan&#34;, or &#34;foreground&#34;. Defaults to background.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--dry-run string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;none&#34;</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Must be &#34;none&#34;, &#34;server&#34;, or &#34;client&#34;. If client strategy, only print the object that would be sent, without sending it. If server strategy, submit server-side request without persisting the resource.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-h, --help</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>help for delete</p>
+            <p>help for interactive</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-o, --output string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--show-managed-fields</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--template string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
         </td>
     </tr>
     </tbody>
@@ -228,9 +277,5 @@ Delete resources
 
 ## See Also
 
-* [kjobctl](../kjobctl.md)	 - ML/AI/Batch Jobs Made Easy
-* [kjobctl delete interactive](kjobctl_delete_interactive.md)	 - Delete interactive shell
-* [kjobctl delete job](kjobctl_delete_job.md)	 - Delete Job
-* [kjobctl delete raycluster](kjobctl_delete_raycluster.md)	 - Delete RayCluster
-* [kjobctl delete rayjob](kjobctl_delete_rayjob.md)	 - Delete RayJob
+* [kjobctl_delete](_index.md)	 - Delete resources
 

@@ -236,3 +236,32 @@ func RayClusterNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []s
 		return validArgs, cobra.ShellCompDirectiveNoFileComp
 	}
 }
+
+func PodNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clientset, err := clientGetter.K8sClientset()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		opts := metav1.ListOptions{LabelSelector: constants.ProfileLabel, Limit: completionLimit}
+		list, err := clientset.CoreV1().Pods(namespace).List(cmd.Context(), opts)
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		var validArgs []string
+		for _, pod := range list.Items {
+			if !slices.Contains(args, pod.Name) {
+				validArgs = append(validArgs, pod.Name)
+			}
+		}
+
+		return validArgs, cobra.ShellCompDirectiveNoFileComp
+	}
+}
