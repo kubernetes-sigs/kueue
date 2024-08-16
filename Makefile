@@ -169,9 +169,11 @@ lint-fix: golangci-lint
 shell-lint: ## Run shell linting.
 	$(PROJECT_DIR)/hack/shellcheck/verify.sh
 
+PATHS_TO_VERIFY := config/components apis charts/kueue/templates client-go site/
 .PHONY: verify
 verify: gomod-verify ci-lint fmt-verify shell-lint toc-verify manifests generate update-helm generate-apiref generate-kueuectl-docs prepare-release-branch
-	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/
+	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
+	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then exit 1; fi
 
 ##@ Build
 
