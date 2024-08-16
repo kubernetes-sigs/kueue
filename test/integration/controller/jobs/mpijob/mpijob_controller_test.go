@@ -89,7 +89,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			PriorityValue(int32(priorityValue)).Obj()
 		gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
 
-		job := testingmpijob.MakeMPIJob(jobName, ns.Name).PriorityClass(priorityClassName).Obj()
+		job := testingmpijob.MakeMPIJob(jobName, ns.Name).
+			MPIJobReplicaSpecsDefault().
+			PriorityClass(priorityClassName).Obj()
 		err := k8sClient.Create(ctx, job)
 		gomega.Expect(err).To(gomega.Succeed())
 		createdJob := &kubeflow.MPIJob{}
@@ -316,6 +318,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
 			job := testingmpijob.MakeMPIJob(jobName, ns.Name).
+				MPIJobReplicaSpecsDefault().
 				Queue(localQueue.Name).
 				PodAnnotation(kubeflow.MPIReplicaTypeWorker, "old-ann-key", "old-ann-value").
 				PodLabel(kubeflow.MPIReplicaTypeWorker, "old-label-key", "old-label-value").
@@ -503,7 +506,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 
 	ginkgo.It("Should reconcile jobs only when queue is set", func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
-		job := testingmpijob.MakeMPIJob(jobName, ns.Name).Obj()
+		job := testingmpijob.MakeMPIJob(jobName, ns.Name).MPIJobReplicaSpecsDefault().Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 		createdJob := &kubeflow.MPIJob{}
@@ -616,7 +619,9 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec podsReadyTestSpec) {
 			ginkgo.By("Create a job")
-			job := testingmpijob.MakeMPIJob(jobName, ns.Name).Parallelism(2).Obj()
+			job := testingmpijob.MakeMPIJob(jobName, ns.Name).
+				MPIJobReplicaSpecsDefault().
+				Parallelism(2).Obj()
 			jobQueueName := "test-queue"
 			job.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -839,6 +844,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 		ginkgo.By("checking a dev job starts")
 		job := testingmpijob.MakeMPIJob("dev-job", ns.Name).Queue(localQueue.Name).
+			MPIJobReplicaSpecsDefault().
 			Request(kubeflow.MPIReplicaTypeLauncher, corev1.ResourceCPU, "3").
 			Request(kubeflow.MPIReplicaTypeWorker, corev1.ResourceCPU, "4").
 			Obj()
@@ -859,6 +865,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		ginkgo.It("Should restore the original node selectors", func() {
 			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			job := testingmpijob.MakeMPIJob(jobName, ns.Name).Queue(localQueue.Name).
+				MPIJobReplicaSpecsDefault().
 				Request(kubeflow.MPIReplicaTypeLauncher, corev1.ResourceCPU, "3").
 				Request(kubeflow.MPIReplicaTypeWorker, corev1.ResourceCPU, "4").
 				Obj()

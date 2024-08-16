@@ -211,8 +211,8 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job:     testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).Obj(),
-			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).Obj(),
+			job:     testingmpijob.MakeMPIJob("mpijob", "ns").MPIJobReplicaSpecsDefault().Parallelism(2).Obj(),
+			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").MPIJobReplicaSpecsDefault().Parallelism(2).Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("mpijob", "ns").
 					PodSets(
@@ -226,11 +226,11 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).WorkloadPriorityClass("test-wpc").Obj(),
+			job: testingmpijob.MakeMPIJob("mpijob", "ns").MPIJobReplicaSpecsDefault().Parallelism(2).WorkloadPriorityClass("test-wpc").Obj(),
 			priorityClasses: []client.Object{
 				baseWPCWrapper.Obj(),
 			},
-			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).WorkloadPriorityClass("test-wpc").Obj(),
+			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").MPIJobReplicaSpecsDefault().Parallelism(2).WorkloadPriorityClass("test-wpc").Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("mpijob", "ns").
 					PodSets(
@@ -245,11 +245,11 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).PriorityClass("test-pc").Obj(),
+			job: testingmpijob.MakeMPIJob("mpijob", "ns").MPIJobReplicaSpecsDefault().Parallelism(2).PriorityClass("test-pc").Obj(),
 			priorityClasses: []client.Object{
 				basePCWrapper.Obj(),
 			},
-			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).PriorityClass("test-pc").Obj(),
+			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").MPIJobReplicaSpecsDefault().Parallelism(2).PriorityClass("test-pc").Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("mpijob", "ns").
 					PodSets(
@@ -264,12 +264,12 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).
+			job: testingmpijob.MakeMPIJob("mpijob", "ns").MPIJobReplicaSpecsDefault().Parallelism(2).
 				WorkloadPriorityClass("test-wpc").PriorityClass("test-pc").Obj(),
 			priorityClasses: []client.Object{
 				basePCWrapper.Obj(), baseWPCWrapper.Obj(),
 			},
-			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).
+			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").MPIJobReplicaSpecsDefault().Parallelism(2).
 				WorkloadPriorityClass("test-wpc").PriorityClass("test-pc").Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("mpijob", "ns").

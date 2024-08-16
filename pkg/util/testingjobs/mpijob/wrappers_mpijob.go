@@ -42,44 +42,88 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 			RunPolicy: kubeflow.RunPolicy{
 				Suspend: ptr.To(true),
 			},
-			MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec{
-				kubeflow.MPIReplicaTypeLauncher: {
-					Replicas: ptr.To[int32](1),
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							RestartPolicy: corev1.RestartPolicyNever,
-							Containers: []corev1.Container{
-								{
-									Name:      "c",
-									Image:     "pause",
-									Command:   []string{},
-									Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
-								},
-							},
-							NodeSelector: map[string]string{},
-						},
+			MPIReplicaSpecs: make(map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec),
+		},
+	},
+	}
+}
+
+type MPIJobReplicaSpecRequirement struct {
+	ReplicaType   kubeflow.MPIReplicaType
+	Name          string
+	ReplicaCount  int32
+	Annotations   map[string]string
+	RestartPolicy kubeflow.RestartPolicy
+}
+
+func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequirement) *MPIJobWrapper {
+	j = j.MPIJobReplicaSpecsDefault()
+	for _, rs := range replicaSpecs {
+		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
+		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
+		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
+		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "mpijob"
+
+		if rs.Annotations != nil {
+			j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.ObjectMeta.Annotations = rs.Annotations
+		}
+	}
+
+	return j
+}
+
+func (j *MPIJobWrapper) MPIJobReplicaSpecsDefault() *MPIJobWrapper {
+	j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher] = &kubeflow.ReplicaSpec{
+		Replicas: ptr.To[int32](1),
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: "Never",
+				Containers: []corev1.Container{
+					{
+						Name:      "c",
+						Image:     "pause",
+						Command:   []string{},
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 					},
 				},
-				kubeflow.MPIReplicaTypeWorker: {
-					Replicas: ptr.To[int32](1),
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							RestartPolicy: corev1.RestartPolicyNever,
-							Containers: []corev1.Container{
-								{
-									Name:      "c",
-									Image:     "pause",
-									Command:   []string{},
-									Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
-								},
-							},
-							NodeSelector: map[string]string{},
-						},
-					},
-				},
+				NodeSelector: map[string]string{},
 			},
 		},
-	}}
+	}
+
+	j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker] = &kubeflow.ReplicaSpec{
+		Replicas: ptr.To[int32](1),
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: "Never",
+				Containers: []corev1.Container{
+					{
+						Name:      "c",
+						Image:     "pause",
+						Command:   []string{},
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+					},
+				},
+				NodeSelector: map[string]string{},
+			},
+		},
+	}
+
+	return j
+}
+
+// Clone returns deep copy of the PaddleJobWrapper.
+func (j *MPIJobWrapper) Clone() *MPIJobWrapper {
+	return &MPIJobWrapper{MPIJob: *j.DeepCopy()}
+}
+
+// Label sets the label key and value
+func (j *MPIJobWrapper) Label(key, value string) *MPIJobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[key] = value
+	return j
 }
 
 // PriorityClass updates job priorityclass.
@@ -159,5 +203,17 @@ func (j *MPIJobWrapper) PodLabel(replicaType kubeflow.MPIReplicaType, k, v strin
 // Generation sets the generation of the job.
 func (j *MPIJobWrapper) Generation(num int64) *MPIJobWrapper {
 	j.ObjectMeta.Generation = num
+	return j
+}
+
+// Condition adds a condition
+func (j *MPIJobWrapper) StatusConditions(c kubeflow.JobCondition) *MPIJobWrapper {
+	j.Status.Conditions = append(j.Status.Conditions, c)
+	return j
+}
+
+func (j *MPIJobWrapper) Image(replicaType kubeflow.MPIReplicaType, image string, args []string) *MPIJobWrapper {
+	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Image = image
+	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
 	return j
 }
