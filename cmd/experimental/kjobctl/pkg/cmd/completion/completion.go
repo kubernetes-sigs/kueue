@@ -17,12 +17,14 @@ limitations under the License.
 package completion
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
 const completionLimit = 100
@@ -142,6 +144,35 @@ func LocalQueueNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []s
 		validArgs := make([]string, len(list.Items))
 		for i, wl := range list.Items {
 			validArgs[i] = wl.Name
+		}
+
+		return validArgs, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func JobNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clientset, err := clientGetter.K8sClientset()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		opts := metav1.ListOptions{LabelSelector: constants.ProfileLabel, Limit: completionLimit}
+		list, err := clientset.BatchV1().Jobs(namespace).List(cmd.Context(), opts)
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		var validArgs []string
+		for _, job := range list.Items {
+			if !slices.Contains(args, job.Name) {
+				validArgs = append(validArgs, job.Name)
+			}
 		}
 
 		return validArgs, cobra.ShellCompDirectiveNoFileComp
