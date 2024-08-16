@@ -17,6 +17,8 @@ limitations under the License.
 package delete
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
@@ -27,10 +29,11 @@ func NewDeleteCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 	cmd := &cobra.Command{
 		Use:     "delete",
 		Short:   "Delete resources",
-		Example: jobExample,
+		Example: fmt.Sprintf("%s\n\n%s", jobExample, rayJobExample),
 	}
 
 	cmd.AddCommand(NewJobCmd(clientGetter, streams))
+	cmd.AddCommand(NewRayJobCmd(clientGetter, streams))
 
 	return cmd
 }
