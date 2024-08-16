@@ -29,11 +29,12 @@ func NewDeleteCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 	cmd := &cobra.Command{
 		Use:     "delete",
 		Short:   "Delete resources",
-		Example: fmt.Sprintf("%s\n\n%s", jobExample, rayJobExample),
+		Example: fmt.Sprintf("%s\n\n%s\n\n%s", jobExample, rayJobExample, rayClusterExample),
 	}
 
 	cmd.AddCommand(NewJobCmd(clientGetter, streams))
 	cmd.AddCommand(NewRayJobCmd(clientGetter, streams))
+	cmd.AddCommand(NewRayClusterCmd(clientGetter, streams))
 
 	return cmd
 }

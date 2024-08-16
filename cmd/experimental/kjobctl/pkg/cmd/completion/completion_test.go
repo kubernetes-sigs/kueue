@@ -81,3 +81,29 @@ func TestRayJobNameCompletionFunc(t *testing.T) {
 		t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
 	}
 }
+
+func TestRayClusterNameCompletionFunc(t *testing.T) {
+	args := []string{"ray-cluster1"}
+	objs := []runtime.Object{
+		wrappers.MakeRayCluster("ray-cluster1", metav1.NamespaceDefault).Profile("p1").Obj(),
+		wrappers.MakeRayCluster("ray-cluster2", metav1.NamespaceDefault).Profile("p1").Obj(),
+		wrappers.MakeRayCluster("ray-cluster3", "test").Profile("p1").Obj(),
+		wrappers.MakeRayCluster("ray-cluster4", metav1.NamespaceDefault).Obj(),
+	}
+
+	wantNames := []string{"ray-cluster2"}
+	wantDirective := cobra.ShellCompDirectiveNoFileComp
+
+	tcg := cmdtesting.NewTestClientGetter()
+	tcg.WithRayClientset(rayfake.NewSimpleClientset(objs...))
+
+	complFn := RayClusterNameFunc(tcg)
+	names, directive := complFn(&cobra.Command{}, args, "")
+	if diff := cmp.Diff(wantNames, names); diff != "" {
+		t.Errorf("Unexpected names (-want/+got)\n%s", diff)
+	}
+
+	if diff := cmp.Diff(wantDirective, directive); diff != "" {
+		t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
+	}
+}
