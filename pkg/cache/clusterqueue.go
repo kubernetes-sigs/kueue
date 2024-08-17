@@ -215,14 +215,24 @@ func (c *clusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 
 func filterFlavorQuantities(orig resources.FlavorResourceQuantities, resourceGroups []kueue.ResourceGroup) resources.FlavorResourceQuantities {
 	ret := make(resources.FlavorResourceQuantities, len(orig))
+
+	for key, value := range orig {
+		if value > 0 {
+			ret[key] = value
+		}
+	}
+
 	for _, rg := range resourceGroups {
 		for _, f := range rg.Flavors {
 			for _, r := range f.Resources {
 				fr := resources.FlavorResource{Flavor: f.Name, Resource: r.Name}
-				ret[fr] = orig[fr]
+				if _, ok := ret[fr]; !ok {
+					ret[fr] = 0
+				}
 			}
 		}
 	}
+
 	return ret
 }
 

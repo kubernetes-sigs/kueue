@@ -458,6 +458,90 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			enableLendingLimit: true,
 		},
 		{
+			name: "shouldn't delete usage resources on update ClusterQueue",
+			operation: func(cache *Cache) error {
+				cache.AddOrUpdateResourceFlavor(
+					utiltesting.MakeResourceFlavor("default").
+						NodeLabel("cpuType", "default").
+						Obj())
+
+				cq := utiltesting.MakeClusterQueue("a").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "10", "10").Obj()).
+					Cohort("one").
+					NamespaceSelector(nil).
+					Obj()
+
+				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+					return fmt.Errorf("failed adding ClusterQueue: %w", err)
+				}
+
+				wl := utiltesting.MakeWorkload("one", "").
+					Request(corev1.ResourceCPU, "5").
+					ReserveQuota(utiltesting.MakeAdmission("a").
+						Assignment(corev1.ResourceCPU, "default", "5000m").
+						Obj()).
+					Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+					Obj()
+
+				cache.AddOrUpdateWorkload(wl)
+
+				cq = utiltesting.MakeClusterQueue("a").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").Obj()).
+					Cohort("one").
+					NamespaceSelector(nil).
+					Obj()
+
+				if err := cache.UpdateClusterQueue(cq); err != nil {
+					return fmt.Errorf("failed updating ClusterQueue: %w", err)
+				}
+
+				return nil
+			},
+			wantClusterQueues: map[string]*clusterQueue{
+				"a": {
+					Name:                          "a",
+					AllocatableResourceGeneration: 2,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage: resources.FlavorResourceQuantities{
+						{Flavor: "default", Resource: corev1.ResourceCPU}: 5000,
+					},
+					AdmittedUsage: resources.FlavorResourceQuantities{
+						{Flavor: "default", Resource: corev1.ResourceCPU}: 5000,
+					},
+					Status:     active,
+					Preemption: defaultPreemption,
+					FairWeight: oneQuantity,
+					Workloads: map[string]*workload.Info{
+						"/one": {
+							Obj: utiltesting.MakeWorkload("one", "").
+								Request(corev1.ResourceCPU, "5").
+								ReserveQuota(utiltesting.MakeAdmission("a").
+									Assignment(corev1.ResourceCPU, "default", "5000m").
+									Obj()).
+								Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+								Obj(),
+							TotalRequests: []workload.PodSetResources{
+								{
+									Name:     "main",
+									Requests: resources.Requests{corev1.ResourceCPU: 5000},
+									Count:    1,
+									Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
+								},
+							},
+							ClusterQueue: "a",
+						},
+					},
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{
+				"one": sets.New("a"),
+			},
+			enableLendingLimit: true,
+		},
+		{
 			name: "delete",
 			operation: func(cache *Cache) error {
 				err := setup(cache)
