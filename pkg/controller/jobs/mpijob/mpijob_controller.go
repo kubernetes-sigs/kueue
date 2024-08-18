@@ -105,7 +105,7 @@ func (j *MPIJob) GVK() schema.GroupVersionKind {
 }
 
 func (j *MPIJob) PodLabelSelector() string {
-	return fmt.Sprintf("%s=%s", kubeflow.JobNameLabel, j.Name)
+	return fmt.Sprintf("%s=%s,%s=%s", kubeflow.JobNameLabel, j.Name, kubeflow.OperatorNameLabel, kubeflow.OperatorName)
 }
 
 func (j *MPIJob) PodSets() []kueue.PodSet {

@@ -86,7 +86,7 @@ func (j *JobControl) GVK() schema.GroupVersionKind {
 }
 
 func (j *JobControl) PodLabelSelector() string {
-	return fmt.Sprintf("%s=%s", kftraining.JobNameLabel, j.Name)
+	return fmt.Sprintf("%s=%s,%s=%s", kftraining.JobNameLabel, j.Name, kftraining.OperatorNameLabel, "paddlejob-controller")
 }
 
 func (j *JobControl) RunPolicy() *kftraining.RunPolicy {
