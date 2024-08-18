@@ -25,7 +25,7 @@ func (r Reconciler) Reconcile(_ context.Context, _ reconcile.Request) (reconcile
 }
 
 func (r Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	ctrl.Log.V(3).Info("Setting up Noop reconciler", "gvk", r.gvk)
+	ctrl.Log.V(3).Info("Skipped reconciler setup", "gvk", r.gvk)
 	return nil
 }
 

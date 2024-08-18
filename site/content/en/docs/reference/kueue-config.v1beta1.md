@@ -412,6 +412,10 @@ must be named tls.key and tls.crt, respectively.</p>
 ## `DeploymentIntegrationOptions`     {#DeploymentIntegrationOptions}
     
 
+**Appears in:**
+
+- [Integrations](#Integrations)
+
 
 
 <table class="table">
@@ -423,7 +427,7 @@ must be named tls.key and tls.crt, respectively.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
 </td>
 <td>
-   <p>NamespaceSelector can be used to omit some namespaces from pod reconciliation</p>
+   <p>NamespaceSelector can be used to omit some namespaces from deployment reconciliation</p>
 </td>
 </tr>
 <tr><td><code>deploymentSelector</code> <B>[Required]</B><br/>
@@ -532,6 +536,13 @@ the expected format is <code>Kind.version.group.com</code>.</p>
 </td>
 <td>
    <p>PodOptions defines kueue controller behaviour for pod objects</p>
+</td>
+</tr>
+<tr><td><code>deploymentOptions</code> <B>[Required]</B><br/>
+<a href="#DeploymentIntegrationOptions"><code>DeploymentIntegrationOptions</code></a>
+</td>
+<td>
+   <p>DeploymentOptions defines kueue controller behaviour for deployment objects</p>
 </td>
 </tr>
 <tr><td><code>labelKeysToCopy</code> <B>[Required]</B><br/>

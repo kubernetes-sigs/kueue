@@ -86,21 +86,23 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	// Get deployment namespace and check for namespace label selector match
-	ns := &corev1.Namespace{}
-	if err := wh.client.Get(ctx, client.ObjectKey{Name: d.Namespace}, ns); err != nil {
-		return fmt.Errorf("failed to run mutating webhook on deployment %s/%s, error while getting namespace: %w",
-			d.Namespace,
-			d.Name,
-			err,
-		)
-	}
-	log.V(5).Info("Found deployment namespace", "Namespace.Name", ns.GetName())
-	nsSelector, err := metav1.LabelSelectorAsSelector(wh.namespaceSelector)
-	if err != nil {
-		return fmt.Errorf("failed to parse namespace selector: %w", err)
-	}
-	if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
-		return nil
+	if wh.namespaceSelector != nil {
+		ns := &corev1.Namespace{}
+		if err := wh.client.Get(ctx, client.ObjectKey{Name: d.Namespace}, ns); err != nil {
+			return fmt.Errorf("failed to run mutating webhook on deployment %s/%s, error while getting namespace: %w",
+				d.Namespace,
+				d.Name,
+				err,
+			)
+		}
+		log.V(5).Info("Found deployment namespace", "Namespace.Name", ns.GetName())
+		nsSelector, err := metav1.LabelSelectorAsSelector(wh.namespaceSelector)
+		if err != nil {
+			return fmt.Errorf("failed to parse namespace selector: %w", err)
+		}
+		if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
+			return nil
+		}
 	}
 
 	if d.Spec.Template.Labels == nil {

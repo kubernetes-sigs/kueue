@@ -305,6 +305,11 @@ func (in *Integrations) DeepCopyInto(out *Integrations) {
 		*out = new(PodIntegrationOptions)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.DeploymentOptions != nil {
+		in, out := &in.DeploymentOptions, &out.DeploymentOptions
+		*out = new(DeploymentIntegrationOptions)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.LabelKeysToCopy != nil {
 		in, out := &in.LabelKeysToCopy, &out.LabelKeysToCopy
 		*out = make([]string, len(*in))

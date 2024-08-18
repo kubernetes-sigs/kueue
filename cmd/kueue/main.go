@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 
+	appsv1 "k8s.io/api/apps/v1"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -280,6 +281,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		jobframework.WithEnabledExternalFrameworks(cfg.Integrations.ExternalFrameworks),
 		jobframework.WithManagerName(constants.KueueName),
 		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
+		jobframework.WithIntegrationOptions(appsv1.SchemeGroupVersion.WithKind("Deployment").String(), cfg.Integrations.DeploymentOptions),
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithDefaultWebhookFactory(noop.NewSetupWebhookFactory),
