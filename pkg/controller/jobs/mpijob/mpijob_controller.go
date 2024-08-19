@@ -58,7 +58,7 @@ func init() {
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -73,7 +73,7 @@ func NewJob() jobframework.GenericJob {
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
 func isMPIJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org/v2")
+	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, kubeflow.SchemeGroupVersion.Group)
 }
 
 type MPIJob kubeflow.MPIJob
