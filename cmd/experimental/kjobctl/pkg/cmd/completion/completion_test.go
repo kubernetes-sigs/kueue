@@ -22,13 +22,90 @@ import (
 	"github.com/google/go-cmp/cmp"
 	rayfake "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned/fake"
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 
+	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuefake "sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
+
+func TestNamespaceNameFunc(t *testing.T) {
+	objs := []runtime.Object{
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns2"}},
+	}
+
+	wantNames := []string{"ns1", "ns2"}
+	wantDirective := cobra.ShellCompDirectiveNoFileComp
+
+	tcg := cmdtesting.NewTestClientGetter()
+	tcg.WithK8sClientset(k8sfake.NewSimpleClientset(objs...))
+
+	complFn := NamespaceNameFunc(tcg)
+	names, directive := complFn(&cobra.Command{}, []string{}, "")
+	if diff := cmp.Diff(wantNames, names); diff != "" {
+		t.Errorf("Unexpected names (-want/+got)\n%s", diff)
+	}
+
+	if diff := cmp.Diff(wantDirective, directive); diff != "" {
+		t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
+	}
+}
+
+func TestApplicationProfileNameFunc(t *testing.T) {
+	args := []string{"ap1"}
+	objs := []runtime.Object{
+		wrappers.MakeApplicationProfile("ap1", metav1.NamespaceDefault).Obj(),
+		wrappers.MakeApplicationProfile("ap2", metav1.NamespaceDefault).Obj(),
+		wrappers.MakeApplicationProfile("ap3", "test").Obj(),
+	}
+
+	wantNames := []string{"ap2"}
+	wantDirective := cobra.ShellCompDirectiveNoFileComp
+
+	tcg := cmdtesting.NewTestClientGetter()
+	tcg.WithKjobctlClientset(fake.NewSimpleClientset(objs...))
+
+	complFn := ApplicationProfileNameFunc(tcg)
+	names, directive := complFn(&cobra.Command{}, args, "")
+	if diff := cmp.Diff(wantNames, names); diff != "" {
+		t.Errorf("Unexpected names (-want/+got)\n%s", diff)
+	}
+
+	if diff := cmp.Diff(wantDirective, directive); diff != "" {
+		t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
+	}
+}
+
+func TestLocalQueueNameFunc(t *testing.T) {
+	args := []string{"lq1"}
+	objs := []runtime.Object{
+		&v1beta1.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "lq1", Namespace: metav1.NamespaceDefault}},
+		&v1beta1.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "lq2", Namespace: metav1.NamespaceDefault}},
+		&v1beta1.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "lq3", Namespace: "test"}},
+	}
+
+	wantNames := []string{"lq2"}
+	wantDirective := cobra.ShellCompDirectiveNoFileComp
+
+	tcg := cmdtesting.NewTestClientGetter()
+	tcg.WithKueueClientset(kueuefake.NewSimpleClientset(objs...))
+
+	complFn := LocalQueueNameFunc(tcg)
+	names, directive := complFn(&cobra.Command{}, args, "")
+	if diff := cmp.Diff(wantNames, names); diff != "" {
+		t.Errorf("Unexpected names (-want/+got)\n%s", diff)
+	}
+
+	if diff := cmp.Diff(wantDirective, directive); diff != "" {
+		t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
+	}
+}
 
 func TestJobNameCompletionFunc(t *testing.T) {
 	args := []string{"job1"}

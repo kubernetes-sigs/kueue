@@ -41,9 +41,9 @@ func NamespaceNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []st
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		validArgs := make([]string, len(list.Items))
-		for i, wl := range list.Items {
-			validArgs[i] = wl.Name
+		var validArgs []string
+		for _, ns := range list.Items {
+			validArgs = append(validArgs, ns.Name)
 		}
 
 		return validArgs, cobra.ShellCompDirectiveNoFileComp
@@ -115,9 +115,11 @@ func ApplicationProfileNameFunc(clientGetter util.ClientGetter) func(*cobra.Comm
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		validArgs := make([]string, len(list.Items))
-		for i, wl := range list.Items {
-			validArgs[i] = wl.Name
+		var validArgs []string
+		for _, ap := range list.Items {
+			if !slices.Contains(args, ap.Name) {
+				validArgs = append(validArgs, ap.Name)
+			}
 		}
 
 		return validArgs, cobra.ShellCompDirectiveNoFileComp
@@ -141,9 +143,11 @@ func LocalQueueNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []s
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		validArgs := make([]string, len(list.Items))
-		for i, wl := range list.Items {
-			validArgs[i] = wl.Name
+		var validArgs []string
+		for _, lq := range list.Items {
+			if !slices.Contains(args, lq.Name) {
+				validArgs = append(validArgs, lq.Name)
+			}
 		}
 
 		return validArgs, cobra.ShellCompDirectiveNoFileComp
