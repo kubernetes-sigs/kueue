@@ -15,7 +15,7 @@ spec:
         annotations:
           summary: "Kueue pod is down ({{ $labels.pod }})"
           description: "The Kueue pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is not ready."
-          triage: "https://github.com/opendatahub-io/kueue/tree/dev/docs/alerts/runbooks/kueue-pod-down.md"
+          runbook_url: "https://github.com/opendatahub-io/runbooks/blob/main/alerts/kueue/kueue-pod-down.md"
     - name: kueue-info-alerts
       rules:
       - alert: LowClusterQueueResourceUsage
@@ -26,7 +26,7 @@ spec:
         annotations:
           summary: Low {{ $labels.resource }} resource usage in cluster queue {{ $labels.cluster_queue }}
           description: The {{ $labels.resource }} resource usage in cluster queue {{ $labels.cluster_queue }} is below 20% of its nominal quota for more than 1 day.
-          triage: "https://github.com/opendatahub-io/kueue/tree/dev/docs/alerts/runbooks/low-cluster-queue-resource-usage.md"
+          runbook_url: "https://github.com/opendatahub-io/runbooks/blob/main/alerts/kueue/low-cluster-queue-resource-usage.md"
       - alert: ResourceReservationExceedsQuota
         expr: (sum(kueue_cluster_queue_resource_reservation) by (resource, cluster_queue)) / 10 > (sum(kueue_cluster_queue_nominal_quota) by (resource, cluster_queue))
         for: 10m
@@ -35,7 +35,7 @@ spec:
         annotations:
           summary: Resource {{ $labels.resource }} reservation far exceeds the available quota in cluster queue {{ $labels.cluster_queue}}
           description: Resource {{ $labels.resource }} reservation is 10 times the available quota in cluster queue {{ $labels.cluster_queue}}
-          triage: "https://github.com/opendatahub-io/kueue/tree/dev/docs/alerts/runbooks/resource-reservation-exceeds-quota.md"
+          runbook_url: "https://github.com/opendatahub-io/runbooks/blob/main/alerts/kueue/resource-reservation-exceeds-quota.md"
       - alert: PendingWorkloadPods
         expr: (sum by (namespace, pod) (sum_over_time(kube_pod_status_phase{phase="Pending"}[3d])) >= 3 * 24 * 60) >0
         for: 1m
@@ -44,5 +44,5 @@ spec:
         annotations:
           summary: Pod {{ $labels.pod }} in the {{ $labels.namespace }} namespace has been pending for more than 3 days
           description: A pod {{ $labels.pod }} in the {{ $labels.namespace }} namespace has been in the pending state for more than 3 days.
-          triage: "https://github.com/opendatahub-io/kueue/tree/dev/docs/alerts/runbooks/pending-workload-pods.md"
+          runbook_url: "https://github.com/opendatahub-io/runbooks/blob/main/alerts/kueue/pending-workload-pods.md"
 
