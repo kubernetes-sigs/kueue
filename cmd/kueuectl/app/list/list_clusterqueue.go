@@ -203,7 +203,7 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 }
 
 func (o *ClusterQueueOptions) filterList(cql *v1beta1.ClusterQueueList) {
-	if o.Active == nil || len(o.Active) == 0 {
+	if len(o.Active) == 0 {
 		return
 	}
 
