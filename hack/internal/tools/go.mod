@@ -15,7 +15,7 @@ require (
 	k8s.io/component-base v0.30.3
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240605185440-12cc8d59fabe
 	sigs.k8s.io/controller-tools v0.15.0
-	sigs.k8s.io/kind v0.23.0
+	sigs.k8s.io/kind v0.24.0
 	sigs.k8s.io/kueue v0.0.0-00010101000000-000000000000
 	sigs.k8s.io/kustomize/kustomize/v4 v4.5.7
 	sigs.k8s.io/mdtoc v1.4.0
