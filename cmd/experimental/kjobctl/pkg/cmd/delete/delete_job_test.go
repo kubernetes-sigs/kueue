@@ -55,6 +55,16 @@ func TestJobCmd(t *testing.T) {
 			},
 			wantOutErr: "jobs.batch \"j\" not found\n",
 		},
+		"shouldn't delete job because it is not created via kjob": {
+			args: []string{"j1"},
+			objs: []runtime.Object{
+				wrappers.MakeJob("j1", metav1.NamespaceDefault).Obj(),
+			},
+			wantJobs: []batchv1.Job{
+				*wrappers.MakeJob("j1", metav1.NamespaceDefault).Obj(),
+			},
+			wantOutErr: "jobs.batch \"j1\" not created via kjob\n",
+		},
 		"should delete job": {
 			args: []string{"j1"},
 			objs: []runtime.Object{

@@ -55,6 +55,16 @@ func TestRayJobCmd(t *testing.T) {
 			},
 			wantOutErr: "rayjobs.ray.io \"rj\" not found\n",
 		},
+		"shouldn't delete ray job because it is not created via kjob": {
+			args: []string{"rj1"},
+			objs: []runtime.Object{
+				wrappers.MakeRayJob("rj1", metav1.NamespaceDefault).Obj(),
+			},
+			wantRayJobs: []rayv1.RayJob{
+				*wrappers.MakeRayJob("rj1", metav1.NamespaceDefault).Obj(),
+			},
+			wantOutErr: "rayjobs.ray.io \"rj1\" not created via kjob\n",
+		},
 		"should delete ray job": {
 			args: []string{"rj1"},
 			objs: []runtime.Object{

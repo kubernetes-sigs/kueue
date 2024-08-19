@@ -55,6 +55,16 @@ func TestRayClusterCmd(t *testing.T) {
 			},
 			wantOutErr: "rayclusters.ray.io \"rc\" not found\n",
 		},
+		"shouldn't delete ray cluster because it is not created via kjob": {
+			args: []string{"rc1"},
+			objs: []runtime.Object{
+				wrappers.MakeRayCluster("rc1", metav1.NamespaceDefault).Obj(),
+			},
+			wantRayClusters: []rayv1.RayCluster{
+				*wrappers.MakeRayCluster("rc1", metav1.NamespaceDefault).Obj(),
+			},
+			wantOutErr: "rayclusters.ray.io \"rc1\" not created via kjob\n",
+		},
 		"should delete ray cluster": {
 			args: []string{"rc1"},
 			objs: []runtime.Object{

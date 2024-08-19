@@ -55,6 +55,16 @@ func TestInteractiveCmd(t *testing.T) {
 			},
 			wantOutErr: "pods \"pod\" not found\n",
 		},
+		"shouldn't delete an interactive shell because it is not created via kjob": {
+			args: []string{"pod1"},
+			objs: []runtime.Object{
+				wrappers.MakePod("pod1", metav1.NamespaceDefault).Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*wrappers.MakePod("pod1", metav1.NamespaceDefault).Obj(),
+			},
+			wantOutErr: "pods \"pod1\" not created via kjob\n",
+		},
 		"should delete an interactive shell": {
 			args: []string{"pod1"},
 			objs: []runtime.Object{

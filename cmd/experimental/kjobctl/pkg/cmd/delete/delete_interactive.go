@@ -21,9 +21,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
@@ -148,7 +146,7 @@ func (o *InteractiveOptions) Run(ctx context.Context) error {
 			continue
 		}
 		if _, ok := pod.Labels[constants.ProfileLabel]; !ok {
-			fmt.Fprintln(o.ErrOut, errors.NewNotFound(schema.GroupResource{Group: "v1", Resource: "pod"}, podName).Error())
+			fmt.Fprintf(o.ErrOut, "pods \"%s\" not created via kjob\n", pod.Name)
 			continue
 		}
 
