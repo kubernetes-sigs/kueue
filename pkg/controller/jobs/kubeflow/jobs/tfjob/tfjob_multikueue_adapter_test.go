@@ -31,6 +31,8 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	kfutiltesting "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
@@ -52,7 +54,7 @@ func TestMultikueueAdapter(t *testing.T) {
 		managersTFJobs []kftraining.TFJob
 		workerTFJobs   []kftraining.TFJob
 
-		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
+		operation func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError          error
 		wantManagersTFJobs []kftraining.TFJob
@@ -62,7 +64,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			managersTFJobs: []kftraining.TFJob{
 				*tfJobBuilder.Clone().Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -87,7 +89,7 @@ func TestMultikueueAdapter(t *testing.T) {
 					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
@@ -111,7 +113,7 @@ func TestMultikueueAdapter(t *testing.T) {
 					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
-			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "tfjob1", Namespace: TestNamespace})
 			},
 		},
@@ -129,7 +131,7 @@ func TestMultikueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := &multikueueAdapter{}
+			adapter := kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk)
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 
