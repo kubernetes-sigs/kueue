@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -41,14 +42,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
+	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
+	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+
 	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
@@ -947,7 +952,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	})
 
 	ginkgo.It("Should run a XGBoostJob on worker if admitted", func() {
-		xgBoostJob := testingxgboostjob.MakeXGBoostJob("pytorchjob1", managerNs.Name).
+		xgBoostJob := testingxgboostjob.MakeXGBoostJob("xgboostjob1", managerNs.Name).
 			Queue(managerLq.Name).
 			XGBReplicaSpecs(
 				testingxgboostjob.XGBReplicaSpecRequirement{
@@ -1020,6 +1025,86 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					Message: finishJobReason,
 				})
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdXGBoostJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+		})
+	})
+
+	ginkgo.It("Should run a MPIJob on worker if admitted", func() {
+		mpijob := testingmpijob.MakeMPIJob("mpijob1", managerNs.Name).
+			Queue(managerLq.Name).
+			MPIJobReplicaSpecs(
+				testingmpijob.MPIJobReplicaSpecRequirement{
+					ReplicaType:   kubeflow.MPIReplicaTypeLauncher,
+					ReplicaCount:  1,
+					Name:          "launcher",
+					RestartPolicy: "OnFailure",
+				},
+				testingmpijob.MPIJobReplicaSpecRequirement{
+					ReplicaType:   kubeflow.MPIReplicaTypeWorker,
+					ReplicaCount:  1,
+					Name:          "worker",
+					RestartPolicy: "Never",
+				},
+			).
+			Obj()
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, mpijob)).Should(gomega.Succeed())
+
+		wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID), Namespace: managerNs.Name}
+		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+			kueue.PodSetAssignment{
+				Name: "launcher",
+			}, kueue.PodSetAssignment{
+				Name: "worker",
+			},
+		)
+
+		admitWorkloadAndCheckWorkerCopies(multikueueAC.Name, wlLookupKey, admission)
+
+		ginkgo.By("changing the status of the XGBoostJob in the worker, updates the manager's XGBoostJob status", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdMPIJob := kubeflow.MPIJob{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
+				createdMPIJob.Status.ReplicaStatuses = map[kubeflow.MPIReplicaType]*kubeflow.ReplicaStatus{
+					kubeflow.MPIReplicaTypeLauncher: {
+						Active: 1,
+					},
+					kubeflow.MPIReplicaTypeWorker: {
+						Active:    1,
+						Succeeded: 1,
+					},
+				}
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdMPIJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdMPIJob := kubeflow.MPIJob{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
+				g.Expect(createdMPIJob.Status.ReplicaStatuses).To(gomega.Equal(
+					map[kubeflow.MPIReplicaType]*kubeflow.ReplicaStatus{
+						kubeflow.MPIReplicaTypeLauncher: {
+							Active: 1,
+						},
+						kubeflow.MPIReplicaTypeWorker: {
+							Active:    1,
+							Succeeded: 1,
+						},
+					}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("finishing the worker MPIJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
+			finishJobReason := "MPIJob finished successfully"
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdMPIJob := kubeflow.MPIJob{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
+				createdMPIJob.Status.Conditions = append(createdMPIJob.Status.Conditions, kubeflow.JobCondition{
+					Type:    kubeflow.JobSucceeded,
+					Status:  corev1.ConditionTrue,
+					Reason:  "ByTest",
+					Message: finishJobReason,
+				})
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdMPIJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
