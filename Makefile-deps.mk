@@ -112,7 +112,7 @@ KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.
 .PHONY: kf-training-operator-crd
 kf-training-operator-crd: ## Copy the CRDs from the training-operator to the dep-crds directory.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator/
-	cp -f $(KF_TRAINING_ROOT)/manifests/base/crds/* $(EXTERNAL_CRDS_DIR)/training-operator/
+	find $(KF_TRAINING_ROOT)/manifests/base/crds/ -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp {} $(EXTERNAL_CRDS_DIR)/training-operator/ \;
 
 RAY_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 .PHONY: ray-operator-crd
