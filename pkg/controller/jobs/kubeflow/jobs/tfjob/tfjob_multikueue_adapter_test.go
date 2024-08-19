@@ -131,7 +131,7 @@ func TestMultikueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := kubeflowjob.NewAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, kftraining.TFJobKind)
+			adapter := kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk)
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

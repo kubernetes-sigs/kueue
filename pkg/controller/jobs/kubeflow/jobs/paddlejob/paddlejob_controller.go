@@ -45,7 +45,7 @@ func init() {
 		JobType:                &kftraining.PaddleJob{},
 		AddToScheme:            kftraining.AddToScheme,
 		IsManagingObjectsOwner: isPaddleJob,
-		MultiKueueAdapter:      kubeflowjob.NewAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, kftraining.PaddleJobKind),
+		MultiKueueAdapter:      kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk),
 	}))
 }
 

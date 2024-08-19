@@ -44,8 +44,7 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	copySpec   func(dst, src PtrT)
 	copyStatus func(dst, src PtrT)
 	emptyList  func() client.ObjectList
-	gwk        schema.GroupVersionKind
-	typeName   string
+	gvk        schema.GroupVersionKind
 }
 
 type fullInterface interface {
@@ -53,31 +52,29 @@ type fullInterface interface {
 	jobframework.MultiKueueWatcher
 }
 
-func NewAdapter[PtrT objAsPtr[T], T any](
+func NewMKAdapter[PtrT objAsPtr[T], T any](
 	copySpec func(dst, src PtrT),
 	copyStatus func(dst, src PtrT),
 	emptyList func() client.ObjectList,
-	gwk schema.GroupVersionKind,
-	typeName string,
+	gvk schema.GroupVersionKind,
 ) fullInterface {
 	return &adapter[PtrT, T]{
 		copySpec:   copySpec,
 		copyStatus: copyStatus,
 		emptyList:  emptyList,
-		gwk:        gwk,
-		typeName:   typeName,
+		gvk:        gvk,
 	}
 }
 
 func (a adapter[PtrT, T]) GVK() schema.GroupVersionKind {
-	return a.gwk
+	return a.gvk
 }
 
 func (a adapter[PtrT, T]) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (a adapter[PtrT, T]) IsJobManagedByKueue(_ context.Context, _ client.Client, _ types.NamespacedName) (bool, string, error) {
+func (a adapter[PtrT, T]) IsJobManagedByKueue(context.Context, client.Client, types.NamespacedName) (bool, string, error) {
 	return true, "", nil
 }
 
@@ -124,10 +121,8 @@ func (a adapter[PtrT, T]) SyncJob(
 
 func (a adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := PtrT(new(T))
-	err := remoteClient.Get(ctx, key, job)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
+	job.SetName(key.Name)
+	job.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, job))
 }
 
@@ -138,12 +133,12 @@ func (a adapter[PtrT, T]) GetEmptyList() client.ObjectList {
 func (a adapter[PtrT, T]) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
 	job, isTheJob := o.(PtrT)
 	if !isTheJob {
-		return types.NamespacedName{}, fmt.Errorf("not a %s", a.typeName)
+		return types.NamespacedName{}, fmt.Errorf("not a %s", a.gvk.Kind)
 	}
 
 	prebuiltWl, hasPrebuiltWorkload := job.GetLabels()[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for %s: %s", a.typeName, klog.KObj(job))
+		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(job))
 	}
 
 	return types.NamespacedName{Name: prebuiltWl, Namespace: job.GetNamespace()}, nil

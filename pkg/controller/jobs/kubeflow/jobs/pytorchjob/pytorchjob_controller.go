@@ -45,7 +45,7 @@ func init() {
 		JobType:                &kftraining.PyTorchJob{},
 		AddToScheme:            kftraining.AddToScheme,
 		IsManagingObjectsOwner: isPyTorchJob,
-		MultiKueueAdapter:      kubeflowjob.NewAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, kftraining.PyTorchJobKind),
+		MultiKueueAdapter:      kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk),
 	}))
 }
 

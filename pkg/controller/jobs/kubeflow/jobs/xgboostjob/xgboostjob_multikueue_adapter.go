@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
-var _ jobframework.MultiKueueAdapter = kubeflowjob.NewAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, kftraining.XGBoostJobKind)
+var _ jobframework.MultiKueueAdapter = kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk)
 
 func copyJobStatus(dst, src *kftraining.XGBoostJob) {
 	dst.Status = src.Status
