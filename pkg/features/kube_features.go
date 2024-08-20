@@ -93,6 +93,7 @@ const (
 
 	// owner: @gabesaba
 	// alpha: v0.8
+	// beta: v0.9
 	//
 	// Enable more than one workload sharing flavors to preempt within a Cohort,
 	// as long as the preemption targets don't overlap.
@@ -119,7 +120,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
 	LendingLimit:                    {Default: false, PreRelease: featuregate.Alpha},
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
-	MultiplePreemptions:             {Default: false, PreRelease: featuregate.Alpha},
+	MultiplePreemptions:             {Default: true, PreRelease: featuregate.Beta},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {
