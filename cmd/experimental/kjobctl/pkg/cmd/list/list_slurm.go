@@ -37,14 +37,14 @@ import (
 )
 
 const (
-	jobExample = `  # List Job
-  kjobctl list job
+	slurmExample = `  # List Slurm
+  kjobctl list slurm
   
-  # List Job with profile filter
-  kjobctl list job --profile my-profile`
+  # List Slurm with profile filter
+  kjobctl list slurm --profile my-profile`
 )
 
-type JobOptions struct {
+type SlurmOptions struct {
 	Clock      clock.Clock
 	PrintFlags *genericclioptions.PrintFlags
 
@@ -61,27 +61,27 @@ type JobOptions struct {
 	genericiooptions.IOStreams
 }
 
-func NewJobOptions(streams genericiooptions.IOStreams, clock clock.Clock) *JobOptions {
-	return &JobOptions{
+func NewSlurmOptions(streams genericiooptions.IOStreams, clock clock.Clock) *SlurmOptions {
+	return &SlurmOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
 		IOStreams:  streams,
 		Clock:      clock,
 	}
 }
 
-func NewJobCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
-	o := NewJobOptions(streams, clock)
+func NewSlurmCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams, clock clock.Clock) *cobra.Command {
+	o := NewSlurmOptions(streams, clock)
 
 	cmd := &cobra.Command{
-		Use: "job" +
+		Use: "slurm" +
 			" [--profile PROFILE_NAME]" +
 			" [--localqueue LOCALQUEUE_NAME]" +
 			" [--selector key1=value1]" +
 			" [--field-selector key1=value1]" +
 			" [--all-namespaces]",
 		DisableFlagsInUseLine: true,
-		Short:                 "List Job",
-		Example:               jobExample,
+		Short:                 "List Slurm",
+		Example:               slurmExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter)
@@ -107,7 +107,7 @@ func NewJobCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 }
 
 // Complete completes all the required options
-func (o *JobOptions) Complete(clientGetter util.ClientGetter) error {
+func (o *SlurmOptions) Complete(clientGetter util.ClientGetter) error {
 	var err error
 
 	o.Limit, err = listRequestLimit()
@@ -130,7 +130,7 @@ func (o *JobOptions) Complete(clientGetter util.ClientGetter) error {
 	return nil
 }
 
-func (o *JobOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, error) {
+func (o *SlurmOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, error) {
 	if !o.PrintFlags.OutputFlagSpecified() {
 		printer := newJobTablePrinter().
 			WithNamespace(o.AllNamespaces).
@@ -148,7 +148,7 @@ func (o *JobOptions) ToPrinter(headers bool) (printers.ResourcePrinterFunc, erro
 }
 
 // Run performs the list operation.
-func (o *JobOptions) Run(ctx context.Context) error {
+func (o *SlurmOptions) Run(ctx context.Context) error {
 	var totalCount int
 
 	namespace := o.Namespace
@@ -167,7 +167,7 @@ func (o *JobOptions) Run(ctx context.Context) error {
 		opts.LabelSelector = constants.ProfileLabel
 	}
 
-	opts.LabelSelector = fmt.Sprintf("%s,%s=%s", opts.LabelSelector, constants.ModeLabel, v1alpha1.JobMode)
+	opts.LabelSelector = fmt.Sprintf("%s,%s=%s", opts.LabelSelector, constants.ModeLabel, v1alpha1.SlurmMode)
 
 	if len(o.LocalQueueFilter) > 0 {
 		opts.LabelSelector = fmt.Sprintf("%s,%s=%s", opts.LabelSelector, kueueconstants.QueueLabel, o.LocalQueueFilter)

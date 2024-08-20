@@ -115,7 +115,8 @@ func TestJobBuilder(t *testing.T) {
 				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-job-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
-					Label(constants.ProfileLabel, "profile").
+					Profile("profile").
+					Mode(v1alpha1.JobMode).
 					Spec(
 						testJobTemplateWrapper.Clone().
 							WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
@@ -157,7 +158,8 @@ func TestJobBuilder(t *testing.T) {
 				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-job-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
-					Label(constants.ProfileLabel, "profile").
+					Profile("profile").
+					Mode(v1alpha1.JobMode).
 					Label(kueueconstants.QueueLabel, "lq1").
 					Spec(
 						testJobTemplateWrapper.Clone().

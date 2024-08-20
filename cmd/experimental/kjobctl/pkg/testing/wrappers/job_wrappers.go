@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -77,6 +78,11 @@ func (j *JobWrapper) Parallelism(v int32) *JobWrapper {
 // Profile sets the profile label.
 func (j *JobWrapper) Profile(v string) *JobWrapper {
 	return j.Label(constants.ProfileLabel, v)
+}
+
+// Mode sets the profile label.
+func (j *JobWrapper) Mode(v v1alpha1.ApplicationProfileMode) *JobWrapper {
+	return j.Label(constants.ModeLabel, string(v))
 }
 
 // LocalQueue sets the localqueue label.

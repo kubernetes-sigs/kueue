@@ -29,6 +29,7 @@ import (
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuefake "sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
@@ -110,11 +111,14 @@ func TestLocalQueueNameFunc(t *testing.T) {
 func TestJobNameCompletionFunc(t *testing.T) {
 	args := []string{"job1"}
 	objs := []runtime.Object{
-		wrappers.MakeJob("job1", metav1.NamespaceDefault).Profile("p1").Obj(),
-		wrappers.MakeJob("job2", metav1.NamespaceDefault).Profile("p1").Obj(),
-		wrappers.MakeJob("job3", "test").Profile("p1").Obj(),
-		wrappers.MakeJob("job4", metav1.NamespaceDefault).Obj(),
+		wrappers.MakeJob("job1", metav1.NamespaceDefault).Profile("p1").Mode("jJb").Obj(),
+		wrappers.MakeJob("job2", metav1.NamespaceDefault).Profile("p1").Mode("Job").Obj(),
+		wrappers.MakeJob("job3", metav1.NamespaceDefault).Profile("p1").Mode("Slurm").Obj(),
+		wrappers.MakeJob("job4", "test").Profile("p1").Mode("Job").Obj(),
+		wrappers.MakeJob("job5", metav1.NamespaceDefault).Profile("p1").Obj(),
+		wrappers.MakeJob("job6", metav1.NamespaceDefault).Mode("Job").Obj(),
 	}
+	mode := v1alpha1.JobMode
 
 	wantNames := []string{"job2"}
 	wantDirective := cobra.ShellCompDirectiveNoFileComp
@@ -122,7 +126,7 @@ func TestJobNameCompletionFunc(t *testing.T) {
 	tcg := cmdtesting.NewTestClientGetter()
 	tcg.WithK8sClientset(k8sfake.NewSimpleClientset(objs...))
 
-	complFn := JobNameFunc(tcg)
+	complFn := JobNameFunc(tcg, mode)
 	names, directive := complFn(&cobra.Command{}, args, "")
 	if diff := cmp.Diff(wantNames, names); diff != "" {
 		t.Errorf("Unexpected names (-want/+got)\n%s", diff)

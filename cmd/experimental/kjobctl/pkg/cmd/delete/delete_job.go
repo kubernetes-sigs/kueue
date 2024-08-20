@@ -30,6 +30,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
@@ -72,7 +73,7 @@ func NewJobCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 		Short:                 "Delete Job",
 		Example:               jobExample,
 		Args:                  cobra.MinimumNArgs(1),
-		ValidArgsFunction:     completion.JobNameFunc(clientGetter),
+		ValidArgsFunction:     completion.JobNameFunc(clientGetter, v1alpha1.JobMode),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 

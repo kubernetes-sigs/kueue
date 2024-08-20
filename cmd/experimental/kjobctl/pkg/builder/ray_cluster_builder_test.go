@@ -149,7 +149,8 @@ func TestRayClusterBuilder(t *testing.T) {
 				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-raycluster-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
-					Label(constants.ProfileLabel, "profile").
+					Profile("profile").
+					Mode(v1alpha1.RayClusterMode).
 					Spec(
 						testRayClusterTemplateWrapper.Clone().
 							Spec(
@@ -196,7 +197,8 @@ func TestRayClusterBuilder(t *testing.T) {
 				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-raycluster-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
-					Label(constants.ProfileLabel, "profile").
+					Profile("profile").
+					Mode(v1alpha1.RayClusterMode).
 					Label(kueueconstants.QueueLabel, "lq1").
 					Spec(
 						testRayClusterTemplateWrapper.Clone().

@@ -451,6 +451,10 @@ func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.O
 		objectMeta.Labels[constants.ProfileLabel] = b.profile.Name
 	}
 
+	if b.mode != nil {
+		objectMeta.Labels[constants.ModeLabel] = string(b.mode.Name)
+	}
+
 	if len(b.localQueue) > 0 {
 		objectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
 	}

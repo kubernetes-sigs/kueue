@@ -17,12 +17,14 @@ limitations under the License.
 package completion
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
@@ -154,7 +156,7 @@ func LocalQueueNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []s
 	}
 }
 
-func JobNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func JobNameFunc(clientGetter util.ClientGetter, mode v1alpha1.ApplicationProfileMode) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		clientset, err := clientGetter.K8sClientset()
 		if err != nil {
@@ -166,7 +168,10 @@ func JobNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, 
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		opts := metav1.ListOptions{LabelSelector: constants.ProfileLabel, Limit: completionLimit}
+		opts := metav1.ListOptions{
+			LabelSelector: fmt.Sprintf("%s,%s=%s", constants.ProfileLabel, constants.ModeLabel, mode),
+			Limit:         completionLimit,
+		}
 		list, err := clientset.BatchV1().Jobs(namespace).List(cmd.Context(), opts)
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveError

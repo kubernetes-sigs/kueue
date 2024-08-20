@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
 
@@ -420,7 +419,8 @@ func TestBuilder(t *testing.T) {
 				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-job-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
-					Label(constants.ProfileLabel, "profile").
+					Profile("profile").
+					Mode(v1alpha1.JobMode).
 					Obj(),
 			},
 		},

@@ -111,7 +111,8 @@ func TestInteractiveBuilder(t *testing.T) {
 			wantObj: []runtime.Object{wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-interactive-").
 				Annotation("foo", "baz").
 				Label("foo", "bar").
-				Label(constants.ProfileLabel, "profile").
+				Profile("profile").
+				Mode(v1alpha1.InteractiveMode).
 				Spec(
 					testPodTemplateWrapper.Clone().
 						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
@@ -153,7 +154,8 @@ func TestInteractiveBuilder(t *testing.T) {
 				wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-interactive-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
-					Label(constants.ProfileLabel, "profile").
+					Profile("profile").
+					Mode(v1alpha1.InteractiveMode).
 					Label(kueueconstants.QueueLabel, "lq1").
 					Spec(
 						testPodTemplateWrapper.Clone().
