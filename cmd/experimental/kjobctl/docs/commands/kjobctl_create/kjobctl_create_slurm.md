@@ -157,7 +157,7 @@ The minimum index value is 0. The maximum index value is 2147483647.</p>
         </td>
     </tr>
     <tr>
-        <td colspan="2">--ntasks int</td>
+        <td colspan="2">--ntasks int&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: 1</td>
     </tr>
     <tr>
         <td></td>

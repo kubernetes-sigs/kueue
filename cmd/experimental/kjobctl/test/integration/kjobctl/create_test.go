@@ -100,7 +100,7 @@ var _ = ginkgo.Describe("Kjobctl Create", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
 				gomega.Expect(outErr.String()).Should(gomega.BeEmpty())
 				gomega.Expect(out.String()).Should(gomega.MatchRegexp(
-					fmt.Sprintf("^job.batch\\/%s-[a-zA-Z0-9]+ created\\n$", profile.Name)))
+					fmt.Sprintf("^job.batch\\/%s-%s-[a-zA-Z0-9]+ created\\n$", profile.Name, "job")))
 			})
 
 			ginkgo.By("Check that Job created", func() {
@@ -158,7 +158,7 @@ var _ = ginkgo.Describe("Kjobctl Create", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
 				gomega.Expect(outErr.String()).Should(gomega.BeEmpty())
 				gomega.Expect(out.String()).Should(gomega.MatchRegexp(
-					fmt.Sprintf("job.batch\\/%s-[a-zA-Z0-9]+ created \\(server dry run\\)", profile.Name)))
+					fmt.Sprintf("job.batch\\/%s-%s-[a-zA-Z0-9]+ created \\(server dry run\\)", profile.Name, "job")))
 			})
 
 			ginkgo.By("Check that Job not created", func() {

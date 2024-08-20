@@ -112,7 +112,7 @@ func TestJobBuilder(t *testing.T) {
 					Obj(),
 			},
 			wantObj: []runtime.Object{
-				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-job-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
 					Label(constants.ProfileLabel, "profile").
@@ -154,7 +154,7 @@ func TestJobBuilder(t *testing.T) {
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
 			wantObj: []runtime.Object{
-				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-job-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
 					Label(constants.ProfileLabel, "profile").

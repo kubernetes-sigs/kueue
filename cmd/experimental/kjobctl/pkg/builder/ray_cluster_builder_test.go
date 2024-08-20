@@ -146,7 +146,7 @@ func TestRayClusterBuilder(t *testing.T) {
 					Obj(),
 			},
 			wantObj: []runtime.Object{
-				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-").
+				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-raycluster-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
 					Label(constants.ProfileLabel, "profile").
@@ -193,7 +193,7 @@ func TestRayClusterBuilder(t *testing.T) {
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
 			wantObj: []runtime.Object{
-				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-").
+				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-raycluster-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
 					Label(constants.ProfileLabel, "profile").

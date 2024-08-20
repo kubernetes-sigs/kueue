@@ -126,7 +126,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 				Items: []batchv1.Job{
 					*wrappers.MakeJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-job-").
 						Profile("profile").
 						Obj(),
 				},
@@ -147,7 +147,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
 				Items: []rayv1.RayJob{
 					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-rayjob-").
 						Profile("profile").
 						Obj(),
 				},
@@ -168,7 +168,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "RayClusterList", APIVersion: "ray.io/v1"},
 				Items: []rayv1.RayCluster{
 					*wrappers.MakeRayCluster("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-raycluster-").
 						Profile("profile").
 						Obj(),
 				},
@@ -189,7 +189,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 				Items: []batchv1.Job{
 					*wrappers.MakeJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-job-").
 						Profile("profile").
 						Obj(),
 				},
@@ -210,7 +210,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 				Items: []batchv1.Job{
 					*wrappers.MakeJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-job-").
 						Profile("profile").
 						LocalQueue("lq1").
 						Obj(),
@@ -235,7 +235,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 				Items: []batchv1.Job{
 					*wrappers.MakeJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-job-").
 						Profile("profile").
 						Parallelism(5).
 						Completions(1).
@@ -261,7 +261,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 				Items: []batchv1.Job{
 					*wrappers.MakeJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-job-").
 						Profile("profile").
 						Parallelism(1).
 						Completions(5).
@@ -289,7 +289,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 				Items: []batchv1.Job{
 					*wrappers.MakeJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-job-").
 						Profile("profile").
 						Parallelism(1).
 						Completions(1).
@@ -327,7 +327,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 				Items: []batchv1.Job{
 					*wrappers.MakeJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-job-").
 						Profile("profile").
 						Parallelism(1).
 						Completions(1).
@@ -371,7 +371,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
 				Items: []rayv1.RayJob{
 					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-rayjob-").
 						Profile("profile").
 						WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Replicas(5).Obj()).
 						Obj(),
@@ -394,7 +394,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
 				Items: []rayv1.RayJob{
 					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-rayjob-").
 						Profile("profile").
 						Entrypoint("sleep 3s").
 						Obj(),
@@ -422,7 +422,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
 				Items: []rayv1.RayJob{
 					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-rayjob-").
 						Profile("profile").
 						WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").MinReplicas(5).Obj()).
 						Obj(),
@@ -450,7 +450,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
 				Items: []rayv1.RayJob{
 					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-rayjob-").
 						Profile("profile").
 						WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").MaxReplicas(5).Obj()).
 						Obj(),
@@ -478,7 +478,7 @@ func TestCreateCmd(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
 				Items: []rayv1.RayJob{
 					*wrappers.MakeRayJob("", metav1.NamespaceDefault).
-						GenerateName("profile-").
+						GenerateName("profile-rayjob-").
 						Profile("profile").
 						WithRayClusterLabelSelector("rc1").
 						Obj(),

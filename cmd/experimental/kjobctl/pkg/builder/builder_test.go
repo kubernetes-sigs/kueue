@@ -417,7 +417,7 @@ func TestBuilder(t *testing.T) {
 					Obj(),
 			},
 			wantObj: []runtime.Object{
-				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-job-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
 					Label(constants.ProfileLabel, "profile").

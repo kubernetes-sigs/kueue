@@ -108,7 +108,7 @@ func TestInteractiveBuilder(t *testing.T) {
 					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.InteractiveMode, Template: "pod-template"}).
 					Obj(),
 			},
-			wantObj: []runtime.Object{wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-").
+			wantObj: []runtime.Object{wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-interactive-").
 				Annotation("foo", "baz").
 				Label("foo", "bar").
 				Label(constants.ProfileLabel, "profile").
@@ -150,7 +150,7 @@ func TestInteractiveBuilder(t *testing.T) {
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
 			wantObj: []runtime.Object{
-				wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-").
+				wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-interactive-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
 					Label(constants.ProfileLabel, "profile").

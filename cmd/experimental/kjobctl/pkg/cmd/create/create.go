@@ -329,7 +329,7 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"How much memory a container requires, it multiplies the number of requested gpus per task by mem-per-gpu.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedNodes, nodesFlagName, 0,
 				"Number of pods to be used at a time.")
-			subcmd.Flags().Int32Var(&o.UserSpecifiedNTasks, nTasksFlagName, 0,
+			subcmd.Flags().Int32Var(&o.UserSpecifiedNTasks, nTasksFlagName, 1,
 				"Number of identical containers inside of a pod, usually 1.")
 			subcmd.Flags().StringVar(&o.Output, stdoutFlagName, "",
 				"Where to redirect the standard output stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.")
@@ -488,6 +488,10 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	}
 
 	if cmd.Flags().Changed(nTasksFlagName) {
+		if o.UserSpecifiedNTasks <= 0 {
+			return errors.New("--nTasks must be greater than 0")
+		}
+
 		o.NTasks = &o.UserSpecifiedNTasks
 	}
 
@@ -553,22 +557,23 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 	if err != nil {
 		return err
 	}
-	obj := objs[0]
 
-	if o.DryRunStrategy != util.DryRunClient {
-		obj, err = o.createObject(ctx, clientGetter, obj)
+	for _, obj := range objs {
+		if o.DryRunStrategy != util.DryRunClient {
+			obj, err = o.createObject(ctx, clientGetter, obj)
+			if err != nil {
+				return err
+			}
+		}
+
+		err = o.PrintObj(obj, o.Out)
 		if err != nil {
 			return err
 		}
 	}
 
-	err = o.PrintObj(obj, o.Out)
-	if err != nil {
-		return err
-	}
-
 	if o.ModeName == v1alpha1.InteractiveMode {
-		pod := obj.(*corev1.Pod)
+		pod := objs[0].(*corev1.Pod)
 		return o.RunInteractivePod(ctx, clientGetter, pod.Name)
 	}
 

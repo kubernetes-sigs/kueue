@@ -147,7 +147,7 @@ func TestRayJobBuilder(t *testing.T) {
 					Obj(),
 			},
 			wantObj: []runtime.Object{
-				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
 					Label(constants.ProfileLabel, "profile").
@@ -194,7 +194,7 @@ func TestRayJobBuilder(t *testing.T) {
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
 			wantObj: []runtime.Object{
-				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
 					Label(constants.ProfileLabel, "profile").
@@ -250,7 +250,7 @@ func TestRayJobBuilder(t *testing.T) {
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
 			wantObj: []runtime.Object{
-				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-").
+				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
 					Label(constants.ProfileLabel, "profile").

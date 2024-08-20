@@ -12,6 +12,9 @@ spec:
     - name: Job
       template: sample-job-template
       requiredFlags: ["cmd"]
+    - name: Slurm
+      template: sample-slurm-template
+      requiredFlags: []
     - name: RayJob
       template: sample-ray-job-template
       requiredFlags: []
@@ -51,6 +54,23 @@ template:
               requests:
                 cpu: "1"
                 memory: "200Mi"
+        restartPolicy: Never
+---
+apiVersion: kjobctl.x-k8s.io/v1alpha1
+kind: JobTemplate
+metadata:
+  name: sample-slurm-template
+  namespace: default
+template:
+  spec:
+    parallelism: 3
+    completions: 3
+    completionMode: Indexed
+    template:
+      spec:
+        containers:
+          - name: sample-container
+            image: bash:4.4
         restartPolicy: OnFailure
 ---
 apiVersion: kjobctl.x-k8s.io/v1alpha1

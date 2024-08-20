@@ -50,10 +50,15 @@ set -o pipefail
 # JOB_CONTAINER_INDEX   - container index in the container template.
 
 # COMPLETION_INDEX=CONTAINER_INDEX1,CONTAINER_INDEX2
-declare -A array_indexes=(["0"]="3,6" ["1"]="9,12" ["2"]="15,18" ["3"]="21,24" ["4"]="27")
+declare -A array_indexes=(["0"]="3,6" ["1"]="9,12" ["2"]="15,18" ["3"]="21,24" ["4"]="27") 	# Requires bash 4+
 
 container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
 container_indexes=(${container_indexes//,/ })
+
+if [[ ! -v container_indexes[${JOB_CONTAINER_INDEX}] ]];
+then
+	exit 0
+fi
 
 # Generated on the builder
 export SLURM_ARRAY_JOB_ID=1       			# Job array’s master job ID number.
@@ -88,7 +93,7 @@ export SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * SLURM_TASKS_PER_NODE + JOB_CONTAI
 export SLURM_JOBID=$SLURM_JOB_ID                                                                                    # Deprecated. Same as $SLURM_JOB_ID
 export SLURM_ARRAY_TASK_ID=${container_indexes[${JOB_CONTAINER_INDEX}]}												# Task ID.
 
-bash ./script.sh
+bash /slurm/script.sh
 `,
 		},
 	}

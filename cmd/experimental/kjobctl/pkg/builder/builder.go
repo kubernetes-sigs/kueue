@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -431,7 +432,7 @@ func (b *Builder) Do(ctx context.Context) ([]runtime.Object, error) {
 func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {
 	objectMeta := metav1.ObjectMeta{
 		Namespace:    b.profile.Namespace,
-		GenerateName: b.profile.Name + "-",
+		GenerateName: b.generatePrefixName(),
 		Labels:       templateObjectMeta.Labels,
 		Annotations:  templateObjectMeta.Annotations,
 	}
@@ -535,4 +536,8 @@ func mergeBundles(bundles []v1alpha1.VolumeBundle) v1alpha1.VolumeBundle {
 	}
 
 	return volumeBundle
+}
+
+func (b *Builder) generatePrefixName() string {
+	return strings.ToLower(fmt.Sprintf("%s-%s-", b.profile.Name, b.modeName))
 }

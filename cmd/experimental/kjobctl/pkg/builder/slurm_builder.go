@@ -19,12 +19,24 @@ package builder
 import (
 	"context"
 	"fmt"
+	"math"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+)
+
+const (
+	slurmScriptFilename     = "script.sh"
+	slurmEntrypointFilename = "entrypoint.sh"
+	slurmPath               = "/slurm"
 )
 
 type slurmBuilder struct {
@@ -36,9 +48,116 @@ type slurmBuilder struct {
 var _ builder = (*slurmBuilder)(nil)
 
 func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
-	// TODO: Implement method...
+	template, err := b.kjobctlClientset.KjobctlV1alpha1().JobTemplates(b.profile.Namespace).
+		Get(ctx, string(b.mode.Template), metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
 
-	return []runtime.Object{&batchv1.Job{}}, nil
+	job := &batchv1.Job{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Job",
+			APIVersion: "batch/v1",
+		},
+		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		Spec:       template.Template.Spec,
+	}
+	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
+	objectName := b.generatePrefixName() + utilrand.String(5)
+	job.ObjectMeta.Name = objectName
+
+	content, err := os.ReadFile(b.script)
+	if err != nil {
+		return nil, err
+	}
+
+	b.arrayIndexes, err = parseArrayIndexes(b.array)
+	if err != nil {
+		return nil, err
+	}
+
+	configMap := &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		Data: map[string]string{
+			slurmEntrypointFilename: b.buildEntrypointScript(),
+			slurmScriptFilename:     string(content),
+		},
+	}
+	configMap.ObjectMeta.GenerateName = ""
+	configMap.ObjectMeta.Name = objectName
+
+	b.buildPodSpecVolumesAndEnv(&job.Spec.Template.Spec)
+	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: configMap.Name,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: configMap.Name,
+				},
+				Items: []corev1.KeyToPath{
+					{
+						Key:  slurmEntrypointFilename,
+						Path: slurmEntrypointFilename,
+					},
+					{
+						Key:  slurmScriptFilename,
+						Path: slurmScriptFilename,
+					},
+				},
+			},
+		},
+	})
+
+	for i := range job.Spec.Template.Spec.Containers {
+		container := &job.Spec.Template.Spec.Containers[i]
+
+		container.Command = []string{"bash", "/slurm/entrypoint.sh"}
+
+		if len(b.requests) > 0 {
+			container.Resources.Requests = b.requests
+		}
+
+		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+			Name:      configMap.Name,
+			MountPath: "/slurm",
+		})
+	}
+
+	var completions int32
+	nTasks := ptr.Deref(b.nTasks, 1)
+	if len(b.arrayIndexes.Indexes) > 0 {
+		totalIndexes := float64(len(b.arrayIndexes.Indexes))
+		completions = int32(math.Ceil(totalIndexes / float64(nTasks)))
+		job.Spec.Completions = ptr.To(completions)
+
+		job.Spec.Parallelism = b.arrayIndexes.Parallelism
+	}
+
+	updatedContainers := make([]corev1.Container, 0)
+	for jobContainerIndex := range nTasks {
+		containers := make([]corev1.Container, len(job.Spec.Template.Spec.Containers))
+		copy(containers, job.Spec.Template.Spec.Containers)
+
+		for i := range containers {
+			containers[i].Name = fmt.Sprintf("%s-%d", containers[i].Name, jobContainerIndex)
+			containers[i].Env = append(containers[i].Env, corev1.EnvVar{
+				Name:  "JOB_CONTAINER_INDEX",
+				Value: strconv.FormatInt(int64(jobContainerIndex), 10),
+			})
+		}
+		updatedContainers = append(updatedContainers, containers...)
+	}
+	job.Spec.Template.Spec.Containers = updatedContainers
+
+	if b.nodes != nil {
+		job.Spec.Parallelism = b.nodes
+	}
+
+	return []runtime.Object{job, configMap}, nil
 }
 
 func (b *slurmBuilder) buildIndexesMap() map[int32][]int32 {
@@ -86,10 +205,15 @@ set -o pipefail
 # JOB_CONTAINER_INDEX   - container index in the container template.
 
 # COMPLETION_INDEX=CONTAINER_INDEX1,CONTAINER_INDEX2
-declare -A array_indexes=(%[1]s)
+declare -A array_indexes=(%[1]s) 	# Requires bash 4+
 
 container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
 container_indexes=(${container_indexes//,/ })
+
+if [[ ! -v container_indexes[${JOB_CONTAINER_INDEX}] ]];
+then
+	exit 0
+fi
 
 # Generated on the builder
 export SLURM_ARRAY_JOB_ID=1       			# Job array’s master job ID number.
@@ -124,7 +248,7 @@ export SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * SLURM_TASKS_PER_NODE + JOB_CONTAI
 export SLURM_JOBID=$SLURM_JOB_ID                                                                                    # Deprecated. Same as $SLURM_JOB_ID
 export SLURM_ARRAY_TASK_ID=${container_indexes[${JOB_CONTAINER_INDEX}]}												# Task ID.
 
-bash ./script.sh
+bash /slurm/script.sh
 `,
 		strings.Join(keyValues, " "),
 		b.arrayIndexes.Count(),
