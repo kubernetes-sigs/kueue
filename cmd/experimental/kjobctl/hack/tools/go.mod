@@ -3,13 +3,13 @@ module sigs.k8s.io/kueue/cmd/experimental/kjobctl/hack/tools
 go 1.22.4
 
 require (
-	github.com/golangci/golangci-lint v1.59.1
+	github.com/golangci/golangci-lint v1.60.1
 	github.com/onsi/ginkgo/v2 v2.20.0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.5
 	gotest.tools/gotestsum v1.12.0
-	k8s.io/code-generator v0.30.3
-	k8s.io/component-base v0.30.3
+	k8s.io/code-generator v0.30.4
+	k8s.io/component-base v0.30.4
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240605185440-12cc8d59fabe
 	sigs.k8s.io/controller-tools v0.15.0
 	sigs.k8s.io/kueue/cmd/experimental/kjobctl v0.0.0-20240724135500-379208b7a148
@@ -98,11 +98,11 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.30.3 // indirect
+	k8s.io/api v0.30.4 // indirect
 	k8s.io/apiextensions-apiserver v0.30.3 // indirect
-	k8s.io/apimachinery v0.30.3 // indirect
+	k8s.io/apimachinery v0.30.4 // indirect
 	k8s.io/cli-runtime v0.30.3 // indirect
-	k8s.io/client-go v0.30.3 // indirect
+	k8s.io/client-go v0.30.4 // indirect
 	k8s.io/gengo/v2 v2.0.0-20240404160639-a0386bf69313 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20240709000822-3c01b740850f // indirect

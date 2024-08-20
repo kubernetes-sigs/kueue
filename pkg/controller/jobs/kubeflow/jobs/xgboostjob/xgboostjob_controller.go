@@ -46,7 +46,7 @@ func init() {
 		JobType:                &kftraining.XGBoostJob{},
 		AddToScheme:            kftraining.AddToScheme,
 		IsManagingObjectsOwner: isXGBoostJob,
-		MultiKueueAdapter:      &multikueueAdapter{},
+		MultiKueueAdapter:      kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk),
 	}))
 }
 

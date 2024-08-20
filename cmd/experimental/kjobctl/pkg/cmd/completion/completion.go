@@ -17,12 +17,14 @@ limitations under the License.
 package completion
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
 const completionLimit = 100
@@ -39,9 +41,9 @@ func NamespaceNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []st
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		validArgs := make([]string, len(list.Items))
-		for i, wl := range list.Items {
-			validArgs[i] = wl.Name
+		var validArgs []string
+		for _, ns := range list.Items {
+			validArgs = append(validArgs, ns.Name)
 		}
 
 		return validArgs, cobra.ShellCompDirectiveNoFileComp
@@ -113,9 +115,11 @@ func ApplicationProfileNameFunc(clientGetter util.ClientGetter) func(*cobra.Comm
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		validArgs := make([]string, len(list.Items))
-		for i, wl := range list.Items {
-			validArgs[i] = wl.Name
+		var validArgs []string
+		for _, ap := range list.Items {
+			if !slices.Contains(args, ap.Name) {
+				validArgs = append(validArgs, ap.Name)
+			}
 		}
 
 		return validArgs, cobra.ShellCompDirectiveNoFileComp
@@ -139,9 +143,127 @@ func LocalQueueNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []s
 			return []string{}, cobra.ShellCompDirectiveError
 		}
 
-		validArgs := make([]string, len(list.Items))
-		for i, wl := range list.Items {
-			validArgs[i] = wl.Name
+		var validArgs []string
+		for _, lq := range list.Items {
+			if !slices.Contains(args, lq.Name) {
+				validArgs = append(validArgs, lq.Name)
+			}
+		}
+
+		return validArgs, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func JobNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clientset, err := clientGetter.K8sClientset()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		opts := metav1.ListOptions{LabelSelector: constants.ProfileLabel, Limit: completionLimit}
+		list, err := clientset.BatchV1().Jobs(namespace).List(cmd.Context(), opts)
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		var validArgs []string
+		for _, job := range list.Items {
+			if !slices.Contains(args, job.Name) {
+				validArgs = append(validArgs, job.Name)
+			}
+		}
+
+		return validArgs, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func RayJobNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clientset, err := clientGetter.RayClientset()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		opts := metav1.ListOptions{LabelSelector: constants.ProfileLabel, Limit: completionLimit}
+		list, err := clientset.RayV1().RayJobs(namespace).List(cmd.Context(), opts)
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		var validArgs []string
+		for _, rayJob := range list.Items {
+			if !slices.Contains(args, rayJob.Name) {
+				validArgs = append(validArgs, rayJob.Name)
+			}
+		}
+
+		return validArgs, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func RayClusterNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clientset, err := clientGetter.RayClientset()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		opts := metav1.ListOptions{LabelSelector: constants.ProfileLabel, Limit: completionLimit}
+		list, err := clientset.RayV1().RayClusters(namespace).List(cmd.Context(), opts)
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		var validArgs []string
+		for _, rayCluster := range list.Items {
+			if !slices.Contains(args, rayCluster.Name) {
+				validArgs = append(validArgs, rayCluster.Name)
+			}
+		}
+
+		return validArgs, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func PodNameFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clientset, err := clientGetter.K8sClientset()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		opts := metav1.ListOptions{LabelSelector: constants.ProfileLabel, Limit: completionLimit}
+		list, err := clientset.CoreV1().Pods(namespace).List(cmd.Context(), opts)
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		var validArgs []string
+		for _, pod := range list.Items {
+			if !slices.Contains(args, pod.Name) {
+				validArgs = append(validArgs, pod.Name)
+			}
 		}
 
 		return validArgs, cobra.ShellCompDirectiveNoFileComp

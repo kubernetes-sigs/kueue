@@ -256,7 +256,8 @@ The currently supported features are:
 | `VisibilityOnDemand` | `false` | Alpha | 0.6 | |
 | `PrioritySortingWithinCohort` | `true` | Beta | 0.6 |  |
 | `LendingLimit` | `false` | Alpha | 0.6 | |
-| `MultiplePreemptions` | `false` | Alpha | 0.8 | |
+| `MultiplePreemptions` | `false` | Alpha | 0.8 | 0.8 |
+| `MultiplePreemptions` | `true` | Beta | 0.9 | |
 
 ## What's next
 
