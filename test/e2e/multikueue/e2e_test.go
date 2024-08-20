@@ -633,6 +633,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 
 		ginkgo.It("Should run a kubeflow XGBoostJob on worker if admitted", func() {
+			ginkgo.Skip("Skipped due to state transitioning bug in training-operator")
 			// Since it requires 1.5 CPU, this job can only be admitted in worker 1.
 			xgboostJob := testingxgboostjob.MakeXGBoostJob("xgboostjob1", managerNs.Name).
 				Queue(managerLq.Name).
