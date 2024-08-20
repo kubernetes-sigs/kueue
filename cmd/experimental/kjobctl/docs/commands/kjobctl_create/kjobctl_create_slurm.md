@@ -9,10 +9,10 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Create a raycluster
+Create a slurm job
 
 ```
-kjobctl create slurm SCRIPT --profile APPLICATION_PROFILE_NAME --array ARRAY [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--stdout FILENAME_PATTERN] [--stderr FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME]
+kjobctl create slurm SCRIPT --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--stdout FILENAME_PATTERN] [--stderr FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME]
 ```
 
 
@@ -21,8 +21,7 @@ kjobctl create slurm SCRIPT --profile APPLICATION_PROFILE_NAME --array ARRAY [--
 ```
   # Create slurm 
   kjobctl create slurm ./script.sh \ 
-	--profile my-application-profile  \
-	--array 1-5
+	--profile my-application-profile
 ```
 
 
@@ -148,7 +147,7 @@ The minimum index value is 0. The maximum index value is 2147483647.</p>
         </td>
     </tr>
     <tr>
-        <td colspan="2">--nodes int</td>
+        <td colspan="2">-N, --nodes int</td>
     </tr>
     <tr>
         <td></td>

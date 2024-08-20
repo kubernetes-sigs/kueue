@@ -49,8 +49,7 @@ Create a task
 
   # Create slurm 
   kjobctl create slurm ./script.sh \ 
-	--profile my-application-profile  \
-	--array 1-5
+	--profile my-application-profile
 ```
 
 
@@ -258,5 +257,5 @@ Create a task
 * [kjobctl create job](kjobctl_create_job.md)	 - Create a job
 * [kjobctl create raycluster](kjobctl_create_raycluster.md)	 - Create a raycluster
 * [kjobctl create rayjob](kjobctl_create_rayjob.md)	 - Create a rayjob
-* [kjobctl create slurm](kjobctl_create_slurm.md)	 - Create a raycluster
+* [kjobctl create slurm](kjobctl_create_slurm.md)	 - Create a slurm job
 

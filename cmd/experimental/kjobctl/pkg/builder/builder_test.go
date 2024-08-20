@@ -254,7 +254,7 @@ func TestBuilder(t *testing.T) {
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(v1alpha1.SupportedMode{
 						Name:          v1alpha1.SlurmMode,
-						RequiredFlags: []v1alpha1.Flag{v1alpha1.ErrorFlag},
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.StdErrFlag},
 					}).
 					Obj(),
 			},
@@ -380,7 +380,7 @@ func TestBuilder(t *testing.T) {
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(v1alpha1.SupportedMode{
 						Name:          v1alpha1.SlurmMode,
-						RequiredFlags: []v1alpha1.Flag{v1alpha1.OutputFlag},
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.StdOutFlag},
 					}).
 					Obj(),
 			},

@@ -51,7 +51,7 @@ const (
 	RayClusterFlag  Flag = "raycluster"
 	ArrayFlag       Flag = "array"
 	CpusPerTaskFlag Flag = "cpus-per-task"
-	ErrorFlag       Flag = "stderr"
+	StdErrFlag      Flag = "stderr"
 	GpusPerTaskFlag Flag = "gpus-per-task"
 	InputFlag       Flag = "input"
 	JobNameFlag     Flag = "job-name"
@@ -60,7 +60,7 @@ const (
 	MemPerTaskFlag  Flag = "mem-per-task"
 	NodesFlag       Flag = "nodes"
 	NTasksFlag      Flag = "ntasks"
-	OutputFlag      Flag = "stdout"
+	StdOutFlag      Flag = "stdout"
 	PartitionFlag   Flag = "partition"
 )
 

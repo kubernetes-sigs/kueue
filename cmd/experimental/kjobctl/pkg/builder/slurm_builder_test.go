@@ -38,8 +38,7 @@ func TestBuildEntrypointScript(t *testing.T) {
 					Indexes: []int32{3, 6, 9, 12, 15, 18, 21, 24, 27},
 				},
 			},
-			wantScript: `
-#!/usr/bin/bash
+			wantScript: `#!/usr/bin/bash
 
 set -o errexit
 set -o nounset

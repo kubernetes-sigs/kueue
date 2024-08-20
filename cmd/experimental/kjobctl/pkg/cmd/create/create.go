@@ -23,16 +23,18 @@ import (
 	"strings"
 	"time"
 
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
-	"k8s.io/client-go/kubernetes/scheme"
+	k8sscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/cmd/attach"
@@ -85,18 +87,20 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	--localqueue my-local-queue-name`
 	createSlurmExample = `  # Create slurm 
   kjobctl create slurm ./script.sh \ 
-	--profile my-application-profile  \
-	--array 1-5`
-	profileFlagName     = "profile"
-	commandFlagName     = "cmd"
-	parallelismFlagName = "parallelism"
-	completionsFlagName = "completions"
+	--profile my-application-profile`
+
+	profileFlagName           = "profile"
+	podRunningTimeoutFlagName = "pod-running-timeout"
+	removeFlagName            = "rm"
+
+	commandFlagName     = string(v1alpha1.CmdFlag)
+	parallelismFlagName = string(v1alpha1.ParallelismFlag)
+	completionsFlagName = string(v1alpha1.CompletionsFlag)
 	replicasFlagName    = string(v1alpha1.ReplicasFlag)
 	minReplicasFlagName = string(v1alpha1.MinReplicasFlag)
 	maxReplicasFlagName = string(v1alpha1.MaxReplicasFlag)
-	requestFlagName     = "request"
-	localQueueFlagName  = "localqueue"
-	podRunningTimeout   = "pod-running-timeout"
+	requestFlagName     = string(v1alpha1.RequestFlag)
+	localQueueFlagName  = string(v1alpha1.LocalQueueFlag)
 	rayClusterFlagName  = string(v1alpha1.RayClusterFlag)
 	arrayFlagName       = string(v1alpha1.ArrayFlag)
 	cpusPerTaskFlagName = string(v1alpha1.CpusPerTaskFlag)
@@ -106,8 +110,8 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	memPerGPUFlagName   = string(v1alpha1.MemPerGPUFlag)
 	nodesFlagName       = string(v1alpha1.NodesFlag)
 	nTasksFlagName      = string(v1alpha1.NTasksFlag)
-	stdoutFlagName      = string(v1alpha1.OutputFlag)
-	stderrFlagName      = string(v1alpha1.ErrorFlag)
+	stdOutFlagName      = string(v1alpha1.StdOutFlag)
+	stdErrFlagName      = string(v1alpha1.StdErrFlag)
 	inputFlagName       = string(v1alpha1.InputFlag)
 	jobNameFlagName     = string(v1alpha1.JobNameFlag)
 	partitionFlagName   = string(v1alpha1.PartitionFlag)
@@ -127,23 +131,22 @@ type CreateOptions struct {
 
 	DryRunStrategy util.DryRunStrategy
 
-	Namespace   string
-	ProfileName string
-	ModeName    v1alpha1.ApplicationProfileMode
-
-	Command              []string
-	Parallelism          *int32
-	Completions          *int32
-	Replicas             map[string]int
-	MinReplicas          map[string]int
-	MaxReplicas          map[string]int
-	Requests             corev1.ResourceList
-	LocalQueue           string
+	Namespace            string
+	ProfileName          string
+	ModeName             v1alpha1.ApplicationProfileMode
+	Script               string
 	PodRunningTimeout    time.Duration
 	RemoveInteractivePod bool
-	RayCluster           string
 
-	Script      string
+	Command     []string
+	Parallelism *int32
+	Completions *int32
+	Replicas    map[string]int
+	MinReplicas map[string]int
+	MaxReplicas map[string]int
+	Requests    corev1.ResourceList
+	LocalQueue  string
+	RayCluster  string
 	Array       string
 	CpusPerTask *apiresource.Quantity
 	GpusPerTask *apiresource.Quantity
@@ -152,8 +155,8 @@ type CreateOptions struct {
 	MemPerGPU   *apiresource.Quantity
 	Nodes       *int32
 	NTasks      *int32
-	Output      string
-	Error       string
+	StdOut      string
+	StdErr      string
 	Input       string
 	JobName     string
 	Partition   string
@@ -176,8 +179,12 @@ type CreateOptions struct {
 }
 
 func NewCreateOptions(streams genericiooptions.IOStreams) *CreateOptions {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(k8sscheme.AddToScheme(scheme))
+	utilruntime.Must(rayv1.AddToScheme(scheme))
+
 	return &CreateOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("created").WithTypeSetter(scheme.Scheme),
+		PrintFlags: genericclioptions.NewPrintFlags("created").WithTypeSetter(scheme),
 		IOStreams:  streams,
 		StreamOptions: exec.StreamOptions{
 			IOStreams: streams,
@@ -196,14 +203,13 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"job": {
 		ModeName: v1alpha1.JobMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " --profile APPLICATION_PROFILE_NAME" +
-				" [--localqueue LOCAL_QUEUE_NAME]" +
-				" [--cmd COMMAND]" +
+			subcmd.Use += " [--cmd COMMAND]" +
 				" [--request RESOURCE_NAME=QUANTITY]" +
 				" [--parallelism PARALLELISM]" +
 				" [--completions COMPLETIONS]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
+
 			subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
 				"Command which is associated with the resource.")
 			subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
@@ -212,45 +218,39 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
 				"Completions specifies the desired number of successfully finished pods.")
-
-			cobra.CheckErr(subcmd.RegisterFlagCompletionFunc(localQueueFlagName, completion.LocalQueueNameFunc(clientGetter)))
 		},
 	},
 	"interactive": {
 		ModeName: v1alpha1.InteractiveMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " --profile APPLICATION_PROFILE_NAME" +
-				" [--localqueue LOCAL_QUEUE_NAME]" +
-				" [--cmd COMMAND]" +
+			subcmd.Use += " [--cmd COMMAND]" +
 				" [--request RESOURCE_NAME=QUANTITY]" +
 				" [--pod-running-timeout DURATION]" +
 				" [--rm]"
 			subcmd.Short = "Create an interactive shell"
 			subcmd.Example = createInteractiveExample
+
 			subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
 				"Command which is associated with the resource.")
 			subcmd.Flags().StringToStringVar(&o.UserSpecifiedRequest, requestFlagName, nil,
 				"Request is a set of (resource name, quantity) pairs.")
-			subcmd.Flags().DurationVar(&o.PodRunningTimeout, podRunningTimeout, podRunningTimeoutDefault,
+			subcmd.Flags().DurationVar(&o.PodRunningTimeout, podRunningTimeoutFlagName, podRunningTimeoutDefault,
 				"The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running.")
-			subcmd.Flags().BoolVar(&o.RemoveInteractivePod, "rm", false,
+			subcmd.Flags().BoolVar(&o.RemoveInteractivePod, removeFlagName, false,
 				"Remove pod when interactive session exits.")
-
-			cobra.CheckErr(subcmd.RegisterFlagCompletionFunc(localQueueFlagName, completion.LocalQueueNameFunc(clientGetter)))
 		},
 	},
 	"rayjob": {
 		ModeName: v1alpha1.RayJobMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " --profile APPLICATION_PROFILE_NAME" +
-				" [--localqueue LOCAL_QUEUE_NAME]" +
-				" [--cmd COMMAND]" +
+			subcmd.Use += " [--cmd COMMAND]" +
 				" [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
 				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
 			subcmd.Short = "Create a rayjob"
 			subcmd.Long = createRayJobLong
 			subcmd.Example = createRayJobExample
+
 			subcmd.Flags().StringVar(&o.UserSpecifiedCommand, commandFlagName, "",
 				"Command which is associated with the resource.")
 			subcmd.Flags().StringToIntVar(&o.Replicas, replicasFlagName, nil,
@@ -266,36 +266,32 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, minReplicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, maxReplicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, localQueueFlagName)
-
-			cobra.CheckErr(subcmd.RegisterFlagCompletionFunc(localQueueFlagName, completion.LocalQueueNameFunc(clientGetter)))
 		},
 	},
 	"raycluster": {
 		ModeName: v1alpha1.RayClusterMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " --profile APPLICATION_PROFILE_NAME" +
-				" [--localqueue LOCAL_QUEUE_NAME]" +
-				" [--replicas [WORKER_GROUP]=REPLICAS]" +
+			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
 				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
 			subcmd.Short = "Create a raycluster"
 			subcmd.Long = createRayClusterLong
 			subcmd.Example = createRayClusterExample
+
 			subcmd.Flags().StringToIntVar(&o.Replicas, replicasFlagName, nil,
 				"Replicas is the number of desired Pods for this worker group.")
 			subcmd.Flags().StringToIntVar(&o.MinReplicas, minReplicasFlagName, nil,
 				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
 			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
-
-			cobra.CheckErr(subcmd.RegisterFlagCompletionFunc(localQueueFlagName, completion.LocalQueueNameFunc(clientGetter)))
 		},
 	},
 	"slurm": {
 		ModeName: v1alpha1.SlurmMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " SCRIPT --profile APPLICATION_PROFILE_NAME" +
-				" --array ARRAY" +
+			subcmd.Use = "slurm SCRIPT --profile APPLICATION_PROFILE_NAME" +
+				" [--localqueue LOCAL_QUEUE_NAME]" +
+				" [--array ARRAY]" +
 				" [--cpus-per-task QUANTITY]" +
 				" [--gpus-per-task QUANTITY]" +
 				" [--mem-per-task QUANTITY]" +
@@ -308,9 +304,10 @@ var createModeSubcommands = map[string]modeSubcommand{
 				" [--input FILENAME_PATTERN]" +
 				" [--job-name NAME]" +
 				" [--partition NAME]"
-			subcmd.Short = "Create a raycluster"
+			subcmd.Short = "Create a slurm job"
 			subcmd.Example = createSlurmExample
 			subcmd.Args = cobra.ExactArgs(1)
+
 			subcmd.Flags().StringVarP(&o.Array, arrayFlagName, "a", "",
 				`Submit a job array, multiple jobs to be executed with identical parameters. 
 The indexes specification identifies what array index values should be used. 
@@ -327,13 +324,13 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"How much memory a container requires, it multiplies the number of requested cpus per task by mem-per-cpu.")
 			subcmd.Flags().StringVar(&o.UserSpecifiedMemPerGPU, memPerGPUFlagName, "",
 				"How much memory a container requires, it multiplies the number of requested gpus per task by mem-per-gpu.")
-			subcmd.Flags().Int32Var(&o.UserSpecifiedNodes, nodesFlagName, 0,
+			subcmd.Flags().Int32VarP(&o.UserSpecifiedNodes, nodesFlagName, "N", 0,
 				"Number of pods to be used at a time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedNTasks, nTasksFlagName, 1,
 				"Number of identical containers inside of a pod, usually 1.")
-			subcmd.Flags().StringVar(&o.Output, stdoutFlagName, "",
+			subcmd.Flags().StringVar(&o.StdOut, stdOutFlagName, "",
 				"Where to redirect the standard output stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.")
-			subcmd.Flags().StringVar(&o.Error, stderrFlagName, "",
+			subcmd.Flags().StringVar(&o.StdErr, stdErrFlagName, "",
 				"Where to redirect std error stream of a task.  If not passed it proceeds to stdout, and is available via kubectl logs.")
 			subcmd.Flags().StringVar(&o.Input, inputFlagName, "",
 				"What to pipe into the script.")
@@ -341,10 +338,6 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"What is the job name.")
 			subcmd.Flags().StringVar(&o.Partition, partitionFlagName, "",
 				"Local queue name.")
-
-			_ = subcmd.MarkFlagRequired(arrayFlagName)
-
-			cobra.CheckErr(subcmd.RegisterFlagCompletionFunc(partitionFlagName, completion.LocalQueueNameFunc(clientGetter)))
 		},
 	},
 }
@@ -366,7 +359,9 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 
 	for modeName, modeSubcommand := range createModeSubcommands {
 		subcmd := &cobra.Command{
-			Use:                   modeName,
+			Use: modeName +
+				" --profile APPLICATION_PROFILE_NAME" +
+				" [--localqueue LOCAL_QUEUE_NAME]",
 			DisableFlagsInUseLine: true,
 			Args:                  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -387,6 +382,7 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			"Application profile contains a template (with defaults set) for running a specific type of application.")
 		subcmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
 			"Kueue localqueue name which is associated with the resource.")
+
 		modeSubcommand.Setup(clientGetter, subcmd, o)
 
 		util.AddDryRunFlag(subcmd)
@@ -394,6 +390,7 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 		_ = subcmd.MarkFlagRequired(profileFlagName)
 
 		cobra.CheckErr(subcmd.RegisterFlagCompletionFunc(profileFlagName, completion.ApplicationProfileNameFunc(clientGetter)))
+		cobra.CheckErr(subcmd.RegisterFlagCompletionFunc(localQueueFlagName, completion.LocalQueueNameFunc(clientGetter)))
 
 		cmd.AddCommand(subcmd)
 	}
@@ -435,7 +432,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		}
 	}
 
-	if cmd.Flags().Changed(podRunningTimeout) && o.PodRunningTimeout <= 0 {
+	if cmd.Flags().Changed(podRunningTimeoutFlagName) && o.PodRunningTimeout <= 0 {
 		return errors.New("--pod-running-timeout must be higher than zero")
 	}
 
@@ -548,8 +545,8 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithMemPerGPU(o.MemPerGPU).
 		WithNodes(o.Nodes).
 		WithNTasks(o.NTasks).
-		WithStdOut(o.Output).
-		WithStdErr(o.Error).
+		WithStdOut(o.StdOut).
+		WithStdErr(o.StdErr).
 		WithInput(o.Input).
 		WithJobName(o.JobName).
 		WithPartition(o.Partition).
@@ -699,7 +696,7 @@ func defaultAttachFunc(o *CreateOptions, containerToAttach *corev1.Container, si
 			Stdout:    o.Out != nil,
 			Stderr:    o.ErrOut != nil,
 			TTY:       o.TTY,
-		}, scheme.ParameterCodec)
+		}, k8sscheme.ParameterCodec)
 
 		return o.Attach.Attach(req.URL(), o.Config, o.In, o.Out, o.ErrOut, o.TTY, sizeQueue)
 	}

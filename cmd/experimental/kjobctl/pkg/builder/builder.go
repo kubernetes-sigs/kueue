@@ -347,7 +347,7 @@ func (b *Builder) validateFlags() error {
 		return noCpusPerTaskSpecifiedErr
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.ErrorFlag) && b.stderr == "" {
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.StdErrFlag) && b.stderr == "" {
 		return noStderrSpecifiedErr
 	}
 
@@ -383,7 +383,7 @@ func (b *Builder) validateFlags() error {
 		return noNTasksSpecifiedErr
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.OutputFlag) && b.stdout == "" {
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.StdOutFlag) && b.stdout == "" {
 		return noStdoutSpecifiedErr
 	}
 

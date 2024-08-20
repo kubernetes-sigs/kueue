@@ -64,6 +64,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	}
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
 	objectName := b.generatePrefixName() + utilrand.String(5)
+	job.ObjectMeta.GenerateName = ""
 	job.ObjectMeta.Name = objectName
 
 	content, err := os.ReadFile(b.script)
@@ -71,9 +72,16 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		return nil, err
 	}
 
-	b.arrayIndexes, err = parseArrayIndexes(b.array)
-	if err != nil {
-		return nil, err
+	if b.array == "" {
+		b.arrayIndexes = arrayIndexes{
+			Indexes:     []int32{1},
+			Parallelism: b.nodes,
+		}
+	} else {
+		b.arrayIndexes, err = parseArrayIndexes(b.array)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	configMap := &corev1.ConfigMap{
@@ -137,7 +145,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		job.Spec.Parallelism = b.arrayIndexes.Parallelism
 	}
 
-	updatedContainers := make([]corev1.Container, 0)
+	var updatedContainers []corev1.Container
 	for jobContainerIndex := range nTasks {
 		containers := make([]corev1.Container, len(job.Spec.Template.Spec.Containers))
 		copy(containers, job.Spec.Template.Spec.Containers)
@@ -193,8 +201,7 @@ func (b *slurmBuilder) buildEntrypointScript() string {
 
 	slices.Sort(keyValues)
 
-	return fmt.Sprintf(`
-#!/usr/bin/bash
+	return fmt.Sprintf(`#!/usr/bin/bash
 
 set -o errexit
 set -o nounset
