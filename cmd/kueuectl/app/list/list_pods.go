@@ -33,6 +33,7 @@ import (
 	"k8s.io/cli-runtime/pkg/resource"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	kubectlget "k8s.io/kubectl/pkg/cmd/get"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -323,7 +324,7 @@ func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {
 			ColumnLabels:  nil,
 		})
 
-		printer := &TablePrinter{Delegate: tablePrinter}
+		printer := &kubectlget.TablePrinter{Delegate: tablePrinter}
 
 		return printer.PrintObj, nil
 	}

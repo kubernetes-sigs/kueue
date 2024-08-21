@@ -1,9 +1,23 @@
-// Copied from https://github.com/kubernetes/kubectl/blob/a6de79e3d40575480caa71a8e5efffeea6587251/pkg/cmd/get/table_printer.go
+/*
+Copyright 2019 The Kubernetes Authors.
 
-package list
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package get
 
 import (
-	"errors"
+	"fmt"
 	"io"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,12 +62,12 @@ func decodeIntoTable(obj runtime.Object) (runtime.Object, error) {
 	}
 
 	if !recognizedTableVersions[obj.GetObjectKind().GroupVersionKind()] {
-		return nil, errors.New("attempt to decode non-Table object")
+		return nil, fmt.Errorf("attempt to decode non-Table object")
 	}
 
 	unstr, ok := obj.(*unstructured.Unstructured)
 	if !ok {
-		return nil, errors.New("attempt to decode non-Unstructured object")
+		return nil, fmt.Errorf("attempt to decode non-Unstructured object")
 	}
 	table := &metav1.Table{}
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstr.Object, table); err != nil {
