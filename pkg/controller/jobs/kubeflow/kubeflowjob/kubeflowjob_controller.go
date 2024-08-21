@@ -129,6 +129,10 @@ func (j *KubeflowJob) GVK() schema.GroupVersionKind {
 	return j.KFJobControl.GVK()
 }
 
+func (j *KubeflowJob) PodLabelSelector() string {
+	return j.KFJobControl.PodLabelSelector()
+}
+
 // PriorityClass calculates the priorityClass name needed for workload according to the following priorities:
 //  1. .spec.runPolicy.schedulingPolicy.priorityClass
 //  2. .spec.replicaSpecs[OrderedReplicaTypes[0]].template.spec.priorityClassName

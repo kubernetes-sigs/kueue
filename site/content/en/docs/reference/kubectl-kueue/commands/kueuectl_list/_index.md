@@ -19,7 +19,7 @@ Display resources
 ## Examples
 
 ```
-  # List LocalQueue 
+  # List LocalQueue
   kueuectl list localqueue
 ```
 
@@ -226,6 +226,7 @@ Display resources
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
 * [kueuectl list clusterqueue](kueuectl_list_clusterqueue/)	 - List ClusterQueues
 * [kueuectl list localqueue](kueuectl_list_localqueue/)	 - List LocalQueue
+* [kueuectl list pods](kueuectl_list_pods/)	 - List Pods belong to a Job Kind
 * [kueuectl list resourceflavor](kueuectl_list_resourceflavor/)	 - List ResourceFlavor
 * [kueuectl list workload](kueuectl_list_workload/)	 - List Workload
 
