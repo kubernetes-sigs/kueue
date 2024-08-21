@@ -59,7 +59,7 @@ the label selector or the field selector.`
 kueuectl list pods --for job/job-name`
 )
 
-var jobControllersWithPodLabelSelector = []jobControllerWithPodLabelSelector{
+var jobsWithPodLabelSelector = []JobWithPodLabelSelector{
 	&kueuejob.Job{},
 	&kueuejobset.JobSet{},
 	&kueuemxjob.JobControl{},
@@ -92,7 +92,7 @@ type PodOptions struct {
 	genericiooptions.IOStreams
 }
 
-type jobControllerWithPodLabelSelector interface {
+type JobWithPodLabelSelector interface {
 	Object() client.Object
 	GVK() schema.GroupVersionKind
 	PodLabelSelector() string
@@ -247,8 +247,8 @@ func (o *PodOptions) getForObject(infos []*resource.Info) (*unstructured.Unstruc
 	return job, nil
 }
 
-func (o *PodOptions) getJobController() jobControllerWithPodLabelSelector {
-	for _, jobController := range jobControllersWithPodLabelSelector {
+func (o *PodOptions) getJobController() JobWithPodLabelSelector {
+	for _, jobController := range jobsWithPodLabelSelector {
 		if jobController.GVK() == o.ForGVK {
 			return jobController
 		}
