@@ -347,9 +347,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			usage:         make(resources.FlavorResourceQuantities),
 			admittedUsage: make(resources.FlavorResourceQuantities),
 		}
-		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage); err != nil {
-			return err
-		}
+		qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage)
 		cqImpl.localQueues[qKey] = qImpl
 	}
 	var workloads kueue.WorkloadList
@@ -380,9 +378,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 		if qImpl == nil {
 			return errQNotFound
 		}
-		if err := qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage); err != nil {
-			return err
-		}
+		qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage)
 	}
 
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)

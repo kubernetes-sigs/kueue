@@ -498,9 +498,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		reservingWorkloads: 0,
 		usage:              make(resources.FlavorResourceQuantities),
 	}
-	if err := qImpl.resetFlavorsAndResources(c.Usage, c.AdmittedUsage); err != nil {
-		return err
-	}
+	qImpl.resetFlavorsAndResources(c.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
 			frq := wl.FlavorResourceUsage()
@@ -532,11 +530,10 @@ func (c *clusterQueue) flavorInUse(flavor string) bool {
 	return false
 }
 
-func (q *queue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) error {
+func (q *queue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQuantities, cqAdmittedUsage resources.FlavorResourceQuantities) {
 	// Clean up removed flavors or resources.
 	q.usage = resetUsage(q.usage, cqUsage)
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
-	return nil
 }
 
 func resetUsage(lqUsage resources.FlavorResourceQuantities, cqUsage resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
