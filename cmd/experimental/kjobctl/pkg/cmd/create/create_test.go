@@ -682,7 +682,7 @@ set -o pipefail
 # JOB_CONTAINER_INDEX   - container index in the container template.
 
 # COMPLETION_INDEX=CONTAINER_INDEX1,CONTAINER_INDEX2
-declare -A array_indexes=(["0"]="1") 	# Requires bash 4+
+declare -A array_indexes=(["0"]="0") 	# Requires bash 4+
 
 container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
 container_indexes=(${container_indexes//,/ })
@@ -695,8 +695,8 @@ fi
 # Generated on the builder
 export SLURM_ARRAY_JOB_ID=1       			# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=1  		# Total number of tasks in a job array.
-export SLURM_ARRAY_TASK_MAX=1    		# Job array’s maximum ID (index) number.
-export SLURM_ARRAY_TASK_MIN=1    		# Job array’s minimum ID (index) number.
+export SLURM_ARRAY_TASK_MAX=0    		# Job array’s maximum ID (index) number.
+export SLURM_ARRAY_TASK_MIN=0    		# Job array’s minimum ID (index) number.
 export SLURM_TASKS_PER_NODE=1    		# Job array’s master job ID number.
 export SLURM_CPUS_PER_TASK=       			# Number of CPUs per task.
 export SLURM_CPUS_ON_NODE=        			# Number of CPUs on the allocated node (actually pod).
@@ -747,7 +747,7 @@ bash /slurm/script.sh
 					"slurm", tc.tempFile,
 					"--profile", "profile",
 					"--localqueue", "lq1",
-					"--array", "1-25",
+					"--array", "0-25",
 					"--nodes", "2",
 					"--ntasks", "3",
 				}
@@ -827,7 +827,7 @@ set -o pipefail
 # JOB_CONTAINER_INDEX   - container index in the container template.
 
 # COMPLETION_INDEX=CONTAINER_INDEX1,CONTAINER_INDEX2
-declare -A array_indexes=(["0"]="1,2,3" ["1"]="4,5,6" ["2"]="7,8,9" ["3"]="10,11,12" ["4"]="13,14,15" ["5"]="16,17,18" ["6"]="19,20,21" ["7"]="22,23,24" ["8"]="25") 	# Requires bash 4+
+declare -A array_indexes=(["0"]="0,1,2" ["1"]="3,4,5" ["2"]="6,7,8" ["3"]="9,10,11" ["4"]="12,13,14" ["5"]="15,16,17" ["6"]="18,19,20" ["7"]="21,22,23" ["8"]="24,25") 	# Requires bash 4+
 
 container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
 container_indexes=(${container_indexes//,/ })
@@ -839,9 +839,9 @@ fi
 
 # Generated on the builder
 export SLURM_ARRAY_JOB_ID=1       			# Job array’s master job ID number.
-export SLURM_ARRAY_TASK_COUNT=25  		# Total number of tasks in a job array.
+export SLURM_ARRAY_TASK_COUNT=26  		# Total number of tasks in a job array.
 export SLURM_ARRAY_TASK_MAX=25    		# Job array’s maximum ID (index) number.
-export SLURM_ARRAY_TASK_MIN=1    		# Job array’s minimum ID (index) number.
+export SLURM_ARRAY_TASK_MIN=0    		# Job array’s minimum ID (index) number.
 export SLURM_TASKS_PER_NODE=3    		# Job array’s master job ID number.
 export SLURM_CPUS_PER_TASK=       			# Number of CPUs per task.
 export SLURM_CPUS_ON_NODE=        			# Number of CPUs on the allocated node (actually pod).

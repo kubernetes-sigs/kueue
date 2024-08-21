@@ -29,14 +29,10 @@ func TestParseSlurmArrayIndexes(t *testing.T) {
 		wantArrayIndexes arrayIndexes
 		wantErr          string
 	}{
-		"shouldn't parse 0": {
-			array:   "0",
-			wantErr: invalidArrayFlagFormatErr.Error(),
-		},
-		"should parse 1": {
-			array: "1",
+		"should parse 0": {
+			array: "0",
 			wantArrayIndexes: arrayIndexes{
-				Indexes: []int32{1},
+				Indexes: []int32{0},
 			},
 		},
 		"should parse 1,4,5": {
@@ -45,7 +41,7 @@ func TestParseSlurmArrayIndexes(t *testing.T) {
 				Indexes: []int32{1, 4, 5},
 			},
 		},
-		"should parse 1,1,4,5, because duplicate indexes": {
+		"should parse 1,4,5, because duplicate indexes": {
 			array:   "1,1,4,5",
 			wantErr: invalidArrayFlagFormatErr.Error(),
 		},
@@ -84,6 +80,18 @@ func TestParseSlurmArrayIndexes(t *testing.T) {
 		"shouldn't parse 1-5:2147483648, because value out of range": {
 			array:   "1-5:2147483648",
 			wantErr: invalidArrayFlagFormatErr.Error(),
+		},
+		"should parse 0-5": {
+			array: "0-5",
+			wantArrayIndexes: arrayIndexes{
+				Indexes: []int32{0, 1, 2, 3, 4, 5},
+			},
+		},
+		"should parse 0,2,4": {
+			array: "0,2,4",
+			wantArrayIndexes: arrayIndexes{
+				Indexes: []int32{0, 2, 4},
+			},
 		},
 	}
 	for name, tc := range testCases {

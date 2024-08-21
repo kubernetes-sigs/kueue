@@ -35,7 +35,7 @@ func TestBuildEntrypointScript(t *testing.T) {
 					nTasks: ptr.To[int32](2),
 				},
 				arrayIndexes: arrayIndexes{
-					Indexes: []int32{3, 6, 9, 12, 15, 18, 21, 24, 27},
+					Indexes: []int32{0, 3, 6, 9, 12, 15, 18, 21, 24},
 				},
 			},
 			wantScript: `#!/usr/bin/bash
@@ -49,7 +49,7 @@ set -o pipefail
 # JOB_CONTAINER_INDEX   - container index in the container template.
 
 # COMPLETION_INDEX=CONTAINER_INDEX1,CONTAINER_INDEX2
-declare -A array_indexes=(["0"]="3,6" ["1"]="9,12" ["2"]="15,18" ["3"]="21,24" ["4"]="27") 	# Requires bash 4+
+declare -A array_indexes=(["0"]="0,3" ["1"]="6,9" ["2"]="12,15" ["3"]="18,21" ["4"]="24") 	# Requires bash 4+
 
 container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
 container_indexes=(${container_indexes//,/ })
@@ -62,8 +62,8 @@ fi
 # Generated on the builder
 export SLURM_ARRAY_JOB_ID=1       			# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=9  		# Total number of tasks in a job array.
-export SLURM_ARRAY_TASK_MAX=27    		# Job array’s maximum ID (index) number.
-export SLURM_ARRAY_TASK_MIN=3    		# Job array’s minimum ID (index) number.
+export SLURM_ARRAY_TASK_MAX=24    		# Job array’s maximum ID (index) number.
+export SLURM_ARRAY_TASK_MIN=0    		# Job array’s minimum ID (index) number.
 export SLURM_TASKS_PER_NODE=2    		# Job array’s master job ID number.
 export SLURM_CPUS_PER_TASK=       			# Number of CPUs per task.
 export SLURM_CPUS_ON_NODE=        			# Number of CPUs on the allocated node (actually pod).

@@ -73,10 +73,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	}
 
 	if b.array == "" {
-		b.arrayIndexes = arrayIndexes{
-			Indexes:     []int32{1},
-			Parallelism: b.nodes,
-		}
+		b.arrayIndexes = generateArrayIndexes(ptr.Deref(b.nodes, 1))
 	} else {
 		b.arrayIndexes, err = parseArrayIndexes(b.array)
 		if err != nil {
@@ -123,7 +120,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	for i := range job.Spec.Template.Spec.Containers {
 		container := &job.Spec.Template.Spec.Containers[i]
 
-		container.Command = []string{"bash", "/slurm/entrypoint.sh"}
+		container.Command = []string{"bash", fmt.Sprintf("%s/entrypoint.sh", slurmPath)}
 
 		if len(b.requests) > 0 {
 			container.Resources.Requests = b.requests
@@ -131,7 +128,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 
 		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
 			Name:      configMap.Name,
-			MountPath: "/slurm",
+			MountPath: slurmPath,
 		})
 	}
 
@@ -255,7 +252,7 @@ export SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * SLURM_TASKS_PER_NODE + JOB_CONTAI
 export SLURM_JOBID=$SLURM_JOB_ID                                                                                    # Deprecated. Same as $SLURM_JOB_ID
 export SLURM_ARRAY_TASK_ID=${container_indexes[${JOB_CONTAINER_INDEX}]}												# Task ID.
 
-bash /slurm/script.sh
+bash %[8]s/script.sh
 `,
 		strings.Join(keyValues, " "),
 		b.arrayIndexes.Count(),
@@ -264,6 +261,7 @@ bash /slurm/script.sh
 		nTasks,
 		nTasks,
 		ptr.Deref(b.nodes, 1),
+		slurmPath,
 	)
 }
 

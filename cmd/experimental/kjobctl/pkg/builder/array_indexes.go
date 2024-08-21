@@ -49,6 +49,14 @@ func (ai arrayIndexes) Max() int32 {
 	return slices.Max(ai.Indexes)
 }
 
+func generateArrayIndexes(count int32) arrayIndexes {
+	ai := arrayIndexes{}
+	for i := int32(0); i < count; i++ {
+		ai.Indexes = append(ai.Indexes, i)
+	}
+	return ai
+}
+
 // parseArrayIndexes parse array flag to arrayIndexes.
 // Include syntax like:
 //   - 1-5   - which results in indexes: 1, 2, 3, 4, 5
@@ -65,9 +73,9 @@ func parseArrayIndexes(str string) (arrayIndexes, error) {
 		err         error
 	)
 
-	if regexp.MustCompile(`^[1-9]\d*(,[1-9]\d*)*$`).MatchString(str) {
+	if regexp.MustCompile(`^[0-9]\d*(,[1-9]\d*)*$`).MatchString(str) {
 		indexes, err = parseCommaSeparatedIndexes(str)
-	} else if matches := regexp.MustCompile(`(^[1-9]\d*-[1-9]\d*)(([:%])([1-9]\d*))?$`).FindStringSubmatch(str); matches != nil {
+	} else if matches := regexp.MustCompile(`(^[0-9]\d*-[1-9]\d*)(([:%])([1-9]\d*))?$`).FindStringSubmatch(str); matches != nil {
 		var num int64
 
 		if matches[4] != "" {
@@ -141,7 +149,7 @@ func parseRangeIndexes(str string, step *int32) ([]int32, error) {
 
 func parseCommaSeparatedIndexes(str string) ([]int32, error) {
 	strIndexes := strings.Split(str, ",")
-	maxValue := int32(0)
+	maxValue := int32(-1)
 	set := sets.New[int32]()
 	for _, strIndex := range strIndexes {
 		num, err := strconv.ParseInt(strIndex, 10, 32)
