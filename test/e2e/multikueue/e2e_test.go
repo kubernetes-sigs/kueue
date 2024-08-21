@@ -412,24 +412,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 			wlLookupKey := types.NamespacedName{Name: workloadtfjob.GetWorkloadNameForTFJob(tfJob.Name, tfJob.UID), Namespace: managerNs.Name}
 
-			// the execution should be given to the worker
-			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdWorkload := &kueue.Workload{}
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "Admitted",
-						Message: "The workload is admitted",
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
-					g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:    multiKueueAc.Name,
-						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker1"`,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+			// the execution should be given to the worker1
+			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
 
 			ginkgo.By("Waiting for the TfJob to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -442,14 +426,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration))
 
-					createdWorkload := &kueue.Workload{}
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
-						Message: fmt.Sprintf("TFJob %s/%s successfully completed.", createdWorkload.Namespace, tfJob.Name),
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					finishReasonMessage := fmt.Sprintf("TFJob %s/%s successfully completed.", tfJob.Namespace, tfJob.Name)
+					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -495,24 +473,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			wlLookupKey := types.NamespacedName{Name: workloadpaddlejob.GetWorkloadNameForPaddleJob(paddleJob.Name, paddleJob.UID), Namespace: managerNs.Name}
 
-			// the execution should be given to the worker
-			ginkgo.By("Waiting to be admitted in worker2 and manager", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdWorkload := &kueue.Workload{}
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "Admitted",
-						Message: "The workload is admitted",
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
-					g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:    multiKueueAc.Name,
-						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker2"`,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+			// the execution should be given to the worker2
+			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker2")
 
 			ginkgo.By("Waiting for the PaddleJob to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -526,14 +488,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration))
 
-					createdWorkload := &kueue.Workload{}
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
-						Message: fmt.Sprintf("PaddleJob %s is successfully completed.", paddleJob.Name),
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					finishReasonMessage := fmt.Sprintf("PaddleJob %s is successfully completed.", paddleJob.Name)
+					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -577,26 +533,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Expect(k8sManagerClient.Create(ctx, pyTorchJob)).Should(gomega.Succeed())
 			})
 
-			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker 2
-			ginkgo.By("Waiting to be admitted in worker2 and manager", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "Admitted",
-						Message: "The workload is admitted",
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
-					g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:    multiKueueAc.Name,
-						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker2"`,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker2")
 
 			ginkgo.By("Waiting for the PyTorchJob to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -610,13 +550,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration))
 
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
-						Message: fmt.Sprintf("PyTorchJob %s is successfully completed.", pyTorchJob.Name),
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					finishReasonMessage := fmt.Sprintf("PyTorchJob %s is successfully completed.", pyTorchJob.Name)
+					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -662,24 +597,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			wlLookupKey := types.NamespacedName{Name: workloadxgboostjob.GetWorkloadNameForXGBoostJob(xgboostJob.Name, xgboostJob.UID), Namespace: managerNs.Name}
 
-			// the execution should be given to the worker
-			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdWorkload := &kueue.Workload{}
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadAdmitted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "Admitted",
-						Message: "The workload is admitted",
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
-					g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:    multiKueueAc.Name,
-						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker1"`,
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+			// the execution should be given to the worker1
+			waitForJobAdmitted(wlLookupKey, multiKueueAc.Name, "worker1")
 
 			ginkgo.By("Waiting for the XGBoostJob to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -692,14 +611,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration))
 
-					createdWorkload := &kueue.Workload{}
-					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
-						Message: fmt.Sprintf("XGBoostJob %s is successfully completed.", xgboostJob.Name),
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
+					finishReasonMessage := fmt.Sprintf("XGBoostJob %s is successfully completed.", xgboostJob.Name)
+					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -792,3 +705,34 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 	})
 })
+
+func waitForJobAdmitted(wlLookupKey types.NamespacedName, acName, workerName string) {
+	ginkgo.By(fmt.Sprintf("Waiting to be admitted in %s and manager", workerName), func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			createdWorkload := &kueue.Workload{}
+			g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
+				Type:    kueue.WorkloadAdmitted,
+				Status:  metav1.ConditionTrue,
+				Reason:  "Admitted",
+				Message: "The workload is admitted",
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			g.Expect(workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, acName)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+				Name:    acName,
+				State:   kueue.CheckStateReady,
+				Message: fmt.Sprintf(`The workload got reservation on "%s"`, workerName),
+			}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+}
+
+func checkFinishStatusCondition(g gomega.Gomega, wlLookupKey types.NamespacedName, finishReasonMessage string) {
+	createdWorkload := &kueue.Workload{}
+	g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+	g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
+		Type:    kueue.WorkloadFinished,
+		Status:  metav1.ConditionTrue,
+		Reason:  kueue.WorkloadFinishedReasonSucceeded,
+		Message: finishReasonMessage,
+	}, util.IgnoreConditionTimestampsAndObservedGeneration))
+}
