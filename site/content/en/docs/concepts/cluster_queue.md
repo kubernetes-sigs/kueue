@@ -47,14 +47,14 @@ You can specify the quota as a [quantity](https://kubernetes.io/docs/reference/k
 
 ![Cohort](/images/cluster-queue.svg)
 
-## Resources
+## Flavors and Resources
 
-In a ClusterQueue, you can define quotas for multiple [compute resources](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
+In a ClusterQueue, you can define quotas for multiple _flavors_ that provide certain [compute _resources_](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
 (CPU, memory, GPUs, pods, etc.).
 
-For each resource, you can define quotas for multiple _flavors_.
 Flavors represent different variations of a resource (for example, different GPU
-models). You can define a flavor using a [ResourceFlavor object](/docs/concepts/resource_flavor).
+models). You can define how a flavor maps to a group of nodes using a [ResourceFlavor object](/docs/concepts/resource_flavor).
+In a ClusterQueue, you can define the quota for each of the resources that a flavor offers.
 
 When definining quotas for a ClusterQueue, you can set the following values:
 - `nominalQuota` is the quantity of this resource that is available for a ClusterQueue at a specific time.
@@ -70,17 +70,24 @@ Kueue assigns the first flavor in the ClusterQueue's `.spec.resourceGroups[*].fl
 list that has enough unused `nominalQuota` quota in the ClusterQueue or the
 ClusterQueue's [cohort](#cohort).
 
-Since `pods` resource name is [reserved](/docs/concepts/workload/#reserved-resource-names) and it's value
-is computed by Kueue in the during [admission](/docs/concepts#admission), not provided by the [batch user](/docs/tasks/#batch-user),
-it could be used by the [batch administrators](/docs/tasks#batch-administrator) to limit the number of zero or very
-small resource requesting workloads admitted at the same time.
+{{% alert title="Note" color="primary" %}}
+Use the `pods` resource name in the ClusterQueue quotas to limit the number of pods that can be admitted.
+
+The resource name `pods` is [reserved](/docs/concepts/workload/#reserved-resource-names) and cannot be specified in
+the requests of a Pod.
+Kueue automatically computes the number of Pods that a Workload requires.
+{{% /alert %}}
 
 ### Resource Groups
 
-It is possible that multiple resources in a ClusterQueue have the same flavors.
-This is typical for `cpu` and `memory`, where the flavors are generally tied to
-a machine family or VM availability policies. To tie two or more resources to
-the same set of flavors, you can list them in the same resource group.
+When a ResourceFlavor is tied to a node group, machine familiy or VM availability policy,
+it is a common requirement that all the resources associated to the nodes (such as `cpu`, `memory` and GPUs)
+should be assigned to the same flavor during admission.
+To tie two or more resources to the same set of flavors, list them in the same resource group.
+
+To assign different flavors to different resources, list them in different resource groups.
+This could be useful when some resources are not directly associated to the nodes, can be dynamically attached
+through the network or simply you wish to track their quota independently of other resources.
 
 An example of a ClusterQueue with multiple resource groups looks like the following:
 
@@ -92,7 +99,7 @@ metadata:
 spec:
   namespaceSelector: {} # match all.
   resourceGroups:
-  - coveredResources: ["cpu", "memory", "pods"]
+  - coveredResources: ["cpu", "memory", "foo.com/gpu"]
     flavors:
     - name: "spot"
       resources:
@@ -100,7 +107,7 @@ spec:
         nominalQuota: 9
       - name: "memory"
         nominalQuota: 36Gi
-      - name: "pods"
+      - name: "foo.com/gpu"
         nominalQuota: 50
     - name: "on-demand"
       resources:
@@ -108,17 +115,17 @@ spec:
         nominalQuota: 18
       - name: "memory"
         nominalQuota: 72Gi
-      - name: "pods"
+      - name: "foo.com/gpu"
         nominalQuota: 100
-  - coveredResources: ["gpu"]
+  - coveredResources: ["bar.com/license"]
     flavors:
-    - name: "vendor1"
+    - name: "pool1"
       resources:
-      - name: "gpu"
+      - name: "bar.com/license"
         nominalQuota: 10
-    - name: "vendor2"
+    - name: "pool2"
       resources:
-      - name: "gpu"
+      - name: "bar.com/license"
         nominalQuota: 10
 ```
 
