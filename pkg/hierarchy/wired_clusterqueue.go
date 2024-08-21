@@ -4,13 +4,13 @@ type WiredClusterQueue[CQ, Cohort nodeBase] struct {
 	cohort Cohort
 }
 
-func (c *WiredClusterQueue[CQ, Cohort]) Cohort() Cohort {
+func (c *WiredClusterQueue[CQ, Cohort]) Parent() Cohort {
 	return c.cohort
 }
 
-func (c *WiredClusterQueue[CQ, Cohort]) HasCohort() bool {
+func (c *WiredClusterQueue[CQ, Cohort]) HasParent() bool {
 	var zero Cohort
-	return c.Cohort() != zero
+	return c.Parent() != zero
 }
 
 // Wired implements interface for Manager

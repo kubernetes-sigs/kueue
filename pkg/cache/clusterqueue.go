@@ -611,7 +611,7 @@ func (c *clusterQueue) fairWeight() *resource.Quantity {
 }
 
 func (c *clusterQueue) lendableResourcesInCohort() map[corev1.ResourceName]int64 {
-	return c.Cohort().CalculateLendable()
+	return c.Parent().CalculateLendable()
 }
 
 func (c *clusterQueue) usageFor(fr resources.FlavorResource) int64 {
@@ -645,7 +645,7 @@ func (c *ClusterQueueSnapshot) DominantResourceShareWithout(wlReq resources.Flav
 }
 
 type dominantResourceShareNode interface {
-	HasCohort() bool
+	HasParent() bool
 	fairWeight() *resource.Quantity
 	lendableResourcesInCohort() map[corev1.ResourceName]int64
 
@@ -653,7 +653,7 @@ type dominantResourceShareNode interface {
 }
 
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities, m int64) (int, corev1.ResourceName) {
-	if !node.HasCohort() {
+	if !node.HasParent() {
 		return 0, ""
 	}
 	if node.fairWeight().IsZero() {

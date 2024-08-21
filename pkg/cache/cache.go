@@ -624,7 +624,7 @@ func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.
 					Total: resources.ResourceQuantity(rName, used),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
-				if cq.HasCohort() {
+				if cq.HasParent() {
 					borrowed := used - rQuota.Nominal
 					if borrowed > 0 {
 						rUsage.Borrowed = resources.ResourceQuantity(rName, borrowed)

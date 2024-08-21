@@ -436,12 +436,12 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 // 2. add events of any cluster queue in the cohort.
 // 3. update events of any cluster queue in the cohort.
 func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq *ClusterQueue) bool {
-	if !cq.HasCohort() {
+	if !cq.HasParent() {
 		return cq.QueueInadmissibleWorkloads(ctx, m.client)
 	}
 
 	queued := false
-	for _, clusterQueue := range cq.Cohort().Members() {
+	for _, clusterQueue := range cq.Parent().Members() {
 		queued = clusterQueue.QueueInadmissibleWorkloads(ctx, m.client) || queued
 	}
 	return queued
