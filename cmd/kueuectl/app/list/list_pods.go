@@ -47,6 +47,7 @@ import (
 	kueuetfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	kueuexgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	kueuempijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	kueueraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	kueuerayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 )
@@ -68,6 +69,7 @@ var jobsWithPodLabelSelector = []JobWithPodLabelSelector{
 	&kueuepytorchjob.JobControl{},
 	&kueuexgboostjob.JobControl{},
 	&kueuempijob.MPIJob{},
+	&pod.Pod{},
 	&kueueraycluster.RayCluster{},
 	&kueuerayjob.RayJob{},
 }
