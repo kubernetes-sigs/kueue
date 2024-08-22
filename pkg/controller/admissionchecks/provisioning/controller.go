@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -268,6 +269,9 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      requestName,
 					Namespace: wl.Namespace,
+					Labels: map[string]string{
+						constants.ManagedByKueueLabel: "true",
+					},
 				},
 				Spec: autoscaling.ProvisioningRequestSpec{
 					ProvisioningClassName: prc.Spec.ProvisioningClassName,
@@ -383,6 +387,9 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      ptKey.Name,
 					Namespace: ptKey.Namespace,
+					Labels: map[string]string{
+						constants.ManagedByKueueLabel: "true",
+					},
 				},
 				Template: ps.Template,
 			}

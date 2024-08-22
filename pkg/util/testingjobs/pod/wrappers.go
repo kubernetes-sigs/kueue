@@ -28,7 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 // PodWrapper wraps a Pod.
@@ -81,7 +82,7 @@ func (p *PodWrapper) Clone() *PodWrapper {
 
 // Queue updates the queue name of the Pod
 func (p *PodWrapper) Queue(q string) *PodWrapper {
-	return p.Label(constants.QueueLabel, q)
+	return p.Label(controllerconsts.QueueLabel, q)
 }
 
 // PriorityClass updates the priority class name of the Pod
@@ -145,7 +146,7 @@ func (p *PodWrapper) Finalizer(f string) *PodWrapper {
 
 // KueueFinalizer adds kueue finalizer to the Pod
 func (p *PodWrapper) KueueFinalizer() *PodWrapper {
-	return p.Finalizer("kueue.x-k8s.io/managed")
+	return p.Finalizer(constants.ManagedByKueueLabel)
 }
 
 // NodeSelector adds a node selector to the Pod.

@@ -35,11 +35,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
 const (
-	ManagedLabelKey            = "kueue.x-k8s.io/managed"
+	ManagedLabelKey            = constants.ManagedByKueueLabel
 	ManagedLabelValue          = "true"
 	PodFinalizer               = ManagedLabelKey
 	GroupNameLabel             = "kueue.x-k8s.io/pod-group-name"
