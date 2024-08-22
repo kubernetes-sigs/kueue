@@ -127,6 +127,8 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		localQueues:         make(map[string]*queue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
+		Usage:               make(resources.FlavorResourceQuantities),
+		AdmittedUsage:       make(resources.FlavorResourceQuantities),
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors, c.admissionChecks); err != nil {
 		return nil, err

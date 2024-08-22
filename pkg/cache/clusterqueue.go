@@ -167,8 +167,6 @@ func (c *clusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 
 	c.AdmissionChecks = utilac.NewAdmissionChecks(in)
 
-	c.Usage = filterFlavorQuantities(c.Usage, in.Spec.ResourceGroups)
-	c.AdmittedUsage = filterFlavorQuantities(c.AdmittedUsage, in.Spec.ResourceGroups)
 	c.UpdateWithFlavors(resourceFlavors)
 	c.updateWithAdmissionChecks(admissionChecks)
 
@@ -211,29 +209,6 @@ func (c *clusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	}
 
 	return nil
-}
-
-func filterFlavorQuantities(orig resources.FlavorResourceQuantities, resourceGroups []kueue.ResourceGroup) resources.FlavorResourceQuantities {
-	ret := make(resources.FlavorResourceQuantities, len(orig))
-
-	for key, value := range orig {
-		if value > 0 {
-			ret[key] = value
-		}
-	}
-
-	for _, rg := range resourceGroups {
-		for _, f := range rg.Flavors {
-			for _, r := range f.Resources {
-				fr := resources.FlavorResource{Flavor: f.Name, Resource: r.Name}
-				if _, ok := ret[fr]; !ok {
-					ret[fr] = 0
-				}
-			}
-		}
-	}
-
-	return ret
 }
 
 func (c *clusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
