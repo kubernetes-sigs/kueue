@@ -83,7 +83,7 @@ func addActiveFilterFlagVar(cmd *cobra.Command, p *[]bool) {
 
 func addForObjectFlagVar(cmd *cobra.Command, p *string) {
 	cmd.Flags().StringVar(p, "for", "",
-		"Filter workloads to only those pertaining to the specified resource.")
+		"Filter by only those pertaining to the specified resource.")
 }
 
 // decodeResourceTypeName handles type/name resource formats and returns a resource tuple
