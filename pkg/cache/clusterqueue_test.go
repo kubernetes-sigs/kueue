@@ -103,7 +103,6 @@ func TestFitInCohort(t *testing.T) {
 		enableLendingLimit bool
 	}{
 		"full cohort, empty request": {
-			request: resources.FlavorResourceQuantities{},
 			wantFit: true,
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}:    5_000,
