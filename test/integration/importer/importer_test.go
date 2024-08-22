@@ -27,6 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	importerpod "sigs.k8s.io/kueue/cmd/importer/pod"
 	importerutil "sigs.k8s.io/kueue/cmd/importer/util"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -123,7 +124,7 @@ var _ = ginkgo.Describe("Importer", func() {
 
 			pod3 := utiltestingpod.MakePod("pod3", ns.Name).
 				Queue("lq1").
-				Label("kueue.x-k8s.io/managed", "true").
+				Label(constants.ManagedByKueueLabel, "true").
 				Request(corev1.ResourceCPU, "2").
 				KueueSchedulingGate().
 				Obj()

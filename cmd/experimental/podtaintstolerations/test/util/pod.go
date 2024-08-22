@@ -23,7 +23,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 // PodWrapper wraps a Pod.
@@ -68,7 +70,7 @@ func (p *PodWrapper) Queue(queue string) *PodWrapper {
 	if p.Labels == nil {
 		p.Labels = make(map[string]string)
 	}
-	p.Labels[constants.QueueLabel] = queue
+	p.Labels[controllerconsts.QueueLabel] = queue
 	return p
 }
 
@@ -88,7 +90,7 @@ func (p *PodWrapper) Annotation(key, content string) *PodWrapper {
 
 // ParentWorkload sets the parent-workload annotation
 func (p *PodWrapper) ParentWorkload(parentWorkload string) *PodWrapper {
-	p.Annotations[constants.ParentWorkloadAnnotation] = parentWorkload
+	p.Annotations[controllerconsts.ParentWorkloadAnnotation] = parentWorkload
 	return p
 }
 
@@ -106,7 +108,7 @@ func (p *PodWrapper) KueueFinalizer() *PodWrapper {
 	if p.ObjectMeta.Finalizers == nil {
 		p.ObjectMeta.Finalizers = make([]string, 0)
 	}
-	p.ObjectMeta.Finalizers = append(p.ObjectMeta.Finalizers, "kueue.x-k8s.io/managed")
+	p.ObjectMeta.Finalizers = append(p.ObjectMeta.Finalizers, constants.ManagedByKueueLabel)
 	return p
 }
 
