@@ -17,6 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -2205,6 +2207,139 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Mark all workloads as finished", func() {
 				util.FinishWorkloads(ctx, k8sClient, wl1, wl2, wl3, wl4)
 			})
+		})
+	})
+
+	ginkgo.When("Deleting resources from borrowing clusterQueue", func() {
+		var (
+			cq1 *kueue.ClusterQueue
+			cq2 *kueue.ClusterQueue
+			lq1 *kueue.LocalQueue
+			lq2 *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+
+			cq1 = testing.MakeClusterQueue("cq1").
+				Cohort("cohort").
+				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
+					Resource(corev1.ResourceCPU, "1").
+					Resource(corev1.ResourceMemory, "1Gi").
+					Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq1)).Should(gomega.Succeed())
+
+			cq2 = testing.MakeClusterQueue("cq2").
+				Cohort("cohort").
+				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
+					Resource(corev1.ResourceCPU, "2").
+					Resource(corev1.ResourceMemory, "1Gi").
+					Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq2)).Should(gomega.Succeed())
+
+			lq1 = testing.MakeLocalQueue("lq1", ns.Name).ClusterQueue(cq1.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq1)).Should(gomega.Succeed())
+
+			lq2 = testing.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq2.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq2)).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		})
+
+		ginkgo.It("shouldn't admit second workload on over admission", func() {
+			ginkgo.By("creating first workload")
+			wl1 := testing.MakeWorkload("wl1", ns.Name).
+				Queue(lq1.Name).
+				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceMemory, "2Gi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+
+			ginkgo.By("creating second workload")
+			wl2 := testing.MakeWorkload("wl2", ns.Name).
+				Queue(lq2.Name).
+				Request(corev1.ResourceCPU, "1").
+				Request(corev1.ResourceMemory, "1Gi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+
+			ginkgo.By("checking the first workload is admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).Should(gomega.Succeed())
+				g.Expect(wl1.Status.Conditions).To(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadQuotaReserved,
+						Message: fmt.Sprintf("Quota reserved in ClusterQueue %s", cq1.Name),
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadAdmitted,
+						Message: "The workload is admitted",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).Should(gomega.Succeed())
+				g.Expect(wl2.Status.Conditions).To(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota in cohort for memory in flavor on-demand, 1Gi more needed",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("removing memory resources from first cluster queue")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).Should(gomega.Succeed())
+				cq1.Spec.ResourceGroups = nil
+				cq1Wrapper := &testing.ClusterQueueWrapper{ClusterQueue: *cq1}
+				cq1Wrapper.ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
+					Resource(corev1.ResourceCPU, "1").
+					Obj(),
+				)
+				cq1 = cq1Wrapper.Obj()
+				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking the second workload is not admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).Should(gomega.Succeed())
+				g.Expect(wl1.Status.Conditions).To(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadQuotaReserved,
+						Message: fmt.Sprintf("Quota reserved in ClusterQueue %s", cq1.Name),
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadAdmitted,
+						Message: "The workload is admitted",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).Should(gomega.Succeed())
+				g.Expect(wl2.Status.Conditions).To(gomega.ContainElements(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota in cohort for memory in flavor on-demand, 2Gi more needed",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

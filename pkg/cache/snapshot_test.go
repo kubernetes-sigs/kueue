@@ -238,7 +238,6 @@ func TestSnapshot(t *testing.T) {
 							FlavorFungibility: defaultFlavorFungibility,
 							Usage: resources.FlavorResourceQuantities{
 								{Flavor: "demand", Resource: corev1.ResourceCPU}: 10_000,
-								{Flavor: "spot", Resource: corev1.ResourceCPU}:   0,
 							},
 							Workloads: map[string]*workload.Info{
 								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
@@ -322,9 +321,6 @@ func TestSnapshot(t *testing.T) {
 								{Flavor: "default", Resource: corev1.ResourceCPU}: {Nominal: 100_000},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
-							Usage: resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-							},
 							Preemption:        defaultPreemption,
 							FairWeight:        oneQuantity,
 							NamespaceSelector: labels.Everything(),
@@ -516,10 +512,6 @@ func TestSnapshot(t *testing.T) {
 							},
 							FlavorFungibility: defaultFlavorFungibility,
 							FairWeight:        oneQuantity,
-							Usage: resources.FlavorResourceQuantities{
-								{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
-								{Flavor: "x86", Resource: corev1.ResourceCPU}: 0,
-							},
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
 							Status:            active,
