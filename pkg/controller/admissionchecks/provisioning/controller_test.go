@@ -178,6 +178,9 @@ func TestReconcile(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: TestNamespace,
 			Name:      "ppt-wl-check1-1-ps1",
+			Labels: map[string]string{
+				"kueue.x-k8s.io/managed": "true",
+			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					Name: "wl-check1-1",
@@ -213,6 +216,9 @@ func TestReconcile(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: TestNamespace,
 			Name:      "ppt-wl-check1-1-ps2",
+			Labels: map[string]string{
+				"kueue.x-k8s.io/managed": "true",
+			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					Name: "wl-check1-1",
@@ -696,6 +702,9 @@ func TestReconcile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: TestNamespace,
 						Name:      "ppt-wl-check1-1-ps1",
+						Labels: map[string]string{
+							"kueue.x-k8s.io/managed": "true",
+						},
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								Name: "wl-check1-1",
@@ -1212,6 +1221,9 @@ func TestReconcile(t *testing.T) {
 
 				if diff := cmp.Diff(wantTemplate, gotTemplate, tmplCmpOptions...); diff != "" {
 					t.Errorf("unexpected template %q (-want/+got):\n%s", name, diff)
+				}
+				if diff := cmp.Diff(wantTemplate.GetLabels(), gotTemplate.GetLabels()); diff != "" {
+					t.Errorf("unexpected template labels %q (-want/+got):\n%s", name, diff)
 				}
 			}
 

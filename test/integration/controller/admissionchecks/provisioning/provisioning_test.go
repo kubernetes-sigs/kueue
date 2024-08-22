@@ -281,6 +281,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[0].Template.Spec.Containers, ignoreContainersDefaults))
 				gomega.Expect(createdTemplate.Template.Spec.NodeSelector).To(gomega.BeComparableTo(map[string]string{"ns1": "ns1v"}))
+				gomega.Expect(createdTemplate.ObjectMeta.GetLabels()).To(gomega.BeComparableTo(map[string]string{"kueue.x-k8s.io/managed": "true"}))
 
 				ps2 := createdRequest.Spec.PodSets[1]
 				gomega.Expect(ps2.Count).To(gomega.Equal(int32(4)))
@@ -293,6 +294,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[1].Template.Spec.Containers, ignoreContainersDefaults))
 				gomega.Expect(createdTemplate.Template.Spec.NodeSelector).To(gomega.BeComparableTo(map[string]string{"ns1": "ns1v"}))
+				gomega.Expect(createdTemplate.ObjectMeta.GetLabels()).To(gomega.BeComparableTo(map[string]string{"kueue.x-k8s.io/managed": "true"}))
 			})
 
 			ginkgo.By("Removing the quota reservation from the workload", func() {

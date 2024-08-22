@@ -383,6 +383,9 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      ptKey.Name,
 					Namespace: ptKey.Namespace,
+					Labels: map[string]string{
+						"kueue.x-k8s.io/managed": "true",
+					},
 				},
 				Template: ps.Template,
 			}
