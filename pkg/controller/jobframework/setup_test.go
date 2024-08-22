@@ -19,6 +19,7 @@ package jobframework
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,14 +45,6 @@ import (
 )
 
 func TestSetupControllers(t *testing.T) {
-	// Simulate Job Framework API checks
-	defaultCheckAPIAvailable = func(mgr ctrlmgr.Manager, gvk schema.GroupVersionKind) (bool, error) {
-		// Simulate API being unavailable for MPIJob
-		if gvk.Kind == "MPIJob" {
-			return false, nil
-		}
-		return true, nil // Simulate API becoming available
-	}
 	availableIntegrations := map[string]IntegrationCallbacks{
 		"batch/job": {
 			NewReconciler:         testNewReconciler,
@@ -90,9 +83,9 @@ func TestSetupControllers(t *testing.T) {
 	cases := map[string]struct {
 		opts                    []Option
 		mapperGVKs              []schema.GroupVersionKind
+		delayedGVKs             []*schema.GroupVersionKind
 		wantError               error
 		wantEnabledIntegrations []string
-		afterSetup              func(mgr ctrlmgr.Manager, manager *integrationManager, crdName string)
 	}{
 		"setup controllers succeed": {
 			opts: []Option{
@@ -126,8 +119,10 @@ func TestSetupControllers(t *testing.T) {
 				kubeflow.SchemeGroupVersionKind,
 				// Not including RayCluster
 			},
+			delayedGVKs: []*schema.GroupVersionKind{
+				{Group: "ray.io", Version: "v1", Kind: "RayCluster"},
+			},
 			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
-			afterSetup:              testDelayedIntegration,
 		},
 	}
 	for name, tc := range cases {
@@ -169,8 +164,12 @@ func TestSetupControllers(t *testing.T) {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
 
-			if tc.afterSetup != nil {
-				tc.afterSetup(mgr, &manager, "ray.io/raycluster")
+			if len(tc.delayedGVKs) > 0 {
+				// Simulate the delayed addition of RayCluster
+				simulateDelayedIntegration(mgr, tc.delayedGVKs)
+				for _, gvk := range tc.delayedGVKs {
+					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
+				}
 			}
 
 			diff := cmp.Diff(tc.wantEnabledIntegrations, manager.getEnabledIntegrations().SortedList())
@@ -181,7 +180,18 @@ func TestSetupControllers(t *testing.T) {
 	}
 }
 
-func testDelayedIntegration(mgr ctrlmgr.Manager, manager *integrationManager, crdName string) {
+// Simulates the delayed availability of GVKs
+func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.GroupVersionKind) {
+	mu.Lock()
+	defer mu.Unlock()
+	mapper := mgr.GetRESTMapper().(*apimeta.DefaultRESTMapper)
+
+	for _, gvk := range delayedGVKs {
+		mapper.Add(*gvk, apimeta.RESTScopeNamespace)
+	}
+}
+
+func testDelayedIntegration(manager *integrationManager, crdName string) {
 	for {
 		_, ok := manager.getEnabledIntegrations()[crdName]
 		if ok {

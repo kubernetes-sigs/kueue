@@ -41,8 +41,8 @@ var (
 	errMissingMandatoryField  = errors.New("mandatory field missing")
 	errFrameworkNameFormat    = errors.New("misformatted external framework name")
 
-	errIntegrationNotFound              = errors.New("integration not found")
-	errDependecncyIntegrationNotEnabled = errors.New("integration not enabled")
+	errIntegrationNotFound             = errors.New("integration not found")
+	errDependencyIntegrationNotEnabled = errors.New("integration not enabled")
 )
 
 type JobReconcilerInterface interface {
@@ -210,7 +210,7 @@ func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[st
 		}
 		for _, dep := range cbs.DependencyList {
 			if !enabledSet.Has(dep) {
-				return fmt.Errorf("%q %w %q", integration, errDependecncyIntegrationNotEnabled, dep)
+				return fmt.Errorf("%q %w %q", integration, errDependencyIntegrationNotEnabled, dep)
 			}
 		}
 	}
