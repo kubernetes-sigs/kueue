@@ -92,6 +92,7 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	profileFlagName           = "profile"
 	podRunningTimeoutFlagName = "pod-running-timeout"
 	removeFlagName            = "rm"
+	ignoreUnknownFlagName     = "ignore-unknown-flags"
 
 	commandFlagName     = string(v1alpha1.CmdFlag)
 	parallelismFlagName = string(v1alpha1.ParallelismFlag)
@@ -138,28 +139,29 @@ type CreateOptions struct {
 	PodRunningTimeout    time.Duration
 	RemoveInteractivePod bool
 
-	Command     []string
-	Parallelism *int32
-	Completions *int32
-	Replicas    map[string]int
-	MinReplicas map[string]int
-	MaxReplicas map[string]int
-	Requests    corev1.ResourceList
-	LocalQueue  string
-	RayCluster  string
-	Array       string
-	CpusPerTask *apiresource.Quantity
-	GpusPerTask *apiresource.Quantity
-	MemPerTask  *apiresource.Quantity
-	MemPerCPU   *apiresource.Quantity
-	MemPerGPU   *apiresource.Quantity
-	Nodes       *int32
-	NTasks      *int32
-	StdOut      string
-	StdErr      string
-	Input       string
-	JobName     string
-	Partition   string
+	Command       []string
+	Parallelism   *int32
+	Completions   *int32
+	Replicas      map[string]int
+	MinReplicas   map[string]int
+	MaxReplicas   map[string]int
+	Requests      corev1.ResourceList
+	LocalQueue    string
+	RayCluster    string
+	Array         string
+	CpusPerTask   *apiresource.Quantity
+	GpusPerTask   *apiresource.Quantity
+	MemPerTask    *apiresource.Quantity
+	MemPerCPU     *apiresource.Quantity
+	MemPerGPU     *apiresource.Quantity
+	Nodes         *int32
+	NTasks        *int32
+	StdOut        string
+	StdErr        string
+	Input         string
+	JobName       string
+	Partition     string
+	IgnoreUnknown bool
 
 	UserSpecifiedCommand     string
 	UserSpecifiedParallelism int32
@@ -303,7 +305,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				" [--stderr FILENAME_PATTERN]" +
 				" [--input FILENAME_PATTERN]" +
 				" [--job-name NAME]" +
-				" [--partition NAME]"
+				" [--partition NAME]" +
+				" [--ignore-unknown-flags]"
 			subcmd.Short = "Create a slurm job"
 			subcmd.Example = createSlurmExample
 			subcmd.Args = cobra.ExactArgs(1)
@@ -338,6 +341,8 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"What is the job name.")
 			subcmd.Flags().StringVar(&o.Partition, partitionFlagName, "",
 				"Local queue name.")
+			subcmd.Flags().BoolVar(&o.IgnoreUnknown, ignoreUnknownFlagName, false,
+				"Ignore all the unsupported flags in the bash script.")
 		},
 	},
 }
@@ -550,6 +555,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithInput(o.Input).
 		WithJobName(o.JobName).
 		WithPartition(o.Partition).
+		WithIgnoreUnknown(o.IgnoreUnknown).
 		Do(ctx)
 	if err != nil {
 		return err

@@ -20,8 +20,13 @@ import (
 	"bufio"
 	"fmt"
 	"regexp"
-	"slices"
+	"strconv"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
+
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 )
 
 const slurmDirective = "#SBATCH"
@@ -29,31 +34,24 @@ const slurmDirective = "#SBATCH"
 var longFlagFormat = regexp.MustCompile(`(\w+[\w+-]*)=(\S+)`)
 var shortFlagFormat = regexp.MustCompile(`-(\w)\s+(\S+)`)
 
-var slurmSupportedFlags = []string{
-	"a",
-	"array",
-	"cpus-per-task",
-	"e",
-	"error",
-	"gpus-per-task",
-	"i",
-	"input",
-	"J",
-	"job-name",
-	"mem-per-cpu",
-	"mem-per-gpu",
-	"mem-per-task",
-	"N",
-	"nodes",
-	"n",
-	"ntasks",
-	"o",
-	"output",
-	"partition",
+type ParsedSlurmFlags struct {
+	Array       string
+	CpusPerTask *resource.Quantity
+	GpusPerTask *resource.Quantity
+	MemPerTask  *resource.Quantity
+	MemPerCPU   *resource.Quantity
+	MemPerGPU   *resource.Quantity
+	Nodes       *int32
+	NTasks      *int32
+	StdOut      string
+	StdErr      string
+	Input       string
+	JobName     string
+	Partition   string
 }
 
-func SlurmFlags(script *bufio.Scanner, ignoreUnknown bool) (map[string]string, error) {
-	opts := make(map[string]string)
+func SlurmFlags(script *bufio.Scanner, ignoreUnknown bool) (ParsedSlurmFlags, error) {
+	var flags ParsedSlurmFlags
 
 	for script.Scan() {
 		line := strings.TrimSpace(script.Text())
@@ -73,17 +71,49 @@ func SlurmFlags(script *bufio.Scanner, ignoreUnknown bool) (map[string]string, e
 			continue
 		}
 
-		if !slices.Contains(slurmSupportedFlags, key) {
-			if ignoreUnknown {
-				continue
+		switch key {
+		case "a", string(v1alpha1.ArrayFlag):
+			flags.Array = val
+		case string(v1alpha1.CpusPerTaskFlag):
+			flags.CpusPerTask = ptr.To(resource.MustParse(val))
+		case "e", string(v1alpha1.StdErrFlag):
+			flags.StdErr = val
+		case string(v1alpha1.GpusPerTaskFlag):
+			flags.GpusPerTask = ptr.To(resource.MustParse(val))
+		case "i", string(v1alpha1.InputFlag):
+			flags.Input = val
+		case "J", string(v1alpha1.JobNameFlag):
+			flags.JobName = val
+		case string(v1alpha1.MemPerCPUFlag):
+			flags.MemPerCPU = ptr.To(resource.MustParse(val))
+		case string(v1alpha1.MemPerGPUFlag):
+			flags.MemPerGPU = ptr.To(resource.MustParse(val))
+		case string(v1alpha1.MemPerTaskFlag):
+			flags.MemPerTask = ptr.To(resource.MustParse(val))
+		case "N", string(v1alpha1.NodesFlag):
+			intVal, err := strconv.ParseInt(val, 10, 32)
+			if err != nil {
+				return flags, err
 			}
-			return nil, fmt.Errorf("unknown flag: %s", key)
+			flags.Nodes = ptr.To(int32(intVal))
+		case "n", string(v1alpha1.NTasksFlag):
+			intVal, err := strconv.ParseInt(val, 10, 32)
+			if err != nil {
+				return flags, err
+			}
+			flags.NTasks = ptr.To(int32(intVal))
+		case "o", string(v1alpha1.StdOutFlag):
+			flags.StdOut = val
+		case "p", string(v1alpha1.PartitionFlag):
+			flags.Partition = val
+		default:
+			if !ignoreUnknown {
+				return ParsedSlurmFlags{}, fmt.Errorf("unknown flag: %s", key)
+			}
 		}
-
-		opts[key] = val
 	}
 
-	return opts, nil
+	return flags, nil
 }
 
 func extractKeyValue(s string) (string, string) {

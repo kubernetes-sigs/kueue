@@ -83,29 +83,30 @@ type Builder struct {
 	profileName string
 	modeName    v1alpha1.ApplicationProfileMode
 
-	command     []string
-	parallelism *int32
-	completions *int32
-	replicas    map[string]int
-	minReplicas map[string]int
-	maxReplicas map[string]int
-	requests    corev1.ResourceList
-	localQueue  string
-	rayCluster  string
-	script      string
-	array       string
-	cpusPerTask *resource.Quantity
-	stderr      string
-	gpusPerTask *resource.Quantity
-	input       string
-	jobName     string
-	memPerCPU   *resource.Quantity
-	memPerGPU   *resource.Quantity
-	memPerTask  *resource.Quantity
-	nodes       *int32
-	nTasks      *int32
-	stdout      string
-	partition   string
+	command       []string
+	parallelism   *int32
+	completions   *int32
+	replicas      map[string]int
+	minReplicas   map[string]int
+	maxReplicas   map[string]int
+	requests      corev1.ResourceList
+	localQueue    string
+	rayCluster    string
+	script        string
+	array         string
+	cpusPerTask   *resource.Quantity
+	stderr        string
+	gpusPerTask   *resource.Quantity
+	input         string
+	jobName       string
+	memPerCPU     *resource.Quantity
+	memPerGPU     *resource.Quantity
+	memPerTask    *resource.Quantity
+	nodes         *int32
+	nTasks        *int32
+	stdout        string
+	partition     string
+	ignoreUnknown bool
 
 	profile       *v1alpha1.ApplicationProfile
 	mode          *v1alpha1.SupportedMode
@@ -245,6 +246,11 @@ func (b *Builder) WithStdOut(stdout string) *Builder {
 
 func (b *Builder) WithPartition(partition string) *Builder {
 	b.partition = partition
+	return b
+}
+
+func (b *Builder) WithIgnoreUnknown(ignoreUnknown bool) *Builder {
+	b.ignoreUnknown = ignoreUnknown
 	return b
 }
 

@@ -22,13 +22,15 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 )
 
 func TestParseSlurmOptions(t *testing.T) {
 	testCases := map[string]struct {
 		script        string
 		ignoreUnknown bool
-		want          map[string]string
+		want          ParsedSlurmFlags
 		wantErr       string
 	}{
 		"should parse simple script": {
@@ -39,10 +41,10 @@ func TestParseSlurmOptions(t *testing.T) {
 
 sleep 30
 echo "hello"`,
-			want: map[string]string{
-				"job-name":      "single_Cpu",
-				"ntasks":        "1",
-				"cpus-per-task": "1",
+			want: ParsedSlurmFlags{
+				JobName:     "single_Cpu",
+				NTasks:      ptr.To[int32](1),
+				CpusPerTask: ptr.To(resource.MustParse("1")),
 			},
 		},
 		"should parse script with short flags": {
@@ -53,11 +55,11 @@ echo "hello"`,
 
 ./myexec
 exit 0`,
-			want: map[string]string{
-				"J": "serial_Test_Job",
-				"n": "1",
-				"o": "output.%j",
-				"e": "error.%j",
+			want: ParsedSlurmFlags{
+				JobName: "serial_Test_Job",
+				NTasks:  ptr.To[int32](1),
+				StdOut:  "output.%j",
+				StdErr:  "error.%j",
 			},
 		},
 		"should parse script with comments": {
@@ -75,18 +77,18 @@ exit 0`,
 echo "Start Job $SLURM_ARRAY_TASK_ID on $HOSTNAME"  # Display job start information
 
 sleep 10`,
-			want: map[string]string{
-				"job-name":  "job-array",
-				"array":     "1-20",
-				"n":         "1",
-				"partition": "shared",
+			want: ParsedSlurmFlags{
+				JobName:   "job-array",
+				Array:     "1-20",
+				NTasks:    ptr.To[int32](1),
+				Partition: "shared",
 			},
 		},
 		"should parse script and ignore unknown flags": {
 			script: `#!/bin/bash
 #SBATCH --job-name=my_job_name
-#SBATCH --output=output.txt
-#SBATCH --error=error.txt
+#SBATCH --stdout=output.txt
+#SBATCH --stderr=error.txt
 #SBATCH --partition=partition_name
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -97,14 +99,14 @@ sleep 10`,
 
 python my_script.py`,
 			ignoreUnknown: true,
-			want: map[string]string{
-				"job-name":      "my_job_name",
-				"output":        "output.txt",
-				"error":         "error.txt",
-				"partition":     "partition_name",
-				"nodes":         "1",
-				"ntasks":        "1",
-				"cpus-per-task": "1",
+			want: ParsedSlurmFlags{
+				JobName:     "my_job_name",
+				StdOut:      "output.txt",
+				StdErr:      "error.txt",
+				Partition:   "partition_name",
+				Nodes:       ptr.To[int32](1),
+				NTasks:      ptr.To[int32](1),
+				CpusPerTask: ptr.To(resource.MustParse("1")),
 			},
 		},
 		"should fail due to unknown flags": {

@@ -17,6 +17,8 @@ limitations under the License.
 package builder
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"math"
@@ -31,6 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
 )
 
 const (
@@ -63,14 +67,26 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		Spec:       template.Template.Spec,
 	}
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
-	objectName := b.generatePrefixName() + utilrand.String(5)
-	job.ObjectMeta.GenerateName = ""
-	job.ObjectMeta.Name = objectName
 
 	content, err := os.ReadFile(b.script)
 	if err != nil {
 		return nil, err
 	}
+	script := bufio.NewScanner(bytes.NewReader(content))
+	scriptFlags, err := parser.SlurmFlags(script, b.ignoreUnknown)
+	if err != nil {
+		return nil, err
+	}
+	b.replaceCLIFlags(scriptFlags)
+
+	var objectName string
+	if b.jobName == "" {
+		objectName = b.generatePrefixName() + utilrand.String(5)
+	} else {
+		objectName = b.jobName
+	}
+	job.ObjectMeta.GenerateName = ""
+	job.ObjectMeta.Name = objectName
 
 	if b.array == "" {
 		b.arrayIndexes = generateArrayIndexes(ptr.Deref(b.nodes, 1))
@@ -366,6 +382,60 @@ func (b *slurmBuilder) buildEntrypointCommand() string {
 	}
 
 	return strBuilder.String()
+}
+
+func (b *slurmBuilder) replaceCLIFlags(scriptFlags parser.ParsedSlurmFlags) {
+	if len(scriptFlags.Array) != 0 {
+		b.array = scriptFlags.Array
+	}
+
+	if scriptFlags.CpusPerTask != nil {
+		b.cpusPerTask = scriptFlags.CpusPerTask
+	}
+
+	if scriptFlags.GpusPerTask != nil {
+		b.gpusPerTask = scriptFlags.GpusPerTask
+	}
+
+	if scriptFlags.MemPerTask != nil {
+		b.memPerTask = scriptFlags.MemPerTask
+	}
+
+	if scriptFlags.MemPerCPU != nil {
+		b.memPerCPU = scriptFlags.MemPerCPU
+	}
+
+	if scriptFlags.MemPerGPU != nil {
+		b.memPerGPU = scriptFlags.MemPerGPU
+	}
+
+	if scriptFlags.Nodes != nil {
+		b.nodes = scriptFlags.Nodes
+	}
+
+	if scriptFlags.NTasks != nil {
+		b.nTasks = scriptFlags.NTasks
+	}
+
+	if len(scriptFlags.StdOut) != 0 {
+		b.stdout = scriptFlags.StdOut
+	}
+
+	if len(scriptFlags.StdErr) != 0 {
+		b.stderr = scriptFlags.StdErr
+	}
+
+	if len(scriptFlags.Input) != 0 {
+		b.input = scriptFlags.Input
+	}
+
+	if len(scriptFlags.JobName) != 0 {
+		b.jobName = scriptFlags.JobName
+	}
+
+	if len(scriptFlags.JobName) != 0 {
+		b.partition = scriptFlags.Partition
+	}
 }
 
 func newSlurmBuilder(b *Builder) *slurmBuilder {

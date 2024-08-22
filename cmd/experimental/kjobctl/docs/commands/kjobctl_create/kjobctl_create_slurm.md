@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Create a slurm job
 
 ```
-kjobctl create slurm SCRIPT --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--stdout FILENAME_PATTERN] [--stderr FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME]
+kjobctl create slurm SCRIPT --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--stdout FILENAME_PATTERN] [--stderr FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME] [--ignore-unknown-flags]
 ```
 
 
@@ -90,6 +90,15 @@ The minimum index value is 0. The maximum index value is 2147483647.</p>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>help for slurm</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--ignore-unknown-flags</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Ignore all the unsupported flags in the bash script.</p>
         </td>
     </tr>
     <tr>
