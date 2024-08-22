@@ -17,7 +17,6 @@ limitations under the License.
 package list
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -32,24 +31,16 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/cli-runtime/pkg/resource"
 	k8s "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	kubectlget "k8s.io/kubectl/pkg/cmd/get"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
-	kueuejob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	kueuejobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	kueuemxjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/mxjob"
-	kueuepaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
-	kueuepytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
-	kueuetfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
-	kueuexgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
-	kueuempijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	kueueraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
-	kueuerayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+
+	// Ensure linking of the job controllers.
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 const (
@@ -59,20 +50,6 @@ the label selector or the field selector.`
 	podExample = `  # List Pods
 kueuectl list pods --for job/job-name`
 )
-
-var jobsWithPodLabelSelector = []JobWithPodLabelSelector{
-	&kueuejob.Job{},
-	&kueuejobset.JobSet{},
-	&kueuemxjob.JobControl{},
-	&kueuepaddlejob.JobControl{},
-	&kueuetfjob.JobControl{},
-	&kueuepytorchjob.JobControl{},
-	&kueuexgboostjob.JobControl{},
-	&kueuempijob.MPIJob{},
-	&pod.Pod{},
-	&kueueraycluster.RayCluster{},
-	&kueuerayjob.RayJob{},
-}
 
 type PodOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
@@ -94,12 +71,6 @@ type PodOptions struct {
 	genericiooptions.IOStreams
 }
 
-type JobWithPodLabelSelector interface {
-	Object() client.Object
-	GVK() schema.GroupVersionKind
-	PodLabelSelector() string
-}
-
 func NewPodOptions(streams genericiooptions.IOStreams) *PodOptions {
 	return &PodOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
@@ -119,7 +90,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 		Example:               podExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(cmd, clientGetter)
+			err := o.Complete(clientGetter)
 			if err != nil {
 				return err
 			}
@@ -127,9 +98,9 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 				return nil
 			}
 			if len(o.PodLabelSelector) == 0 {
-				return nil
+				return fmt.Errorf("unsupported kind: %s", o.ForObject.GetKind())
 			}
-			return o.Run(cmd.Context(), clientGetter)
+			return o.Run(clientGetter)
 		},
 	}
 
@@ -146,7 +117,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 }
 
 // Complete takes the command arguments and infers any remaining options.
-func (o *PodOptions) Complete(cmd *cobra.Command, clientGetter util.ClientGetter) error {
+func (o *PodOptions) Complete(clientGetter util.ClientGetter) error {
 	var err error
 
 	o.Limit, err = listRequestLimit()
@@ -202,11 +173,6 @@ func (o *PodOptions) Complete(cmd *cobra.Command, clientGetter util.ClientGetter
 		return err
 	}
 
-	if len(o.PodLabelSelector) == 0 {
-		o.printNoResourcesFound()
-		return nil
-	}
-
 	return nil
 }
 
@@ -249,28 +215,25 @@ func (o *PodOptions) getForObject(infos []*resource.Info) (*unstructured.Unstruc
 	return job, nil
 }
 
-func (o *PodOptions) getJobController() JobWithPodLabelSelector {
-	for _, jobController := range jobsWithPodLabelSelector {
-		if jobController.GVK() == o.ForGVK {
-			return jobController
-		}
-	}
-	return nil
-}
-
 // getPodLabelSelector returns the podLabels used as a standard selector for jobs
 func (o *PodOptions) getPodLabelSelector() (string, error) {
-	jobController := o.getJobController()
-	if jobController == nil {
-		return "", fmt.Errorf("unsupported kind: %s", o.ForObject.GetKind())
+	cbs, ok := jobframework.GetIntegrationByGVK(o.ForGVK)
+	if !ok {
+		return "", nil
 	}
 
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.ForObject.UnstructuredContent(), jobController.Object())
-	if err != nil {
+	genericJob := cbs.NewJob()
+
+	jobWithPodLabelSelector, ok := genericJob.(jobframework.JobWithPodLabelSelector)
+	if !ok {
+		return "", nil
+	}
+
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.ForObject.UnstructuredContent(), genericJob.Object()); err != nil {
 		return "", fmt.Errorf("failed to convert unstructured object: %w", err)
 	}
 
-	return jobController.PodLabelSelector(), nil
+	return jobWithPodLabelSelector.PodLabelSelector(), nil
 }
 
 type trackingWriterWrapper struct {
@@ -284,7 +247,7 @@ func (t *trackingWriterWrapper) Write(p []byte) (n int, err error) {
 }
 
 // Run prints the pods for a specific Job
-func (o *PodOptions) Run(ctx context.Context, clientGetter util.ClientGetter) error {
+func (o *PodOptions) Run(clientGetter util.ClientGetter) error {
 	trackingWriter := &trackingWriterWrapper{Delegate: o.Out}
 	tabWriter := printers.GetNewTabWriter(trackingWriter)
 

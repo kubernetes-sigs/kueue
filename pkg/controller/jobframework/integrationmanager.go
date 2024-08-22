@@ -53,6 +53,8 @@ type ReconcilerFactory func(client client.Client, record record.EventRecorder, o
 
 // IntegrationCallbacks groups a set of callbacks used to integrate a new framework.
 type IntegrationCallbacks struct {
+	// NewJob creates a new instance of job
+	NewJob func() GenericJob
 	// NewReconciler creates a new reconciler
 	NewReconciler ReconcilerFactory
 	// SetupWebhook sets up the framework's webhook with the controllers manager
@@ -76,6 +78,8 @@ type IntegrationCallbacks struct {
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
 	DependencyList []string
+	// PodLabelSelector returns the label selector used by pods for the job.
+	PodLabelSelector string
 }
 
 type integrationManager struct {
@@ -244,6 +248,18 @@ func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
 // list of frameworks returning its callbacks and true if found.
 func GetIntegration(name string) (IntegrationCallbacks, bool) {
 	return manager.get(name)
+}
+
+// GetIntegrationByGVK looks-up the framework identified by GroupVersionKind in the currently
+// registered list of frameworks returning its callbacks and true if found.
+func GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, bool) {
+	for _, name := range manager.getList() {
+		integration, ok := GetIntegration(name)
+		if ok && gvk == integration.NewJob().GVK() {
+			return integration, true
+		}
+	}
+	return IntegrationCallbacks{}, false
 }
 
 // GetIntegrationsList returns the list of currently registered frameworks.

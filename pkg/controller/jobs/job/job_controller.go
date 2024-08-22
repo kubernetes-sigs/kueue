@@ -59,6 +59,7 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupWebhook,
 		JobType:                &batchv1.Job{},
@@ -78,13 +79,13 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(
-	func() jobframework.GenericJob {
-		return &Job{}
-	}, func(b *builder.Builder, c client.Client) *builder.Builder {
-		return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
-	},
-)
+func NewJob() jobframework.GenericJob {
+	return &Job{}
+}
+
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob, func(b *builder.Builder, c client.Client) *builder.Builder {
+	return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
+})
 
 func isJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "Job" && owner.APIVersion == gvk.GroupVersion().String()

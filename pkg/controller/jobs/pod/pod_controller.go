@@ -95,6 +95,7 @@ var (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:          SetupIndexes,
+		NewJob:                NewJob,
 		NewReconciler:         NewReconciler,
 		SetupWebhook:          SetupWebhook,
 		JobType:               &corev1.Pod{},
@@ -131,6 +132,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			MaxConcurrentReconciles: concurrency,
 		}).
 		Complete(r)
+}
+
+func NewJob() jobframework.GenericJob {
+	return &Pod{}
 }
 
 func NewReconciler(c client.Client, record record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {

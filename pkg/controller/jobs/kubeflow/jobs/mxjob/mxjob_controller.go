@@ -41,6 +41,7 @@ var (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupMXJobWebhook,
 		JobType:                &kftraining.MXJob{},
@@ -60,9 +61,11 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob {
+func NewJob() jobframework.GenericJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: &JobControl{}}
-})
+}
+
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
 func isMXJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == kftraining.MXJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)
