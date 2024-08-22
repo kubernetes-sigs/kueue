@@ -32,6 +32,22 @@ const (
 	E2eTestSleepImage = "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea"
 )
 
+const (
+	// The environment variable for namespace where Kueue is installed
+	namespaceEnvVar = "NAMESPACE"
+
+	// The namespace where kueue is installed in opendatahub
+	odhNamespace = "opendatahub"
+
+	// The namespace where kueue is installed in rhoai
+	rhoaiNamespace = "redhat-ods-applications"
+
+	// The default namespace where kueue is installed
+	kueueNamespace = "kueue-system"
+
+	undefinedNamespace = "undefined"
+)
+
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) {
 	cfg, err := config.GetConfigWithContext(kContext)
 	if err != nil {
@@ -89,7 +105,7 @@ func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, k
 	pods := &corev1.PodList{}
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) error {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
-		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(key.Namespace), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
+		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(GetNamespace()), client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 		for _, pod := range pods.Items {
 			for _, cs := range pod.Status.ContainerStatuses {
 				// To make sure that we don't have restarts of controller-manager.
@@ -110,7 +126,7 @@ func waitForOperatorAvailability(ctx context.Context, k8sClient client.Client, k
 }
 
 func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
-	kcmKey := types.NamespacedName{Namespace: "kueue-system", Name: "kueue-controller-manager"}
+	kcmKey := types.NamespacedName{Namespace: GetNamespace(), Name: "kueue-controller-manager"}
 	waitForOperatorAvailability(ctx, k8sClient, kcmKey)
 }
 
@@ -127,4 +143,24 @@ func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient 
 func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient client.Client) {
 	kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
 	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+}
+
+func GetNamespace() string {
+	namespace, ok := os.LookupEnv(namespaceEnvVar)
+	if !ok {
+		fmt.Printf("Expected environment variable %s is unset, please use this environment variable to specify in which namespace Kueue is installed", namespaceEnvVar)
+		os.Exit(1)
+	}
+	switch namespace {
+	case "opendatahub":
+		return odhNamespace
+	case "redhat-ods-applications":
+		return rhoaiNamespace
+	case "kueue-system":
+		return kueueNamespace
+	default:
+		fmt.Printf("Expected environment variable %s contains an incorrect value", namespaceEnvVar)
+		os.Exit(1)
+		return undefinedNamespace
+	}
 }
