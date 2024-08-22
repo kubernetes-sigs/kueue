@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -146,6 +147,9 @@ func TestReconcile(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: TestNamespace,
 			Name:      "wl-check1-1",
+			Labels: map[string]string{
+				constants.ManagedByKueueLabel: "true",
+			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					Name: "wl",
@@ -179,7 +183,7 @@ func TestReconcile(t *testing.T) {
 			Namespace: TestNamespace,
 			Name:      "ppt-wl-check1-1-ps1",
 			Labels: map[string]string{
-				"kueue.x-k8s.io/managed": "true",
+				constants.ManagedByKueueLabel: "true",
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
@@ -217,7 +221,7 @@ func TestReconcile(t *testing.T) {
 			Namespace: TestNamespace,
 			Name:      "ppt-wl-check1-1-ps2",
 			Labels: map[string]string{
-				"kueue.x-k8s.io/managed": "true",
+				constants.ManagedByKueueLabel: "true",
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
@@ -346,6 +350,9 @@ func TestReconcile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: TestNamespace,
 						Name:      ProvisioningRequestName("wl", baseCheck.Name, 1),
+						Labels: map[string]string{
+							constants.ManagedByKueueLabel: "true",
+						},
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								Name: "wl",
@@ -631,6 +638,11 @@ func TestReconcile(t *testing.T) {
 			},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
 				"wl-check1-1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{
+							constants.ManagedByKueueLabel: "true",
+						},
+					},
 					Spec: autoscaling.ProvisioningRequestSpec{
 						PodSets: []autoscaling.PodSet{
 							{
@@ -681,6 +693,11 @@ func TestReconcile(t *testing.T) {
 			},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
 				"wl-check1-1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{
+							constants.ManagedByKueueLabel: "true",
+						},
+					},
 					Spec: autoscaling.ProvisioningRequestSpec{
 						PodSets: []autoscaling.PodSet{
 							{
@@ -703,7 +720,7 @@ func TestReconcile(t *testing.T) {
 						Namespace: TestNamespace,
 						Name:      "ppt-wl-check1-1-ps1",
 						Labels: map[string]string{
-							"kueue.x-k8s.io/managed": "true",
+							constants.ManagedByKueueLabel: "true",
 						},
 						OwnerReferences: []metav1.OwnerReference{
 							{
@@ -1066,6 +1083,9 @@ func TestReconcile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: TestNamespace,
 						Name:      "wl-check1-2",
+						Labels: map[string]string{
+							constants.ManagedByKueueLabel: "true",
+						},
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								Name: "wl",
@@ -1210,6 +1230,9 @@ func TestReconcile(t *testing.T) {
 
 				if diff := cmp.Diff(wantRequest, gotRequest, reqCmpOptions...); diff != "" {
 					t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
+				}
+				if diff := cmp.Diff(wantRequest.GetLabels(), gotRequest.GetLabels()); diff != "" {
+					t.Errorf("unexpected request labels %q (-want/+got):\n%s", name, diff)
 				}
 			}
 
