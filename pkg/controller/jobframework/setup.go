@@ -98,12 +98,8 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 				}
 			}
 		}
-		if options.DefaultWebhookFactory == nil {
-			logger.Info("DefaultWebhookFactory is not set, skipping setup of default webhook")
-			return nil
-		}
-		dwf := options.DefaultWebhookFactory(cb.JobType)
-		if err := dwf(mgr, opts...); err != nil {
+		webhookFactory := NewSetupWebhookFactory(cb.JobType)
+		if err := webhookFactory(mgr, opts...); err != nil {
 			return fmt.Errorf("%s: unable to create default webhook: %w", fwkNamePrefix, err)
 		}
 		return nil

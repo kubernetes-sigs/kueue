@@ -56,7 +56,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 	"sigs.k8s.io/kueue/pkg/debugger"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -284,7 +283,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		jobframework.WithIntegrationOptions(appsv1.SchemeGroupVersion.WithKind("Deployment").String(), cfg.Integrations.DeploymentOptions),
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
-		jobframework.WithDefaultWebhookFactory(noop.NewSetupWebhookFactory),
 	}
 	if err := jobframework.SetupControllers(ctx, mgr, setupLog, opts...); err != nil {
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())

@@ -89,7 +89,6 @@ type Options struct {
 	LabelKeysToCopy           []string
 	Queues                    *queue.Manager
 	Cache                     *cache.Cache
-	DefaultWebhookFactory     func(apiType runtime.Object) func(mgr ctrl.Manager, opts ...Option) error
 }
 
 // Option configures the reconciler.
@@ -182,13 +181,6 @@ func WithQueues(q *queue.Manager) Option {
 func WithCache(c *cache.Cache) Option {
 	return func(o *Options) {
 		o.Cache = c
-	}
-}
-
-// WithDefaultWebhookFactory adds the default webhook factory.
-func WithDefaultWebhookFactory(f func(apiType runtime.Object) func(mgr ctrl.Manager, opts ...Option) error) Option {
-	return func(o *Options) {
-		o.DefaultWebhookFactory = f
 	}
 }
 

@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 )
 
 var (
@@ -40,7 +39,7 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:   SetupIndexes,
-		NewReconciler:  noop.NewReconcilerFactory(gvk),
+		NewReconciler:  jobframework.NewReconcilerFactory(gvk),
 		SetupWebhook:   SetupWebhook,
 		JobType:        &appsv1.Deployment{},
 		AddToScheme:    appsv1.AddToScheme,
