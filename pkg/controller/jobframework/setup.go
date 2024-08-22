@@ -98,9 +98,8 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 				}
 			}
 		}
-		webhookFactory := NewSetupWebhookFactory(cb.JobType)
-		if err := webhookFactory(mgr, opts...); err != nil {
-			return fmt.Errorf("%s: unable to create default webhook: %w", fwkNamePrefix, err)
+		if err := SetupNoopWebhook(mgr, cb.JobType); err != nil {
+			return fmt.Errorf("%s: unable to create noop webhook: %w", fwkNamePrefix, err)
 		}
 		return nil
 	})

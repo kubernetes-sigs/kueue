@@ -27,15 +27,13 @@ import (
 type webhook struct {
 }
 
-func NewSetupWebhookFactory(apiType runtime.Object) func(mgr ctrl.Manager, opts ...Option) error {
-	return func(mgr ctrl.Manager, opts ...Option) error {
-		wh := &webhook{}
-		return ctrl.NewWebhookManagedBy(mgr).
-			For(apiType).
-			WithDefaulter(wh).
-			WithValidator(wh).
-			Complete()
-	}
+func SetupNoopWebhook(mgr ctrl.Manager, apiType runtime.Object) error {
+	wh := &webhook{}
+	return ctrl.NewWebhookManagedBy(mgr).
+		For(apiType).
+		WithDefaulter(wh).
+		WithValidator(wh).
+		Complete()
 }
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type

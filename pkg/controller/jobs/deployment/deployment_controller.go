@@ -39,7 +39,7 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:   SetupIndexes,
-		NewReconciler:  jobframework.NewReconcilerFactory(gvk),
+		NewReconciler:  jobframework.NewNoopReconcilerFactory(gvk),
 		SetupWebhook:   SetupWebhook,
 		JobType:        &appsv1.Deployment{},
 		AddToScheme:    appsv1.AddToScheme,

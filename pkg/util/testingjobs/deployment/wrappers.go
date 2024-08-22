@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -68,4 +68,18 @@ func (d *DeploymentWrapper) Queue(q string) *DeploymentWrapper {
 func (d *DeploymentWrapper) Name(n string) *DeploymentWrapper {
 	d.ObjectMeta.Name = n
 	return d
+}
+
+// PodTemplateSpecLabel sets the label of the pod template spec of the Deployment
+func (d *DeploymentWrapper) PodTemplateSpecLabel(k, v string) *DeploymentWrapper {
+	if d.Spec.Template.Labels == nil {
+		d.Spec.Template.Labels = make(map[string]string)
+	}
+	d.Spec.Template.Labels[k] = v
+	return d
+}
+
+// PodTemplateSpecQueue updates the queue name of the pod template spec of the Deployment
+func (d *DeploymentWrapper) PodTemplateSpecQueue(q string) *DeploymentWrapper {
+	return d.PodTemplateSpecLabel(constants.QueueLabel, q)
 }

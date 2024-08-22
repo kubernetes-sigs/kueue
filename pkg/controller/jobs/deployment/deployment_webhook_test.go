@@ -49,13 +49,14 @@ func TestDefault(t *testing.T) {
 		enableIntegrations         []string
 		want                       *appsv1.Deployment
 	}{
-		"pod with queue nil ns selector": {
+		"pod with queue": {
 			initObjects: []client.Object{defaultNamespace},
 			deployment: testingdeployment.MakeDeployment("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Obj(),
 			want: testingdeployment.MakeDeployment("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
+				PodTemplateSpecQueue("test-queue").
 				Obj(),
 		},
 	}
@@ -70,8 +71,6 @@ func TestDefault(t *testing.T) {
 			w := &Webhook{
 				client:                     cli,
 				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
-				namespaceSelector:          tc.namespaceSelector,
-				deploymentSelector:         tc.deploymentSelector,
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)

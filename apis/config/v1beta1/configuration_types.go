@@ -325,8 +325,6 @@ type Integrations struct {
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
 	// PodOptions defines kueue controller behaviour for pod objects
 	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
-	// DeploymentOptions defines kueue controller behaviour for deployment objects
-	DeploymentOptions *DeploymentIntegrationOptions `json:"deploymentOptions,omitempty"`
 
 	// labelKeysToCopy is a list of label keys that should be copied from the job into the
 	// workload object. It is not required for the job to have all the labels from this
@@ -345,13 +343,6 @@ type PodIntegrationOptions struct {
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 	// PodSelector can be used to choose what pods to reconcile
 	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
-}
-
-type DeploymentIntegrationOptions struct {
-	// NamespaceSelector can be used to omit some namespaces from deployment reconciliation
-	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
-	// DeploymentSelector can be used to choose what deployments to reconcile
-	DeploymentSelector *metav1.LabelSelector `json:"deploymentSelector,omitempty"`
 }
 
 type QueueVisibility struct {

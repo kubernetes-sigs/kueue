@@ -1,15 +1,26 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package deployment
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -18,52 +29,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-)
-
-var (
-	errDeploymentOptsTypeAssertion = errors.New("options are not of type DeploymentIntegrationOptions")
-	errDeploymentOptsNotFound      = errors.New("deploymentIntegrationOptions not found in options")
 )
 
 type Webhook struct {
 	client                     client.Client
 	manageJobsWithoutQueueName bool
-	namespaceSelector          *metav1.LabelSelector
-	deploymentSelector         *metav1.LabelSelector
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	deploymentOpts, err := getDeploymentOptions(options.IntegrationOptions)
-	if err != nil {
-		return err
-	}
 	wh := &Webhook{
 		client:                     mgr.GetClient(),
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-		namespaceSelector:          deploymentOpts.NamespaceSelector,
-		deploymentSelector:         deploymentOpts.DeploymentSelector,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&appsv1.Deployment{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		Complete()
-}
-
-func getDeploymentOptions(integrationOpts map[string]any) (configapi.DeploymentIntegrationOptions, error) {
-	opts, ok := integrationOpts[corev1.SchemeGroupVersion.WithKind("Deployment").String()]
-	if !ok {
-		return configapi.DeploymentIntegrationOptions{}, errDeploymentOptsNotFound
-	}
-	deploymentOpts, ok := opts.(*configapi.DeploymentIntegrationOptions)
-	if !ok {
-		return configapi.DeploymentIntegrationOptions{}, fmt.Errorf("%w, got %T", errDeploymentOptsTypeAssertion, opts)
-	}
-	return *deploymentOpts, nil
 }
 
 // +kubebuilder:webhook:path=/mutate--v1-deployment,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=deployments,verbs=create,versions=v1,name=mdeployment.kb.io,admissionReviewVersions=v1
@@ -75,35 +60,6 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	d := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook").WithValues("deployment", klog.KObj(d))
 	log.V(5).Info("Applying defaults")
-
-	// Check for deployment label selector match
-	deploymentSelector, err := metav1.LabelSelectorAsSelector(wh.deploymentSelector)
-	if err != nil {
-		return fmt.Errorf("failed to create deployment selector: %w", err)
-	}
-	if !deploymentSelector.Matches(labels.Set(d.Labels)) {
-		return nil
-	}
-
-	// Get deployment namespace and check for namespace label selector match
-	if wh.namespaceSelector != nil {
-		ns := &corev1.Namespace{}
-		if err := wh.client.Get(ctx, client.ObjectKey{Name: d.Namespace}, ns); err != nil {
-			return fmt.Errorf("failed to run mutating webhook on deployment %s/%s, error while getting namespace: %w",
-				d.Namespace,
-				d.Name,
-				err,
-			)
-		}
-		log.V(5).Info("Found deployment namespace", "Namespace.Name", ns.GetName())
-		nsSelector, err := metav1.LabelSelectorAsSelector(wh.namespaceSelector)
-		if err != nil {
-			return fmt.Errorf("failed to parse namespace selector: %w", err)
-		}
-		if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
-			return nil
-		}
-	}
 
 	if d.Spec.Template.Labels == nil {
 		d.Spec.Template.Labels = make(map[string]string)
@@ -117,7 +73,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 
 var _ webhook.CustomValidator = &Webhook{}
 
-func (wh *Webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateCreate(_ context.Context, _ runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
@@ -149,6 +105,6 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	return warnings, allErrs.ToAggregate()
 }
 
-func (wh *Webhook) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateDelete(_ context.Context, _ runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
