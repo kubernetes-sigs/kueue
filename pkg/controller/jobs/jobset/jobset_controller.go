@@ -45,6 +45,7 @@ var (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupJobSetWebhook,
 		JobType:                &jobsetapi.JobSet{},
@@ -65,7 +66,11 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &JobSet{} })
+func NewJob() jobframework.GenericJob {
+	return &JobSet{}
+}
+
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
 func isJobSet(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "JobSet" && strings.HasPrefix(owner.APIVersion, "jobset.x-k8s.io/v1")

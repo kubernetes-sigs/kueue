@@ -46,6 +46,7 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupRayJobWebhook,
 		JobType:                &rayv1.RayJob{},
@@ -64,7 +65,11 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &RayJob{} })
+func NewJob() jobframework.GenericJob {
+	return &RayJob{}
+}
+
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
 type RayJob rayv1.RayJob
 

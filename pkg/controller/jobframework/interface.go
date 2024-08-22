@@ -62,6 +62,11 @@ type GenericJob interface {
 // Optional interfaces, are meant to implemented by jobs to enable additional
 // features of the jobframework reconciler.
 
+type JobWithPodLabelSelector interface {
+	// PodLabelSelector returns the label selector used by pods for the job.
+	PodLabelSelector() string
+}
+
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
 	ReclaimablePods() ([]kueue.ReclaimablePod, error)

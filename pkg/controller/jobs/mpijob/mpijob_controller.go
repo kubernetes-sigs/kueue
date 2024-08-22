@@ -45,6 +45,7 @@ var (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupMPIJobWebhook,
 		JobType:                &kubeflow.MPIJob{},
@@ -64,7 +65,11 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &MPIJob{} })
+func NewJob() jobframework.GenericJob {
+	return &MPIJob{}
+}
+
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
 func isMPIJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org/v2")

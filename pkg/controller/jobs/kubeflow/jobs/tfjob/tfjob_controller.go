@@ -41,6 +41,7 @@ var (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupTFJobWebhook,
 		JobType:                &kftraining.TFJob{},
@@ -60,6 +61,10 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
+
+func NewJob() jobframework.GenericJob {
+	return &kubeflowjob.KubeflowJob{KFJobControl: &JobControl{}}
+}
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: &JobControl{}}

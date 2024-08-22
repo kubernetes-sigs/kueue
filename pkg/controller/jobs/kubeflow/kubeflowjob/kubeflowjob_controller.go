@@ -130,7 +130,10 @@ func (j *KubeflowJob) GVK() schema.GroupVersionKind {
 }
 
 func (j *KubeflowJob) PodLabelSelector() string {
-	return j.KFJobControl.PodLabelSelector()
+	if jobWithPodLabelSelector, ok := j.KFJobControl.(jobframework.JobWithPodLabelSelector); ok {
+		return jobWithPodLabelSelector.PodLabelSelector()
+	}
+	return ""
 }
 
 // PriorityClass calculates the priorityClass name needed for workload according to the following priorities:
