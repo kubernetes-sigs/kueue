@@ -22,6 +22,15 @@ type Cohort[CQ, C nodeBase] struct {
 	childCqs sets.Set[CQ]
 }
 
+func (c *Cohort[CQ, C]) Parent() C {
+	var zero C
+	return zero
+}
+
+func (c *Cohort[CQ, C]) HasParent() bool {
+	return false
+}
+
 func (c *Cohort[CQ, C]) ChildCQs() []CQ {
 	return c.childCqs.UnsortedList()
 }

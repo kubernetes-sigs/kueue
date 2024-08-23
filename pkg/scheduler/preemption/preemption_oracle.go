@@ -38,7 +38,7 @@ type PreemptionOracle struct {
 // FlavorResource by reclaiming its nominal quota which it lent to its
 // Cohort.
 func (p *PreemptionOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) bool {
-	if cq.Usage[fr]+quantity > cq.QuotaFor(fr).Nominal {
+	if cq.BorrowingWith(fr, quantity) {
 		return false
 	}
 

@@ -1131,7 +1131,7 @@ func TestCohortLendable(t *testing.T) {
 		"example.com/gpu":  3,
 	}
 
-	lendable := cache.hm.ClusterQueues["cq1"].Parent().CalculateLendable()
+	lendable := cache.hm.Cohorts["test-cohort"].resourceNode.calculateLendable()
 	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
 		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
 	}
