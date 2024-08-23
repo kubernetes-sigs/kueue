@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -34,8 +33,6 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 )
-
-var mu sync.RWMutex
 
 const (
 	baseBackoffWaitForIntegration = 1 * time.Second
@@ -143,8 +140,6 @@ func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk sche
 }
 
 func restMappingExists(mgr ctrl.Manager, gvk schema.GroupVersionKind) error {
-	mu.RLock()
-	defer mu.RUnlock()
 	_, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return fmt.Errorf("failed to get REST mapping for %v: %w", gvk, err)

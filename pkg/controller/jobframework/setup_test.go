@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -149,10 +150,14 @@ func TestSetupControllers(t *testing.T) {
 						gvs = append(gvs, gvk.GroupVersion())
 					}
 					mapper := apimeta.NewDefaultRESTMapper(gvs)
-					for _, gvk := range tc.mapperGVKs {
-						mapper.Add(gvk, apimeta.RESTScopeNamespace)
+					testMapper := &TestRESTMapper{
+						DefaultRESTMapper: mapper,
+						lock:              sync.RWMutex{},
 					}
-					return mapper, nil
+					for _, gvk := range tc.mapperGVKs {
+						testMapper.Add(gvk, apimeta.RESTScopeNamespace)
+					}
+					return testMapper, nil
 				},
 			}
 			mgr, err := ctrlmgr.New(&rest.Config{}, mgrOpts)
@@ -166,7 +171,6 @@ func TestSetupControllers(t *testing.T) {
 			}
 
 			if len(tc.delayedGVKs) > 0 {
-				// Simulate the delayed addition of RayCluster
 				simulateDelayedIntegration(mgr, tc.delayedGVKs)
 				for _, gvk := range tc.delayedGVKs {
 					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
@@ -181,11 +185,22 @@ func TestSetupControllers(t *testing.T) {
 	}
 }
 
+type TestRESTMapper struct {
+	*apimeta.DefaultRESTMapper
+	lock sync.RWMutex
+}
+
+func (m *TestRESTMapper) RESTMapping(gk schema.GroupKind, versions ...string) (*apimeta.RESTMapping, error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.DefaultRESTMapper.RESTMapping(gk, versions...)
+}
+
 // Simulates the delayed availability of GVKs
 func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.GroupVersionKind) {
-	mu.Lock()
-	defer mu.Unlock()
-	mapper := mgr.GetRESTMapper().(*apimeta.DefaultRESTMapper)
+	mapper := mgr.GetRESTMapper().(*TestRESTMapper)
+	mapper.lock.Lock()
+	defer mapper.lock.Unlock()
 
 	for _, gvk := range delayedGVKs {
 		mapper.Add(*gvk, apimeta.RESTScopeNamespace)
@@ -196,7 +211,7 @@ func testDelayedIntegration(manager *integrationManager, crdName string) {
 	for {
 		_, ok := manager.getEnabledIntegrations()[crdName]
 		if ok {
-			break // Exit loop if RayCluster is enabled
+			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
