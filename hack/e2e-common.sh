@@ -80,7 +80,7 @@ function patch_kubeflow_manifest {
     # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
     # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
     chmod -R u+w "${KUBEFLOW_MANIFEST_DIR}/"
-    sed -i '/kubeflow.org_mpijobs.yaml/d' ${KUBEFLOW_MANIFEST_DIR}/base/crds/kustomization.yaml
+    sed -i '/kubeflow.org_mpijobs.yaml/d' "${KUBEFLOW_MANIFEST_DIR}/base/crds/kustomization.yaml"
 
     # 2. Training-operator deployment file is patched and manually enabled for all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
     KUBEFLOW_DEPLOYMENT="${KUBEFLOW_MANIFEST_DIR}/base/deployment.yaml"
@@ -106,14 +106,14 @@ EOF
 
 #$1 - cluster name
 function install_kubeflow {
-    cluster_kind_load_image "${1}" ${KUBEFLOW_IMAGE}
+    cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl config use-context "kind-${1}"
     kubectl apply -k "${KUBEFLOW_MANIFEST_DIR}/overlays/standalone"
 }
 
 #$1 - cluster name
 function install_mpi {
-    cluster_kind_load_image "${1}" ${KUBEFLOW_MPI_IMAGE}
+    cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE}"
     kubectl config use-context "kind-${1}"
     kubectl create -k "${KUBEFLOW_MPI_MANIFEST}"
 }
