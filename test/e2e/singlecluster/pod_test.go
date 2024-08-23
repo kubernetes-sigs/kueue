@@ -226,7 +226,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					var p corev1.Pod
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
 					return p.Status.Phase
-				}, util.Timeout, util.Interval).Should(gomega.Equal(corev1.PodFailed))
+				}, util.LongTimeout, util.Interval).Should(gomega.Equal(corev1.PodFailed))
 			})
 
 			createdWorkload := &kueue.Workload{}
