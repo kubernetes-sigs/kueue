@@ -70,7 +70,6 @@ const (
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type TemplateReference string
 
-// TODO: Fix validations...
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || self.name == 'RayCluster' || (self.name == 'Interactive' || self.name == 'Job' || self.name == 'Slurm') && !('replicas' in self.requiredFlags)", message="replicas flag can be used only on RayJob and RayCluster modes"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || self.name == 'RayCluster' || (self.name == 'Interactive' || self.name == 'Job' || self.name == 'Slurm') && !('min-replicas' in self.requiredFlags)", message="min-replicas flag can be used only on RayJob and RayCluster modes"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'RayJob' || self.name == 'RayCluster' || (self.name == 'Interactive' || self.name == 'Job' || self.name == 'Slurm') && !('max-replicas' in self.requiredFlags)", message="max-replicas flag can be used only on RayJob and RayCluster modes"

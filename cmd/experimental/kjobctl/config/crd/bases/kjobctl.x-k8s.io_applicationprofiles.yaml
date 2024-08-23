@@ -42,7 +42,6 @@ spec:
             properties:
               supportedModes:
                 items:
-                  description: 'TODO: Fix validations...'
                   properties:
                     name:
                       description: |-
