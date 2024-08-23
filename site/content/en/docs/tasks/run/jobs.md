@@ -202,7 +202,9 @@ be listed in a slightly different order from which they actually occurred.
 
 ## Partial admission
 
-From version v0.4.0, Kueue provides the ability for a batch user to create Jobs that ideally will run with a parallelism `P0` but can accept a smaller parallelism, `Pn`, if the Job dose not fit within the available quota.
+{{< feature-state state="beta" for_version="v0.5" >}}
+
+Kueue provides the ability for a batch user to create Jobs that ideally will run with a parallelism `P0` but can accept a smaller parallelism, `Pn`, if the Job dose not fit within the available quota.
 
 Kueue will only attempt to decrease the parallelism after both _borrowing_ and _preemption_ was taken into account in the admission process, and none of them are feasible.
 
@@ -213,7 +215,3 @@ For example, a Job defined by the following manifest:
 {{< include "examples/jobs/sample-job-partial-admission.yaml" "yaml" >}}
 
 When queued in a ClusterQueue with only 9 CPUs available, it will be admitted with `parallelism=9`. Note that the number of completions doesn't change.
-
-{{% alert title="Note" color="primary" %}}
-PartialAdmission is an `Alpha` feature disabled by default, check the [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) section of the [Installation](/docs/installation/) for details.
-{{% /alert %}}
