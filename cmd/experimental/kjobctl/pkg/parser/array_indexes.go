@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package builder
+package parser
 
 import (
 	"errors"
@@ -31,40 +31,40 @@ var (
 	invalidArrayFlagFormatErr = errors.New("invalid array flag format")
 )
 
-type arrayIndexes struct {
+type ArrayIndexes struct {
 	Indexes     []int32
 	Step        *int32
 	Parallelism *int32
 }
 
-func (ai arrayIndexes) Count() int {
+func (ai ArrayIndexes) Count() int {
 	return len(ai.Indexes)
 }
 
-func (ai arrayIndexes) Min() int32 {
+func (ai ArrayIndexes) Min() int32 {
 	return slices.Min(ai.Indexes)
 }
 
-func (ai arrayIndexes) Max() int32 {
+func (ai ArrayIndexes) Max() int32 {
 	return slices.Max(ai.Indexes)
 }
 
-func generateArrayIndexes(count int32) arrayIndexes {
-	ai := arrayIndexes{}
+func GenerateArrayIndexes(count int32) ArrayIndexes {
+	ai := ArrayIndexes{}
 	for i := int32(0); i < count; i++ {
 		ai.Indexes = append(ai.Indexes, i)
 	}
 	return ai
 }
 
-// parseArrayIndexes parse array flag to arrayIndexes.
+// ParseArrayIndexes parse array flag to ArrayIndexes.
 // Include syntax like:
 //   - 1-5   - which results in indexes: 1, 2, 3, 4, 5
 //   - 1,4,5 - which results exactly in the mentioned indexes 1, 4, 5
 //   - 3-9:3 - with step indicator, which results in 3,6,9
 //   - 1-5%2 - which results in indexes: 1, 2, 3, 4, 5 but only 2 of them are processed at the same time.
-func parseArrayIndexes(str string) (arrayIndexes, error) {
-	arrayIndexes := arrayIndexes{}
+func ParseArrayIndexes(str string) (ArrayIndexes, error) {
+	arrayIndexes := ArrayIndexes{}
 
 	var (
 		indexes     []int32

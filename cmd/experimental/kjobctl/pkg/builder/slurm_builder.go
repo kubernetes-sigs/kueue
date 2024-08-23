@@ -46,7 +46,7 @@ const (
 type slurmBuilder struct {
 	*Builder
 
-	arrayIndexes arrayIndexes
+	arrayIndexes parser.ArrayIndexes
 }
 
 var _ builder = (*slurmBuilder)(nil)
@@ -89,9 +89,9 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	job.ObjectMeta.Name = objectName
 
 	if b.array == "" {
-		b.arrayIndexes = generateArrayIndexes(ptr.Deref(b.nodes, 1))
+		b.arrayIndexes = parser.GenerateArrayIndexes(ptr.Deref(b.nodes, 1))
 	} else {
-		b.arrayIndexes, err = parseArrayIndexes(b.array)
+		b.arrayIndexes, err = parser.ParseArrayIndexes(b.array)
 		if err != nil {
 			return nil, err
 		}
