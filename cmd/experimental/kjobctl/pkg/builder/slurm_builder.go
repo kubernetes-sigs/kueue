@@ -312,14 +312,6 @@ func (b *slurmBuilder) buildSlurmVariables() string {
 	nTasks := ptr.Deref(b.nTasks, 1)
 	nodes := ptr.Deref(b.nodes, 1)
 
-	var submitDir string
-
-	if b.input != "" {
-		submitDir = b.input
-	} else {
-		submitDir = slurmPath
-	}
-
 	return fmt.Sprintf(`export SLURM_ARRAY_JOB_ID=%[1]d       		# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=%[2]d  		# Total number of tasks in a job array.
 export SLURM_ARRAY_TASK_MAX=%[3]d    		# Job array’s maximum ID (index) number.
@@ -337,8 +329,8 @@ export SLURM_NTASKS=%[14]d              	# Same as -n, –ntasks. The number of 
 export SLURM_NTASKS_PER_NODE=%[15]d  		# Number of tasks requested per node.
 export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
 export SLURM_NNODES=%[16]d            		# Total number of nodes (actually pods) in the job’s resource allocation.
-# export SLURM_SUBMIT_DIR=%[17]s        	# The path of the job submission directory.
-# export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
+export SLURM_SUBMIT_DIR=%[17]s        		# The path of the job submission directory.
+export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
 export SBATCH_JOB_NAME=%[18]s				# Specified job name.`,
 		1,                      // %[1]d
 		b.arrayIndexes.Count(), // %[2]d
@@ -356,7 +348,7 @@ export SBATCH_JOB_NAME=%[18]s				# Specified job name.`,
 		nTasks,                 // %[14]d
 		nTasks,                 // %[15]d
 		nodes,                  // %[16]d
-		submitDir,              // %[17]d
+		slurmPath,              // %[17]s
 		b.jobName,              // %[18]s
 	)
 }

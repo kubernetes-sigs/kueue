@@ -109,6 +109,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 			namespace:  metav1.NamespaceDefault,
 			profile:    "profile",
 			mode:       v1alpha1.SlurmMode,
+			array:      "1-5%2",
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeJobTemplate("slurm-job-template", metav1.NamespaceDefault).
 					WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").Obj()).
@@ -119,7 +120,8 @@ func TestSlurmBuilderDo(t *testing.T) {
 			},
 			wantObj: []runtime.Object{
 				wrappers.MakeJob("", metav1.NamespaceDefault).
-					Completions(1).
+					Parallelism(2).
+					Completions(5).
 					CompletionMode(batchv1.IndexedCompletion).
 					Profile("profile").
 					WithContainer(*wrappers.MakeContainer("c1-0", "bash:4.4").
@@ -161,7 +163,7 @@ set -o pipefail
 # JOB_CONTAINER_INDEX   - container index in the container template.
 
 # ["COMPLETION_INDEX"]=CONTAINER_INDEX1,CONTAINER_INDEX2
-declare -A ARRAY_INDEXES=(["0"]="0") 	# Requires bash v4+
+declare -A ARRAY_INDEXES=(["0"]="1" ["1"]="2" ["2"]="3" ["3"]="4" ["4"]="5") 	# Requires bash v4+
 
 CONTAINER_INDEXES=${ARRAY_INDEXES[${JOB_COMPLETION_INDEX}]}
 CONTAINER_INDEXES=(${CONTAINER_INDEXES//,/ })
@@ -178,9 +180,9 @@ export SBATCH_OUTPUT=		# Instruct Slurm to connect the batch script's standard o
 export SBATCH_ERROR=		# Instruct Slurm to connect the batch script's standard error directly to the file name specified in the "filename pattern".
 
 export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
-export SLURM_ARRAY_TASK_COUNT=1  		# Total number of tasks in a job array.
-export SLURM_ARRAY_TASK_MAX=0    		# Job array’s maximum ID (index) number.
-export SLURM_ARRAY_TASK_MIN=0    		# Job array’s minimum ID (index) number.
+export SLURM_ARRAY_TASK_COUNT=5  		# Total number of tasks in a job array.
+export SLURM_ARRAY_TASK_MAX=5    		# Job array’s maximum ID (index) number.
+export SLURM_ARRAY_TASK_MIN=1    		# Job array’s minimum ID (index) number.
 export SLURM_TASKS_PER_NODE=1    		# Job array’s master job ID number.
 export SLURM_CPUS_PER_TASK=       		# Number of CPUs per task.
 export SLURM_CPUS_ON_NODE=        		# Number of CPUs on the allocated node (actually pod).
@@ -194,8 +196,8 @@ export SLURM_NTASKS=1              	# Same as -n, –ntasks. The number of tasks
 export SLURM_NTASKS_PER_NODE=1  		# Number of tasks requested per node.
 export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
 export SLURM_NNODES=1            		# Total number of nodes (actually pods) in the job’s resource allocation.
-# export SLURM_SUBMIT_DIR=/slurm        	# The path of the job submission directory.
-# export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
+export SLURM_SUBMIT_DIR=/slurm        		# The path of the job submission directory.
+export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
 export SBATCH_JOB_NAME=				# Specified job name.
 
 # To be supported later

@@ -715,8 +715,8 @@ export SLURM_NTASKS=1              	# Same as -n, –ntasks. The number of tasks
 export SLURM_NTASKS_PER_NODE=1  		# Number of tasks requested per node.
 export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
 export SLURM_NNODES=1            		# Total number of nodes (actually pods) in the job’s resource allocation.
-# export SLURM_SUBMIT_DIR=/slurm        	# The path of the job submission directory.
-# export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
+export SLURM_SUBMIT_DIR=/slurm        		# The path of the job submission directory.
+export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
 export SBATCH_JOB_NAME=				# Specified job name.
 
 # To be supported later
@@ -794,6 +794,11 @@ bash /slurm/script.sh
 					"--array", "0-25",
 					"--nodes", "2",
 					"--ntasks", "3",
+					"--stdout", "/slurm/stdout.out",
+					"--stderr", "/slurm/stderr.out",
+					"--input", "/slurm/input.txt",
+					"--job-name", "job-name",
+					"--partition", "lq1",
 				}
 			},
 			kjobctlObjs: []runtime.Object{
@@ -883,9 +888,9 @@ fi
 
 # Generated on the builder
 
-export SBATCH_INPUT= 		# Instruct Slurm to connect the batch script's standard input directly to the file name specified in the "filename pattern".
-export SBATCH_OUTPUT=		# Instruct Slurm to connect the batch script's standard output directly to the file name specified in the "filename pattern".
-export SBATCH_ERROR=		# Instruct Slurm to connect the batch script's standard error directly to the file name specified in the "filename pattern".
+export SBATCH_INPUT=/slurm/input.txt 		# Instruct Slurm to connect the batch script's standard input directly to the file name specified in the "filename pattern".
+export SBATCH_OUTPUT=/slurm/stdout.out		# Instruct Slurm to connect the batch script's standard output directly to the file name specified in the "filename pattern".
+export SBATCH_ERROR=/slurm/stderr.out		# Instruct Slurm to connect the batch script's standard error directly to the file name specified in the "filename pattern".
 
 export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=26  		# Total number of tasks in a job array.
@@ -904,9 +909,9 @@ export SLURM_NTASKS=3              	# Same as -n, –ntasks. The number of tasks
 export SLURM_NTASKS_PER_NODE=3  		# Number of tasks requested per node.
 export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
 export SLURM_NNODES=2            		# Total number of nodes (actually pods) in the job’s resource allocation.
-# export SLURM_SUBMIT_DIR=/slurm        	# The path of the job submission directory.
-# export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
-export SBATCH_JOB_NAME=				# Specified job name.
+export SLURM_SUBMIT_DIR=/slurm        		# The path of the job submission directory.
+export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
+export SBATCH_JOB_NAME=job-name				# Specified job name.
 
 # To be supported later
 # export SLURM_JOB_NODELIST=        # Contains the definition (list) of the nodes (actually pods) that is assigned to the job. To be supported later.
@@ -958,7 +963,7 @@ export SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
 export SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
 export SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
 
-bash /slurm/script.sh
+bash /slurm/script.sh <$SBATCH_INPUT 1>$SBATCH_OUTPUT 2>$SBATCH_ERROR
 `,
 							}).
 							Obj(),
