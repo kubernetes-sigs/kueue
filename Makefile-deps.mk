@@ -16,6 +16,7 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
 BIN_DIR ?= $(PROJECT_DIR)/bin
 EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
+EXTERNAL_MANIFESTS_DIR ?= $(PROJECT_DIR)/dep-manifests
 
 ifeq (,$(shell go env GOBIN))
 	GOBIN=$(shell go env GOPATH)/bin
@@ -112,7 +113,14 @@ KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.
 .PHONY: kf-training-operator-crd
 kf-training-operator-crd: ## Copy the CRDs from the training-operator to the dep-crds directory.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator/
-	find $(KF_TRAINING_ROOT)/manifests/base/crds/ -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp {} $(EXTERNAL_CRDS_DIR)/training-operator/ \;
+	# Remove `kubeflow.org_mpijobs.yaml` from the folder and from the kustomization.yaml
+	find $(KF_TRAINING_ROOT)/manifests/base/crds/ -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp -f {} $(EXTERNAL_CRDS_DIR)/training-operator/ \;
+	sed -i '/kubeflow.org_mpijobs.yaml/d' $(EXTERNAL_CRDS_DIR)/training-operator/kustomization.yaml
+
+.PHONY: kf-training-operator-manifest
+kf-training-operator-manifest: ## Copy the manifest from the training-operator to the dep-manifests directory.
+	mkdir -p $(EXTERNAL_MANIFESTS_DIR)/training-operator/
+	cp -rf $(KF_TRAINING_ROOT)/manifests/ $(EXTERNAL_MANIFESTS_DIR)/training-operator/ ;
 
 RAY_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 .PHONY: ray-operator-crd

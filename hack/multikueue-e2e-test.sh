@@ -85,11 +85,17 @@ function kind_load {
     # have Kubeflow Jobs admitted without execution in the manager cluster.
     kubectl config use-context "kind-${MANAGER_KIND_CLUSTER_NAME}"
     kubectl apply -k "${KUBEFLOW_CRDS}"
+    ## MPI
+    kubectl apply --server-side -f "${KUBEFLOW_MPI_CRD}"
 
     # WORKERS
     docker pull kubeflow/training-operator:v1-855e096
+    docker pull "mpioperator/mpi-operator:$KUBEFLOW_MPI_VERSION"
+    patch_kubeflow_manifest
     install_kubeflow "$WORKER1_KIND_CLUSTER_NAME"
     install_kubeflow "$WORKER2_KIND_CLUSTER_NAME"
+    install_mpi "$WORKER1_KIND_CLUSTER_NAME"
+    install_mpi "$WORKER2_KIND_CLUSTER_NAME"
     
     fi
 }

@@ -23,10 +23,14 @@ export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/downl
 export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
 export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 
-export KUBEFLOW_MANIFEST="https://github.com/kubeflow/training-operator/manifests/overlays/standalone?ref=${KUBEFLOW_VERSION}"
+export KUBEFLOW_MANIFEST_DIR="${ROOT_DIR}/dep-manifests/training-operator"
 #no matching semver tag unfortunately
 export KUBEFLOW_IMAGE=kubeflow/training-operator:v1-855e096
 export KUBEFLOW_CRDS=${ROOT_DIR}/dep-crds/training-operator/
+
+export KUBEFLOW_MPI_MANIFEST="https://github.com/kubeflow/mpi-operator/manifests/overlays/standalone?ref=v${KUBEFLOW_MPI_VERSION}"
+export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION}
+export KUBEFLOW_MPI_CRD=${ROOT_DIR}/dep-crds/mpi-operator/kubeflow.org_mpijobs.yaml
 
 # $1 - cluster name
 function cluster_cleanup {
@@ -72,11 +76,46 @@ function install_jobset {
     kubectl apply --server-side -f "${JOBSET_MANIFEST}"
 }
 
+function patch_kubeflow_manifest {
+    # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
+    # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
+    chmod -R u+w "${KUBEFLOW_MANIFEST_DIR}/"
+    sed -i '/kubeflow.org_mpijobs.yaml/d' ${KUBEFLOW_MANIFEST_DIR}/base/crds/kustomization.yaml
+
+    # 2. Training-operator deployment file is patched and manually enabled for all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
+    KUBEFLOW_DEPLOYMENT="${KUBEFLOW_MANIFEST_DIR}/base/deployment.yaml"
+
+    # Find the line after which to insert the args
+    INSERT_LINE=$(grep -n "^ *- /manager" "${KUBEFLOW_DEPLOYMENT}" | head -n 1 | cut -d ':' -f 1)
+
+    # Prepare patch with the args after the specified line
+    # EOF must be indented most left - doesn't work otherwise
+    ARGS_PATCH=$(cat <<EOF
+          args:
+            - --enable-scheme=tfjob
+            - --enable-scheme=pytorchjob
+            - --enable-scheme=xgboostjob
+            - --enable-scheme=paddlejob
+EOF
+)
+    # Apply the patch
+    sed -i -e "${INSERT_LINE}r /dev/stdin" "${KUBEFLOW_DEPLOYMENT}" << EOF
+${ARGS_PATCH}
+EOF
+}
+
 #$1 - cluster name
 function install_kubeflow {
     cluster_kind_load_image "${1}" ${KUBEFLOW_IMAGE}
     kubectl config use-context "kind-${1}"
-    kubectl apply -k "${KUBEFLOW_MANIFEST}"
+    kubectl apply -k "${KUBEFLOW_MANIFEST_DIR}/overlays/standalone"
+}
+
+#$1 - cluster name
+function install_mpi {
+    cluster_kind_load_image "${1}" ${KUBEFLOW_MPI_IMAGE}
+    kubectl config use-context "kind-${1}"
+    kubectl create -k "${KUBEFLOW_MPI_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
