@@ -254,11 +254,11 @@ func TestBuilder(t *testing.T) {
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(v1alpha1.SupportedMode{
 						Name:          v1alpha1.SlurmMode,
-						RequiredFlags: []v1alpha1.Flag{v1alpha1.StdErrFlag},
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.ErrorFlag},
 					}).
 					Obj(),
 			},
-			wantErr: noStderrSpecifiedErr,
+			wantErr: noErrorSpecifiedErr,
 		},
 		"shouldn't build job because gpusPerTask not specified with required flags": {
 			namespace: metav1.NamespaceDefault,
@@ -380,11 +380,11 @@ func TestBuilder(t *testing.T) {
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(v1alpha1.SupportedMode{
 						Name:          v1alpha1.SlurmMode,
-						RequiredFlags: []v1alpha1.Flag{v1alpha1.StdOutFlag},
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.OutputFlag},
 					}).
 					Obj(),
 			},
-			wantErr: noStdoutSpecifiedErr,
+			wantErr: noOutputSpecifiedErr,
 		},
 		"shouldn't build job because partition not specified with required flags": {
 			namespace: metav1.NamespaceDefault,

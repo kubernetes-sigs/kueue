@@ -43,8 +43,8 @@ type ParsedSlurmFlags struct {
 	MemPerGPU   *resource.Quantity
 	Nodes       *int32
 	NTasks      *int32
-	StdOut      string
-	StdErr      string
+	Output      string
+	Error       string
 	Input       string
 	JobName     string
 	Partition   string
@@ -76,8 +76,8 @@ func SlurmFlags(script *bufio.Scanner, ignoreUnknown bool) (ParsedSlurmFlags, er
 			flags.Array = val
 		case string(v1alpha1.CpusPerTaskFlag):
 			flags.CpusPerTask = ptr.To(resource.MustParse(val))
-		case "e", string(v1alpha1.StdErrFlag):
-			flags.StdErr = val
+		case "e", string(v1alpha1.ErrorFlag):
+			flags.Error = val
 		case string(v1alpha1.GpusPerTaskFlag):
 			flags.GpusPerTask = ptr.To(resource.MustParse(val))
 		case "i", string(v1alpha1.InputFlag):
@@ -102,8 +102,8 @@ func SlurmFlags(script *bufio.Scanner, ignoreUnknown bool) (ParsedSlurmFlags, er
 				return flags, err
 			}
 			flags.NTasks = ptr.To(int32(intVal))
-		case "o", string(v1alpha1.StdOutFlag):
-			flags.StdOut = val
+		case "o", string(v1alpha1.OutputFlag):
+			flags.Output = val
 		case "p", string(v1alpha1.PartitionFlag):
 			flags.Partition = val
 		default:

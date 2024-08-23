@@ -298,8 +298,8 @@ bash /slurm/script.sh
 				WithMemPerGPU(tc.memPerGPU).
 				WithNodes(tc.nodes).
 				WithNTasks(tc.nTasks).
-				WithStdOut(tc.output).
-				WithStdErr(tc.err).
+				WithOutput(tc.output).
+				WithError(tc.err).
 				WithInput(tc.input).
 				WithJobName(tc.jobName).
 				WithPartition(tc.partition).
@@ -329,44 +329,44 @@ func TestSlurmBuilderBuildEntrypointCommand(t *testing.T) {
 
 	testCases := map[string]struct {
 		input                 string
-		stdout                string
-		stderr                string
+		output                string
+		error                 string
 		wantEntrypointCommand string
 	}{
 		"should build entrypoint command": {
 			wantEntrypointCommand: "bash /slurm/script.sh",
 		},
-		"should build entrypoint command with stdout": {
-			stdout:                "/home/test/stdout.out",
+		"should build entrypoint command with output": {
+			output:                "/home/test/stdout.out",
 			wantEntrypointCommand: "bash /slurm/script.sh 1>$SBATCH_OUTPUT",
 		},
-		"should build entrypoint command with stderr": {
-			stderr:                "/home/test/stderr.out",
+		"should build entrypoint command with error": {
+			error:                 "/home/test/stderr.out",
 			wantEntrypointCommand: "bash /slurm/script.sh 2>$SBATCH_ERROR",
 		},
-		"should build entrypoint command with stdout and stderr": {
-			stdout:                "/home/test/stdout.out",
-			stderr:                "/home/test/stderr.out",
+		"should build entrypoint command with output and error": {
+			output:                "/home/test/stdout.out",
+			error:                 "/home/test/stderr.out",
 			wantEntrypointCommand: "bash /slurm/script.sh 1>$SBATCH_OUTPUT 2>$SBATCH_ERROR",
 		},
 		"should build entrypoint command with input": {
 			input:                 "/home/test/script.sh",
 			wantEntrypointCommand: "bash /slurm/script.sh <$SBATCH_INPUT",
 		},
-		"should build entrypoint command with input and stdout": {
+		"should build entrypoint command with input and output": {
 			input:                 "/home/test/script.sh",
-			stdout:                "/home/test/stdout.out",
+			output:                "/home/test/stdout.out",
 			wantEntrypointCommand: "bash /slurm/script.sh <$SBATCH_INPUT 1>$SBATCH_OUTPUT",
 		},
-		"should build entrypoint command with input and stderr": {
+		"should build entrypoint command with input and error": {
 			input:                 "/home/test/script.sh",
-			stderr:                "/home/test/stderr.out",
+			error:                 "/home/test/stderr.out",
 			wantEntrypointCommand: "bash /slurm/script.sh <$SBATCH_INPUT 2>$SBATCH_ERROR",
 		},
-		"should build entrypoint command with input, stdout and stderr": {
+		"should build entrypoint command with input, output and error": {
 			input:                 "/home/test/script.sh",
-			stdout:                "/home/test/stdout.out",
-			stderr:                "/home/test/stderr.out",
+			output:                "/home/test/stdout.out",
+			error:                 "/home/test/stderr.out",
 			wantEntrypointCommand: "bash /slurm/script.sh <$SBATCH_INPUT 1>$SBATCH_OUTPUT 2>$SBATCH_ERROR",
 		},
 	}
@@ -376,8 +376,8 @@ func TestSlurmBuilderBuildEntrypointCommand(t *testing.T) {
 
 			newBuilder := NewBuilder(tcg, testStartTime).
 				WithInput(tc.input).
-				WithStdOut(tc.stdout).
-				WithStdErr(tc.stderr)
+				WithOutput(tc.output).
+				WithError(tc.error)
 			gotEntrypointCommand := newSlurmBuilder(newBuilder).buildEntrypointCommand()
 			if diff := cmp.Diff(tc.wantEntrypointCommand, gotEntrypointCommand); diff != "" {
 				t.Errorf("Unexpected entrypoint command (-want/+got)\n%s", diff)

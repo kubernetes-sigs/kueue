@@ -57,7 +57,7 @@ var (
 	noRayClusterSpecifiedErr               = errors.New("no raycluster specified")
 	noArraySpecifiedErr                    = errors.New("no array specified")
 	noCpusPerTaskSpecifiedErr              = errors.New("no cpus-per-task specified")
-	noStderrSpecifiedErr                   = errors.New("no stderr specified")
+	noErrorSpecifiedErr                    = errors.New("no error specified")
 	noGpusPerTaskSpecifiedErr              = errors.New("no gpus-per-task specified")
 	noInputSpecifiedErr                    = errors.New("no input specified")
 	noJobNameSpecifiedErr                  = errors.New("no job-name specified")
@@ -66,7 +66,7 @@ var (
 	noMemPerTaskSpecifiedErr               = errors.New("no mem-per-task specified")
 	noNodesSpecifiedErr                    = errors.New("no nodes specified")
 	noNTasksSpecifiedErr                   = errors.New("no ntasks specified")
-	noStdoutSpecifiedErr                   = errors.New("no stdout specified")
+	noOutputSpecifiedErr                   = errors.New("no output specified")
 	noPartitionSpecifiedErr                = errors.New("no partition specified")
 )
 
@@ -95,7 +95,7 @@ type Builder struct {
 	script        string
 	array         string
 	cpusPerTask   *resource.Quantity
-	stderr        string
+	error         string
 	gpusPerTask   *resource.Quantity
 	input         string
 	jobName       string
@@ -104,7 +104,7 @@ type Builder struct {
 	memPerTask    *resource.Quantity
 	nodes         *int32
 	nTasks        *int32
-	stdout        string
+	output        string
 	partition     string
 	ignoreUnknown bool
 
@@ -194,8 +194,8 @@ func (b *Builder) WithCpusPerTask(cpusPerTask *resource.Quantity) *Builder {
 	return b
 }
 
-func (b *Builder) WithStdErr(stderr string) *Builder {
-	b.stderr = stderr
+func (b *Builder) WithError(error string) *Builder {
+	b.error = error
 	return b
 }
 
@@ -239,8 +239,8 @@ func (b *Builder) WithNTasks(nTasks *int32) *Builder {
 	return b
 }
 
-func (b *Builder) WithStdOut(stdout string) *Builder {
-	b.stdout = stdout
+func (b *Builder) WithOutput(output string) *Builder {
+	b.output = output
 	return b
 }
 
@@ -353,8 +353,8 @@ func (b *Builder) validateFlags() error {
 		return noCpusPerTaskSpecifiedErr
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.StdErrFlag) && b.stderr == "" {
-		return noStderrSpecifiedErr
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.ErrorFlag) && b.error == "" {
+		return noErrorSpecifiedErr
 	}
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.GpusPerTaskFlag) && b.gpusPerTask == nil {
@@ -389,8 +389,8 @@ func (b *Builder) validateFlags() error {
 		return noNTasksSpecifiedErr
 	}
 
-	if slices.Contains(b.mode.RequiredFlags, v1alpha1.StdOutFlag) && b.stdout == "" {
-		return noStdoutSpecifiedErr
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.OutputFlag) && b.output == "" {
+		return noOutputSpecifiedErr
 	}
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.PartitionFlag) && b.partition == "" {

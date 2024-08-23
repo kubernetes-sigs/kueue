@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Create a slurm job
 
 ```
-kjobctl create slurm SCRIPT --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--stdout FILENAME_PATTERN] [--stderr FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME] [--ignore-unknown-flags]
+kjobctl create slurm SCRIPT --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--output FILENAME_PATTERN] [--error FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME] [--ignore-unknown-flags]
 ```
 
 
@@ -34,15 +34,6 @@ kjobctl create slurm SCRIPT --profile APPLICATION_PROFILE_NAME [--localqueue LOC
         <col span="1" />
     </colgroup>
     <tbody>
-    <tr>
-        <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: true</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, ignore any errors in templates when a field or map key is missing in the template. Only applies to golang and jsonpath output formats.</p>
-        </td>
-    </tr>
     <tr>
         <td colspan="2">-a, --array string</td>
     </tr>
@@ -72,6 +63,15 @@ The minimum index value is 0. The maximum index value is 2147483647.</p>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>Must be &#34;none&#34;, &#34;server&#34;, or &#34;client&#34;. If client strategy, only print the object that would be sent, without sending it. If server strategy, submit server-side request without persisting the resource.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-e, --error string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Where to redirect std error stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.</p>
         </td>
     </tr>
     <tr>
@@ -179,6 +179,15 @@ The minimum index value is 0. The maximum index value is 2147483647.</p>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Where to redirect the standard output stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--output-format string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
             <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
         </td>
     </tr>
@@ -198,42 +207,6 @@ The minimum index value is 0. The maximum index value is 2147483647.</p>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>Application profile contains a template (with defaults set) for running a specific type of application.</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--show-managed-fields</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--stderr string</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Where to redirect std error stream of a task.  If not passed it proceeds to stdout, and is available via kubectl logs.</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--stdout string</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Where to redirect the standard output stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--template string</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
         </td>
     </tr>
     </tbody>

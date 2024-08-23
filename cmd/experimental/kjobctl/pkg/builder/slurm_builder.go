@@ -303,8 +303,8 @@ export SBATCH_OUTPUT=%[2]s		# Instruct Slurm to connect the batch script's stand
 export SBATCH_ERROR=%[3]s		# Instruct Slurm to connect the batch script's standard error directly to the file name specified in the "filename pattern".
 `,
 		b.input,
-		b.stdout,
-		b.stderr,
+		b.output,
+		b.error,
 	)
 }
 
@@ -365,11 +365,11 @@ func (b *slurmBuilder) buildEntrypointCommand() string {
 		strBuilder.WriteString(" <$SBATCH_INPUT")
 	}
 
-	if b.stdout != "" {
+	if b.output != "" {
 		strBuilder.WriteString(" 1>$SBATCH_OUTPUT")
 	}
 
-	if b.stderr != "" {
+	if b.error != "" {
 		strBuilder.WriteString(" 2>$SBATCH_ERROR")
 	}
 
@@ -409,12 +409,12 @@ func (b *slurmBuilder) replaceCLIFlags(scriptFlags parser.ParsedSlurmFlags) {
 		b.nTasks = scriptFlags.NTasks
 	}
 
-	if len(scriptFlags.StdOut) != 0 {
-		b.stdout = scriptFlags.StdOut
+	if len(scriptFlags.Output) != 0 {
+		b.output = scriptFlags.Output
 	}
 
-	if len(scriptFlags.StdErr) != 0 {
-		b.stderr = scriptFlags.StdErr
+	if len(scriptFlags.Error) != 0 {
+		b.error = scriptFlags.Error
 	}
 
 	if len(scriptFlags.Input) != 0 {

@@ -89,6 +89,7 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
   kjobctl create slurm ./script.sh \ 
 	--profile my-application-profile`
 
+	outputFormatFlagName      = "output-format"
 	profileFlagName           = "profile"
 	podRunningTimeoutFlagName = "pod-running-timeout"
 	removeFlagName            = "rm"
@@ -111,8 +112,8 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	memPerGPUFlagName   = string(v1alpha1.MemPerGPUFlag)
 	nodesFlagName       = string(v1alpha1.NodesFlag)
 	nTasksFlagName      = string(v1alpha1.NTasksFlag)
-	stdOutFlagName      = string(v1alpha1.StdOutFlag)
-	stdErrFlagName      = string(v1alpha1.StdErrFlag)
+	outputFlagName      = string(v1alpha1.OutputFlag)
+	errorFlagName       = string(v1alpha1.ErrorFlag)
 	inputFlagName       = string(v1alpha1.InputFlag)
 	jobNameFlagName     = string(v1alpha1.JobNameFlag)
 	partitionFlagName   = string(v1alpha1.PartitionFlag)
@@ -133,6 +134,7 @@ type CreateOptions struct {
 	DryRunStrategy util.DryRunStrategy
 
 	Namespace            string
+	OutputFormat         string
 	ProfileName          string
 	ModeName             v1alpha1.ApplicationProfileMode
 	Script               string
@@ -156,8 +158,8 @@ type CreateOptions struct {
 	MemPerGPU     *apiresource.Quantity
 	Nodes         *int32
 	NTasks        *int32
-	StdOut        string
-	StdErr        string
+	Output        string
+	Error         string
 	Input         string
 	JobName       string
 	Partition     string
@@ -220,6 +222,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
 				"Completions specifies the desired number of successfully finished pods.")
+
+			o.PrintFlags.AddFlags(subcmd)
 		},
 	},
 	"interactive": {
@@ -240,6 +244,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running.")
 			subcmd.Flags().BoolVar(&o.RemoveInteractivePod, removeFlagName, false,
 				"Remove pod when interactive session exits.")
+
+			o.PrintFlags.AddFlags(subcmd)
 		},
 	},
 	"rayjob": {
@@ -268,6 +274,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, minReplicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, maxReplicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, localQueueFlagName)
+
+			o.PrintFlags.AddFlags(subcmd)
 		},
 	},
 	"raycluster": {
@@ -286,6 +294,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
 			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
+
+			o.PrintFlags.AddFlags(subcmd)
 		},
 	},
 	"slurm": {
@@ -301,8 +311,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				" [--mem-per-gpu QUANTITY]" +
 				" [--nodes COUNT]" +
 				" [--ntasks COUNT]" +
-				" [--stdout FILENAME_PATTERN]" +
-				" [--stderr FILENAME_PATTERN]" +
+				" [--output FILENAME_PATTERN]" +
+				" [--error FILENAME_PATTERN]" +
 				" [--input FILENAME_PATTERN]" +
 				" [--job-name NAME]" +
 				" [--partition NAME]" +
@@ -310,6 +320,11 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Short = "Create a slurm job"
 			subcmd.Example = createSlurmExample
 			subcmd.Args = cobra.ExactArgs(1)
+
+			// We need to allow to use --output flag for slurm perspective.
+			// But we still need to have possibility to print manifests if it's need.
+			subcmd.Flags().StringVar(&o.OutputFormat, outputFormatFlagName, "",
+				"Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).")
 
 			subcmd.Flags().StringVarP(&o.Array, arrayFlagName, "a", "",
 				`Submit a job array, multiple jobs to be executed with identical parameters. 
@@ -331,10 +346,10 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"Number of pods to be used at a time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedNTasks, nTasksFlagName, 1,
 				"Number of identical containers inside of a pod, usually 1.")
-			subcmd.Flags().StringVar(&o.StdOut, stdOutFlagName, "",
+			subcmd.Flags().StringVarP(&o.Output, outputFlagName, "o", "",
 				"Where to redirect the standard output stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.")
-			subcmd.Flags().StringVar(&o.StdErr, stdErrFlagName, "",
-				"Where to redirect std error stream of a task.  If not passed it proceeds to stdout, and is available via kubectl logs.")
+			subcmd.Flags().StringVarP(&o.Error, errorFlagName, "e", "",
+				"Where to redirect std error stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.")
 			subcmd.Flags().StringVar(&o.Input, inputFlagName, "",
 				"What to pipe into the script.")
 			subcmd.Flags().StringVar(&o.JobName, jobNameFlagName, "",
@@ -380,8 +395,6 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 				return o.Run(cmd.Context(), clientGetter, clock.Now())
 			},
 		}
-
-		o.PrintFlags.AddFlags(subcmd)
 
 		subcmd.Flags().StringVarP(&o.ProfileName, profileFlagName, "p", "",
 			"Application profile contains a template (with defaults set) for running a specific type of application.")
@@ -507,6 +520,10 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		return err
 	}
 
+	if o.OutputFormat != "" {
+		o.PrintFlags.OutputFormat = ptr.To(o.OutputFormat)
+	}
+
 	printer, err := o.PrintFlags.ToPrinter()
 	if err != nil {
 		return err
@@ -550,8 +567,8 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithMemPerGPU(o.MemPerGPU).
 		WithNodes(o.Nodes).
 		WithNTasks(o.NTasks).
-		WithStdOut(o.StdOut).
-		WithStdErr(o.StdErr).
+		WithOutput(o.Output).
+		WithError(o.Error).
 		WithInput(o.Input).
 		WithJobName(o.JobName).
 		WithPartition(o.Partition).

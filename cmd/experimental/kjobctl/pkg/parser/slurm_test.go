@@ -58,8 +58,8 @@ exit 0`,
 			want: ParsedSlurmFlags{
 				JobName: "serial_Test_Job",
 				NTasks:  ptr.To[int32](1),
-				StdOut:  "output.%j",
-				StdErr:  "error.%j",
+				Output:  "output.%j",
+				Error:   "error.%j",
 			},
 		},
 		"should parse script with comments": {
@@ -87,8 +87,8 @@ sleep 10`,
 		"should parse script and ignore unknown flags": {
 			script: `#!/bin/bash
 #SBATCH --job-name=my_job_name
-#SBATCH --stdout=output.txt
-#SBATCH --stderr=error.txt
+#SBATCH --output=output.txt
+#SBATCH --error=error.txt
 #SBATCH --partition=partition_name
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -101,8 +101,8 @@ python my_script.py`,
 			ignoreUnknown: true,
 			want: ParsedSlurmFlags{
 				JobName:     "my_job_name",
-				StdOut:      "output.txt",
-				StdErr:      "error.txt",
+				Output:      "output.txt",
+				Error:       "error.txt",
 				Partition:   "partition_name",
 				Nodes:       ptr.To[int32](1),
 				NTasks:      ptr.To[int32](1),
