@@ -153,10 +153,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	}
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
 
-	var objectName string
-	if b.jobName == "" {
-		objectName = b.generatePrefixName() + utilrand.String(5)
-	}
+	objectName := b.generatePrefixName() + utilrand.String(5)
 	job.ObjectMeta.GenerateName = ""
 	job.ObjectMeta.Name = objectName
 
