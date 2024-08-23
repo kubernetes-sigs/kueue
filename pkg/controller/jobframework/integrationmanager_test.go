@@ -463,7 +463,7 @@ func TestEnabledIntegrationsDependencies(t *testing.T) {
 				"i1": {"i2"},
 			},
 			enabled:   []string{"i1"},
-			wantError: errDependecncyIntegrationNotEnabled,
+			wantError: errDependencyIntegrationNotEnabled,
 		},
 		"dependecncy not found": {
 			integrationsDependencies: map[string][]string{
