@@ -612,6 +612,34 @@ func TestCreateCmd(t *testing.T) {
 			// Fake dynamic client not generating name. That's why we have <unknown>.
 			wantOut: "raycluster.ray.io/<unknown> created\n",
 		},
+		"shouldn't create slurm because script must be specified": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"slurm", "--profile", "profile", "--", "test"}
+			},
+			wantErr: "must specify script",
+		},
+		"shouldn't create slurm because script must be specified with args length more that 1": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"slurm", "--profile", "profile", "--", "--array", "0-5"}
+			},
+			wantErr: "must specify script",
+		},
+		"shouldn't create slurm because script only one script must be specified": {
+			beforeTest: beforeSlurmTest,
+			afterTest:  afterSlurmTest,
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"slurm", "--profile", "profile", tc.tempFile, tc.tempFile}
+			},
+			wantErr: "must specify only one script",
+		},
+		"shouldn't create slurm because script only one script must be specified with slurm args": {
+			beforeTest: beforeSlurmTest,
+			afterTest:  afterSlurmTest,
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"slurm", "--profile", "profile", tc.tempFile, tc.tempFile}
+			},
+			wantErr: "must specify only one script",
+		},
 		"should create slurm": {
 			beforeTest: beforeSlurmTest,
 			afterTest:  afterSlurmTest,
@@ -791,6 +819,7 @@ bash /slurm/script.sh
 					"slurm", tc.tempFile,
 					"--profile", "profile",
 					"--localqueue", "lq1",
+					"--",
 					"--array", "0-25",
 					"--nodes", "2",
 					"--ntasks", "3",

@@ -25,6 +25,7 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
 	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -86,10 +87,9 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	--max-replicas small-group=5 \ 
 	--localqueue my-local-queue-name`
 	createSlurmExample = `  # Create slurm 
-  kjobctl create slurm ./script.sh \ 
-	--profile my-application-profile`
+  kjobctl create slurm --profile my-application-profile ./script.sh \
+	-- --array 0-5 --nodes 3 --ntasks 1`
 
-	outputFormatFlagName      = "output-format"
 	profileFlagName           = "profile"
 	podRunningTimeoutFlagName = "pod-running-timeout"
 	removeFlagName            = "rm"
@@ -134,12 +134,13 @@ type CreateOptions struct {
 	DryRunStrategy util.DryRunStrategy
 
 	Namespace            string
-	OutputFormat         string
 	ProfileName          string
 	ModeName             v1alpha1.ApplicationProfileMode
 	Script               string
 	PodRunningTimeout    time.Duration
 	RemoveInteractivePod bool
+
+	SlurmFlagSet *pflag.FlagSet
 
 	Command       []string
 	Parallelism   *int32
@@ -222,8 +223,6 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
 				"Completions specifies the desired number of successfully finished pods.")
-
-			o.PrintFlags.AddFlags(subcmd)
 		},
 	},
 	"interactive": {
@@ -244,8 +243,6 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running.")
 			subcmd.Flags().BoolVar(&o.RemoveInteractivePod, removeFlagName, false,
 				"Remove pod when interactive session exits.")
-
-			o.PrintFlags.AddFlags(subcmd)
 		},
 	},
 	"rayjob": {
@@ -274,8 +271,6 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, minReplicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, maxReplicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, localQueueFlagName)
-
-			o.PrintFlags.AddFlags(subcmd)
 		},
 	},
 	"raycluster": {
@@ -294,15 +289,14 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
 			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
-
-			o.PrintFlags.AddFlags(subcmd)
 		},
 	},
 	"slurm": {
 		ModeName: v1alpha1.SlurmMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use = "slurm SCRIPT --profile APPLICATION_PROFILE_NAME" +
-				" [--localqueue LOCAL_QUEUE_NAME]" +
+			subcmd.Use += " [--ignore-unknown-flags]" +
+				" SCRIPT" +
+				" -- " +
 				" [--array ARRAY]" +
 				" [--cpus-per-task QUANTITY]" +
 				" [--gpus-per-task QUANTITY]" +
@@ -315,49 +309,46 @@ var createModeSubcommands = map[string]modeSubcommand{
 				" [--error FILENAME_PATTERN]" +
 				" [--input FILENAME_PATTERN]" +
 				" [--job-name NAME]" +
-				" [--partition NAME]" +
-				" [--ignore-unknown-flags]"
+				" [--partition NAME]"
+
 			subcmd.Short = "Create a slurm job"
 			subcmd.Example = createSlurmExample
-			subcmd.Args = cobra.ExactArgs(1)
+			subcmd.Args = cobra.MinimumNArgs(1)
 
-			// We need to allow to use --output flag for slurm perspective.
-			// But we still need to have possibility to print manifests if it's need.
-			subcmd.Flags().StringVar(&o.OutputFormat, outputFormatFlagName, "",
-				"Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).")
+			subcmd.Flags().BoolVar(&o.IgnoreUnknown, ignoreUnknownFlagName, false,
+				"Ignore all the unsupported flags in the bash script.")
 
-			subcmd.Flags().StringVarP(&o.Array, arrayFlagName, "a", "",
+			o.SlurmFlagSet = pflag.NewFlagSet("slurm", pflag.ExitOnError)
+			o.SlurmFlagSet.StringVarP(&o.Array, arrayFlagName, "a", "",
 				`Submit a job array, multiple jobs to be executed with identical parameters. 
 The indexes specification identifies what array index values should be used. 
 Multiple values may be specified using a comma separated list and/or a range of values with a "-" separator. For example, "--array=0-15" or "--array=0,6,16-32". 
 A maximum number of simultaneously running tasks from the job array may be specified using a "%" separator. For example "--array=0-15%4" will limit the number of simultaneously running tasks from this job array to 4. 
 The minimum index value is 0. The maximum index value is 2147483647.`)
-			subcmd.Flags().StringVarP(&o.UserSpecifiedCpusPerTask, cpusPerTaskFlagName, "c", "",
+			o.SlurmFlagSet.StringVarP(&o.UserSpecifiedCpusPerTask, cpusPerTaskFlagName, "c", "",
 				"How much cpus a container inside a pod requires.")
-			subcmd.Flags().StringVar(&o.UserSpecifiedGpusPerTask, gpusPerTaskFlagName, "",
+			o.SlurmFlagSet.StringVar(&o.UserSpecifiedGpusPerTask, gpusPerTaskFlagName, "",
 				"How much gpus a container inside a pod requires.")
-			subcmd.Flags().StringVar(&o.UserSpecifiedMemPerTask, memPerTaskFlagName, "",
+			o.SlurmFlagSet.StringVar(&o.UserSpecifiedMemPerTask, memPerTaskFlagName, "",
 				"How much memory a container requires.")
-			subcmd.Flags().StringVar(&o.UserSpecifiedMemPerCPU, memPerCPUFlagName, "",
+			o.SlurmFlagSet.StringVar(&o.UserSpecifiedMemPerCPU, memPerCPUFlagName, "",
 				"How much memory a container requires, it multiplies the number of requested cpus per task by mem-per-cpu.")
-			subcmd.Flags().StringVar(&o.UserSpecifiedMemPerGPU, memPerGPUFlagName, "",
+			o.SlurmFlagSet.StringVar(&o.UserSpecifiedMemPerGPU, memPerGPUFlagName, "",
 				"How much memory a container requires, it multiplies the number of requested gpus per task by mem-per-gpu.")
-			subcmd.Flags().Int32VarP(&o.UserSpecifiedNodes, nodesFlagName, "N", 0,
+			o.SlurmFlagSet.Int32VarP(&o.UserSpecifiedNodes, nodesFlagName, "N", 0,
 				"Number of pods to be used at a time.")
-			subcmd.Flags().Int32Var(&o.UserSpecifiedNTasks, nTasksFlagName, 1,
+			o.SlurmFlagSet.Int32VarP(&o.UserSpecifiedNTasks, nTasksFlagName, "n", 1,
 				"Number of identical containers inside of a pod, usually 1.")
-			subcmd.Flags().StringVarP(&o.Output, outputFlagName, "o", "",
+			o.SlurmFlagSet.StringVarP(&o.Output, outputFlagName, "o", "",
 				"Where to redirect the standard output stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.")
-			subcmd.Flags().StringVarP(&o.Error, errorFlagName, "e", "",
+			o.SlurmFlagSet.StringVarP(&o.Error, errorFlagName, "e", "",
 				"Where to redirect std error stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.")
-			subcmd.Flags().StringVar(&o.Input, inputFlagName, "",
+			o.SlurmFlagSet.StringVar(&o.Input, inputFlagName, "",
 				"What to pipe into the script.")
-			subcmd.Flags().StringVar(&o.JobName, jobNameFlagName, "",
+			o.SlurmFlagSet.StringVar(&o.JobName, jobNameFlagName, "",
 				"What is the job name.")
-			subcmd.Flags().StringVar(&o.Partition, partitionFlagName, "",
+			o.SlurmFlagSet.StringVar(&o.Partition, partitionFlagName, "",
 				"Local queue name.")
-			subcmd.Flags().BoolVar(&o.IgnoreUnknown, ignoreUnknownFlagName, false,
-				"Ignore all the unsupported flags in the bash script.")
 		},
 	},
 }
@@ -396,6 +387,8 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			},
 		}
 
+		o.PrintFlags.AddFlags(subcmd)
+
 		subcmd.Flags().StringVarP(&o.ProfileName, profileFlagName, "p", "",
 			"Application profile contains a template (with defaults set) for running a specific type of application.")
 		subcmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
@@ -421,6 +414,24 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	o.ModeName = currentSubcommand.ModeName
 
 	var err error
+
+	if o.ModeName == v1alpha1.SlurmMode {
+		argsLenAtDash := cmd.ArgsLenAtDash()
+
+		if argsLenAtDash == -1 && len(args) > 1 || argsLenAtDash > 1 {
+			return errors.New("must specify only one script")
+		}
+
+		if argsLenAtDash == 0 {
+			return errors.New("must specify script")
+		}
+
+		o.Script = args[0]
+
+		if err := o.SlurmFlagSet.Parse(args[1:]); err != nil {
+			return err
+		}
+	}
 
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
@@ -454,11 +465,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		return errors.New("--pod-running-timeout must be higher than zero")
 	}
 
-	if len(args) > 0 {
-		o.Script = args[0]
-	}
-
-	if cmd.Flags().Changed(cpusPerTaskFlagName) {
+	if o.SlurmFlagSet.Changed(cpusPerTaskFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedCpusPerTask)
 		if err != nil {
 			return err
@@ -466,7 +473,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		o.CpusPerTask = &quantity
 	}
 
-	if cmd.Flags().Changed(gpusPerTaskFlagName) {
+	if o.SlurmFlagSet.Changed(gpusPerTaskFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedGpusPerTask)
 		if err != nil {
 			return err
@@ -474,7 +481,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		o.GpusPerTask = &quantity
 	}
 
-	if cmd.Flags().Changed(memPerTaskFlagName) {
+	if o.SlurmFlagSet.Changed(memPerTaskFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedMemPerTask)
 		if err != nil {
 			return err
@@ -482,7 +489,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		o.MemPerTask = &quantity
 	}
 
-	if cmd.Flags().Changed(memPerCPUFlagName) {
+	if o.SlurmFlagSet.Changed(memPerCPUFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedMemPerCPU)
 		if err != nil {
 			return err
@@ -490,7 +497,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		o.MemPerCPU = &quantity
 	}
 
-	if cmd.Flags().Changed(memPerGPUFlagName) {
+	if o.SlurmFlagSet.Changed(memPerGPUFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedMemPerGPU)
 		if err != nil {
 			return err
@@ -498,11 +505,11 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		o.MemPerGPU = &quantity
 	}
 
-	if cmd.Flags().Changed(nodesFlagName) {
+	if o.SlurmFlagSet.Changed(nodesFlagName) {
 		o.Nodes = &o.UserSpecifiedNodes
 	}
 
-	if cmd.Flags().Changed(nTasksFlagName) {
+	if o.SlurmFlagSet.Changed(nTasksFlagName) {
 		if o.UserSpecifiedNTasks <= 0 {
 			return errors.New("--nTasks must be greater than 0")
 		}
@@ -518,10 +525,6 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	err = util.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.DryRunStrategy)
 	if err != nil {
 		return err
-	}
-
-	if o.OutputFormat != "" {
-		o.PrintFlags.OutputFormat = ptr.To(o.OutputFormat)
 	}
 
 	printer, err := o.PrintFlags.ToPrinter()
