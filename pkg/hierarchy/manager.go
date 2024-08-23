@@ -42,8 +42,8 @@ func (c *Manager[CQ, C]) DeleteClusterQueue(name string) {
 }
 
 func (c *Manager[CQ, C]) unwireClusterQueue(cq CQ) {
-	if cq.Wired().HasCohort() {
-		cohort := cq.Wired().Cohort()
+	if cq.Wired().HasParent() {
+		cohort := cq.Wired().Parent()
 		cohort.Wired().members.Delete(cq)
 		c.cleanupCohort(cohort)
 		var zero C

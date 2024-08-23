@@ -153,8 +153,8 @@ func TestManager(t *testing.T) {
 				gotEdges := make([]cqEdge, 0, len(tc.wantCqEdge))
 				for _, cq := range mgr.ClusterQueues {
 					gotCqs.Insert(cq.GetName())
-					if cq.HasCohort() {
-						gotEdges = append(gotEdges, cqEdge{cq.GetName(), cq.Cohort().GetName()})
+					if cq.HasParent() {
+						gotEdges = append(gotEdges, cqEdge{cq.GetName(), cq.Parent().GetName()})
 					}
 				}
 				if diff := cmp.Diff(tc.wantCqs, gotCqs); diff != "" {
