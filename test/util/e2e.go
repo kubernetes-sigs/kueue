@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,6 +46,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kftraining.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kubeflow.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
@@ -108,7 +112,12 @@ func WaitForJobSetAvailability(ctx context.Context, k8sClient client.Client) {
 	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
 }
 
-func WaitForKubeFlowAvailability(ctx context.Context, k8sClient client.Client) {
+func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient client.Client) {
 	kftoKey := types.NamespacedName{Namespace: "kubeflow", Name: "training-operator"}
+	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+}
+
+func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
 	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
 }
