@@ -283,9 +283,9 @@ fill_file_name () {
   echo "$REPLACED"
 }
 
-SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
-SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
-SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
+export SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
+export SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
+export SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
 
 %[4]s
 `,
@@ -363,14 +363,14 @@ export SBATCH_JOB_NAME=%[18]s				# Specified job name.`,
 
 func (b *slurmBuilder) buildEntrypointCommand() string {
 	strBuilder := strings.Builder{}
+	strBuilder.WriteString("bash")
+	strBuilder.WriteByte(' ')
+	strBuilder.WriteString(slurmPath)
+	strBuilder.WriteByte('/')
+	strBuilder.WriteString("script.sh")
+
 	if b.input != "" {
-		strBuilder.WriteString("$SBATCH_INPUT")
-	} else {
-		strBuilder.WriteString("bash")
-		strBuilder.WriteByte(' ')
-		strBuilder.WriteString(slurmPath)
-		strBuilder.WriteByte('/')
-		strBuilder.WriteString("script.sh")
+		strBuilder.WriteString(" <$SBATCH_INPUT")
 	}
 
 	if b.stdout != "" {

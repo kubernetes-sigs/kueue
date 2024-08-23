@@ -244,9 +244,9 @@ fill_file_name () {
   echo "$REPLACED"
 }
 
-SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
-SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
-SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
+export SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
+export SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
+export SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
 
 bash /slurm/script.sh
 `,
@@ -349,23 +349,23 @@ func TestSlurmBuilderBuildEntrypointCommand(t *testing.T) {
 		},
 		"should build entrypoint command with input": {
 			input:                 "/home/test/script.sh",
-			wantEntrypointCommand: "$SBATCH_INPUT",
+			wantEntrypointCommand: "bash /slurm/script.sh <$SBATCH_INPUT",
 		},
 		"should build entrypoint command with input and stdout": {
 			input:                 "/home/test/script.sh",
 			stdout:                "/home/test/stdout.out",
-			wantEntrypointCommand: "$SBATCH_INPUT 1>$SBATCH_OUTPUT",
+			wantEntrypointCommand: "bash /slurm/script.sh <$SBATCH_INPUT 1>$SBATCH_OUTPUT",
 		},
 		"should build entrypoint command with input and stderr": {
 			input:                 "/home/test/script.sh",
 			stderr:                "/home/test/stderr.out",
-			wantEntrypointCommand: "$SBATCH_INPUT 2>$SBATCH_ERROR",
+			wantEntrypointCommand: "bash /slurm/script.sh <$SBATCH_INPUT 2>$SBATCH_ERROR",
 		},
 		"should build entrypoint command with input, stdout and stderr": {
 			input:                 "/home/test/script.sh",
 			stdout:                "/home/test/stdout.out",
 			stderr:                "/home/test/stderr.out",
-			wantEntrypointCommand: "$SBATCH_INPUT 1>$SBATCH_OUTPUT 2>$SBATCH_ERROR",
+			wantEntrypointCommand: "bash /slurm/script.sh <$SBATCH_INPUT 1>$SBATCH_OUTPUT 2>$SBATCH_ERROR",
 		},
 	}
 	for name, tc := range testCases {

@@ -765,9 +765,9 @@ fill_file_name () {
   echo "$REPLACED"
 }
 
-SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
-SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
-SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
+export SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
+export SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
+export SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
 
 bash /slurm/script.sh
 `,
@@ -954,9 +954,9 @@ fill_file_name () {
   echo "$REPLACED"
 }
 
-SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
-SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
-SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
+export SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
+export SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
+export SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
 
 bash /slurm/script.sh
 `,
