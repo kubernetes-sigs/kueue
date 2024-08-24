@@ -41,6 +41,39 @@ const (
 	slurmScriptFilename     = "script.sh"
 	slurmEntrypointFilename = "entrypoint.sh"
 	slurmPath               = "/slurm"
+
+	//# \\ - Do not process any of the replacement symbols.
+	//# %% - The character "%".
+	//# %A - Job array's master job allocation number (for now it is equivalent to SLURM_JOB_ID).
+	//# %a - Job array ID (index) number (SLURM_ARRAY_TASK_ID).
+	//# %j - job id of the running job (SLURM_JOB_ID).
+	//# %N - short hostname (pod name).
+	//# %n - node(pod) identifier relative to current job - index from K8S index job.
+	//# %t - task identifier (rank) relative to current job - It is array id position.
+	//# %u - username (from the client machine).
+	//# %x - job name.
+	unmaskFilenameFunction = `unmask_filename () {
+  replaced="$1"
+
+  if [[ "$replaced" == "\\"* ]]; then
+      replaced="${replaced//\\/}"
+      echo "${replaced}"
+      return 0
+  fi
+
+  replaced=$(echo "$replaced" | sed -E "s/(%)(%A)/\1\n\2/g;:a s/(^|[^\n])%A/\1$SLURM_ARRAY_JOB_ID/;ta;s/\n//g")
+  replaced=$(echo "$replaced" | sed -E "s/(%)(%a)/\1\n\2/g;:a s/(^|[^\n])%a/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
+  replaced=$(echo "$replaced" | sed -E "s/(%)(%j)/\1\n\2/g;:a s/(^|[^\n])%j/\1$SLURM_JOB_ID/;ta;s/\n//g")
+  replaced=$(echo "$replaced" | sed -E "s/(%)(%N)/\1\n\2/g;:a s/(^|[^\n])%N/\1$HOSTNAME/;ta;s/\n//g")
+  replaced=$(echo "$replaced" | sed -E "s/(%)(%n)/\1\n\2/g;:a s/(^|[^\n])%n/\1$JOB_COMPLETION_INDEX/;ta;s/\n//g")
+  replaced=$(echo "$replaced" | sed -E "s/(%)(%t)/\1\n\2/g;:a s/(^|[^\n])%t/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
+  replaced=$(echo "$replaced" | sed -E "s/(%)(%u)/\1\n\2/g;:a s/(^|[^\n])%u/\1$USER_ID/;ta;s/\n//g")
+  replaced=$(echo "$replaced" | sed -E "s/(%)(%x)/\1\n\2/g;:a s/(^|[^\n])%x/\1$SBATCH_JOB_NAME/;ta;s/\n//g")
+
+  replaced="${replaced//%%/%}"
+
+  echo "$replaced"
+}`
 )
 
 type slurmBuilder struct {
@@ -218,93 +251,54 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# External
+# External variables
 # JOB_COMPLETION_INDEX  - completion index of the job.
 # JOB_CONTAINER_INDEX   - container index in the container template.
 
-# ["COMPLETION_INDEX"]=CONTAINER_INDEX1,CONTAINER_INDEX2
-declare -A ARRAY_INDEXES=(%[1]s) 	# Requires bash v4+
+# ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
+declare -A array_indexes=(%[1]s) 	# Requires bash v4+
 
-CONTAINER_INDEXES=${ARRAY_INDEXES[${JOB_COMPLETION_INDEX}]}
-CONTAINER_INDEXES=(${CONTAINER_INDEXES//,/ })
+container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
+container_indexes=(${container_indexes//,/ })
 
-if [[ ! -v CONTAINER_INDEXES[${JOB_CONTAINER_INDEX}] ]];
+if [[ ! -v container_indexes[${JOB_CONTAINER_INDEX}] ]];
 then
 	exit 0
 fi
 
-# Generated on the builder
 %[2]s
+
 %[3]s
 
-# To be supported later
-# export SLURM_JOB_NODELIST=        # Contains the definition (list) of the nodes (actually pods) that is assigned to the job. To be supported later.
-# export SLURM_NODELIST=            # Deprecated. Same as SLURM_JOB_NODELIST. To be supported later.
-# export SLURM_NTASKS_PER_SOCKET    # Number of tasks requested per socket. To be supported later.
-# export SLURM_NTASKS_PER_CORE      # Number of tasks requested per core. To be supported later.
-# export SLURM_NTASKS_PER_GPU       # Number of tasks requested per GPU. To be supported later.
-
-# Calculated variables in runtime
 export SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * SLURM_TASKS_PER_NODE + JOB_CONTAINER_INDEX + SLURM_ARRAY_JOB_ID ))   # The Job ID.
 export SLURM_JOBID=$SLURM_JOB_ID                                                                                    # Deprecated. Same as $SLURM_JOB_ID
-export SLURM_ARRAY_TASK_ID=${CONTAINER_INDEXES[${JOB_CONTAINER_INDEX}]}												# Task ID.
-
-# fill_file_name fills file name by pattern
-# \\ - Do not process any of the replacement symbols.
-# %%%% - The character "%%".
-# %%A - Job array's master job allocation number (for now it is equivalent to SLURM_JOB_ID).
-# %%a - Job array ID (index) number (SLURM_ARRAY_TASK_ID).
-# %%j - jobid of the running job (SLURM_JOB_ID).
-# %%N - short hostname (pod name).
-# %%n - node(pod) identifier relative to current job - index from K8S index job.
-# %%t - task identifier (rank) relative to current job - It is array id position.
-# %%u - user name (from the client machine).
-# %%x - job name.
-fill_file_name () {
-  REPLACED="$1"
-
-  if [[ "$REPLACED" == "\\"* ]]; then
-      REPLACED="${REPLACED//\\/}"
-      echo "${REPLACED}"
-      return 0
-  fi
-
-  REPLACED=$(echo "$REPLACED" | sed -E "s/(%%)(%%A)/\1\n\2/g;:a s/(^|[^\n])%%A/\1$SLURM_ARRAY_JOB_ID/;ta;s/\n//g")
-  REPLACED=$(echo "$REPLACED" | sed -E "s/(%%)(%%a)/\1\n\2/g;:a s/(^|[^\n])%%a/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  REPLACED=$(echo "$REPLACED" | sed -E "s/(%%)(%%j)/\1\n\2/g;:a s/(^|[^\n])%%j/\1$SLURM_JOB_ID/;ta;s/\n//g")
-  REPLACED=$(echo "$REPLACED" | sed -E "s/(%%)(%%N)/\1\n\2/g;:a s/(^|[^\n])%%N/\1$HOSTNAME/;ta;s/\n//g")
-  REPLACED=$(echo "$REPLACED" | sed -E "s/(%%)(%%n)/\1\n\2/g;:a s/(^|[^\n])%%n/\1$JOB_COMPLETION_INDEX/;ta;s/\n//g")
-  REPLACED=$(echo "$REPLACED" | sed -E "s/(%%)(%%t)/\1\n\2/g;:a s/(^|[^\n])%%t/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  REPLACED=$(echo "$REPLACED" | sed -E "s/(%%)(%%u)/\1\n\2/g;:a s/(^|[^\n])%%u/\1$USER_ID/;ta;s/\n//g")
-  REPLACED=$(echo "$REPLACED" | sed -E "s/(%%)(%%x)/\1\n\2/g;:a s/(^|[^\n])%%x/\1$SBATCH_JOB_NAME/;ta;s/\n//g")
-
-  REPLACED="${REPLACED//%%%%/%%}"
-
-  echo "$REPLACED"
-}
-
-export SBATCH_INPUT=$(fill_file_name "$SBATCH_INPUT")
-export SBATCH_OUTPUT=$(fill_file_name "$SBATCH_OUTPUT")
-export SBATCH_ERROR=$(fill_file_name "$SBATCH_ERROR")
+export SLURM_ARRAY_TASK_ID=${container_indexes[${JOB_CONTAINER_INDEX}]}												# Task ID.
 
 %[4]s
+
+input_file=$(unmask_filename "$SBATCH_INPUT")
+output_file=$(unmask_filename "$SBATCH_OUTPUT")
+error_path=$(unmask_filename "$SBATCH_ERROR")
+
+%[5]s
 `,
 		strings.Join(keyValues, " "), // %[1]s
 		b.buildSbatchVariables(),     // %[2]s
 		b.buildSlurmVariables(),      // %[3]s
-		b.buildEntrypointCommand(),   // // %[4]s
+		unmaskFilenameFunction,       // %[4]s
+		b.buildEntrypointCommand(),   // %[5]s
 	)
 }
 
 func (b *slurmBuilder) buildSbatchVariables() string {
-	return fmt.Sprintf(`
-export SBATCH_INPUT=%[1]s 		# Instruct Slurm to connect the batch script's standard input directly to the file name specified in the "filename pattern".
-export SBATCH_OUTPUT=%[2]s		# Instruct Slurm to connect the batch script's standard output directly to the file name specified in the "filename pattern".
-export SBATCH_ERROR=%[3]s		# Instruct Slurm to connect the batch script's standard error directly to the file name specified in the "filename pattern".
-`,
-		b.input,
-		b.output,
-		b.error,
+	return fmt.Sprintf(`SBATCH_INPUT=%[1]s 		# Instruct Slurm to connect the batch script's standard input directly to the file name specified in the "filename pattern".
+SBATCH_OUTPUT=%[2]s		# Instruct Slurm to connect the batch script's standard output directly to the file name specified in the "filename pattern".
+SBATCH_ERROR=%[3]s		# Instruct Slurm to connect the batch script's standard error directly to the file name specified in the "filename pattern".
+SBATCH_JOB_NAME=%[4]s	# Specify a name for the job allocation.`,
+		b.input,   // %[1]s
+		b.output,  // %[2]s
+		b.error,   // %[3]s
+		b.jobName, // %[4]s
 	)
 }
 
@@ -330,8 +324,7 @@ export SLURM_NTASKS_PER_NODE=%[15]d  		# Number of tasks requested per node.
 export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
 export SLURM_NNODES=%[16]d            		# Total number of nodes (actually pods) in the job’s resource allocation.
 export SLURM_SUBMIT_DIR=%[17]s        		# The path of the job submission directory.
-export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
-export SBATCH_JOB_NAME=%[18]s				# Specified job name.`,
+export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.`,
 		1,                      // %[1]d
 		b.arrayIndexes.Count(), // %[2]d
 		b.arrayIndexes.Max(),   // %[3]d
@@ -349,7 +342,6 @@ export SBATCH_JOB_NAME=%[18]s				# Specified job name.`,
 		nTasks,                 // %[15]d
 		nodes,                  // %[16]d
 		slurmPath,              // %[17]s
-		b.jobName,              // %[18]s
 	)
 }
 
@@ -362,15 +354,15 @@ func (b *slurmBuilder) buildEntrypointCommand() string {
 	strBuilder.WriteString("script.sh")
 
 	if b.input != "" {
-		strBuilder.WriteString(" <$SBATCH_INPUT")
+		strBuilder.WriteString(" <$input_file")
 	}
 
 	if b.output != "" {
-		strBuilder.WriteString(" 1>$SBATCH_OUTPUT")
+		strBuilder.WriteString(" 1>$output_file")
 	}
 
 	if b.error != "" {
-		strBuilder.WriteString(" 2>$SBATCH_ERROR")
+		strBuilder.WriteString(" 2>$error_file")
 	}
 
 	return strBuilder.String()
