@@ -79,8 +79,6 @@ type IntegrationCallbacks struct {
 	MultiKueueAdapter MultiKueueAdapter
 	// The list of integration that need to be enabled along with the current one.
 	DependencyList []string
-	// PodLabelSelector returns the label selector used by pods for the job.
-	PodLabelSelector string
 }
 
 type integrationManager struct {
