@@ -470,6 +470,11 @@ func (p *PodSetWrapper) PodOverHead(resources corev1.ResourceList) *PodSetWrappe
 	return p
 }
 
+func (p *PodSetWrapper) PodAffinity(affinity *corev1.Affinity) *PodSetWrapper {
+	p.Template.Spec.Affinity = affinity
+	return p
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
