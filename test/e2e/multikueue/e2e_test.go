@@ -202,7 +202,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request("cpu", "1").
 				Request("memory", "2G").
 				// Give it the time to be observed Active in the live status update step.
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).
+				Image(util.E2eTestSleepImage, []string{"5s"}).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
@@ -287,7 +287,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
+						Image:       util.E2eTestSleepImage,
 						// Give it the time to be observed Active in the live status update step.
 						Args: []string{"5s"},
 					},
@@ -393,8 +393,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "800M").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "800M").
-				Image(kftraining.PyTorchJobReplicaTypeMaster, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
-				Image(kftraining.PyTorchJobReplicaTypeWorker, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(kftraining.PyTorchJobReplicaTypeMaster, util.E2eTestSleepImage, []string{"1ms"}).
+				Image(kftraining.PyTorchJobReplicaTypeWorker, util.E2eTestSleepImage, []string{"1ms"}).
 				Obj()
 
 			ginkgo.By("Creating the PyTorchJob", func() {
