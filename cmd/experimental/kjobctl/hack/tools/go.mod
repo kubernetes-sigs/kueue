@@ -3,7 +3,7 @@ module sigs.k8s.io/kueue/cmd/experimental/kjobctl/hack/tools
 go 1.22.4
 
 require (
-	github.com/golangci/golangci-lint v1.60.1
+	github.com/golangci/golangci-lint v1.60.3
 	github.com/onsi/ginkgo/v2 v2.20.0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.5
