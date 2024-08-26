@@ -5,7 +5,7 @@ require (
 	github.com/gohugoio/hugo v0.133.0
 	github.com/golangci/golangci-lint v1.60.1
 	github.com/mikefarah/yq/v4 v4.44.3
-	github.com/onsi/ginkgo/v2 v2.20.0
+	github.com/onsi/ginkgo/v2 v2.20.1
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.5
 	gotest.tools/gotestsum v1.12.0
