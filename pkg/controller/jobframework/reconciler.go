@@ -381,6 +381,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		log.V(3).Info("The workload is nil, handle job with no workload")
 		err := r.handleJobWithNoWorkload(ctx, job, object)
 		if err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				log.V(3).Info("Handling job with no workload found an existing workload")
+				return ctrl.Result{Requeue: true}, nil
+			}
 			if IsUnretryableError(err) {
 				log.V(3).Info("Handling job with no workload", "unretryableError", err)
 			} else {
