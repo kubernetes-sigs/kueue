@@ -120,7 +120,6 @@ func (c *Cache) Snapshot() Snapshot {
 func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 	cc := &ClusterQueueSnapshot{
 		Name:                          c.Name,
-		ResourceGroups:                c.ResourceGroups, // Shallow copy is enough.
 		FlavorFungibility:             c.FlavorFungibility,
 		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
@@ -131,6 +130,10 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 		Status:                        c.Status,
 		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
 		Quotas:                        c.quotas,
+	}
+
+	for _, rg := range c.ResourceGroups {
+		cc.ResourceGroups = append(cc.ResourceGroups, rg.Clone())
 	}
 
 	if features.Enabled(features.LendingLimit) {
