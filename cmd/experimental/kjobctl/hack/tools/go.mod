@@ -1,6 +1,6 @@
 module sigs.k8s.io/kueue/cmd/experimental/kjobctl/hack/tools
 
-go 1.22.4
+go 1.22.6
 
 require (
 	github.com/golangci/golangci-lint v1.60.3

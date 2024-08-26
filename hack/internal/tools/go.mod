@@ -1,6 +1,7 @@
 module sigs.k8s.io/kueue/internal/tools
 
-go 1.22.4
+go 1.22.6
+
 require (
 	github.com/gohugoio/hugo v0.133.0
 	github.com/golangci/golangci-lint v1.60.3
