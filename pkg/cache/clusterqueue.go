@@ -107,6 +107,14 @@ type ResourceGroup struct {
 	LabelKeys sets.Set[string]
 }
 
+func (rg *ResourceGroup) Clone() ResourceGroup {
+	return ResourceGroup{
+		CoveredResources: rg.CoveredResources.Clone(),
+		Flavors:          rg.Flavors,
+		LabelKeys:        rg.LabelKeys.Clone(),
+	}
+}
+
 type ResourceQuota struct {
 	Nominal        int64
 	BorrowingLimit *int64
