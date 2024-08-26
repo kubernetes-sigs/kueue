@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -49,6 +50,8 @@ import (
 const parallelPreemptions = 8
 
 type Preemptor struct {
+	clock clock.Clock
+
 	client   client.Client
 	recorder record.EventRecorder
 
@@ -60,8 +63,15 @@ type Preemptor struct {
 	applyPreemption func(ctx context.Context, w *kueue.Workload, reason, message string) error
 }
 
-func New(cl client.Client, workloadOrdering workload.Ordering, recorder record.EventRecorder, fs config.FairSharing) *Preemptor {
+func New(
+	cl client.Client,
+	workloadOrdering workload.Ordering,
+	recorder record.EventRecorder,
+	fs config.FairSharing,
+	clock clock.Clock,
+) *Preemptor {
 	p := &Preemptor{
+		clock:             clock,
 		client:            cl,
 		recorder:          recorder,
 		workloadOrdering:  workloadOrdering,
@@ -116,7 +126,7 @@ func (p *Preemptor) getTargets(log logr.Logger, wl workload.Info, requests resou
 	if len(candidates) == 0 {
 		return nil
 	}
-	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, time.Now()))
+	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, p.clock.Now()))
 
 	sameQueueCandidates := candidatesOnlyFromQueue(candidates, wl.ClusterQueue)
 

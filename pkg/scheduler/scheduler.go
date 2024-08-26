@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,6 +58,10 @@ import (
 
 const (
 	errCouldNotAdmitWL = "Could not admit Workload and assign flavors in apiserver"
+)
+
+var (
+	realClock = clock.RealClock{}
 )
 
 type Scheduler struct {
@@ -118,7 +123,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing),
+		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, realClock),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 	}

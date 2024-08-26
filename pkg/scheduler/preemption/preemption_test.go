@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -1445,7 +1446,7 @@ func TestPreemption(t *testing.T) {
 				t.Fatalf("Failed adding kueue scheme: %v", err)
 			}
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{})
+			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{}, clocktesting.NewFakeClock(now))
 			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload, reason, _ string) error {
 				lock.Lock()
 				gotPreempted.Insert(targetKeyReason(workload.Key(w), reason))
@@ -1964,7 +1965,7 @@ func TestFairPreemptions(t *testing.T) {
 			preemptor := New(cl, workload.Ordering{}, recorder, config.FairSharing{
 				Enable:               true,
 				PreemptionStrategies: tc.strategies,
-			})
+			}, clocktesting.NewFakeClock(now))
 
 			snapshot := cqCache.Snapshot()
 			wlInfo := workload.NewInfo(tc.incoming)
