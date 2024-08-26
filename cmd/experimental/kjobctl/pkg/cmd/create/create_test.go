@@ -135,6 +135,16 @@ func beforeSlurmTest(tc *createCmdTestCase) error {
 }
 
 func afterSlurmTest(tc *createCmdTestCase) error {
+	os.Unsetenv("SBATCH_ARRAY_INX")
+	os.Unsetenv("SBATCH_GPUS_PER_TASK")
+	os.Unsetenv("SBATCH_MEM_PER_CPU")
+	os.Unsetenv("SBATCH_MEM_PER_GPU")
+	os.Unsetenv("SBATCH_OUTPUT")
+	os.Unsetenv("SBATCH_ERROR")
+	os.Unsetenv("SBATCH_INPUT")
+	os.Unsetenv("SBATCH_JOB_NAME")
+	os.Unsetenv("SBATCH_PARTITION")
+
 	return os.Remove(tc.tempFile)
 }
 
@@ -729,7 +739,7 @@ export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=1  		# Total number of tasks in a job array.
 export SLURM_ARRAY_TASK_MAX=0    		# Job array’s maximum ID (index) number.
 export SLURM_ARRAY_TASK_MIN=0    		# Job array’s minimum ID (index) number.
-export SLURM_TASKS_PER_NODE=1    		# Job array’s master job ID number.
+export SLURM_TASKS_PER_NODE=1    		# Number of tasks to be initiated on each node.
 export SLURM_CPUS_PER_TASK=       		# Number of CPUs per task.
 export SLURM_CPUS_ON_NODE=        		# Number of CPUs on the allocated node (actually pod).
 export SLURM_JOB_CPUS_PER_NODE=   		# Count of processors available to the job on this node.
@@ -737,7 +747,7 @@ export SLURM_CPUS_PER_GPU=        		# Number of CPUs requested per allocated GPU
 export SLURM_MEM_PER_CPU=         	# Memory per CPU. Same as --mem-per-cpu .
 export SLURM_MEM_PER_GPU=         	# Memory per GPU.
 export SLURM_MEM_PER_NODE=        	# Memory per node. Same as --mem.
-export SLURM_GPUS=                	# Number of GPUs requested (in total).
+export SLURM_GPUS=0                	# Number of GPUs requested (in total).
 export SLURM_NTASKS=1              	# Same as -n, –ntasks. The number of tasks.
 export SLURM_NTASKS_PER_NODE=1  		# Number of tasks requested per node.
 export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
@@ -903,7 +913,7 @@ export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=26  		# Total number of tasks in a job array.
 export SLURM_ARRAY_TASK_MAX=25    		# Job array’s maximum ID (index) number.
 export SLURM_ARRAY_TASK_MIN=0    		# Job array’s minimum ID (index) number.
-export SLURM_TASKS_PER_NODE=3    		# Job array’s master job ID number.
+export SLURM_TASKS_PER_NODE=3    		# Number of tasks to be initiated on each node.
 export SLURM_CPUS_PER_TASK=       		# Number of CPUs per task.
 export SLURM_CPUS_ON_NODE=        		# Number of CPUs on the allocated node (actually pod).
 export SLURM_JOB_CPUS_PER_NODE=   		# Count of processors available to the job on this node.
@@ -911,7 +921,7 @@ export SLURM_CPUS_PER_GPU=        		# Number of CPUs requested per allocated GPU
 export SLURM_MEM_PER_CPU=         	# Memory per CPU. Same as --mem-per-cpu .
 export SLURM_MEM_PER_GPU=         	# Memory per GPU.
 export SLURM_MEM_PER_NODE=        	# Memory per node. Same as --mem.
-export SLURM_GPUS=                	# Number of GPUs requested (in total).
+export SLURM_GPUS=0                	# Number of GPUs requested (in total).
 export SLURM_NTASKS=3              	# Same as -n, –ntasks. The number of tasks.
 export SLURM_NTASKS_PER_NODE=3  		# Number of tasks requested per node.
 export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.

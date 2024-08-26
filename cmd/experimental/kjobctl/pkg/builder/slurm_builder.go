@@ -83,8 +83,12 @@ var (
 type slurmBuilder struct {
 	*Builder
 
-	scriptContent string
-	arrayIndexes  parser.ArrayIndexes
+	scriptContent   string
+	arrayIndexes    parser.ArrayIndexes
+	cpusOnNode      *resource.Quantity
+	cpusPerGpu      *resource.Quantity
+	totalMemPerNode *resource.Quantity
+	totalGpus       int
 }
 
 var _ builder = (*slurmBuilder)(nil)
@@ -198,7 +202,34 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 
 		container.Command = []string{"bash", fmt.Sprintf("%s/entrypoint.sh", slurmPath)}
 
-		if len(b.requests) > 0 {
+		requests := b.requests
+		if b.cpusPerTask != nil {
+			requests[corev1.ResourceCPU] = *b.cpusPerTask
+		}
+
+		if b.gpusPerTask != nil {
+			// TODO: parse gpu value...
+			requests["gpu"] = *b.gpusPerTask
+		}
+
+		if b.memPerTask != nil {
+			requests[corev1.ResourceMemory] = *b.memPerTask
+		}
+
+		if b.memPerCPU != nil {
+			memPerCPU := b.memPerCPU
+			memPerCPU.Mul(b.cpusPerTask.Value())
+			requests[corev1.ResourceMemory] = *memPerCPU
+			b.totalGpus++
+		}
+
+		if b.memPerGPU != nil {
+			memPerGpu := b.memPerGPU
+			memPerGpu.Mul(b.gpusPerTask.Value())
+			requests[corev1.ResourceMemory] = *memPerGpu
+		}
+
+		if len(requests) > 0 {
 			container.Resources.Requests = b.requests
 		}
 
@@ -229,6 +260,27 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		updatedContainers = append(updatedContainers, containers...)
 	}
 	job.Spec.Template.Spec.Containers = updatedContainers
+
+	if b.nodes != nil {
+		job.Spec.Parallelism = b.nodes
+	}
+
+	if b.cpusPerTask == nil {
+		b.cpusPerTask = ptr.To(resource.MustParse("1"))
+	}
+	b.cpusOnNode = b.cpusPerTask
+	b.cpusOnNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
+
+	if b.memPerCPU == nil {
+		b.memPerCPU = ptr.To(resource.MustParse("0"))
+	}
+	b.totalMemPerNode = b.memPerCPU
+	b.totalMemPerNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
+
+	if b.totalGpus > 0 {
+		cpusPerGpu := b.cpusOnNode.Value() / int64(b.totalGpus)
+		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, resource.DecimalSI)
+	}
 
 	return []runtime.Object{job, configMap}, nil
 }
@@ -329,7 +381,7 @@ func (b *slurmBuilder) buildSlurmVariables() string {
 export SLURM_ARRAY_TASK_COUNT=%[2]d  		# Total number of tasks in a job array.
 export SLURM_ARRAY_TASK_MAX=%[3]d    		# Job array’s maximum ID (index) number.
 export SLURM_ARRAY_TASK_MIN=%[4]d    		# Job array’s minimum ID (index) number.
-export SLURM_TASKS_PER_NODE=%[5]d    		# Job array’s master job ID number.
+export SLURM_TASKS_PER_NODE=%[5]d    		# Number of tasks to be initiated on each node.
 export SLURM_CPUS_PER_TASK=%[6]s       		# Number of CPUs per task.
 export SLURM_CPUS_ON_NODE=%[7]s        		# Number of CPUs on the allocated node (actually pod).
 export SLURM_JOB_CPUS_PER_NODE=%[8]s   		# Count of processors available to the job on this node.
@@ -337,31 +389,39 @@ export SLURM_CPUS_PER_GPU=%[9]s        		# Number of CPUs requested per allocate
 export SLURM_MEM_PER_CPU=%[10]s         	# Memory per CPU. Same as --mem-per-cpu .
 export SLURM_MEM_PER_GPU=%[11]s         	# Memory per GPU.
 export SLURM_MEM_PER_NODE=%[12]s        	# Memory per node. Same as --mem.
-export SLURM_GPUS=%[13]s                	# Number of GPUs requested (in total).
+export SLURM_GPUS=%[13]d                	# Number of GPUs requested (in total).
 export SLURM_NTASKS=%[14]d              	# Same as -n, –ntasks. The number of tasks.
 export SLURM_NTASKS_PER_NODE=%[15]d  		# Number of tasks requested per node.
 export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
 export SLURM_NNODES=%[16]d            		# Total number of nodes (actually pods) in the job’s resource allocation.
 export SLURM_SUBMIT_DIR=%[17]s        		# The path of the job submission directory.
 export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.`,
-		1,                      // %[1]d
-		b.arrayIndexes.Count(), // %[2]d
-		b.arrayIndexes.Max(),   // %[3]d
-		b.arrayIndexes.Min(),   // %[4]d
-		nTasks,                 // %[5]d
-		"",                     // %[6]s
-		"",                     // %[7]s
-		"",                     // %[8]s
-		"",                     // %[9]s
-		"",                     // %[10]s
-		"",                     // %[11]s
-		"",                     // %[12]s
-		"",                     // %[13]s
-		nTasks,                 // %[14]d
-		nTasks,                 // %[15]d
-		nodes,                  // %[16]d
-		slurmPath,              // %[17]s
+		1,                                  // %[1]d
+		b.arrayIndexes.Count(),             // %[2]d
+		b.arrayIndexes.Max(),               // %[3]d
+		b.arrayIndexes.Min(),               // %[4]d
+		nTasks,                             // %[5]d
+		getValueOrEmpty(b.cpusPerTask),     // %[6]s
+		getValueOrEmpty(b.cpusOnNode),      // %[7]s
+		getValueOrEmpty(b.cpusOnNode),      // %[8]s
+		getValueOrEmpty(b.cpusPerGpu),      // %[9]s
+		getValueOrEmpty(b.memPerCPU),       // %[10]s
+		getValueOrEmpty(b.memPerGPU),       // %[11]s
+		getValueOrEmpty(b.totalMemPerNode), // %[12]s
+		b.totalGpus,                        // %[13]s
+		nTasks,                             // %[14]d
+		nTasks,                             // %[15]d
+		nodes,                              // %[16]d
+		slurmPath,                          // %[17]s
 	)
+}
+
+func getValueOrEmpty(ptr *resource.Quantity) string {
+	if ptr != nil {
+		return ptr.String()
+	}
+
+	return ""
 }
 
 func (b *slurmBuilder) buildEntrypointCommand() string {
@@ -508,9 +568,9 @@ func (b *slurmBuilder) replaceScriptFlags() error {
 
 func (b *slurmBuilder) setSbatchEnvs() {
 	os.Setenv("SBATCH_ARRAY_INX", b.array)
-	os.Setenv("SBATCH_GPUS_PER_TASK", fmt.Sprintf("%d", b.gpusPerTask.String()))
-	os.Setenv("SBATCH_MEM_PER_CPU", fmt.Sprintf("%d", b.memPerCPU.String()))
-	os.Setenv("SBATCH_MEM_PER_GPU", fmt.Sprintf("%d", b.memPerGPU.String()))
+	os.Setenv("SBATCH_GPUS_PER_TASK", b.gpusPerTask.String())
+	os.Setenv("SBATCH_MEM_PER_CPU", b.memPerCPU.String())
+	os.Setenv("SBATCH_MEM_PER_GPU", b.memPerGPU.String())
 	os.Setenv("SBATCH_OUTPUT", b.output)
 	os.Setenv("SBATCH_ERROR", b.error)
 	os.Setenv("SBATCH_INPUT", b.input)
