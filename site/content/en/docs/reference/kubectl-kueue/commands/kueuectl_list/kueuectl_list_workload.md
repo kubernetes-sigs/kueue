@@ -79,7 +79,7 @@ kueuectl list workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_Q
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Filter by only those pertaining to the specified resource.</p>
+            <p>Filter only those pertaining to the specified resource.</p>
         </td>
     </tr>
     <tr>
