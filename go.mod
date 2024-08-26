@@ -1,6 +1,8 @@
 module sigs.k8s.io/kueue
 
-go 1.22
+go 1.22.0
+
+toolchain go1.22.6
 
 require (
 	github.com/fsnotify/fsnotify v1.7.0
