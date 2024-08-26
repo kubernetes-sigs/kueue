@@ -44,11 +44,17 @@ import (
 )
 
 const (
-	podLong = `Lists all pods that matches the given criteria: Should be part of the specified Job kind,
-belonging to the specified namespace, matching
-the label selector or the field selector.`
-	podExample = `  # List Pods
-kueuectl list pods --for job/job-name`
+	podLong = `Lists all pods that matches the given criteria: should be part of the specified Job kind, 
+belonging to the specified namespace, matching the label selector or the field selector.
+
+The --for=pod/pod-name option allows to find pods from the same pod group as the specified pod, including that pod itself. 
+`
+	podExample = `
+  # List Pods for the Job
+  kueuectl list pods --for job/job-name
+
+  # List Pods for the Pod group
+  kueuectl list pods --for pod/pod-name`
 )
 
 type PodOptions struct {

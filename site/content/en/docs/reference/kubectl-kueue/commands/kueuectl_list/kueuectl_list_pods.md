@@ -13,9 +13,11 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Lists all pods that matches the given criteria: Should be part of the specified Job kind,
-belonging to the specified namespace, matching
-the label selector or the field selector.
+Lists all pods that matches the given criteria: should be part of the specified Job kind, 
+belonging to the specified namespace, matching the label selector or the field selector.
+
+The --for=pod/pod-name option allows to find pods from the same pod group as the specified pod, including that pod itself. 
+
 
 ```
 kueuectl list pods --for TYPE[.API-GROUP]/NAME
@@ -25,8 +27,12 @@ kueuectl list pods --for TYPE[.API-GROUP]/NAME
 ## Examples
 
 ```
-  # List Pods
-kueuectl list pods --for job/job-name
+
+  # List Pods for the Job
+  kueuectl list pods --for job/job-name
+
+  # List Pods for the Pod group
+  kueuectl list pods --for pod/pod-name
 ```
 
 
@@ -72,7 +78,7 @@ kueuectl list pods --for job/job-name
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Filter workloads to only those pertaining to the specified resource.</p>
+            <p>Filter only those pertaining to the specified resource.</p>
         </td>
     </tr>
     <tr>
