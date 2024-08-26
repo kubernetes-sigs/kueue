@@ -4,7 +4,7 @@ go 1.22.4
 
 require (
 	github.com/google/go-cmp v0.6.0
-	github.com/onsi/ginkgo/v2 v2.20.0
+	github.com/onsi/ginkgo/v2 v2.20.1
 	github.com/onsi/gomega v1.34.1
 	github.com/ray-project/kuberay/ray-operator v1.1.1
 	github.com/spf13/cobra v1.8.1
