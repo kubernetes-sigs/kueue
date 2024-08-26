@@ -90,6 +90,8 @@ type TemplateReference string
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' || self.name != 'Slurm' && !('ntasks' in self.requiredFlags)", message="ntasks flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' || self.name != 'Slurm' && !('output' in self.requiredFlags)", message="output flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name == 'Slurm' || self.name != 'Slurm' && !('partition' in self.requiredFlags)", message="partition flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || self.name == 'Slurm' && !('parallelism' in self.requiredFlags)", message="parallelism flag can't be used on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || self.name == 'Slurm' && !('completions' in self.requiredFlags)", message="completions flag can't be used on Slurm mode"
 type SupportedMode struct {
 	// name determines which template will be used and which object will eventually be created.
 	// Possible values are Interactive, Job, RayJob, RayCluster and Slurm.

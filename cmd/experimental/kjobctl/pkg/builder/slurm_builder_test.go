@@ -186,10 +186,23 @@ func TestSlurmBuilderDo(t *testing.T) {
 	userID := os.Getenv(constants.SystemEnvVarNameUser)
 
 	testCases := map[string]slurmBuilderTestCase{
-		"shouldn't build slurm job because template not found": {
+		"shouldn't build slurm job because script not specified": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",
 			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.SlurmMode, Template: "slurm-template"}).
+					Obj(),
+			},
+			wantErr: noScriptSpecifiedErr,
+		},
+		"shouldn't build slurm job because template not found": {
+			beforeTest: beforeSlurmTest,
+			afterTest:  afterSlurmTest,
+			namespace:  metav1.NamespaceDefault,
+			profile:    "profile",
+			mode:       v1alpha1.SlurmMode,
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
 					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.SlurmMode, Template: "slurm-template"}).
@@ -288,7 +301,7 @@ export SLURM_GPUS=                	# Number of GPUs requested (in total).
 export SLURM_NTASKS=1              	# Same as -n, –ntasks. The number of tasks.
 export SLURM_NTASKS_PER_NODE=1  		# Number of tasks requested per node.
 export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
-export SLURM_NNODES=1            		# Total number of nodes (actually pods) in the job’s resource allocation.
+export SLURM_NNODES=2            		# Total number of nodes (actually pods) in the job’s resource allocation.
 export SLURM_SUBMIT_DIR=/slurm        		# The path of the job submission directory.
 export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
 

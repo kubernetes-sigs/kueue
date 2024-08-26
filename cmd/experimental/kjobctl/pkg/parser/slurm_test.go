@@ -17,8 +17,6 @@ limitations under the License.
 package parser
 
 import (
-	"bufio"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -122,8 +120,7 @@ python my_script.py`,
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			script := bufio.NewScanner(strings.NewReader(tc.script))
-			got, gotErr := SlurmFlags(script, tc.ignoreUnknown)
+			got, gotErr := SlurmFlags(tc.script, tc.ignoreUnknown)
 
 			var gotErrStr string
 			if gotErr != nil {

@@ -17,9 +17,8 @@ limitations under the License.
 package builder
 
 import (
-	"bufio"
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -29,6 +28,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
@@ -76,15 +76,67 @@ const (
 }`
 )
 
+var (
+	noScriptSpecifiedErr = errors.New("no script specified")
+)
+
 type slurmBuilder struct {
 	*Builder
 
-	arrayIndexes parser.ArrayIndexes
+	scriptContent string
+	arrayIndexes  parser.ArrayIndexes
 }
 
 var _ builder = (*slurmBuilder)(nil)
 
+func (b *slurmBuilder) validateGeneral() error {
+	if len(b.script) == 0 {
+		return noScriptSpecifiedErr
+	}
+	return nil
+}
+
+func (b *slurmBuilder) complete() error {
+	content, err := os.ReadFile(b.script)
+	if err != nil {
+		return err
+	}
+	b.scriptContent = string(content)
+
+	if b.array == "" {
+		b.arrayIndexes = parser.GenerateArrayIndexes(ptr.Deref(b.nodes, 1) * ptr.Deref(b.nTasks, 1))
+	} else {
+		b.arrayIndexes, err = parser.ParseArrayIndexes(b.array)
+		if err != nil {
+			return err
+		}
+		if b.arrayIndexes.Parallelism != nil {
+			b.nodes = b.arrayIndexes.Parallelism
+		}
+	}
+
+	if err := b.getSbatchEnvs(); err != nil {
+		return err
+	}
+
+	if err := b.replaceScriptFlags(); err != nil {
+		return err
+	}
+
+	b.setSbatchEnvs()
+
+	return nil
+}
+
 func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
+	if err := b.validateGeneral(); err != nil {
+		return nil, err
+	}
+
+	if err := b.complete(); err != nil {
+		return nil, err
+	}
+
 	template, err := b.kjobctlClientset.KjobctlV1alpha1().JobTemplates(b.profile.Namespace).
 		Get(ctx, string(b.mode.Template), metav1.GetOptions{})
 	if err != nil {
@@ -101,34 +153,12 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	}
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
 
-	content, err := os.ReadFile(b.script)
-	if err != nil {
-		return nil, err
-	}
-	script := bufio.NewScanner(bytes.NewReader(content))
-	scriptFlags, err := parser.SlurmFlags(script, b.ignoreUnknown)
-	if err != nil {
-		return nil, err
-	}
-	b.replaceCLIFlags(scriptFlags)
-
 	var objectName string
 	if b.jobName == "" {
 		objectName = b.generatePrefixName() + utilrand.String(5)
-	} else {
-		objectName = b.jobName
 	}
 	job.ObjectMeta.GenerateName = ""
 	job.ObjectMeta.Name = objectName
-
-	if b.array == "" {
-		b.arrayIndexes = parser.GenerateArrayIndexes(ptr.Deref(b.nodes, 1))
-	} else {
-		b.arrayIndexes, err = parser.ParseArrayIndexes(b.array)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	configMap := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
@@ -138,7 +168,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
 		Data: map[string]string{
 			slurmEntrypointFilename: b.buildEntrypointScript(),
-			slurmScriptFilename:     string(content),
+			slurmScriptFilename:     b.scriptContent,
 		},
 	}
 	configMap.ObjectMeta.GenerateName = ""
@@ -181,15 +211,11 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		})
 	}
 
-	var completions int32
 	nTasks := ptr.Deref(b.nTasks, 1)
-	if len(b.arrayIndexes.Indexes) > 0 {
-		totalIndexes := float64(len(b.arrayIndexes.Indexes))
-		completions = int32(math.Ceil(totalIndexes / float64(nTasks)))
-		job.Spec.Completions = ptr.To(completions)
+	completions := int32(math.Ceil(float64(b.arrayIndexes.Count()) / float64(nTasks)))
 
-		job.Spec.Parallelism = b.arrayIndexes.Parallelism
-	}
+	job.Spec.Completions = ptr.To(completions)
+	job.Spec.Parallelism = b.nodes
 
 	var updatedContainers []corev1.Container
 	for jobContainerIndex := range nTasks {
@@ -206,10 +232,6 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		updatedContainers = append(updatedContainers, containers...)
 	}
 	job.Spec.Template.Spec.Containers = updatedContainers
-
-	if b.nodes != nil {
-		job.Spec.Parallelism = b.nodes
-	}
 
 	return []runtime.Object{job, configMap}, nil
 }
@@ -368,58 +390,135 @@ func (b *slurmBuilder) buildEntrypointCommand() string {
 	return strBuilder.String()
 }
 
-func (b *slurmBuilder) replaceCLIFlags(scriptFlags parser.ParsedSlurmFlags) {
-	if len(scriptFlags.Array) != 0 {
+func (b *slurmBuilder) getSbatchEnvs() error {
+	if len(b.array) == 0 {
+		b.array = os.Getenv("SBATCH_ARRAY_INX")
+	}
+
+	if b.gpusPerTask == nil {
+		if env, ok := os.LookupEnv("SBATCH_GPUS_PER_TASK"); ok {
+			val, err := resource.ParseQuantity(env)
+			if err != nil {
+				return fmt.Errorf("cannot parse '%s': %w", env, err)
+			}
+			b.gpusPerTask = ptr.To(val)
+		}
+	}
+
+	if b.memPerTask == nil {
+		if env, ok := os.LookupEnv("SBATCH_MEM_PER_CPU"); ok {
+			val, err := resource.ParseQuantity(env)
+			if err != nil {
+				return fmt.Errorf("cannot parse '%s': %w", env, err)
+			}
+			b.memPerTask = ptr.To(val)
+		}
+	}
+
+	if b.memPerGPU == nil {
+		if env, ok := os.LookupEnv("SBATCH_MEM_PER_GPU"); ok {
+			val, err := resource.ParseQuantity(env)
+			if err != nil {
+				return fmt.Errorf("cannot parse '%s': %w", env, err)
+			}
+			b.memPerGPU = ptr.To(val)
+		}
+	}
+
+	if len(b.output) == 0 {
+		b.output = os.Getenv("SBATCH_OUTPUT")
+	}
+
+	if len(b.error) == 0 {
+		b.error = os.Getenv("SBATCH_ERROR")
+	}
+
+	if len(b.input) == 0 {
+		b.input = os.Getenv("SBATCH_INPUT")
+	}
+
+	if len(b.jobName) == 0 {
+		b.jobName = os.Getenv("SBATCH_JOB_NAME")
+	}
+
+	if len(b.partition) == 0 {
+		b.partition = os.Getenv("SBATCH_PARTITION")
+	}
+
+	return nil
+}
+
+func (b *slurmBuilder) replaceScriptFlags() error {
+	scriptFlags, err := parser.SlurmFlags(b.scriptContent, b.ignoreUnknown)
+	if err != nil {
+		return err
+	}
+
+	if len(b.array) == 0 {
 		b.array = scriptFlags.Array
 	}
 
-	if scriptFlags.CpusPerTask != nil {
+	if b.cpusPerTask == nil {
 		b.cpusPerTask = scriptFlags.CpusPerTask
 	}
 
-	if scriptFlags.GpusPerTask != nil {
+	if b.gpusPerTask == nil {
 		b.gpusPerTask = scriptFlags.GpusPerTask
 	}
 
-	if scriptFlags.MemPerTask != nil {
+	if b.memPerTask == nil {
 		b.memPerTask = scriptFlags.MemPerTask
 	}
 
-	if scriptFlags.MemPerCPU != nil {
+	if b.memPerCPU == nil {
 		b.memPerCPU = scriptFlags.MemPerCPU
 	}
 
-	if scriptFlags.MemPerGPU != nil {
+	if b.memPerGPU == nil {
 		b.memPerGPU = scriptFlags.MemPerGPU
 	}
 
-	if scriptFlags.Nodes != nil {
+	if b.nodes == nil {
 		b.nodes = scriptFlags.Nodes
 	}
 
-	if scriptFlags.NTasks != nil {
+	if b.nTasks == nil {
 		b.nTasks = scriptFlags.NTasks
 	}
 
-	if len(scriptFlags.Output) != 0 {
+	if len(b.output) == 0 {
 		b.output = scriptFlags.Output
 	}
 
-	if len(scriptFlags.Error) != 0 {
+	if len(b.error) == 0 {
 		b.error = scriptFlags.Error
 	}
 
-	if len(scriptFlags.Input) != 0 {
+	if len(b.input) == 0 {
 		b.input = scriptFlags.Input
 	}
 
-	if len(scriptFlags.JobName) != 0 {
+	if len(b.jobName) == 0 {
 		b.jobName = scriptFlags.JobName
 	}
 
-	if len(scriptFlags.JobName) != 0 {
+	if len(b.partition) == 0 {
 		b.partition = scriptFlags.Partition
 	}
+
+	return nil
+}
+
+func (b *slurmBuilder) setSbatchEnvs() {
+	os.Setenv("SBATCH_ARRAY_INX", b.array)
+	os.Setenv("SBATCH_GPUS_PER_TASK", fmt.Sprintf("%d", b.gpusPerTask.String()))
+	os.Setenv("SBATCH_MEM_PER_CPU", fmt.Sprintf("%d", b.memPerCPU.String()))
+	os.Setenv("SBATCH_MEM_PER_GPU", fmt.Sprintf("%d", b.memPerGPU.String()))
+	os.Setenv("SBATCH_OUTPUT", b.output)
+	os.Setenv("SBATCH_ERROR", b.error)
+	os.Setenv("SBATCH_INPUT", b.input)
+	os.Setenv("SBATCH_JOB_NAME", b.jobName)
+	os.Setenv("SBATCH_PARTITION", b.partition)
 }
 
 func newSlurmBuilder(b *Builder) *slurmBuilder {

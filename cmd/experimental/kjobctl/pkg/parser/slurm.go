@@ -18,6 +18,7 @@ package parser
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -50,11 +51,13 @@ type ParsedSlurmFlags struct {
 	Partition   string
 }
 
-func SlurmFlags(script *bufio.Scanner, ignoreUnknown bool) (ParsedSlurmFlags, error) {
+func SlurmFlags(script string, ignoreUnknown bool) (ParsedSlurmFlags, error) {
 	var flags ParsedSlurmFlags
 
-	for script.Scan() {
-		line := strings.TrimSpace(script.Text())
+	scanner := bufio.NewScanner(bytes.NewReader([]byte(script)))
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
 		if len(line) == 0 {
 			continue
 		}
@@ -75,21 +78,41 @@ func SlurmFlags(script *bufio.Scanner, ignoreUnknown bool) (ParsedSlurmFlags, er
 		case "a", string(v1alpha1.ArrayFlag):
 			flags.Array = val
 		case string(v1alpha1.CpusPerTaskFlag):
-			flags.CpusPerTask = ptr.To(resource.MustParse(val))
+			cpusPerTask, err := resource.ParseQuantity(val)
+			if err != nil {
+				return flags, fmt.Errorf("cannot parse '%s': %w", val, err)
+			}
+			flags.CpusPerTask = ptr.To(cpusPerTask)
 		case "e", string(v1alpha1.ErrorFlag):
 			flags.Error = val
 		case string(v1alpha1.GpusPerTaskFlag):
-			flags.GpusPerTask = ptr.To(resource.MustParse(val))
+			gpusPerTask, err := resource.ParseQuantity(val)
+			if err != nil {
+				return flags, fmt.Errorf("cannot parse '%s': %w", val, err)
+			}
+			flags.GpusPerTask = ptr.To(gpusPerTask)
 		case "i", string(v1alpha1.InputFlag):
 			flags.Input = val
 		case "J", string(v1alpha1.JobNameFlag):
 			flags.JobName = val
 		case string(v1alpha1.MemPerCPUFlag):
-			flags.MemPerCPU = ptr.To(resource.MustParse(val))
+			memPerCPU, err := resource.ParseQuantity(val)
+			if err != nil {
+				return flags, fmt.Errorf("cannot parse '%s': %w", val, err)
+			}
+			flags.MemPerCPU = ptr.To(memPerCPU)
 		case string(v1alpha1.MemPerGPUFlag):
-			flags.MemPerGPU = ptr.To(resource.MustParse(val))
+			memPerGPU, err := resource.ParseQuantity(val)
+			if err != nil {
+				return flags, fmt.Errorf("cannot parse '%s': %w", val, err)
+			}
+			flags.MemPerGPU = ptr.To(memPerGPU)
 		case string(v1alpha1.MemPerTaskFlag):
-			flags.MemPerTask = ptr.To(resource.MustParse(val))
+			memPerTask, err := resource.ParseQuantity(val)
+			if err != nil {
+				return flags, fmt.Errorf("cannot parse '%s': %w", val, err)
+			}
+			flags.MemPerTask = ptr.To(memPerTask)
 		case "N", string(v1alpha1.NodesFlag):
 			intVal, err := strconv.ParseInt(val, 10, 32)
 			if err != nil {

@@ -468,7 +468,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	if o.SlurmFlagSet.Changed(cpusPerTaskFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedCpusPerTask)
 		if err != nil {
-			return err
+			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedCpusPerTask, err)
 		}
 		o.CpusPerTask = &quantity
 	}
@@ -476,7 +476,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	if o.SlurmFlagSet.Changed(gpusPerTaskFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedGpusPerTask)
 		if err != nil {
-			return err
+			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedGpusPerTask, err)
 		}
 		o.GpusPerTask = &quantity
 	}
@@ -484,7 +484,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	if o.SlurmFlagSet.Changed(memPerTaskFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedMemPerTask)
 		if err != nil {
-			return err
+			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedMemPerTask, err)
 		}
 		o.MemPerTask = &quantity
 	}
@@ -492,7 +492,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	if o.SlurmFlagSet.Changed(memPerCPUFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedMemPerCPU)
 		if err != nil {
-			return err
+			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedMemPerCPU, err)
 		}
 		o.MemPerCPU = &quantity
 	}
@@ -500,7 +500,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	if o.SlurmFlagSet.Changed(memPerGPUFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedMemPerGPU)
 		if err != nil {
-			return err
+			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedMemPerGPU, err)
 		}
 		o.MemPerGPU = &quantity
 	}
