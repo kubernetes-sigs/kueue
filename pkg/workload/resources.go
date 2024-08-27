@@ -19,9 +19,12 @@ package workload
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -92,6 +95,50 @@ func handleLimitsToRequests(wl *kueue.Workload) {
 	}
 }
 
+func handleAcceleratorMemory(wl *kueue.Workload) {
+	normalize := func(rl corev1.ResourceList) corev1.ResourceList {
+		hasMig := false
+		for rn := range rl {
+			hasMig = hasMig || strings.HasPrefix(string(rn), "nvidia.com/mig-")
+		}
+		if !hasMig {
+			return rl
+		}
+		accelMem := resourcev1.NewQuantity(0, resourcev1.DecimalSI)
+		adjusted := make(corev1.ResourceList)
+		for resourceName, quantity := range rl {
+			if strings.HasPrefix(string(resourceName), "nvidia.com/mig-") {
+				resourceParts := strings.Split(strings.TrimPrefix(string(resourceName), "nvidia.com/mig-"), ".")
+				if len(resourceParts) == 2 {
+					memoryPart := resourceParts[1]
+					memoryValue, err := strconv.Atoi(strings.TrimSuffix(memoryPart, "gb"))
+					if err == nil {
+						accelMem.Add(resourcev1.MustParse(fmt.Sprintf("%dGi", memoryValue*int(quantity.Value()))))
+					}
+				}
+			} else {
+				adjusted[resourceName] = quantity
+			}
+		}
+		adjusted["kueue.x-k8s.io/accelerator-memory"] = *accelMem
+		return adjusted
+	}
+
+	for pi := range wl.Spec.PodSets {
+		pod := &wl.Spec.PodSets[pi].Template.Spec
+		for ci := range pod.InitContainers {
+			res := &pod.InitContainers[ci].Resources
+			res.Limits = normalize(res.Limits)
+			res.Requests = normalize(res.Requests)
+		}
+		for ci := range pod.Containers {
+			res := &pod.Containers[ci].Resources
+			res.Limits = normalize(res.Limits)
+			res.Requests = normalize(res.Requests)
+		}
+	}
+}
+
 // UseLimitsAsMissingRequestsInPod adjust the resource requests to the limits value
 // for resources that only set limits.
 func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
@@ -109,6 +156,7 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 // - PodOverhead
 // - LimitRanges
 // - Limits
+// - Normalizing accelerator memory
 func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) {
 	log := ctrl.LoggerFrom(ctx)
 	for _, err := range handlePodOverhead(ctx, cl, wl) {
@@ -118,4 +166,5 @@ func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) 
 		log.Error(err, "Failed adjusting requests for LimitRanges")
 	}
 	handleLimitsToRequests(wl)
+	handleAcceleratorMemory(wl)
 }
