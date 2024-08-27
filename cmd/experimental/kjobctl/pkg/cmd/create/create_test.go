@@ -135,16 +135,6 @@ func beforeSlurmTest(tc *createCmdTestCase) error {
 }
 
 func afterSlurmTest(tc *createCmdTestCase) error {
-	os.Unsetenv("SBATCH_ARRAY_INX")
-	os.Unsetenv("SBATCH_GPUS_PER_TASK")
-	os.Unsetenv("SBATCH_MEM_PER_CPU")
-	os.Unsetenv("SBATCH_MEM_PER_GPU")
-	os.Unsetenv("SBATCH_OUTPUT")
-	os.Unsetenv("SBATCH_ERROR")
-	os.Unsetenv("SBATCH_INPUT")
-	os.Unsetenv("SBATCH_JOB_NAME")
-	os.Unsetenv("SBATCH_PARTITION")
-
 	return os.Remove(tc.tempFile)
 }
 
@@ -730,10 +720,15 @@ then
 	exit 0
 fi
 
-SBATCH_INPUT= 		# Instruct Slurm to connect the batch script's standard input directly to the file name specified in the "filename pattern".
-SBATCH_OUTPUT=		# Instruct Slurm to connect the batch script's standard output directly to the file name specified in the "filename pattern".
-SBATCH_ERROR=		# Instruct Slurm to connect the batch script's standard error directly to the file name specified in the "filename pattern".
-SBATCH_JOB_NAME=	# Specify a name for the job allocation.
+export SBATCH_ARRAY_INX=
+export SBATCH_GPUS_PER_TASK=
+export SBATCH_MEM_PER_CPU=
+export SBATCH_MEM_PER_GPU=
+export SBATCH_OUTPUT=
+export SBATCH_ERROR=
+export SBATCH_INPUT=
+export SBATCH_JOB_NAME=
+export SBATCH_PARTITION=
 
 export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=1  		# Total number of tasks in a job array.
@@ -904,10 +899,15 @@ then
 	exit 0
 fi
 
-SBATCH_INPUT=/slurm/input.txt 		# Instruct Slurm to connect the batch script's standard input directly to the file name specified in the "filename pattern".
-SBATCH_OUTPUT=/slurm/stdout.out		# Instruct Slurm to connect the batch script's standard output directly to the file name specified in the "filename pattern".
-SBATCH_ERROR=/slurm/stderr.out		# Instruct Slurm to connect the batch script's standard error directly to the file name specified in the "filename pattern".
-SBATCH_JOB_NAME=job-name	# Specify a name for the job allocation.
+export SBATCH_ARRAY_INX=0-25
+export SBATCH_GPUS_PER_TASK=
+export SBATCH_MEM_PER_CPU=
+export SBATCH_MEM_PER_GPU=
+export SBATCH_OUTPUT=/slurm/stdout.out
+export SBATCH_ERROR=/slurm/stderr.out
+export SBATCH_INPUT=/slurm/input.txt
+export SBATCH_JOB_NAME=job-name
+export SBATCH_PARTITION=lq1
 
 export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=26  		# Total number of tasks in a job array.

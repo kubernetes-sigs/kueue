@@ -127,8 +127,6 @@ func (b *slurmBuilder) complete() error {
 		return err
 	}
 
-	b.setSbatchEnvs()
-
 	return nil
 }
 
@@ -362,14 +360,35 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 }
 
 func (b *slurmBuilder) buildSbatchVariables() string {
-	return fmt.Sprintf(`SBATCH_INPUT=%[1]s 		# Instruct Slurm to connect the batch script's standard input directly to the file name specified in the "filename pattern".
-SBATCH_OUTPUT=%[2]s		# Instruct Slurm to connect the batch script's standard output directly to the file name specified in the "filename pattern".
-SBATCH_ERROR=%[3]s		# Instruct Slurm to connect the batch script's standard error directly to the file name specified in the "filename pattern".
-SBATCH_JOB_NAME=%[4]s	# Specify a name for the job allocation.`,
-		b.input,   // %[1]s
-		b.output,  // %[2]s
-		b.error,   // %[3]s
-		b.jobName, // %[4]s
+	var gpusPerTask, memPerCPU, memPerGPU string
+	if b.gpusPerTask != nil {
+		gpusPerTask = b.gpusPerTask.String()
+	}
+	if b.memPerCPU != nil {
+		memPerCPU = b.memPerCPU.String()
+	}
+	if b.memPerGPU != nil {
+		memPerGPU = b.memPerGPU.String()
+	}
+
+	return fmt.Sprintf(`export SBATCH_ARRAY_INX=%[1]s
+export SBATCH_GPUS_PER_TASK=%[2]s
+export SBATCH_MEM_PER_CPU=%[3]s
+export SBATCH_MEM_PER_GPU=%[4]s
+export SBATCH_OUTPUT=%[5]s
+export SBATCH_ERROR=%[6]s
+export SBATCH_INPUT=%[7]s
+export SBATCH_JOB_NAME=%[8]s
+export SBATCH_PARTITION=%[9]s`,
+		b.array,     // %[1]s
+		gpusPerTask, // %[2]s
+		memPerCPU,   // %[3]s
+		memPerGPU,   // %[4]s
+		b.output,    // %[5]s
+		b.error,     // %[6]s
+		b.input,     // %[7]s
+		b.jobName,   // %[8]s
+		b.partition, // %[9]s
 	)
 }
 
@@ -564,18 +583,6 @@ func (b *slurmBuilder) replaceScriptFlags() error {
 	}
 
 	return nil
-}
-
-func (b *slurmBuilder) setSbatchEnvs() {
-	os.Setenv("SBATCH_ARRAY_INX", b.array)
-	os.Setenv("SBATCH_GPUS_PER_TASK", b.gpusPerTask.String())
-	os.Setenv("SBATCH_MEM_PER_CPU", b.memPerCPU.String())
-	os.Setenv("SBATCH_MEM_PER_GPU", b.memPerGPU.String())
-	os.Setenv("SBATCH_OUTPUT", b.output)
-	os.Setenv("SBATCH_ERROR", b.error)
-	os.Setenv("SBATCH_INPUT", b.input)
-	os.Setenv("SBATCH_JOB_NAME", b.jobName)
-	os.Setenv("SBATCH_PARTITION", b.partition)
 }
 
 func newSlurmBuilder(b *Builder) *slurmBuilder {
