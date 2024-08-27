@@ -22,13 +22,13 @@ import "sigs.k8s.io/kueue/pkg/hierarchy"
 // each other.
 type cohort struct {
 	Name string
-	hierarchy.WiredCohort[*ClusterQueue, *cohort]
+	hierarchy.Cohort[*ClusterQueue, *cohort]
 }
 
-func cohortFactory(name string) *cohort {
+func newCohort(name string) *cohort {
 	return &cohort{
 		name,
-		hierarchy.NewWiredCohort[*ClusterQueue, *cohort](),
+		hierarchy.NewCohort[*ClusterQueue, *cohort](),
 	}
 }
 

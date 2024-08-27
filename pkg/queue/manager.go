@@ -103,7 +103,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 			PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 		},
 		workloadInfoOptions: options.workloadInfoOptions,
-		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](cohortFactory),
+		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -441,7 +441,7 @@ func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq 
 	}
 
 	queued := false
-	for _, clusterQueue := range cq.Parent().Members() {
+	for _, clusterQueue := range cq.Parent().ChildCQs() {
 		queued = clusterQueue.QueueInadmissibleWorkloads(ctx, m.client) || queued
 	}
 	return queued

@@ -185,7 +185,7 @@ func TestManager(t *testing.T) {
 				gotEdges := make([]cqEdge, 0, len(tc.wantCqEdge))
 				for _, cohort := range mgr.Cohorts {
 					gotCohorts.Insert(cohort.GetName())
-					for _, cq := range cohort.Members() {
+					for _, cq := range cohort.ChildCQs() {
 						gotEdges = append(gotEdges, cqEdge{cq.GetName(), cohort.GetName()})
 					}
 				}
@@ -202,13 +202,13 @@ func TestManager(t *testing.T) {
 
 type testCohort struct {
 	name string
-	WiredCohort[*testClusterQueue, *testCohort]
+	Cohort[*testClusterQueue, *testCohort]
 }
 
 func cohortFactory(name string) *testCohort {
 	return &testCohort{
-		name:        name,
-		WiredCohort: NewWiredCohort[*testClusterQueue, *testCohort](),
+		name:   name,
+		Cohort: NewCohort[*testClusterQueue, *testCohort](),
 	}
 }
 
@@ -218,7 +218,7 @@ func (t *testCohort) GetName() string {
 
 type testClusterQueue struct {
 	name string
-	WiredClusterQueue[*testClusterQueue, *testCohort]
+	ClusterQueue[*testCohort]
 }
 
 func newCq(name string) *testClusterQueue {
