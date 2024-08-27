@@ -96,11 +96,11 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 func TestFitInCohort(t *testing.T) {
 	cases := map[string]struct {
-		request            resources.FlavorResourceQuantities
-		wantFit            bool
-		usage              resources.FlavorResourceQuantities
-		clusterQueue       []*kueue.ClusterQueue
-		enableLendingLimit bool
+		request             resources.FlavorResourceQuantities
+		wantFit             bool
+		usage               resources.FlavorResourceQuantities
+		clusterQueue        []*kueue.ClusterQueue
+		disableLendingLimit bool
 	}{
 		"full cohort, empty request": {
 			wantFit: true,
@@ -262,7 +262,7 @@ func TestFitInCohort(t *testing.T) {
 					Obj(),
 			},
 		},
-		"lendingLimit enabled can't fit": {
+		"lendingLimit can't fit": {
 			request: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
@@ -295,9 +295,43 @@ func TestFitInCohort(t *testing.T) {
 					Cohort("C").
 					Obj(),
 			},
-			enableLendingLimit: true,
 		},
-		"lendingLimit enabled can fit": {
+		"lendingLimit should not affect the fit when feature disabled": {
+			disableLendingLimit: true,
+			request: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
+			},
+			wantFit: true,
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "f1", Resource: corev1.ResourceCPU}: 2_000,
+			},
+			clusterQueue: []*kueue.ClusterQueue{
+				utiltesting.
+					MakeClusterQueue("CQ").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("2").
+							Append().
+							FlavorQuotas,
+					).
+					Cohort("C").
+					Obj(),
+				utiltesting.
+					MakeClusterQueue("CQ-B").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("f1").
+							ResourceQuotaWrapper(corev1.ResourceCPU).
+							NominalQuota("3").
+							LendingLimit("2").
+							Append().
+							FlavorQuotas,
+					).
+					Cohort("C").
+					Obj(),
+			},
+		},
+		"lendingLimit can fit": {
 			request: resources.FlavorResourceQuantities{
 				{Flavor: "f1", Resource: corev1.ResourceCPU}: 3_000,
 			},
@@ -330,13 +364,14 @@ func TestFitInCohort(t *testing.T) {
 					Cohort("C").
 					Obj(),
 			},
-			enableLendingLimit: true,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
+			if tc.disableLendingLimit {
+				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
+			}
 			cache := New(utiltesting.NewFakeClient())
 
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f1").Obj())
@@ -1018,8 +1053,6 @@ func TestDominantResourceShare(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
-
 			cache := New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("default").Obj())
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("on-demand").Obj())

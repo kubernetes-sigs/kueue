@@ -276,12 +276,12 @@ func TestPreemption(t *testing.T) {
 			Obj(),
 	}
 	cases := map[string]struct {
-		admitted           []kueue.Workload
-		incoming           *kueue.Workload
-		targetCQ           string
-		assignment         flavorassigner.Assignment
-		wantPreempted      sets.Set[string]
-		enableLendingLimit bool
+		admitted            []kueue.Workload
+		incoming            *kueue.Workload
+		targetCQ            string
+		assignment          flavorassigner.Assignment
+		wantPreempted       sets.Set[string]
+		disableLendingLimit bool
 	}{
 		"preempt lowest priority": {
 			admitted: []kueue.Workload{
@@ -1162,8 +1162,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted:      sets.New(targetKeyReason("/lend2-mid", kueue.InCohortReclamationReason)),
-			enableLendingLimit: true,
+			wantPreempted: sets.New(targetKeyReason("/lend2-mid", kueue.InCohortReclamationReason)),
 		},
 		"preempt from all ClusterQueues in cohort-lend": {
 			admitted: []kueue.Workload{
@@ -1196,8 +1195,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted:      sets.New(targetKeyReason("/lend1-low", kueue.InClusterQueueReason), targetKeyReason("/lend2-low", kueue.InCohortReclamationReason)),
-			enableLendingLimit: true,
+			wantPreempted: sets.New(targetKeyReason("/lend1-low", kueue.InClusterQueueReason), targetKeyReason("/lend2-low", kueue.InCohortReclamationReason)),
 		},
 		"cannot preempt from other ClusterQueues if exceeds requestable quota including lending limit": {
 			admitted: []kueue.Workload{
@@ -1217,8 +1215,7 @@ func TestPreemption(t *testing.T) {
 					Mode: flavorassigner.Preempt,
 				},
 			}),
-			wantPreempted:      nil,
-			enableLendingLimit: true,
+			wantPreempted: nil,
 		},
 		"preemptions from cq when target queue is exhausted for the single requested resource": {
 			admitted: []kueue.Workload{
@@ -1422,7 +1419,9 @@ func TestPreemption(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
+			if tc.disableLendingLimit {
+				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
+			}
 			ctx, log := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
