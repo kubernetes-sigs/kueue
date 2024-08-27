@@ -27,6 +27,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -277,6 +279,31 @@ multiKueue:
   gcInterval: 1m30s
   origin: multikueue-manager1
   workerLostTimeout: 10m
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
+	resourceTransformConfig := filepath.Join(tmpDir, "resourceXForm.yaml")
+	if err := os.WriteFile(resourceTransformConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+namespace: kueue-system
+resources:
+  transformations:
+  - input: nvidia.com/mig-1g.5gb
+    strategy: Replace
+    outputs:
+      example.com/accelerator-memory: 5Gi
+      example.com/credits: 10
+  - input: nvidia.com/mig-2g.10gb
+    strategy: Replace
+    outputs:
+      example.com/accelerator-memory: 10Gi
+      example.com/credits: 15
+  - input: cpu
+    strategy: Retain
+    outputs:
+      example.com/credits: 1
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -849,6 +876,51 @@ webhook:
 					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
+				},
+			},
+			wantOptions: defaultControlOptions,
+		},
+		{
+			name:       "resourceTransform config",
+			configFile: resourceTransformConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
+				QueueVisibility:            defaultQueueVisibility,
+				MultiKueue:                 defaultMultiKueue,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
+							Strategy: "Replace",
+							Outputs: corev1.ResourceList{
+								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("5Gi"),
+								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("10"),
+							},
+						},
+						{
+							Input:    corev1.ResourceName("nvidia.com/mig-2g.10gb"),
+							Strategy: "Replace",
+							Outputs: corev1.ResourceList{
+								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("10Gi"),
+								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("15"),
+							},
+						},
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: "Retain",
+							Outputs: corev1.ResourceList{
+								corev1.ResourceName("example.com/credits"): resourcev1.MustParse("1"),
+							},
+						},
+					},
 				},
 			},
 			wantOptions: defaultControlOptions,

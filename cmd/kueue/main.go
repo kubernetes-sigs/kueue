@@ -159,6 +159,10 @@ func main() {
 		cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
+	if features.Enabled(features.ConfigurableResourceTransformations) && cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
+		cacheOptions = append(cacheOptions, cache.WithResourceMappings(cfg.Resources.Transformations))
+		queueOptions = append(queueOptions, queue.WithResourceMappings(cfg.Resources.Transformations))
+	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, cache.WithFairSharing(cfg.FairSharing.Enable))
 	}

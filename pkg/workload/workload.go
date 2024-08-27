@@ -84,6 +84,7 @@ type AssignmentClusterQueueState struct {
 
 type InfoOptions struct {
 	excludedResourcePrefixes []string
+	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 }
 
 type InfoOption func(*InfoOptions)
@@ -94,6 +95,13 @@ var defaultOptions = InfoOptions{}
 func WithExcludedResourcePrefixes(n []string) InfoOption {
 	return func(o *InfoOptions) {
 		o.excludedResourcePrefixes = n
+	}
+}
+
+// WithResourceMappings sets the resource mappings
+func WithResourceMappings(transforms []config.ResourceTransformation) InfoOption {
+	return func(o *InfoOptions) {
+		o.resourceTransformations = slices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
 	}
 }
 
@@ -189,7 +197,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w)
+		info.TotalRequests = totalRequestsFromPodSets(w, options.resourceTransformations)
 	}
 	if len(options.excludedResourcePrefixes) > 0 {
 		dropExcludedResources(info.TotalRequests, options.excludedResourcePrefixes)
@@ -238,6 +246,38 @@ func dropExcludedResources(resources []PodSetResources, excludedPrefixes []strin
 	}
 }
 
+func applyResourceMappings(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
+	match := false
+	for resourceName := range input {
+		if _, ok := transforms[resourceName]; ok {
+			match = true
+			break
+		}
+	}
+	if !match {
+		return input
+	}
+	output := make(corev1.ResourceList)
+	for inputName, inputQuantity := range input {
+		if mapping, ok := transforms[inputName]; ok {
+			for outputName, baseFactor := range mapping.Outputs {
+				outputQuantity := baseFactor.DeepCopy()
+				outputQuantity.Mul(inputQuantity.Value())
+				if accumulated, ok := output[outputName]; ok {
+					outputQuantity.Add(accumulated)
+				}
+				output[outputName] = outputQuantity
+			}
+			if mapping.Strategy == config.Retain {
+				output[inputName] = inputQuantity
+			}
+		} else {
+			output[inputName] = inputQuantity
+		}
+	}
+	return output
+}
+
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
 	ps := wl.Spec.PodSets
 	for psi := range ps {
@@ -279,7 +319,7 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
+func totalRequestsFromPodSets(wl *kueue.Workload, transforms map[corev1.ResourceName]*config.ResourceTransformation) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
@@ -291,7 +331,9 @@ func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 			Name:  ps.Name,
 			Count: count,
 		}
-		setRes.Requests = resources.NewRequests(limitrange.TotalRequests(&ps.Template.Spec))
+		specRequests := limitrange.TotalRequests(&ps.Template.Spec)
+		effectiveRequests := applyResourceMappings(specRequests, transforms)
+		setRes.Requests = resources.NewRequests(effectiveRequests)
 		scaleUp(setRes.Requests, int64(count))
 		res = append(res, setRes)
 	}
