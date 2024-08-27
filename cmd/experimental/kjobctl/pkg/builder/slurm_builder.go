@@ -251,21 +251,23 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	job.Spec.Completions = ptr.To(completions)
 	job.Spec.Parallelism = b.nodes
 
-	var updatedContainers []corev1.Container
-	for jobContainerIndex := range nTasks {
-		containers := make([]corev1.Container, len(job.Spec.Template.Spec.Containers))
-		copy(containers, job.Spec.Template.Spec.Containers)
-
-		for i := range containers {
-			containers[i].Name = fmt.Sprintf("%s-%d", containers[i].Name, jobContainerIndex)
-			containers[i].Env = append(containers[i].Env, corev1.EnvVar{
-				Name:  "JOB_CONTAINER_INDEX",
-				Value: strconv.FormatInt(int64(jobContainerIndex), 10),
-			})
+	if nTasks > 1 {
+		for i := 1; i < int(nTasks); i++ {
+			job.Spec.Template.Spec.Containers = append(job.Spec.Template.Spec.Containers, job.Spec.Template.Spec.Containers[0])
 		}
-		updatedContainers = append(updatedContainers, containers...)
+
+		for i := range nTasks {
+			job.Spec.Template.Spec.Containers[i].Name =
+				fmt.Sprintf("%s-%d", job.Spec.Template.Spec.Containers[i].Name, i)
+		}
 	}
-	job.Spec.Template.Spec.Containers = updatedContainers
+
+	for i := range job.Spec.Template.Spec.Containers {
+		job.Spec.Template.Spec.Containers[i].Env = append(job.Spec.Template.Spec.Containers[i].Env, corev1.EnvVar{
+			Name:  "JOB_CONTAINER_INDEX",
+			Value: strconv.FormatInt(int64(i), 10),
+		})
+	}
 
 	if b.nodes != nil {
 		job.Spec.Parallelism = b.nodes

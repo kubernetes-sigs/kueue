@@ -666,7 +666,7 @@ func TestCreateCmd(t *testing.T) {
 							Completions(1).
 							CompletionMode(batchv1.IndexedCompletion).
 							Profile("profile").
-							WithContainer(*wrappers.MakeContainer("c1-0", "bash:4.4").
+							WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
 								Command("bash", "/slurm/entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{MountPath: "/slurm"}).
 								Obj()).
