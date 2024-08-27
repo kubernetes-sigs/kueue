@@ -81,6 +81,7 @@ const (
 	// owners: @B1F030, @kerthcet
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1224-lending-limit
 	// alpha: v0.6
+	// beta: v0.9
 	//
 	// Enables lending limit.
 	LendingLimit featuregate.Feature = "LendingLimit"
@@ -118,7 +119,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	VisibilityOnDemand:              {Default: false, PreRelease: featuregate.Alpha},
 	PrioritySortingWithinCohort:     {Default: true, PreRelease: featuregate.Beta},
 	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
-	LendingLimit:                    {Default: false, PreRelease: featuregate.Alpha},
+	LendingLimit:                    {Default: true, PreRelease: featuregate.Beta},
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
 	MultiplePreemptions:             {Default: true, PreRelease: featuregate.Beta},
 }
