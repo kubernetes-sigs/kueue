@@ -81,7 +81,7 @@ type clusterQueue struct {
 	isStopped                                          bool
 	workloadInfoOptions                                []workload.InfoOption
 
-	hierarchy.WiredClusterQueue[*clusterQueue, *cohort]
+	hierarchy.ClusterQueue[*cohort]
 }
 
 func (c *clusterQueue) GetName() string {
@@ -91,7 +91,7 @@ func (c *clusterQueue) GetName() string {
 // cohort is a set of ClusterQueues that can borrow resources from each other.
 type cohort struct {
 	Name string
-	hierarchy.WiredCohort[*clusterQueue, *cohort]
+	hierarchy.Cohort[*clusterQueue, *cohort]
 }
 
 func (c *cohort) GetName() string {
@@ -122,16 +122,16 @@ type queue struct {
 	admittedUsage resources.FlavorResourceQuantities
 }
 
-func cohortFactory(name string) *cohort {
+func newCohort(name string) *cohort {
 	return &cohort{
 		name,
-		hierarchy.NewWiredCohort[*clusterQueue, *cohort](),
+		hierarchy.NewCohort[*clusterQueue, *cohort](),
 	}
 }
 
 func (c *cohort) CalculateLendable() map[corev1.ResourceName]int64 {
 	lendable := make(map[corev1.ResourceName]int64)
-	for _, member := range c.Members() {
+	for _, member := range c.ChildCQs() {
 		for _, fr := range flavorResources(member) {
 			quota := member.QuotaFor(fr)
 			if features.Enabled(features.LendingLimit) && quota.LendingLimit != nil {

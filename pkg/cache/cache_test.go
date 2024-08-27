@@ -1008,7 +1008,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.hm.ClusterQueues,
 				cmpopts.IgnoreFields(clusterQueue{}, "ResourceGroups"),
 				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment"),
-				cmpopts.IgnoreUnexported(clusterQueue{}, hierarchy.WiredClusterQueue[*clusterQueue, *cohort]{}),
+				cmpopts.IgnoreUnexported(clusterQueue{}, hierarchy.ClusterQueue[*cohort]{}),
 				cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
@@ -1016,7 +1016,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			gotCohorts := make(map[string]sets.Set[string], len(cache.hm.Cohorts))
 			for name, cohort := range cache.hm.Cohorts {
 				gotCohort := sets.New[string]()
-				for _, cq := range cohort.Members() {
+				for _, cq := range cohort.ChildCQs() {
 					gotCohort.Insert(cq.Name)
 				}
 				gotCohorts[name] = gotCohort

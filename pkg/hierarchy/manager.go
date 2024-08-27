@@ -18,20 +18,20 @@ package hierarchy
 
 // Manager stores Cohorts and ClusterQueues, and maintains the edges
 // between them.
-type Manager[CQ cqNode[CQ, C], C cohortNode[CQ, C]] struct {
+type Manager[CQ clusterQueueNode[C], C cohortNode[CQ]] struct {
 	Cohorts       map[string]C
 	ClusterQueues map[string]CQ
 	cohortFactory func(string) C
 }
 
-// NewManager creates a new Manager.  A Cohort factory
-// function must be provided to instantiate Cohorts in the case that a
+// NewManager creates a new Manager. A newCohort function must
+// be provided to instantiate Cohorts in the case that a
 // ClusterQueue references a Cohort not backed by an API object.
-func NewManager[CQ cqNode[CQ, C], C cohortNode[CQ, C]](cohortFactory func(string) C) Manager[CQ, C] {
+func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ]](newCohort func(string) C) Manager[CQ, C] {
 	return Manager[CQ, C]{
 		make(map[string]C),
 		make(map[string]CQ),
-		cohortFactory,
+		newCohort,
 	}
 }
 
@@ -43,9 +43,9 @@ func (c *Manager[CQ, C]) UpdateClusterQueueEdge(name, parentName string) {
 	cq := c.ClusterQueues[name]
 	c.unwireClusterQueue(cq)
 	if parentName != "" {
-		cohort := c.getCohort(parentName)
-		cohort.Wired().members.Insert(cq)
-		cq.Wired().cohort = cohort
+		parent := c.getOrCreateCohort(parentName)
+		parent.insertClusterQueue(cq)
+		cq.setParent(parent)
 	}
 }
 
@@ -58,16 +58,16 @@ func (c *Manager[CQ, C]) DeleteClusterQueue(name string) {
 }
 
 func (c *Manager[CQ, C]) unwireClusterQueue(cq CQ) {
-	if cq.Wired().HasParent() {
-		cohort := cq.Wired().Parent()
-		cohort.Wired().members.Delete(cq)
-		c.cleanupCohort(cohort)
+	if cq.HasParent() {
+		parent := cq.Parent()
+		parent.deleteClusterQueue(cq)
+		c.cleanupCohort(parent)
 		var zero C
-		cq.Wired().cohort = zero
+		cq.setParent(zero)
 	}
 }
 
-func (c *Manager[CQ, C]) getCohort(cohortName string) C {
+func (c *Manager[CQ, C]) getOrCreateCohort(cohortName string) C {
 	if _, ok := c.Cohorts[cohortName]; !ok {
 		c.Cohorts[cohortName] = c.cohortFactory(cohortName)
 	}
@@ -75,7 +75,7 @@ func (c *Manager[CQ, C]) getCohort(cohortName string) C {
 }
 
 func (c *Manager[CQ, C]) cleanupCohort(cohort C) {
-	if cohort.Wired().members.Len() == 0 {
+	if cohort.childCount() == 0 {
 		delete(c.Cohorts, cohort.GetName())
 	}
 }
@@ -85,12 +85,16 @@ type nodeBase interface {
 	comparable
 }
 
-type cqNode[CQ, C nodeBase] interface {
-	Wired() *WiredClusterQueue[CQ, C]
+type clusterQueueNode[C nodeBase] interface {
+	Parent() C
+	HasParent() bool
+	setParent(C)
 	nodeBase
 }
 
-type cohortNode[CQ, C nodeBase] interface {
-	Wired() *WiredCohort[CQ, C]
+type cohortNode[CQ nodeBase] interface {
+	insertClusterQueue(CQ)
+	deleteClusterQueue(CQ)
+	childCount() int
 	nodeBase
 }

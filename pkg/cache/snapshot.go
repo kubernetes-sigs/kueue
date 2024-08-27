@@ -143,13 +143,13 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
 	cohortSnap := &CohortSnapshot{
 		Name:                 c.Name,
-		Members:              make(sets.Set[*ClusterQueueSnapshot], len(c.Members())),
+		Members:              make(sets.Set[*ClusterQueueSnapshot], len(c.ChildCQs())),
 		Lendable:             c.CalculateLendable(),
 		Usage:                make(resources.FlavorResourceQuantities),
 		RequestableResources: make(resources.FlavorResourceQuantities),
 	}
 	cohortSnap.AllocatableResourceGeneration = 0
-	for _, cq := range c.Members() {
+	for _, cq := range c.ChildCQs() {
 		if cq.Active() {
 			cqSnap := cqs[cq.Name]
 			cqSnap.accumulateResources(cohortSnap)

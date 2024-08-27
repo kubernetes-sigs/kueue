@@ -16,20 +16,30 @@ limitations under the License.
 
 package hierarchy
 
-type WiredClusterQueue[CQ, Cohort nodeBase] struct {
-	cohort Cohort
+import "k8s.io/apimachinery/pkg/util/sets"
+
+type Cohort[CQ, C nodeBase] struct {
+	childCqs sets.Set[CQ]
 }
 
-func (c *WiredClusterQueue[CQ, Cohort]) Parent() Cohort {
-	return c.cohort
+func (c *Cohort[CQ, C]) ChildCQs() []CQ {
+	return c.childCqs.UnsortedList()
 }
 
-func (c *WiredClusterQueue[CQ, Cohort]) HasParent() bool {
-	var zero Cohort
-	return c.Parent() != zero
+func NewCohort[CQ, C nodeBase]() Cohort[CQ, C] {
+	return Cohort[CQ, C]{childCqs: sets.New[CQ]()}
 }
 
-// Wired implements interface for Manager
-func (c *WiredClusterQueue[CQ, Cohort]) Wired() *WiredClusterQueue[CQ, Cohort] {
-	return c
+// implement cohortNode interface
+
+func (c *Cohort[CQ, C]) insertClusterQueue(cq CQ) {
+	c.childCqs.Insert(cq)
+}
+
+func (c *Cohort[CQ, C]) deleteClusterQueue(cq CQ) {
+	c.childCqs.Delete(cq)
+}
+
+func (c *Cohort[CQ, C]) childCount() int {
+	return c.childCqs.Len()
 }

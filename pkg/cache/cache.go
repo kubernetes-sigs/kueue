@@ -113,7 +113,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		podsReadyTracking:   options.podsReadyTracking,
 		workloadInfoOptions: options.workloadInfoOptions,
 		fairSharingEnabled:  options.fairSharingEnabled,
-		hm:                  hierarchy.NewManager[*clusterQueue, *cohort](cohortFactory),
+		hm:                  hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
 	}
 	c.podsReadyCond.L = &c.RWMutex
 	return c

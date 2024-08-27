@@ -51,7 +51,7 @@ var (
 )
 
 type ClusterQueue struct {
-	hierarchy.WiredClusterQueue[*ClusterQueue, *cohort]
+	hierarchy.ClusterQueue[*cohort]
 	name              string
 	heap              heap.Heap[workload.Info]
 	namespaceSelector labels.Selector

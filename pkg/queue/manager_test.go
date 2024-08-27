@@ -176,7 +176,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 	gotCohorts := make(map[string]sets.Set[string])
 	for name, cohort := range manager.hm.Cohorts {
 		gotCohorts[name] = sets.New[string]()
-		for _, cq := range cohort.Members() {
+		for _, cq := range cohort.ChildCQs() {
 			gotCohorts[name].Insert(cq.GetName())
 		}
 	}
