@@ -673,8 +673,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 	got := q.Pop()
 	if got == nil {
 		t.Fatal("Queue is empty")
-	}
-	if got.Obj.Name != "before" {
+	} else if got.Obj.Name != "before" {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "before")
 	}
 	wlInfo := workload.NewInfo(&kueue.Workload{
@@ -687,8 +686,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 	got = q.Pop()
 	if got == nil {
 		t.Fatal("Queue is empty")
-	}
-	if got.Obj.Name != "after" {
+	} else if got.Obj.Name != "after" {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "after")
 	}
 
@@ -856,8 +854,7 @@ func TestStrictFIFO(t *testing.T) {
 			got := q.Pop()
 			if got == nil {
 				t.Fatal("Queue is empty")
-			}
-			if got.Obj.Name != tt.expected {
+			} else if got.Obj.Name != tt.expected {
 				t.Errorf("Popped workload %q want %q", got.Obj.Name, tt.expected)
 			}
 		})
