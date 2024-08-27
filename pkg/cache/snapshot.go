@@ -120,6 +120,7 @@ func (c *Cache) Snapshot() Snapshot {
 func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 	cc := &ClusterQueueSnapshot{
 		Name:                          c.Name,
+		ResourceGroups:                make([]ResourceGroup, len(c.ResourceGroups)),
 		FlavorFungibility:             c.FlavorFungibility,
 		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
@@ -132,8 +133,8 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 		Quotas:                        c.quotas,
 	}
 
-	for _, rg := range c.ResourceGroups {
-		cc.ResourceGroups = append(cc.ResourceGroups, rg.Clone())
+	for i, rg := range c.ResourceGroups {
+		cc.ResourceGroups[i] = rg.Clone()
 	}
 
 	if features.Enabled(features.LendingLimit) {
