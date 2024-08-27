@@ -144,7 +144,7 @@ type slurmBuilderTestCase struct {
 	mode        v1alpha1.ApplicationProfileMode
 	array       string
 	cpusPerTask *resource.Quantity
-	gpusPerTask *resource.Quantity
+	gpusPerTask map[string]*resource.Quantity
 	memPerTask  *resource.Quantity
 	memPerCPU   *resource.Quantity
 	memPerGPU   *resource.Quantity

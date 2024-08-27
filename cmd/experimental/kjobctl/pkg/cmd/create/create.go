@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/builder"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
 )
 
 const (
@@ -153,7 +154,7 @@ type CreateOptions struct {
 	RayCluster    string
 	Array         string
 	CpusPerTask   *apiresource.Quantity
-	GpusPerTask   *apiresource.Quantity
+	GpusPerTask   map[string]*apiresource.Quantity
 	MemPerTask    *apiresource.Quantity
 	MemPerCPU     *apiresource.Quantity
 	MemPerGPU     *apiresource.Quantity
@@ -479,11 +480,11 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	}
 
 	if o.SlurmFlagSet.Changed(gpusPerTaskFlagName) {
-		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedGpusPerTask)
+		gpusPerTask, err := parser.GpusFlag(gpusPerTaskFlagName)
 		if err != nil {
-			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedGpusPerTask, err)
+			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedCpusPerTask, err)
 		}
-		o.GpusPerTask = &quantity
+		o.GpusPerTask = gpusPerTask
 	}
 
 	if o.SlurmFlagSet.Changed(memPerTaskFlagName) {

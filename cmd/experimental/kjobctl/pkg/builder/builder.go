@@ -96,7 +96,7 @@ type Builder struct {
 	array         string
 	cpusPerTask   *resource.Quantity
 	error         string
-	gpusPerTask   *resource.Quantity
+	gpusPerTask   map[string]*resource.Quantity
 	input         string
 	jobName       string
 	memPerCPU     *resource.Quantity
@@ -199,7 +199,7 @@ func (b *Builder) WithError(error string) *Builder {
 	return b
 }
 
-func (b *Builder) WithGpusPerTask(gpusPerTask *resource.Quantity) *Builder {
+func (b *Builder) WithGpusPerTask(gpusPerTask map[string]*resource.Quantity) *Builder {
 	b.gpusPerTask = gpusPerTask
 	return b
 }

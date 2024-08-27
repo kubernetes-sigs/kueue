@@ -195,6 +195,14 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		},
 	})
 
+	gpusPerTask, err := resource.ParseQuantity("0")
+	if err != nil {
+		return nil, errors.New("error initializing gpus counter")
+	}
+	for _, number := range b.gpusPerTask {
+		gpusPerTask.Add(*number)
+	}
+
 	for i := range job.Spec.Template.Spec.Containers {
 		container := &job.Spec.Template.Spec.Containers[i]
 
@@ -206,8 +214,9 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		}
 
 		if b.gpusPerTask != nil {
-			// TODO: parse gpu value...
-			requests["gpu"] = *b.gpusPerTask
+			for name, number := range b.gpusPerTask {
+				requests[corev1.ResourceName(name)] = *number
+			}
 		}
 
 		if b.memPerTask != nil {
@@ -215,16 +224,15 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		}
 
 		if b.memPerCPU != nil {
-			memPerCPU := b.memPerCPU
+			memPerCPU := *b.memPerCPU
 			memPerCPU.Mul(b.cpusPerTask.Value())
-			requests[corev1.ResourceMemory] = *memPerCPU
-			b.totalGpus++
+			requests[corev1.ResourceMemory] = memPerCPU
 		}
 
 		if b.memPerGPU != nil {
-			memPerGpu := b.memPerGPU
-			memPerGpu.Mul(b.gpusPerTask.Value())
-			requests[corev1.ResourceMemory] = *memPerGpu
+			memPerGpu := *b.memPerGPU
+			memPerGpu.Mul(gpusPerTask.Value())
+			requests[corev1.ResourceMemory] = memPerGpu
 		}
 
 		if len(requests) > 0 {
@@ -263,17 +271,20 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		job.Spec.Parallelism = b.nodes
 	}
 
-	if b.cpusPerTask == nil {
-		b.cpusPerTask = ptr.To(resource.MustParse("1"))
+	if b.cpusPerTask != nil {
+		b.cpusOnNode = ptr.To(b.cpusPerTask.DeepCopy())
+		b.cpusOnNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
 	}
-	b.cpusOnNode = b.cpusPerTask
-	b.cpusOnNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
 
-	if b.memPerCPU == nil {
-		b.memPerCPU = ptr.To(resource.MustParse("0"))
+	if b.memPerCPU != nil {
+		b.totalMemPerNode = ptr.To(b.memPerCPU.DeepCopy())
+		b.totalMemPerNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
 	}
-	b.totalMemPerNode = b.memPerCPU
-	b.totalMemPerNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
+
+	totalGpus := gpusPerTask
+	totalTasks := int64(len(job.Spec.Template.Spec.Containers))
+	totalGpus.Mul(totalTasks)
+	b.totalGpus = int(totalGpus.Value())
 
 	if b.totalGpus > 0 {
 		cpusPerGpu := b.cpusOnNode.Value() / int64(b.totalGpus)
@@ -362,7 +373,11 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 func (b *slurmBuilder) buildSbatchVariables() string {
 	var gpusPerTask, memPerCPU, memPerGPU string
 	if b.gpusPerTask != nil {
-		gpusPerTask = b.gpusPerTask.String()
+		gpus := make([]string, 0)
+		for name, number := range b.gpusPerTask {
+			gpus = append(gpus, fmt.Sprintf("%s:%s", name, number))
+		}
+		gpusPerTask = strings.Join(gpus, ",")
 	}
 	if b.memPerCPU != nil {
 		memPerCPU = b.memPerCPU.String()
@@ -473,11 +488,11 @@ func (b *slurmBuilder) getSbatchEnvs() error {
 
 	if b.gpusPerTask == nil {
 		if env, ok := os.LookupEnv("SBATCH_GPUS_PER_TASK"); ok {
-			val, err := resource.ParseQuantity(env)
+			val, err := parser.GpusFlag(env)
 			if err != nil {
 				return fmt.Errorf("cannot parse '%s': %w", env, err)
 			}
-			b.gpusPerTask = ptr.To(val)
+			b.gpusPerTask = val
 		}
 	}
 

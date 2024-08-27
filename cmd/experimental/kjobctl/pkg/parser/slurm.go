@@ -19,6 +19,7 @@ package parser
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -38,7 +39,7 @@ var shortFlagFormat = regexp.MustCompile(`-(\w)\s+(\S+)`)
 type ParsedSlurmFlags struct {
 	Array       string
 	CpusPerTask *resource.Quantity
-	GpusPerTask *resource.Quantity
+	GpusPerTask map[string]*resource.Quantity
 	MemPerTask  *resource.Quantity
 	MemPerCPU   *resource.Quantity
 	MemPerGPU   *resource.Quantity
@@ -86,11 +87,11 @@ func SlurmFlags(script string, ignoreUnknown bool) (ParsedSlurmFlags, error) {
 		case "e", string(v1alpha1.ErrorFlag):
 			flags.Error = val
 		case string(v1alpha1.GpusPerTaskFlag):
-			gpusPerTask, err := resource.ParseQuantity(val)
+			gpusPerTask, err := GpusFlag(val)
 			if err != nil {
 				return flags, fmt.Errorf("cannot parse '%s': %w", val, err)
 			}
-			flags.GpusPerTask = ptr.To(gpusPerTask)
+			flags.GpusPerTask = gpusPerTask
 		case "i", string(v1alpha1.InputFlag):
 			flags.Input = val
 		case "J", string(v1alpha1.JobNameFlag):
@@ -150,4 +151,26 @@ func extractKeyValue(s string) (string, string) {
 	}
 
 	return matches[1], matches[2]
+}
+
+func GpusFlag(val string) (map[string]*resource.Quantity, error) {
+	gpus := make(map[string]*resource.Quantity)
+
+	items := strings.Split(val, ",")
+	for _, v := range items {
+		gpu := strings.Split(v, ":")
+		if len(gpu) != 2 {
+			return nil, errors.New("invalid GPU format. It must be <type>:<number>")
+		}
+
+		name := gpu[0]
+		quantity, err := resource.ParseQuantity(gpu[1])
+		if err != nil {
+			return nil, err
+		}
+
+		gpus[name] = &quantity
+	}
+
+	return gpus, nil
 }
