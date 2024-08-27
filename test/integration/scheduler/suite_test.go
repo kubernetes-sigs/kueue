@@ -27,6 +27,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
+
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -72,8 +75,15 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	transformations := []config.ResourceTransformation{
+		{
+			Input:    corev1.ResourceName(pseudoCPU),
+			Strategy: config.Replace,
+			Outputs:  corev1.ResourceList{corev1.ResourceCPU: resourcev1.MustParse("2")},
+		},
+	}
 	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithResourceMappings(transformations))
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)

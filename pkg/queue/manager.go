@@ -71,6 +71,13 @@ func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	}
 }
 
+// WithResourceMappings sets the resource mappings
+func WithResourceMappings(transforms []config.ResourceTransformation) Option {
+	return func(o *options) {
+		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithResourceMappings(transforms))
+	}
+}
+
 type Manager struct {
 	sync.RWMutex
 	cond sync.Cond

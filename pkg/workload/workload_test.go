@@ -284,6 +284,70 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"transformResources": {
+			workload: *utiltesting.MakeWorkload("transform", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Request("nvidia.com/mig-1g.5gb", "2").
+						Request("nvidia.com/mig-2g.10gb", "1").
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*utiltesting.MakePodSet("b", 2).
+						Request("nvidia.com/gpu", "1").
+						Request(corev1.ResourceCPU, "2").
+						Obj(),
+				).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceMappings([]config.ResourceTransformation{
+				{
+					Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
+					Strategy: "Replace",
+					Outputs: corev1.ResourceList{
+						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("5Ki"),
+						corev1.ResourceName("example.com/credits"):            resource.MustParse("10"),
+					},
+				},
+				{
+					Input:    corev1.ResourceName("nvidia.com/mig-2g.10gb"),
+					Strategy: "Replace",
+					Outputs: corev1.ResourceList{
+						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("10Ki"),
+						corev1.ResourceName("example.com/credits"):            resource.MustParse("15"),
+					},
+				},
+				{
+					Input:    corev1.ResourceName("nvidia.com/gpu"),
+					Strategy: "Retain",
+					Outputs: corev1.ResourceList{
+						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("40Ki"),
+						corev1.ResourceName("example.com/credits"):            resource.MustParse("100"),
+					},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "a",
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 1000,
+							corev1.ResourceName("example.com/accelerator-memory"): 20 * 1024,
+							corev1.ResourceName("example.com/credits"):            35,
+						},
+						Count: 1,
+					},
+					{
+						Name: "b",
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 4 * 1000,
+							corev1.ResourceName("example.com/accelerator-memory"): 80 * 1024,
+							corev1.ResourceName("example.com/credits"):            200,
+							corev1.ResourceName("nvidia.com/gpu"):                 2,
+						},
+						Count: 2,
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
