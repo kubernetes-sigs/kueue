@@ -133,6 +133,7 @@ function return_to_kansas {
 trap return_to_kansas EXIT
 
 SUBJECTS=()
+RELEASE_NOTES=()
 function make-a-pr() {
   local rel
   rel="$(basename "${BRANCH}")"
@@ -143,9 +144,13 @@ function make-a-pr() {
   numandtitle=$(printf '%s\n' "${SUBJECTS[@]}")
   prtext=$(cat <<EOF
 Cherry pick of ${PULLSUBJ} on ${rel}.
+
 ${numandtitle}
+
 For details on the cherry pick process, see the [cherry pick requests](https://git.k8s.io/community/contributors/devel/sig-release/cherry-picks.md) page.
+
 \`\`\`release-note
+$(printf '%s\n' "${RELEASE_NOTES[@]}")
 \`\`\`
 EOF
 )
@@ -176,7 +181,7 @@ for pull in "${PULLS[@]}"; do
       (git status --porcelain | grep ^U) || echo "!!! None. Did you git am --continue?"
       echo
       echo "+++ Please resolve the conflicts in another window (and remember to 'git add / git am --continue')"
-      read -p "+++ Proceed (anything but 'y' aborts the cherry-pick)? [y/n] " -r
+      read -p "+++ Proceed (anything other than 'y' aborts the cherry-pick)? [y/n] " -r
       echo
       if ! [[ "${REPLY}" =~ ^[yY]$ ]]; then
         echo "Aborting." >&2
@@ -191,8 +196,12 @@ for pull in "${PULLS[@]}"; do
   }
 
   # set the subject
-  subject=$(grep -m 1 "^Subject" "/tmp/${pull}.patch" | sed -e 's/Subject: \[PATCH//g' | sed 's/.*] //')
+  subject=$(gh pr view "$pull" --json title --jq '.["title"]')
   SUBJECTS+=("#${pull}: ${subject}")
+
+  # set the release note
+  release_note=$(gh pr view "$pull" --json body --jq '.["body"]' | awk '/```release-note/{f=1;next} /```/{f=0} f')
+  RELEASE_NOTES+=("${release_note}")
 
   # remove the patch file from /tmp
   rm -f "/tmp/${pull}.patch"
@@ -243,7 +252,7 @@ echo "+++ I'm about to do the following to push to GitHub (and I'm assuming ${FO
 echo
 echo "  git push ${FORK_REMOTE} ${NEWBRANCHUNIQ}:${NEWBRANCH}"
 echo
-read -p "+++ Proceed (anything but 'y' aborts the cherry-pick)? [y/n] " -r
+read -p "+++ Proceed (anything other than 'y' aborts the cherry-pick)? [y/n] " -r
 if ! [[ "${REPLY}" =~ ^[yY]$ ]]; then
   echo "Aborting." >&2
   exit 1
