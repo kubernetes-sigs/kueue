@@ -23,10 +23,11 @@ export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/downl
 export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
 export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 
-export KUBEFLOW_MANIFEST_DIR="${ROOT_DIR}/dep-manifests/training-operator"
 #no matching semver tag unfortunately
 export KUBEFLOW_IMAGE=kubeflow/training-operator:v1-855e096
-export KUBEFLOW_CRDS=${ROOT_DIR}/dep-crds/training-operator/
+export KUBEFLOW_CRDS=${ROOT_DIR}/dep-crds/training-operator
+export KUBEFLOW_CRDS_BASE=${KUBEFLOW_CRDS}/base/crds
+export KUBEFLOW_MANIFEST=${KUBEFLOW_CRDS}/overlays/standalone
 
 export KUBEFLOW_MPI_MANIFEST="https://github.com/kubeflow/mpi-operator/manifests/overlays/standalone?ref=v${KUBEFLOW_MPI_VERSION}"
 export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION}
@@ -79,11 +80,10 @@ function install_jobset {
 function patch_kubeflow_manifest {
     # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
     # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
-    chmod -R u+w "${KUBEFLOW_MANIFEST_DIR}/"
-    sed -i '/kubeflow.org_mpijobs.yaml/d' "${KUBEFLOW_MANIFEST_DIR}/base/crds/kustomization.yaml"
+    sed -i '/kubeflow.org_mpijobs.yaml/d' "${KUBEFLOW_CRDS}/base/crds/kustomization.yaml"
 
     # 2. Training-operator deployment file is patched and manually enabled for all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
-    KUBEFLOW_DEPLOYMENT="${KUBEFLOW_MANIFEST_DIR}/base/deployment.yaml"
+    KUBEFLOW_DEPLOYMENT="${KUBEFLOW_CRDS}/base/deployment.yaml"
 
     # Find the line after which to insert the args
     INSERT_LINE=$(grep -n "^ *- /manager" "${KUBEFLOW_DEPLOYMENT}" | head -n 1 | cut -d ':' -f 1)
@@ -108,7 +108,7 @@ EOF
 function install_kubeflow {
     cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl config use-context "kind-${1}"
-    kubectl apply -k "${KUBEFLOW_MANIFEST_DIR}/overlays/standalone"
+    kubectl apply -k "${KUBEFLOW_MANIFEST}"
 }
 
 #$1 - cluster name

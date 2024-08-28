@@ -84,7 +84,7 @@ function kind_load {
     # Only install the CRDs and not the controller to be able to
     # have Kubeflow Jobs admitted without execution in the manager cluster.
     kubectl config use-context "kind-${MANAGER_KIND_CLUSTER_NAME}"
-    kubectl apply -k "${KUBEFLOW_CRDS}"
+    kubectl apply -k "${KUBEFLOW_CRDS_BASE}"
     ## MPI
     kubectl apply --server-side -f "${KUBEFLOW_MPI_CRD}"
 

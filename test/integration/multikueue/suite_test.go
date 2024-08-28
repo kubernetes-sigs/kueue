@@ -94,7 +94,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
 		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
 		DepCRDPaths: []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator"),
-			filepath.Join("..", "..", "..", "dep-crds", "training-operator"),
+			filepath.Join("..", "..", "..", "dep-crds", "training-operator", "base", "crds"),
 			filepath.Join("..", "..", "..", "dep-crds", "mpi-operator"),
 		},
 		APIServerFeatureGates: apiFeatureGates,
