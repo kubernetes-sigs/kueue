@@ -32,12 +32,6 @@ called `kueue.x-k8s.io/resource-in-use` to prevent deletion of the ClusterQueue 
 Consequently, a ClusterQueue with this finalizer cannot be deleted until all resources are released.
 
 
-## How to resolve this issue?
-
-To delete a ClusterQueue, you can first stop all the admitted Workloads by applying the [StopPolicy](/docs/concepts/cluster_queue/#stoppolicy) `HoldAndDrain`.  
-This will evict all associated Workloads and release the resources, allowing the ClusterQueue to be deleted immediately.
-
-
 ## How to identify the Workloads related to the ClusterQueue?
 
 To find Workloads linked to a specific ClusterQueue, you can use the following steps:
@@ -88,7 +82,7 @@ If no Workloads are found for the specified ClusterQueue, you can skip the stopp
 
 ### Using `kueuectl`
 
-To stop the ClusterQueue, run:
+To stop all the jobs in a ClusterQueue and prevent new jobs from being admitted by it, run the following command:
 
 ```shell
 kueuectl stop clusterqueue my-cq
