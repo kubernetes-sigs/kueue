@@ -2,11 +2,6 @@ apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
   name: "default-flavor"
-spec:
-  nodeLabels:
-    key1: value
-    key2: value
-
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
