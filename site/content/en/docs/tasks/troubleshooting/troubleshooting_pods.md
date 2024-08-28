@@ -1,7 +1,7 @@
 ---
 title: "Troubleshooting Pods"
 date: 2024-03-21
-weight: 3
+weight: 4
 description: >
   Troubleshooting the status of a Pod or group of Pods
 ---
