@@ -4,16 +4,16 @@ date: 2024-08-28
 weight: 5
 ---
 
-Deleting a ClusterQueue can be a bit complex when there are active Workloads. 
+Deleting a ClusterQueue might require additional steps when it has active Workloads.
 
 This guide provides a clear approach to safely deleting a ClusterQueue,
 explaining the process and offering alternative methods to handle specific scenarios.
 
-For this example, let's assume your ClusterQueue is named `my-cq`.
+For this example, assume your ClusterQueue is named `my-cq`.
 
 ## Understanding `kubectl delete clusterqueue`
 
-When you run:
+When you run the following command:
 
 ```sh
 kubectl delete clusterqueue my-cq
@@ -28,14 +28,14 @@ However, if there are Workloads still utilizing the ClusterQueue, the command ma
 Kueue creates a [Workload](/docs/concepts/workload/) object for each Job to track its admission status. 
 If a Workload is admitted, it is associated with a specific ClusterQueue. 
 Kueue uses a [finalizer](https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/) 
-called kueue.x-k8s.io/resource-in-use to prevent deletion of the ClusterQueue while resources are still in use. 
+called `kueue.x-k8s.io/resource-in-use` to prevent deletion of the ClusterQueue while resources are still in use. 
 Consequently, a ClusterQueue with this finalizer cannot be deleted until all resources are released.
 
 
 ## How to resolve this issue?
 
-To delete a ClusterQueue, first stop it by applying a [StopPolicy](/docs/concepts/cluster_queue/#stoppolicy) with `HoldAndDrain`. 
-This will evict all associated Workloads and release the resources, allowing the ClusterQueue to be deleted without issues.
+To delete a ClusterQueue, you can first stop all the admitted Workloads by applying the [StopPolicy](/docs/concepts/cluster_queue/#stoppolicy) `HoldAndDrain`.  
+This will evict all associated Workloads and release the resources, allowing the ClusterQueue to be deleted immediately.
 
 
 ## How to identify the Workloads related to the ClusterQueue?
