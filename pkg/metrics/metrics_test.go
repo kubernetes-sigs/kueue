@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 )
 
@@ -47,7 +46,6 @@ func TestGenerateExponentialBuckets(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
-	defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
 	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
 	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)
 
@@ -74,7 +72,6 @@ func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueQuotas(t *testing.T) {
-	defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
 	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
 	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res2", 5, 10, 3)
 	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)

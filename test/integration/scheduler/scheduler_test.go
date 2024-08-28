@@ -1407,19 +1407,17 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
-	ginkgo.When("Using cohorts for sharing when LendingLimit enabled", func() {
+	ginkgo.When("Using cohorts for sharing with LendingLimit", func() {
 		var (
 			prodCQ *kueue.ClusterQueue
 			devCQ  *kueue.ClusterQueue
 		)
 
 		ginkgo.BeforeEach(func() {
-			_ = features.SetEnable(features.LendingLimit, true)
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
-			_ = features.SetEnable(features.LendingLimit, false)
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
 			if devCQ != nil {

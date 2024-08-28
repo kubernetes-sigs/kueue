@@ -66,15 +66,15 @@ func TestAssignFlavors(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		wlPods             []kueue.PodSet
-		wlReclaimablePods  []kueue.ReclaimablePod
-		clusterQueue       kueue.ClusterQueue
-		clusterQueueUsage  resources.FlavorResourceQuantities
-		cohortResources    *cohortResources
-		wantRepMode        FlavorAssignmentMode
-		wantAssignment     Assignment
-		enableLendingLimit bool
-		enableFairSharing  bool
+		wlPods              []kueue.PodSet
+		wlReclaimablePods   []kueue.ReclaimablePod
+		clusterQueue        kueue.ClusterQueue
+		clusterQueueUsage   resources.FlavorResourceQuantities
+		cohortResources     *cohortResources
+		wantRepMode         FlavorAssignmentMode
+		wantAssignment      Assignment
+		disableLendingLimit bool
+		enableFairSharing   bool
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -1726,7 +1726,6 @@ func TestAssignFlavors(t *testing.T) {
 					{Flavor: "two", Resource: corev1.ResourcePods}: 1,
 				},
 			},
-			enableLendingLimit: true,
 		},
 		"lend try next flavor, found the first flavor": {
 			wlPods: []kueue.PodSet{
@@ -1781,7 +1780,6 @@ func TestAssignFlavors(t *testing.T) {
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
 				},
 			},
-			enableLendingLimit: true,
 		},
 		"quota exhausted, but can preempt in cohort and ClusterQueue": {
 			wlPods: []kueue.PodSet{
@@ -1830,7 +1828,6 @@ func TestAssignFlavors(t *testing.T) {
 					{Flavor: "one", Resource: corev1.ResourcePods}: 1,
 				},
 			},
-			enableLendingLimit: true,
 		},
 		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Any": {
 			enableFairSharing: true,
@@ -1927,7 +1924,9 @@ func TestAssignFlavors(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
+			if tc.disableLendingLimit {
+				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
+			}
 			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
 			})

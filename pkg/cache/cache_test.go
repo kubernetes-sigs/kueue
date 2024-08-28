@@ -93,12 +93,12 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		return nil
 	}
 	cases := []struct {
-		name               string
-		operation          func(*Cache) error
-		clientObjects      []client.Object
-		wantClusterQueues  map[string]*clusterQueue
-		wantCohorts        map[string]sets.Set[string]
-		enableLendingLimit bool
+		name                string
+		operation           func(*Cache) error
+		clientObjects       []client.Object
+		wantClusterQueues   map[string]*clusterQueue
+		wantCohorts         map[string]sets.Set[string]
+		disableLendingLimit bool
 	}{
 		{
 			name: "add",
@@ -398,7 +398,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"one": sets.New("b"),
 				"two": sets.New("a", "c", "e", "f"),
 			},
-			enableLendingLimit: true,
 		},
 		{
 			name: "shouldn't delete usage resources on update ClusterQueue",
@@ -482,7 +481,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantCohorts: map[string]sets.Set[string]{
 				"one": sets.New("a"),
 			},
-			enableLendingLimit: true,
 		},
 		{
 			// Cohort one is deleted, as its members move
@@ -926,8 +924,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantCohorts: map[string]sets.Set[string]{},
 		},
 		{
-			name:               "add CQ with multiple resource groups and flavors",
-			enableLendingLimit: true,
+			name: "add CQ with multiple resource groups and flavors",
 			operation: func(cache *Cache) error {
 				cq := utiltesting.MakeClusterQueue("foo").
 					ResourceGroup(
@@ -996,11 +993,78 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:                "should not populate the fields with lendingLimit when feature disabled",
+			disableLendingLimit: true,
+			operation: func(cache *Cache) error {
+				cq := utiltesting.MakeClusterQueue("foo").
+					ResourceGroup(
+						kueue.FlavorQuotas{
+							Name: "on-demand",
+							Resources: []kueue.ResourceQuota{
+								{
+									Name:         corev1.ResourceCPU,
+									NominalQuota: resource.MustParse("10"),
+									LendingLimit: ptr.To(resource.MustParse("8")),
+								},
+								{
+									Name:         corev1.ResourceMemory,
+									NominalQuota: resource.MustParse("10Gi"),
+									LendingLimit: ptr.To(resource.MustParse("8Gi")),
+								},
+							},
+						},
+						kueue.FlavorQuotas{
+							Name: "spot",
+							Resources: []kueue.ResourceQuota{
+								{
+									Name:         corev1.ResourceCPU,
+									NominalQuota: resource.MustParse("20"),
+									LendingLimit: ptr.To(resource.MustParse("20")),
+								},
+								{
+									Name:         corev1.ResourceMemory,
+									NominalQuota: resource.MustParse("20Gi"),
+									LendingLimit: ptr.To(resource.MustParse("20Gi")),
+								},
+							},
+						},
+					).
+					ResourceGroup(
+						kueue.FlavorQuotas{
+							Name: "license",
+							Resources: []kueue.ResourceQuota{
+								{
+									Name:         "license",
+									NominalQuota: resource.MustParse("8"),
+									LendingLimit: ptr.To(resource.MustParse("4")),
+								},
+							},
+						},
+					).
+					Obj()
+				return cache.AddClusterQueue(context.Background(), cq)
+			},
+			wantClusterQueues: map[string]*clusterQueue{
+				"foo": {
+					Name:                          "foo",
+					NamespaceSelector:             labels.Everything(),
+					Status:                        pending,
+					Preemption:                    defaultPreemption,
+					AllocatableResourceGeneration: 1,
+					FlavorFungibility:             defaultFlavorFungibility,
+					FairWeight:                    oneQuantity,
+					GuaranteedQuota:               nil,
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
+			if tc.disableLendingLimit {
+				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
+			}
 			cache := New(utiltesting.NewFakeClient(tc.clientObjects...))
 			if err := tc.operation(cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)

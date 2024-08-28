@@ -44,11 +44,11 @@ var snapCmpOpts = []cmp.Option{
 
 func TestSnapshot(t *testing.T) {
 	testCases := map[string]struct {
-		cqs                []*kueue.ClusterQueue
-		rfs                []*kueue.ResourceFlavor
-		wls                []*kueue.Workload
-		wantSnapshot       Snapshot
-		enableLendingLimit bool
+		cqs                 []*kueue.ClusterQueue
+		rfs                 []*kueue.ResourceFlavor
+		wls                 []*kueue.Workload
+		wantSnapshot        Snapshot
+		disableLendingLimit bool
 	}{
 		"empty": {},
 		"independent clusterQueues": {
@@ -527,13 +527,157 @@ func TestSnapshot(t *testing.T) {
 					},
 				}
 			}(),
-			enableLendingLimit: true,
+		},
+		"should not populate the snapshot with lendingLimit when feature disabled": {
+			disableLendingLimit: true,
+			cqs: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("lending").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10", "", "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "20", "", "10").Obj(),
+					).
+					FlavorFungibility(defaultFlavorFungibility).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("lending").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10", "", "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "20", "", "10").Obj(),
+					).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{
+				utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
+				utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
+			},
+			wls: []*kueue.Workload{
+				utiltesting.MakeWorkload("alpha", "").
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "2").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a", "main").
+						Assignment(corev1.ResourceCPU, "arm", "10000m").
+						AssignmentPodCount(5).Obj()).
+					Obj(),
+				utiltesting.MakeWorkload("beta", "").
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a", "main").
+						Assignment(corev1.ResourceCPU, "arm", "5000m").
+						AssignmentPodCount(5).Obj()).
+					Obj(),
+				utiltesting.MakeWorkload("gamma", "").
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "2").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a", "main").
+						Assignment(corev1.ResourceCPU, "x86", "10000m").
+						AssignmentPodCount(5).Obj()).
+					Obj(),
+			},
+			wantSnapshot: func() Snapshot {
+				cohort := &CohortSnapshot{
+					Name:                          "lending",
+					AllocatableResourceGeneration: 2,
+					RequestableResources: resources.FlavorResourceQuantities{
+						{Flavor: "arm", Resource: corev1.ResourceCPU}: 20_000,
+						{Flavor: "x86", Resource: corev1.ResourceCPU}: 40_000,
+					},
+					Usage: resources.FlavorResourceQuantities{
+						{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
+						{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
+					},
+					Lendable: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 60_000,
+					},
+				}
+				return Snapshot{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
+						"a": {
+							Name:                          "a",
+							Cohort:                        cohort,
+							AllocatableResourceGeneration: 1,
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+									LabelKeys:        sets.New("arch"),
+								},
+							},
+							Quotas: map[resources.FlavorResource]*ResourceQuota{
+								{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: nil},
+								{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: nil},
+							},
+							FlavorFungibility: defaultFlavorFungibility,
+							FairWeight:        oneQuantity,
+							Usage: resources.FlavorResourceQuantities{
+								{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
+								{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
+							},
+							Workloads: map[string]*workload.Info{
+								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
+									PodSets(*utiltesting.MakePodSet("main", 5).
+										Request(corev1.ResourceCPU, "2").Obj()).
+									ReserveQuota(utiltesting.MakeAdmission("a", "main").
+										Assignment(corev1.ResourceCPU, "arm", "10000m").
+										AssignmentPodCount(5).Obj()).
+									Obj()),
+								"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
+									PodSets(*utiltesting.MakePodSet("main", 5).
+										Request(corev1.ResourceCPU, "1").Obj()).
+									ReserveQuota(utiltesting.MakeAdmission("a", "main").
+										Assignment(corev1.ResourceCPU, "arm", "5000m").
+										AssignmentPodCount(5).Obj()).
+									Obj()),
+								"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
+									PodSets(*utiltesting.MakePodSet("main", 5).
+										Request(corev1.ResourceCPU, "2").Obj()).
+									ReserveQuota(utiltesting.MakeAdmission("a", "main").
+										Assignment(corev1.ResourceCPU, "x86", "10000m").
+										AssignmentPodCount(5).Obj()).
+									Obj()),
+							},
+							Preemption:        defaultPreemption,
+							NamespaceSelector: labels.Everything(),
+							Status:            active,
+							GuaranteedQuota:   nil,
+						},
+						"b": {
+							Name:                          "b",
+							Cohort:                        cohort,
+							AllocatableResourceGeneration: 1,
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+									LabelKeys:        sets.New("arch"),
+								},
+							},
+							Quotas: map[resources.FlavorResource]*ResourceQuota{
+								{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: nil},
+								{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: nil},
+							},
+							FlavorFungibility: defaultFlavorFungibility,
+							FairWeight:        oneQuantity,
+							Preemption:        defaultPreemption,
+							NamespaceSelector: labels.Everything(),
+							Status:            active,
+							GuaranteedQuota:   nil,
+						},
+					},
+					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+						"arm": utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
+						"x86": utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
+					},
+				}
+			}(),
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
+			if tc.disableLendingLimit {
+				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
+			}
 			cache := New(utiltesting.NewFakeClient())
 			for _, cq := range tc.cqs {
 				// Purposely do not make a copy of clusterQueues. Clones of necessary fields are
@@ -824,7 +968,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 }
 
 func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
-	_ = features.SetEnable(features.LendingLimit, true)
 	flavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
 	}

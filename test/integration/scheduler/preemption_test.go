@@ -722,18 +722,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 	})
 
-	ginkgo.Context("When lending limit enabled", func() {
+	ginkgo.Context("With lending limit", func() {
 		var (
 			prodCQ *kueue.ClusterQueue
 			devCQ  *kueue.ClusterQueue
 		)
 
-		ginkgo.BeforeEach(func() {
-			_ = features.SetEnable(features.LendingLimit, true)
-		})
-
 		ginkgo.AfterEach(func() {
-			_ = features.SetEnable(features.LendingLimit, false)
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
 			if devCQ != nil {

@@ -252,7 +252,7 @@ func TestSchedule(t *testing.T) {
 	}
 	cases := map[string]struct {
 		// Features
-		enableLendingLimit      bool
+		disableLendingLimit     bool
 		disablePartialAdmission bool
 		enableFairSharing       bool
 
@@ -747,7 +747,26 @@ func TestSchedule(t *testing.T) {
 			wantInadmissibleLeft: map[string][]string{
 				"lend-b": {"lend/b"},
 			},
-			enableLendingLimit: true,
+		},
+		"lendingLimit should not affect assignments when feature disabled": {
+			disableLendingLimit: true,
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "lend").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("lend-b").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b", "lend").
+					Queue("lend-b-queue").
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"lend/a": *utiltesting.MakeAdmission("lend-b").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+				"lend/b": *utiltesting.MakeAdmission("lend-b").Assignment(corev1.ResourceCPU, "default", "3000m").Obj(),
+			},
+			wantScheduled: []string{
+				"lend/b",
+			},
 		},
 		"preempt workloads in ClusterQueue and cohort": {
 			workloads: []kueue.Workload{
@@ -2506,8 +2525,8 @@ func TestSchedule(t *testing.T) {
 
 	for name, tc := range cases {
 		tc.multiplePreemptions.runTest(name, t, func(t *testing.T) {
-			if tc.enableLendingLimit {
-				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
+			if tc.disableLendingLimit {
+				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
 			}
 			if tc.disablePartialAdmission {
 				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)()
