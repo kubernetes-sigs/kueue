@@ -49,7 +49,7 @@ func init() {
 
 type Deployment appsv1.Deployment
 
-func FromObject(o runtime.Object) *Deployment {
+func fromObject(o runtime.Object) *Deployment {
 	return (*Deployment)(o.(*appsv1.Deployment))
 }
 
@@ -61,6 +61,6 @@ func (d *Deployment) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func SetupIndexes(_ context.Context, _ client.FieldIndexer) error {
+func SetupIndexes(context.Context, client.FieldIndexer) error {
 	return nil
 }

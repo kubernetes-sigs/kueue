@@ -98,7 +98,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 				}
 			}
 		}
-		if err := SetupNoopWebhook(mgr, cb.JobType); err != nil {
+		if err := setupNoopWebhook(mgr, cb.JobType); err != nil {
 			return fmt.Errorf("%s: unable to create noop webhook: %w", fwkNamePrefix, err)
 		}
 		return nil

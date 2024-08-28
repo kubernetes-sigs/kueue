@@ -219,12 +219,12 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate--v1-deployment
+      path: /mutate-apps-v1-deployment
   failurePolicy: Fail
   name: mdeployment.kb.io
   rules:
   - apiGroups:
-    - ""
+    - apps
     apiVersions:
     - v1
     operations:
@@ -521,12 +521,12 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate--v1-deployment
+      path: /validate-apps-v1-deployment
   failurePolicy: Fail
   name: vdeployment.kb.io
   rules:
   - apiGroups:
-    - ""
+    - apps
     apiVersions:
     - v1
     operations:

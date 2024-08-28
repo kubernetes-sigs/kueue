@@ -17,7 +17,10 @@ limitations under the License.
 package deployment
 
 import (
+	"fmt"
+
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -30,24 +33,41 @@ type DeploymentWrapper struct {
 
 // MakeDeployment creates a wrapper for a Deployment with a single container.
 func MakeDeployment(name, ns string) *DeploymentWrapper {
+	podLabels := map[string]string{
+		"app": fmt.Sprintf("%s-pod", name),
+	}
 	return &DeploymentWrapper{appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   ns,
 			Annotations: make(map[string]string, 1),
 		},
-		Spec: appsv1.DeploymentSpec{},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: podLabels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: podLabels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:      "c",
+							Image:     "pause",
+							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+						},
+					},
+					NodeSelector: map[string]string{},
+				},
+			},
+		},
 	}}
 }
 
 // Obj returns the inner Deployment.
 func (d *DeploymentWrapper) Obj() *appsv1.Deployment {
 	return &d.Deployment
-}
-
-// Clone returns deep copy of the Deployment.
-func (d *DeploymentWrapper) Clone() *DeploymentWrapper {
-	return &DeploymentWrapper{Deployment: *d.DeepCopy()}
 }
 
 // Label sets the label of the Deployment
@@ -73,7 +93,7 @@ func (d *DeploymentWrapper) Name(n string) *DeploymentWrapper {
 // PodTemplateSpecLabel sets the label of the pod template spec of the Deployment
 func (d *DeploymentWrapper) PodTemplateSpecLabel(k, v string) *DeploymentWrapper {
 	if d.Spec.Template.Labels == nil {
-		d.Spec.Template.Labels = make(map[string]string)
+		d.Spec.Template.Labels = make(map[string]string, 1)
 	}
 	d.Spec.Template.Labels[k] = v
 	return d

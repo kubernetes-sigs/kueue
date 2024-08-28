@@ -21,9 +21,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -31,30 +28,18 @@ import (
 )
 
 func TestDefault(t *testing.T) {
-	defaultNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-ns",
-			Labels: map[string]string{
-				"kubernetes.io/metadata.name": "test-ns",
-			},
-		},
-	}
-
 	testCases := map[string]struct {
-		initObjects                []client.Object
 		deployment                 *appsv1.Deployment
 		manageJobsWithoutQueueName bool
-		namespaceSelector          *metav1.LabelSelector
-		deploymentSelector         *metav1.LabelSelector
 		enableIntegrations         []string
 		want                       *appsv1.Deployment
 	}{
 		"pod with queue": {
-			initObjects: []client.Object{defaultNamespace},
-			deployment: testingdeployment.MakeDeployment("test-pod", defaultNamespace.Name).
+			enableIntegrations: []string{"pod"},
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
 				Obj(),
-			want: testingdeployment.MakeDeployment("test-pod", defaultNamespace.Name).
+			want: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
 				Obj(),
@@ -65,7 +50,6 @@ func TestDefault(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			builder := utiltesting.NewClientBuilder()
-			builder = builder.WithObjects(tc.initObjects...)
 			cli := builder.Build()
 
 			w := &Webhook{

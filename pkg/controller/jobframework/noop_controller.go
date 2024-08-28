@@ -34,11 +34,11 @@ type NoopReconciler struct {
 	gvk schema.GroupVersionKind
 }
 
-func (r NoopReconciler) Reconcile(_ context.Context, _ reconcile.Request) (reconcile.Result, error) {
+func (r NoopReconciler) Reconcile(context.Context, reconcile.Request) (reconcile.Result, error) {
 	return ctrl.Result{}, nil
 }
 
-func (r NoopReconciler) SetupWithManager(_ ctrl.Manager) error {
+func (r NoopReconciler) SetupWithManager(ctrl.Manager) error {
 	ctrl.Log.V(3).Info("Skipped reconciler setup", "gvk", r.gvk)
 	return nil
 }

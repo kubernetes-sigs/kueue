@@ -51,29 +51,28 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate--v1-deployment,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=deployments,verbs=create,versions=v1,name=mdeployment.kb.io,admissionReviewVersions=v1
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:webhook:path=/mutate-apps-v1-deployment,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create,versions=v1,name=mdeployment.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &Webhook{}
 
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
-	d := FromObject(obj)
+	d := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook").WithValues("deployment", klog.KObj(d))
 	log.V(5).Info("Applying defaults")
 
 	if d.Spec.Template.Labels == nil {
-		d.Spec.Template.Labels = make(map[string]string)
+		d.Spec.Template.Labels = make(map[string]string, 1)
 	}
 	d.Spec.Template.Labels[constants.QueueLabel] = d.Labels[constants.QueueLabel]
 
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate--v1-deployment,mutating=false,failurePolicy=fail,sideEffects=None,groups="",resources=deployments,verbs=create;update,versions=v1,name=vdeployment.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-apps-v1-deployment,mutating=false,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create;update,versions=v1,name=vdeployment.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &Webhook{}
 
-func (wh *Webhook) ValidateCreate(_ context.Context, _ runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateCreate(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
@@ -86,8 +85,8 @@ var (
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
-	oldDeployment := FromObject(oldObj)
-	newDeployment := FromObject(newObj)
+	oldDeployment := fromObject(oldObj)
+	newDeployment := fromObject(newObj)
 
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook").WithValues("deployment", klog.KObj(newDeployment))
 	log.V(5).Info("Validating update")
@@ -105,6 +104,6 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	return warnings, allErrs.ToAggregate()
 }
 
-func (wh *Webhook) ValidateDelete(_ context.Context, _ runtime.Object) (warnings admission.Warnings, err error) {
+func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
