@@ -1,7 +1,7 @@
 ---
 title: "Troubleshooting Jobs"
 date: 2024-03-21
-weight: 2
+weight: 1
 description: >
   Troubleshooting the status of a Job
 ---
