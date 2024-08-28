@@ -35,6 +35,26 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **All-or-nothing with ready Pods:** A timeout-based implementation of [All-or-nothing scheduling](/docs/tasks/manage/setup_wait_for_pods_ready/).
 - **Partial admission:** Allows jobs to run with a [smaller parallelism](/docs/tasks/run/jobs/#partial-admission), based on available quota, if the application supports it.
 
+## Job-Integrated Features
+
+| Feature                         | Batch&nbsp;Job | JobSet | MXJob | PaddleJob | PytorchJob | TFJob | XGBoostJob | MPIJob | Pod | RayCluster | RayJob |
+|---------------------------------|----------------|--------|-------|-----------|------------|-------|------------|--------|-----|------------|--------|
+| PartialAdmission                | +              |        |       |           |            |       |            |        |     |            |        |
+| DynamicallyReclaimingResources  | +              | +      |       |           |            |       |            |        | +   |            |        | 
+| MultiKueue                      | +              | +      |       | +         | +          | +     | +          |        |     |            |        |
+| MultiKueueBatchJobWithManagedBy | +              |        |       |           |            |       |            |        |     |            |        |
+| PodPriority                     | +              | +      | +     | +         | +          | +     | +          | +      | +   |            |        |
+| WorkloadPriority                | +              | +      | +     | +         | +          | +     | +          | +      |     | +          | +      |
+| FlavorFungibility               | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| ProvisioningACC                 | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| QueueVisibility                 | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| VisibilityOnDemand              | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| PrioritySortingWithinCohort     | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| LendingLimit                    | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| MultiplePreemptions             | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| WaitForPodsReady                | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| FairSharing                     | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+
 ## High-level Kueue operation
 
 ![High Level Kueue Operation](/images/theory-of-operation.svg)
