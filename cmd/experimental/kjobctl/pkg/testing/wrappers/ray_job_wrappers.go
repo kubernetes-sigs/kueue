@@ -124,6 +124,18 @@ func (j *RayJobWrapper) JobDeploymentStatus(jobDeploymentStatus rayv1.JobDeploym
 	return j
 }
 
+// Reason set reason.
+func (j *RayJobWrapper) Reason(reason rayv1.JobFailedReason) *RayJobWrapper {
+	j.RayJob.Status.Reason = reason
+	return j
+}
+
+// Message set message.
+func (j *RayJobWrapper) Message(message string) *RayJobWrapper {
+	j.RayJob.Status.Message = message
+	return j
+}
+
 // StartTime set startTime.
 func (j *RayJobWrapper) StartTime(startTime time.Time) *RayJobWrapper {
 	j.RayJob.Status.StartTime = ptr.To(metav1.NewTime(startTime))

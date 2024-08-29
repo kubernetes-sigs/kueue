@@ -17,7 +17,6 @@ limitations under the License.
 package describe
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -94,7 +93,7 @@ func NewDescribeCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 				return err
 			}
 
-			return o.Run(cmd.Context())
+			return o.Run()
 		},
 	}
 
@@ -164,7 +163,7 @@ func (o *DescribeOptions) parseArgs(args []string) error {
 	return nil
 }
 
-func (o *DescribeOptions) Run(ctx context.Context) error {
+func (o *DescribeOptions) Run() error {
 	builder := o.customizeResourceBuilder()
 
 	r := builder.Do()

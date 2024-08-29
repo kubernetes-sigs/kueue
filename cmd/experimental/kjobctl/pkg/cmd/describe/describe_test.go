@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -39,6 +40,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
 
 func TestDescribeCmd(t *testing.T) {
@@ -280,6 +282,43 @@ Volumes:
     SizeLimit:  <unset>
 `,
 		},
+		"describe ray job with 'mode task' format": {
+			args:       []string{"rayjob", "sample-ray-job"},
+			argsFormat: modeTaskArgsFormat,
+			mapperKinds: []schema.GroupVersionKind{
+				rayv1.SchemeGroupVersion.WithKind("RayJob"),
+			},
+			objs: []runtime.Object{
+				wrappers.MakeRayJob("sample-ray-job", metav1.NamespaceDefault).
+					Profile("my-profile").
+					LocalQueue("lq").
+					StartTime(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)).
+					EndTime(time.Date(2024, 1, 1, 1, 0, 0, 0, time.UTC)).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					JobStatus(rayv1.JobStatusFailed).
+					Reason(rayv1.DeadlineExceeded).
+					Message("Error message").
+					RayClusterName("my-cluster").
+					Obj(),
+			},
+			wantOut: `Name:                   sample-ray-job
+Namespace:              default
+Start Time:             Mon, 01 Jan 2024 00:00:00 +0000
+End Time:               Mon, 01 Jan 2024 01:00:00 +0000
+Labels:                 kjobctl.x-k8s.io/profile=my-profile
+                        kueue.x-k8s.io/queue-name=lq
+Job Deployment Status:  Running
+Job Status:             FAILED
+Reason:                 DeadlineExceeded
+Message:                Error message
+Ray Cluster Name:       my-cluster
+Ray Cluster Status:
+  Desired CPU:     0
+  Desired GPU:     0
+  Desired Memory:  0
+  Desired TPU:     0
+`,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -305,6 +344,10 @@ Volumes:
 				}
 
 				if err := corev1.AddToScheme(scheme); err != nil {
+					t.Errorf("Unexpected error\n%s", err)
+				}
+
+				if err := rayv1.AddToScheme(scheme); err != nil {
 					t.Errorf("Unexpected error\n%s", err)
 				}
 
