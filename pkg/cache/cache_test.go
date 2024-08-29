@@ -372,14 +372,11 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"e": {
 					Name:                          "e",
 					AllocatableResourceGeneration: 2,
-					GuaranteedQuota: resources.FlavorResourceQuantities{
-						{Flavor: "default", Resource: "cpu"}: 1_000,
-					},
-					NamespaceSelector: labels.Nothing(),
-					FlavorFungibility: defaultFlavorFungibility,
-					Status:            active,
-					Preemption:        defaultPreemption,
-					FairWeight:        oneQuantity,
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					FairWeight:                    oneQuantity,
 				},
 				"f": {
 					Name:                          "f",
@@ -447,8 +444,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
-					Usage: resources.FlavorResourceQuantities{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: 5000,
+					resourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}: 5000,
+						},
 					},
 					AdmittedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: 5000,
@@ -528,7 +527,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"c": {
 					Name:                          "c",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
@@ -884,13 +883,15 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
-					Usage: resources.FlavorResourceQuantities{
-						{Flavor: "f1", Resource: corev1.ResourceCPU}: 2000,
-					},
 					AdmittedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "f1", Resource: corev1.ResourceCPU}: 1000,
 					},
 					FairWeight: oneQuantity,
+					resourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "f1", Resource: corev1.ResourceCPU}: 2000,
+						},
+					},
 					Workloads: map[string]*workload.Info{
 						"ns/reserving": {
 							ClusterQueue: "cq1",
@@ -983,13 +984,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
 					FairWeight:                    oneQuantity,
-					GuaranteedQuota: resources.FlavorResourceQuantities{
-						{Flavor: "on-demand", Resource: corev1.ResourceCPU}:    2_000,
-						{Flavor: "on-demand", Resource: corev1.ResourceMemory}: 2 * utiltesting.Gi,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:         0,
-						{Flavor: "spot", Resource: corev1.ResourceMemory}:      0,
-						{Flavor: "license", Resource: "license"}:               4,
-					},
 				},
 			},
 		},
@@ -1054,7 +1048,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
 					FairWeight:                    oneQuantity,
-					GuaranteedQuota:               nil,
 				},
 			},
 		},
@@ -1646,7 +1639,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			for name, cq := range cache.hm.ClusterQueues {
 				gotResult[name] = result{
 					Workloads:     sets.KeySet(cq.Workloads),
-					UsedResources: cq.Usage,
+					UsedResources: cq.resourceNode.Usage,
 				}
 			}
 			if diff := cmp.Diff(step.wantResults, gotResult, cmpopts.EquateEmpty()); diff != "" {

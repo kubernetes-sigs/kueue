@@ -127,10 +127,12 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		localQueues:         make(map[string]*queue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
-		Usage:               make(resources.FlavorResourceQuantities),
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
+		resourceNode:        NewResourceNode(),
 	}
-	if err := cqImpl.update(cq, c.resourceFlavors, c.admissionChecks); err != nil {
+	c.hm.AddClusterQueue(cqImpl)
+	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
+	if err := cqImpl.updateClusterQueue(cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
 
@@ -329,9 +331,6 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return err
 	}
 
-	c.hm.AddClusterQueue(cqImpl)
-	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-
 	// On controller restart, an add ClusterQueue event may come after
 	// add queue and workload, so here we explicitly list and add existing queues
 	// and workloads.
@@ -349,7 +348,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			usage:         make(resources.FlavorResourceQuantities),
 			admittedUsage: make(resources.FlavorResourceQuantities),
 		}
-		qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage)
+		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
 		cqImpl.localQueues[qKey] = qImpl
 	}
 	var workloads kueue.WorkloadList
@@ -373,17 +372,17 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	if !ok {
 		return ErrCqNotFound
 	}
-	if err := cqImpl.update(cq, c.resourceFlavors, c.admissionChecks); err != nil {
+	oldParent := cqImpl.Parent()
+	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
+	if err := cqImpl.updateClusterQueue(cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
 		}
-		qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage)
+		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
 	}
-
-	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
 	return nil
 }
 
@@ -591,7 +590,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	stats := &ClusterQueueUsageStats{
-		ReservedResources:  getUsage(cq.Usage, cq),
+		ReservedResources:  getUsage(cq.resourceNode.Usage, cq),
 		ReservingWorkloads: len(cq.Workloads),
 		AdmittedResources:  getUsage(cq.AdmittedUsage, cq),
 		AdmittedWorkloads:  cq.admittedWorkloadsCount,

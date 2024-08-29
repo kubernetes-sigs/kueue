@@ -588,10 +588,10 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // if borrowing is required when preempting.
 // If the flavor doesn't satisfy limits immediately (when waiting or preemption
 // could help), it returns a Status with reasons.
-func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota *cache.ResourceQuota) (granularMode, bool, *Status) {
+func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorResource, val int64, rQuota cache.ResourceQuota) (granularMode, bool, *Status) {
 	var status Status
 	var borrow bool
-	used := a.cq.Usage[fr]
+	used := a.cq.ResourceNode.Usage[fr]
 	mode := noFit
 	if val <= rQuota.Nominal {
 		// The request can be satisfied by the nominal quota, assuming quota is
@@ -599,15 +599,11 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		// ClusterQueue are preempted.
 		mode = preempt
 	}
-	cohortAvailable := rQuota.Nominal
-	if a.cq.Cohort != nil {
-		cohortAvailable = a.cq.RequestableCohortQuota(fr)
-	}
 
 	if a.canPreemptWhileBorrowing() {
 		// when preemption with borrowing is enabled, we can succeed to admit the
 		// workload if preemption is used.
-		if (rQuota.BorrowingLimit == nil || val <= rQuota.Nominal+*rQuota.BorrowingLimit) && val <= cohortAvailable {
+		if (rQuota.BorrowingLimit == nil || val <= rQuota.Nominal+*rQuota.BorrowingLimit) && val <= a.cq.PotentialAvailable(fr) {
 			mode = preempt
 			borrow = val > rQuota.Nominal
 		}
@@ -621,12 +617,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 		mode = reclaim
 	}
 
-	cohortUsed := used
-	if a.cq.Cohort != nil {
-		cohortUsed = a.cq.UsedCohortQuota(fr)
-	}
-
-	lack := cohortUsed + val - cohortAvailable
+	lack := val - a.cq.Available(fr)
 	if lack <= 0 {
 		return fit, used+val > rQuota.Nominal, nil
 	}

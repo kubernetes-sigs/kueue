@@ -45,7 +45,7 @@ type cohortResources struct {
 type testOracle struct{}
 
 func (f *testOracle) IsReclaimPossible(log logr.Logger, cq *cache.ClusterQueueSnapshot, wl workload.Info, fr resources.FlavorResource, quantity int64) bool {
-	return cq.QuotaFor(fr).Nominal >= quantity+cq.Usage[fr]
+	return !cq.BorrowingWith(fr, quantity)
 }
 
 func TestAssignFlavors(t *testing.T) {
@@ -1957,10 +1957,10 @@ func TestAssignFlavors(t *testing.T) {
 				if clusterQueue.Cohort == nil {
 					t.Fatalf("Test case has cohort resources, but cluster queue doesn't have cohort")
 				}
-				clusterQueue.Cohort.Usage = tc.cohortResources.usage
-				clusterQueue.Cohort.RequestableResources = tc.cohortResources.requestableResources
+				clusterQueue.Cohort.ResourceNode.Usage = tc.cohortResources.usage
+				clusterQueue.Cohort.ResourceNode.SubtreeQuota = tc.cohortResources.requestableResources
 			}
-			clusterQueue.Usage = tc.clusterQueueUsage
+			clusterQueue.ResourceNode.Usage = tc.clusterQueueUsage
 
 			flvAssigner := New(wlInfo, clusterQueue, resourceFlavors, tc.enableFairSharing, &testOracle{})
 			assignment := flvAssigner.Assign(log, nil)

@@ -47,7 +47,7 @@ func flavorResources(r resourceGroupNode) []resources.FlavorResource {
 
 type netQuotaNode interface {
 	usageFor(resources.FlavorResource) int64
-	QuotaFor(resources.FlavorResource) *ResourceQuota
+	QuotaFor(resources.FlavorResource) ResourceQuota
 	resourceGroups() []ResourceGroup
 }
 
