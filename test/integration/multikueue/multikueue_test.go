@@ -1039,13 +1039,13 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 					ReplicaType:   kubeflow.MPIReplicaTypeLauncher,
 					ReplicaCount:  1,
 					Name:          "launcher",
-					RestartPolicy: "OnFailure",
+					RestartPolicy: corev1.RestartPolicyOnFailure,
 				},
 				testingmpijob.MPIJobReplicaSpecRequirement{
 					ReplicaType:   kubeflow.MPIReplicaTypeWorker,
 					ReplicaCount:  1,
 					Name:          "worker",
-					RestartPolicy: "Never",
+					RestartPolicy: corev1.RestartPolicyNever,
 				},
 			).
 			Obj()

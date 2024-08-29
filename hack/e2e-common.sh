@@ -29,8 +29,8 @@ export KUBEFLOW_CRDS=${ROOT_DIR}/dep-crds/training-operator
 export KUBEFLOW_CRDS_BASE=${KUBEFLOW_CRDS}/base/crds
 export KUBEFLOW_MANIFEST=${KUBEFLOW_CRDS}/overlays/standalone
 
-export KUBEFLOW_MPI_MANIFEST="https://github.com/kubeflow/mpi-operator/manifests/overlays/standalone?ref=v${KUBEFLOW_MPI_VERSION}"
-export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION}
+export KUBEFLOW_MPI_MANIFEST="https://raw.githubusercontent.com/kubeflow/mpi-operator/${KUBEFLOW_MPI_VERSION}/deploy/v2beta1/mpi-operator.yaml" #"https://github.com/kubeflow/mpi-operator/manifests/overlays/standalone?ref=${KUBEFLOW_MPI_VERSION}"
+export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 export KUBEFLOW_MPI_CRD=${ROOT_DIR}/dep-crds/mpi-operator/kubeflow.org_mpijobs.yaml
 
 # $1 - cluster name
@@ -80,8 +80,7 @@ function install_jobset {
 function patch_kubeflow_manifest {
     # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
     # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
-    sed -i '/kubeflow.org_mpijobs.yaml/d' "${KUBEFLOW_CRDS}/base/crds/kustomization.yaml"
-
+    # Done already in Makefile-deps.mk target `kf-training-operator-crd`
     # 2. Training-operator deployment file is patched and manually enabled for all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
     KUBEFLOW_DEPLOYMENT="${KUBEFLOW_CRDS}/base/deployment.yaml"
 
@@ -113,9 +112,9 @@ function install_kubeflow {
 
 #$1 - cluster name
 function install_mpi {
-    cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE}"
+    cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
     kubectl config use-context "kind-${1}"
-    kubectl create -k "${KUBEFLOW_MPI_MANIFEST}"
+    kubectl apply --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)

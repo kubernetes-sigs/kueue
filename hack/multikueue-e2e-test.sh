@@ -90,7 +90,7 @@ function kind_load {
 
     # WORKERS
     docker pull kubeflow/training-operator:v1-855e096
-    docker pull "mpioperator/mpi-operator:$KUBEFLOW_MPI_VERSION"
+    docker pull "mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}"
     patch_kubeflow_manifest
     install_kubeflow "$WORKER1_KIND_CLUSTER_NAME"
     install_kubeflow "$WORKER2_KIND_CLUSTER_NAME"

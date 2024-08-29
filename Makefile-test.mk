@@ -59,8 +59,7 @@ IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
 # JobSet Version
 JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
 KUBEFLOW_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/training-operator)
-# Mismatch between manifest semver tag and docker release tag, latter has no leading 'v'
-KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/mpi-operator | sed 's/^v//')
+KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/mpi-operator)
 
 ##@ Tests
 

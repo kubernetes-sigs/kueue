@@ -16,7 +16,6 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 TOOLS_DIR := $(PROJECT_DIR)/hack/internal/tools
 BIN_DIR ?= $(PROJECT_DIR)/bin
 EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
-EXTERNAL_MANIFESTS_DIR ?= $(PROJECT_DIR)/dep-manifests
 
 ifeq (,$(shell go env GOBIN))
 	GOBIN=$(shell go env GOPATH)/bin
@@ -113,7 +112,7 @@ KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.
 .PHONY: kf-training-operator-crd
 kf-training-operator-crd: ## Copy the CRDs from the training-operator to the dep-crds directory.
 	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator/
-	# Remove `kubeflow.org_mpijobs.yaml` version v1 from the folder and from the kustomization.yaml, kueue uses v2beta1 CRD from mpi-operator
+	# Remove `kubeflow.org_mpijobs.yaml` version v1 from the kustomization.yaml, kueue uses v2beta1 CRD from mpi-operator
 	cp -prf $(KF_TRAINING_ROOT)/manifests/* $(EXTERNAL_CRDS_DIR)/training-operator/
 	chmod -R u+w "${EXTERNAL_CRDS_DIR}/training-operator/"
 	sed -i '/kubeflow.org_mpijobs.yaml/d' $(EXTERNAL_CRDS_DIR)/training-operator/base/crds/kustomization.yaml

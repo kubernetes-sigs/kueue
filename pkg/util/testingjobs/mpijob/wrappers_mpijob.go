@@ -53,7 +53,7 @@ type MPIJobReplicaSpecRequirement struct {
 	Name          string
 	ReplicaCount  int32
 	Annotations   map[string]string
-	RestartPolicy kubeflow.RestartPolicy
+	RestartPolicy corev1.RestartPolicy
 }
 
 func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequirement) *MPIJobWrapper {
@@ -61,8 +61,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequ
 	for _, rs := range replicaSpecs {
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
-		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = corev1.RestartPolicy(rs.RestartPolicy)
-		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.Containers[0].Name = "mpijob"
+		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = rs.RestartPolicy
 
 		if rs.Annotations != nil {
 			j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.ObjectMeta.Annotations = rs.Annotations
@@ -80,7 +79,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecsDefault() *MPIJobWrapper {
 				RestartPolicy: "Never",
 				Containers: []corev1.Container{
 					{
-						Name:      "c",
+						Name:      "mpijob",
 						Image:     "pause",
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
@@ -98,7 +97,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecsDefault() *MPIJobWrapper {
 				RestartPolicy: "Never",
 				Containers: []corev1.Container{
 					{
-						Name:      "c",
+						Name:      "mpijob",
 						Image:     "pause",
 						Command:   []string{},
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
@@ -206,7 +205,7 @@ func (j *MPIJobWrapper) Generation(num int64) *MPIJobWrapper {
 	return j
 }
 
-// Condition adds a condition
+// StatusConditions adds a condition
 func (j *MPIJobWrapper) StatusConditions(c kubeflow.JobCondition) *MPIJobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
 	return j
