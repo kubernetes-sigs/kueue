@@ -108,18 +108,6 @@ func (b *slurmBuilder) complete() error {
 	}
 	b.scriptContent = string(content)
 
-	if b.array == "" {
-		b.arrayIndexes = parser.GenerateArrayIndexes(ptr.Deref(b.nodes, 1) * ptr.Deref(b.nTasks, 1))
-	} else {
-		b.arrayIndexes, err = parser.ParseArrayIndexes(b.array)
-		if err != nil {
-			return err
-		}
-		if b.arrayIndexes.Parallelism != nil {
-			b.nodes = b.arrayIndexes.Parallelism
-		}
-	}
-
 	if err := b.getSbatchEnvs(); err != nil {
 		return err
 	}
@@ -130,6 +118,18 @@ func (b *slurmBuilder) complete() error {
 
 	if err := b.validateMutuallyExclusiveFlags(); err != nil {
 		return err
+	}
+
+	if b.array == "" {
+		b.arrayIndexes = parser.GenerateArrayIndexes(ptr.Deref(b.nodes, 1) * ptr.Deref(b.nTasks, 1))
+	} else {
+		b.arrayIndexes, err = parser.ParseArrayIndexes(b.array)
+		if err != nil {
+			return err
+		}
+		if b.arrayIndexes.Parallelism != nil {
+			b.nodes = b.arrayIndexes.Parallelism
+		}
 	}
 
 	return nil
