@@ -466,13 +466,6 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		return errors.New("--pod-running-timeout must be higher than zero")
 	}
 
-	if !validateMutuallyExclusiveFlags(
-		o.SlurmFlagSet.Changed(memPerTaskFlagName),
-		o.SlurmFlagSet.Changed(memPerCPUFlagName),
-		o.SlurmFlagSet.Changed(memPerGPUFlagName)) {
-		return errors.New("the --mem-per-task, --mem-per-cpu and --mem-per-gpu options are mutually exclusive")
-	}
-
 	if o.SlurmFlagSet.Changed(cpusPerTaskFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedCpusPerTask)
 		if err != nil {
@@ -734,15 +727,4 @@ func defaultAttachFunc(o *CreateOptions, containerToAttach *corev1.Container, si
 
 		return o.Attach.Attach(req.URL(), o.Config, o.In, o.Out, o.ErrOut, o.TTY, sizeQueue)
 	}
-}
-
-func validateMutuallyExclusiveFlags(changed ...bool) bool {
-	var changedFlagsCount int
-	for _, f := range changed {
-		if f {
-			changedFlagsCount++
-		}
-	}
-
-	return changedFlagsCount <= 1
 }

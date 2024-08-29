@@ -34,6 +34,7 @@ import (
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
 )
 
@@ -127,6 +128,39 @@ func (b *slurmBuilder) complete() error {
 		return err
 	}
 
+	if err := b.validateMutuallyExclusiveFlags(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
+	flags := map[string]bool{
+		string(v1alpha1.MemPerTaskFlag): b.memPerTask != nil,
+		string(v1alpha1.MemPerCPUFlag):  b.memPerCPU != nil,
+		string(v1alpha1.MemPerGPUFlag):  b.memPerGPU != nil,
+	}
+
+	var setFlagsCount int
+	setFlags := make([]string, 0)
+	for f, isSet := range flags {
+		if isSet {
+			setFlagsCount++
+			setFlags = append(setFlags, f)
+		}
+	}
+
+	if setFlagsCount > 1 {
+		return fmt.Errorf(
+			"if any flags in the group [%s %s %s] are set none of the others can be; [%s] were all set",
+			v1alpha1.MemPerTaskFlag,
+			v1alpha1.MemPerGPUFlag,
+			v1alpha1.MemPerGPUFlag,
+			strings.Join(setFlags, " "),
+		)
+	}
+
 	return nil
 }
 
@@ -208,7 +242,13 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 
 		container.Command = []string{"bash", fmt.Sprintf("%s/entrypoint.sh", slurmPath)}
 
-		requests := b.requests
+		var requests corev1.ResourceList
+		if b.requests != nil {
+			requests = b.requests
+		} else {
+			requests = corev1.ResourceList{}
+		}
+
 		if b.cpusPerTask != nil {
 			requests[corev1.ResourceCPU] = *b.cpusPerTask
 		}
@@ -223,13 +263,13 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 			requests[corev1.ResourceMemory] = *b.memPerTask
 		}
 
-		if b.memPerCPU != nil {
+		if b.memPerCPU != nil && b.cpusPerTask != nil {
 			memPerCPU := *b.memPerCPU
 			memPerCPU.Mul(b.cpusPerTask.Value())
 			requests[corev1.ResourceMemory] = memPerCPU
 		}
 
-		if b.memPerGPU != nil {
+		if b.memPerGPU != nil && b.gpusPerTask != nil {
 			memPerGpu := *b.memPerGPU
 			memPerGpu.Mul(gpusPerTask.Value())
 			requests[corev1.ResourceMemory] = memPerGpu
