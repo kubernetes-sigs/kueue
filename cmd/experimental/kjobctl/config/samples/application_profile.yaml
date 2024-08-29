@@ -21,7 +21,7 @@ spec:
     - name: RayCluster
       template: sample-ray-cluster-template
       requiredFlags: []
-  volumeBundles: ["ray-job-volume-bundle"]
+  volumeBundles: ["ray-job-volume-bundle", "slurm-volume-bundle"]
 ---
 apiVersion: v1
 kind: PodTemplate
@@ -70,7 +70,7 @@ template:
       spec:
         containers:
           - name: sample-container
-            image: bash:4.4
+            image: python:3-slim
         restartPolicy: OnFailure
 ---
 apiVersion: kjobctl.x-k8s.io/v1alpha1
