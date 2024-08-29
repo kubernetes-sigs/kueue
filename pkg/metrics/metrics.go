@@ -55,6 +55,8 @@ const (
 var (
 	CQStatuses = []ClusterQueueStatus{CQStatusPending, CQStatusActive, CQStatusTerminating}
 
+	// Metrics tied to the scheduler
+
 	AdmissionAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -76,6 +78,15 @@ The label 'result' can have the following values:
 - 'success' means that at least one workload was admitted.,
 - 'inadmissible' means that no workload was admitted.`,
 		}, []string{"result"},
+	)
+
+	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "admission_cycle_preemption_skips",
+			Help: "The number of Workloads in the ClusterQueue that got preemption candidates " +
+				"but had to be skipped because other ClusterQueues needed the same resources in the same cycle",
+		}, []string{"cluster_queue"},
 	)
 
 	// Metrics tied to the queue system.
@@ -281,7 +292,8 @@ func ReportPreemption(preemptingCqName, preemptingReason, targetCqName string) {
 	ReportEvictedWorkloads(targetCqName, kueue.WorkloadEvictedByPreemption)
 }
 
-func ClearQueueSystemMetrics(cqName string) {
+func ClearClusterQueueMetrics(cqName string) {
+	AdmissionCyclePreemptionSkips.DeleteLabelValues(cqName)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
 	QuotaReservedWorkloadsTotal.DeleteLabelValues(cqName)
@@ -391,6 +403,7 @@ func Register() {
 	metrics.Registry.MustRegister(
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
+		AdmissionCyclePreemptionSkips,
 		PendingWorkloads,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,

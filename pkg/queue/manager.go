@@ -179,7 +179,7 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		return
 	}
 	m.hm.DeleteClusterQueue(cq.Name)
-	metrics.ClearQueueSystemMetrics(cq.Name)
+	metrics.ClearClusterQueueMetrics(cq.Name)
 }
 
 func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
