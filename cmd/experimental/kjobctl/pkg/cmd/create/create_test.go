@@ -720,15 +720,15 @@ then
 	exit 0
 fi
 
-export SBATCH_ARRAY_INX=
-export SBATCH_GPUS_PER_TASK=
-export SBATCH_MEM_PER_CPU=
-export SBATCH_MEM_PER_GPU=
-export SBATCH_OUTPUT=
-export SBATCH_ERROR=
-export SBATCH_INPUT=
-export SBATCH_JOB_NAME=
-export SBATCH_PARTITION=
+SBATCH_ARRAY_INX=
+SBATCH_GPUS_PER_TASK=
+SBATCH_MEM_PER_CPU=
+SBATCH_MEM_PER_GPU=
+SBATCH_OUTPUT=
+SBATCH_ERROR=
+SBATCH_INPUT=
+SBATCH_JOB_NAME=
+SBATCH_PARTITION=
 
 export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=1  		# Total number of tasks in a job array.
@@ -899,15 +899,15 @@ then
 	exit 0
 fi
 
-export SBATCH_ARRAY_INX=0-25
-export SBATCH_GPUS_PER_TASK=
-export SBATCH_MEM_PER_CPU=
-export SBATCH_MEM_PER_GPU=
-export SBATCH_OUTPUT=/slurm/stdout.out
-export SBATCH_ERROR=/slurm/stderr.out
-export SBATCH_INPUT=/slurm/input.txt
-export SBATCH_JOB_NAME=job-name
-export SBATCH_PARTITION=lq1
+SBATCH_ARRAY_INX=0-25
+SBATCH_GPUS_PER_TASK=
+SBATCH_MEM_PER_CPU=
+SBATCH_MEM_PER_GPU=
+SBATCH_OUTPUT=/slurm/stdout.out
+SBATCH_ERROR=/slurm/stderr.out
+SBATCH_INPUT=/slurm/input.txt
+SBATCH_JOB_NAME=job-name
+SBATCH_PARTITION=lq1
 
 export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
 export SLURM_ARRAY_TASK_COUNT=26  		# Total number of tasks in a job array.

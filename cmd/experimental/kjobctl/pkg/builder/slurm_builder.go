@@ -388,15 +388,15 @@ func (b *slurmBuilder) buildSbatchVariables() string {
 		memPerGPU = b.memPerGPU.String()
 	}
 
-	return fmt.Sprintf(`export SBATCH_ARRAY_INX=%[1]s
-export SBATCH_GPUS_PER_TASK=%[2]s
-export SBATCH_MEM_PER_CPU=%[3]s
-export SBATCH_MEM_PER_GPU=%[4]s
-export SBATCH_OUTPUT=%[5]s
-export SBATCH_ERROR=%[6]s
-export SBATCH_INPUT=%[7]s
-export SBATCH_JOB_NAME=%[8]s
-export SBATCH_PARTITION=%[9]s`,
+	return fmt.Sprintf(`SBATCH_ARRAY_INX=%[1]s
+SBATCH_GPUS_PER_TASK=%[2]s
+SBATCH_MEM_PER_CPU=%[3]s
+SBATCH_MEM_PER_GPU=%[4]s
+SBATCH_OUTPUT=%[5]s
+SBATCH_ERROR=%[6]s
+SBATCH_INPUT=%[7]s
+SBATCH_JOB_NAME=%[8]s
+SBATCH_PARTITION=%[9]s`,
 		b.array,     // %[1]s
 		gpusPerTask, // %[2]s
 		memPerCPU,   // %[3]s
