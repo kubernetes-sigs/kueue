@@ -29,7 +29,7 @@ export KUBEFLOW_CRDS=${ROOT_DIR}/dep-crds/training-operator
 export KUBEFLOW_CRDS_BASE=${KUBEFLOW_CRDS}/base/crds
 export KUBEFLOW_MANIFEST=${KUBEFLOW_CRDS}/overlays/standalone
 
-export KUBEFLOW_MPI_MANIFEST="https://raw.githubusercontent.com/kubeflow/mpi-operator/${KUBEFLOW_MPI_VERSION}/deploy/v2beta1/mpi-operator.yaml" #"https://github.com/kubeflow/mpi-operator/manifests/overlays/standalone?ref=${KUBEFLOW_MPI_VERSION}"
+export KUBEFLOW_MPI_MANIFEST="https://raw.githubusercontent.com/kubeflow/mpi-operator/${KUBEFLOW_MPI_VERSION}/deploy/v2beta1/mpi-operator.yaml"
 export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 export KUBEFLOW_MPI_CRD=${ROOT_DIR}/dep-crds/mpi-operator/kubeflow.org_mpijobs.yaml
 
