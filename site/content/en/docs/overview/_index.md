@@ -35,25 +35,24 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **All-or-nothing with ready Pods:** A timeout-based implementation of [All-or-nothing scheduling](/docs/tasks/manage/setup_wait_for_pods_ready/).
 - **Partial admission:** Allows jobs to run with a [smaller parallelism](/docs/tasks/run/jobs/#partial-admission), based on available quota, if the application supports it.
 
-## Job-Integrated Features
+## Job-integrated features
 
-| Feature                         | Batch&nbsp;Job | JobSet | MXJob | PaddleJob | PytorchJob | TFJob | XGBoostJob | MPIJob | Pod | RayCluster | RayJob |
-|---------------------------------|----------------|--------|-------|-----------|------------|-------|------------|--------|-----|------------|--------|
-| PartialAdmission                | +              |        |       |           |            |       |            |        |     |            |        |
-| DynamicallyReclaimingResources  | +              | +      |       |           |            |       |            |        | +   |            |        | 
-| MultiKueue                      | +              | +      |       | +         | +          | +     | +          |        |     |            |        |
-| MultiKueueBatchJobWithManagedBy | +              |        |       |           |            |       |            |        |     |            |        |
-| PodPriority                     | +              | +      | +     | +         | +          | +     | +          | +      | +   |            |        |
-| WorkloadPriority                | +              | +      | +     | +         | +          | +     | +          | +      |     | +          | +      |
-| FlavorFungibility               | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
-| ProvisioningACC                 | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
-| QueueVisibility                 | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
-| VisibilityOnDemand              | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
-| PrioritySortingWithinCohort     | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
-| LendingLimit                    | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
-| MultiplePreemptions             | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
-| WaitForPodsReady                | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
-| FairSharing                     | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| Feature                                                                                                                          | Batch&nbsp;Job | JobSet | MXJob | PaddleJob | PytorchJob | TFJob | XGBoostJob | MPIJob | Pod | RayCluster | RayJob |
+|----------------------------------------------------------------------------------------------------------------------------------|----------------|--------|-------|-----------|------------|-------|------------|--------|-----|------------|--------|
+| [FlavorFungibility](/docs/concepts/cluster_queue/#flavorfungibility)                                                             | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| [MultiKueue](/docs/concepts/multikueue/)                                                                                         | +              | +      |       | +         | +          | +     | +          |        |     |            |        |
+| [MultiKueueBatchJobWithManagedBy](/docs/concepts/multikueue/#multikueuebatchjobwithmanagedby-enabled)                            | +              |        |       |           |            |       |            |        |     |            |        |
+| [PartialAdmission](/docs/tasks/run/jobs/#partial-admission)                                                                      | +              |        |       |           |            |       |            |        |     |            |        |
+| [ProvisioningACC](/docs/concepts/admission_check/)                                                                               | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| [QueueVisibility](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_in_status/#enabling-feature-queuevisibility)    | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| [VisibilityOnDemand](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_in_status/#enabling-feature-queuevisibility) | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| [PrioritySortingWithinCohort](/docs/concepts/cluster_queue/#flavors-and-borrowing-semantics)                                     | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| [LendingLimit](/docs/concepts/cluster_queue/#lendinglimit)                                                                       | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| [MultiplePreemptions](/docs/concepts/preemption/#preemption-strategies)                                                          | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| [Dynamic Reclaim](/docs/concepts/workload/#dynamic-reclaim)                                                                      | +              | +      |       |           |            |       |            |        | +   |            |        |
+| [Workload Priority Class](/docs/concepts/workload_priority_class/)                                                               | +              | +      | +     | +         | +          | +     | +          | +      |     | +          | +      |
+| [All-or-nothing with ready Pods](/docs/concepts/workload/#all-or-nothing-semantics-for-job-resource-assignment)                  | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| [Fair Sharing](/docs/concepts/preemption/#fair-sharing)                                                                          | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
 
 ## High-level Kueue operation
 
