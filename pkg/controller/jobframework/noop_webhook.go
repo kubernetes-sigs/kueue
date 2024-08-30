@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package noop
+package jobframework
 
 import (
 	"context"
@@ -27,8 +27,7 @@ import (
 type webhook struct {
 }
 
-// SetupWebhook configures the webhook for batchJob.
-func SetupWebhook(mgr ctrl.Manager, apiType runtime.Object) error {
+func setupNoopWebhook(mgr ctrl.Manager, apiType runtime.Object) error {
 	wh := &webhook{}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(apiType).
@@ -38,21 +37,21 @@ func SetupWebhook(mgr ctrl.Manager, apiType runtime.Object) error {
 }
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *webhook) Default(_ context.Context, _ runtime.Object) error {
+func (w *webhook) Default(context.Context, runtime.Object) error {
 	return nil
 }
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *webhook) ValidateCreate(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *webhook) ValidateCreate(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *webhook) ValidateUpdate(_ context.Context, _, _ runtime.Object) (admission.Warnings, error) {
+func (w *webhook) ValidateUpdate(context.Context, runtime.Object, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *webhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *webhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }

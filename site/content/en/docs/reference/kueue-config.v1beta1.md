@@ -488,6 +488,7 @@ Possible options:</p>
 <li>&quot;kubeflow.org/tfjob&quot;</li>
 <li>&quot;kubeflow.org/xgboostjob&quot;</li>
 <li>&quot;pod&quot;</li>
+<li>&quot;deployment&quot;</li>
 </ul>
 </td>
 </tr>
