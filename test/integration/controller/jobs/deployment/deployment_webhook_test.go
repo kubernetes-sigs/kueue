@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 			ginkgo.It("Should inject queue name to pod template labels", func() {
 				gomega.Expect(k8sClient.Create(ctx, deployment)).Should(gomega.Succeed())
 
-				gomega.Eventually(func(g gomega.Gomega) error {
+				gomega.Eventually(func(g gomega.Gomega) {
 					createdDeployment := &appsv1.Deployment{}
 					g.Expect(k8sClient.Get(ctx, lookupKey, createdDeployment)).Should(gomega.Succeed())
 					g.Expect(createdDeployment.Spec.Template.Labels[constants.QueueLabel]).
@@ -102,7 +102,6 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 							gomega.Equal("user-queue"),
 							"Queue name should be injected to pod template labels",
 						)
-					return nil
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("Updating the deployment should not allow to change the queue name", func() {
@@ -132,7 +131,7 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 			ginkgo.It("Should not inject queue name to pod template labels", func() {
 				gomega.Expect(k8sClient.Create(ctx, deployment)).Should(gomega.Succeed())
 
-				gomega.Eventually(func(g gomega.Gomega) error {
+				gomega.Eventually(func(g gomega.Gomega) {
 					createdDeployment := &appsv1.Deployment{}
 					g.Expect(k8sClient.Get(ctx, lookupKey, createdDeployment)).Should(gomega.Succeed())
 					g.Expect(createdDeployment.Spec.Template.Labels[constants.QueueLabel]).
@@ -140,7 +139,6 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 							gomega.BeEmpty(),
 							"Queue name should not be injected to pod template labels",
 						)
-					return nil
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
