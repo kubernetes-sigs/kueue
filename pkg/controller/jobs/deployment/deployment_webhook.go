@@ -60,10 +60,13 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook").WithValues("deployment", klog.KObj(d))
 	log.V(5).Info("Applying defaults")
 
-	if d.Spec.Template.Labels == nil {
-		d.Spec.Template.Labels = make(map[string]string, 1)
+	cqLabel, ok := d.Labels[constants.QueueLabel]
+	if ok {
+		if d.Spec.Template.Labels == nil {
+			d.Spec.Template.Labels = make(map[string]string, 1)
+		}
+		d.Spec.Template.Labels[constants.QueueLabel] = cqLabel
 	}
-	d.Spec.Template.Labels[constants.QueueLabel] = d.Labels[constants.QueueLabel]
 
 	return nil
 }

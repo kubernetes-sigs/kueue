@@ -116,5 +116,33 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 				})
 			})
 		})
+
+		ginkgo.When("The queue-name label is not set", func() {
+			var (
+				deployment *appsv1.Deployment
+				lookupKey  types.NamespacedName
+			)
+
+			ginkgo.BeforeEach(func() {
+				deployment = testingdeployment.MakeDeployment("deployment-without-queue-name", ns.Name).
+					Obj()
+				lookupKey = client.ObjectKeyFromObject(deployment)
+			})
+
+			ginkgo.It("Should not inject queue name to pod template labels", func() {
+				gomega.Expect(k8sClient.Create(ctx, deployment)).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) error {
+					createdDeployment := &appsv1.Deployment{}
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdDeployment)).Should(gomega.Succeed())
+					g.Expect(createdDeployment.Spec.Template.Labels[constants.QueueLabel]).
+						To(
+							gomega.BeEmpty(),
+							"Queue name should not be injected to pod template labels",
+						)
+					return nil
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 })
