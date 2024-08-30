@@ -58,7 +58,6 @@ var (
 	retriableInGroupAnnotationPath = annotationsPath.Key(RetriableInGroupAnnotation)
 
 	errPodOptsTypeAssertion = errors.New("options are not of type PodIntegrationOptions")
-	errPodOptsNotFound      = errors.New("podIntegrationOptions not found in options")
 )
 
 type PodWebhook struct {
@@ -88,16 +87,16 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
-func getPodOptions(integrationOpts map[string]any) (configapi.PodIntegrationOptions, error) {
+func getPodOptions(integrationOpts map[string]any) (*configapi.PodIntegrationOptions, error) {
 	opts, ok := integrationOpts[corev1.SchemeGroupVersion.WithKind("Pod").String()]
 	if !ok {
-		return configapi.PodIntegrationOptions{}, errPodOptsNotFound
+		return &configapi.PodIntegrationOptions{}, nil
 	}
 	podOpts, ok := opts.(*configapi.PodIntegrationOptions)
 	if !ok {
-		return configapi.PodIntegrationOptions{}, fmt.Errorf("%w, got %T", errPodOptsTypeAssertion, opts)
+		return nil, fmt.Errorf("%w, got %T", errPodOptsTypeAssertion, opts)
 	}
-	return *podOpts, nil
+	return podOpts, nil
 }
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
