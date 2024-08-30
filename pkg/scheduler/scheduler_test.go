@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -44,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -281,6 +283,8 @@ func TestSchedule(t *testing.T) {
 		wantPreempted sets.Set[string]
 		// wantEvents ignored if empty, the Message is ignored (it contains the duration)
 		wantEvents []utiltesting.EventRecord
+
+		wantSkippedPreemptions map[string]int
 	}{
 		"workload fits in single clusterQueue, with check state ready": {
 			workloads: []kueue.Workload{
@@ -1041,6 +1045,11 @@ func TestSchedule(t *testing.T) {
 			wantLeft: map[string][]string{
 				"eng-gamma": {"eng-gamma/new-gamma"},
 			},
+			wantSkippedPreemptions: map[string]int{
+				"eng-alpha": 0,
+				"eng-beta":  0,
+				"eng-gamma": 1,
+			},
 		},
 		"no overadmission while borrowing (duplicated from above)": {
 			// duplicate of test case above, as new logic
@@ -1160,6 +1169,11 @@ func TestSchedule(t *testing.T) {
 			wantScheduled: []string{"eng-beta/new", "eng-alpha/new-alpha"},
 			wantInadmissibleLeft: map[string][]string{
 				"eng-gamma": {"eng-gamma/new-gamma"},
+			},
+			wantSkippedPreemptions: map[string]int{
+				"eng-alpha": 0,
+				"eng-beta":  0,
+				"eng-gamma": 0,
 			},
 		},
 		"partial admission single variable pod set": {
@@ -1866,6 +1880,10 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
 				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
 			},
+			wantSkippedPreemptions: map[string]int{
+				"other-alpha": 0,
+				"other-beta":  0,
+			},
 		},
 		"multiple preemptions preemption possible after earlier workload fits": {
 			// When one workload is assigned Fit,
@@ -1925,6 +1943,10 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/b1":   *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
 			},
 			wantScheduled: []string{"eng-alpha/fit"},
+			wantSkippedPreemptions: map[string]int{
+				"other-alpha": 0,
+				"other-beta":  0,
+			},
 		},
 		"multiple preemptions skip preemption when shared limited resource": {
 			// The two preempting workloads, each requesting 3 CPU,
@@ -2007,6 +2029,10 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/a1": *utiltesting.MakeAdmission("other-alpha").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
 				"eng-beta/b1":  *utiltesting.MakeAdmission("other-beta").Assignment(corev1.ResourceCPU, "default", "2").Obj(),
+			},
+			wantSkippedPreemptions: map[string]int{
+				"other-alpha": 0,
+				"other-beta":  1,
 			},
 		},
 		"multiple preemptions within cq when fair sharing": {
@@ -2113,6 +2139,11 @@ func TestSchedule(t *testing.T) {
 					Assignment(corev1.ResourceCPU, "default", "3").Obj(),
 				"eng-gamma/c1": *utiltesting.MakeAdmission("other-gamma").
 					Assignment(corev1.ResourceCPU, "default", "3").Obj(),
+			},
+			wantSkippedPreemptions: map[string]int{
+				"other-alpha": 0,
+				"other-beta":  0,
+				"other-gamma": 0,
 			},
 		},
 		"multiple preemptions skip overlapping preemption targets": {
@@ -2222,6 +2253,11 @@ func TestSchedule(t *testing.T) {
 					Assignment("beta-resource", "default", "1").Obj(),
 				"eng-gamma/c1": *utiltesting.MakeAdmission("other-gamma").
 					Assignment(corev1.ResourceCPU, "default", "9").Obj(),
+			},
+			wantSkippedPreemptions: map[string]int{
+				"other-alpha": 0,
+				"other-beta":  1,
+				"other-gamma": 0,
 			},
 		},
 		"not enough resources": {
@@ -2506,6 +2542,7 @@ func TestSchedule(t *testing.T) {
 
 	for name, tc := range cases {
 		tc.multiplePreemptions.runTest(name, t, func(t *testing.T) {
+			metrics.AdmissionCyclePreemptionSkips.Reset()
 			if tc.enableLendingLimit {
 				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
 			}
@@ -2637,6 +2674,17 @@ func TestSchedule(t *testing.T) {
 			if len(tc.wantEvents) > 0 {
 				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+			}
+
+			for cqName, want := range tc.wantSkippedPreemptions {
+				val, err := testutil.GetGaugeMetricValue(metrics.AdmissionCyclePreemptionSkips.WithLabelValues(cqName))
+				if err != nil {
+					t.Fatalf("Couldn't get value for metric admission_cycle_preemption_skips for %q: %v", cqName, err)
+				}
+				got := int(val)
+				if want != got {
+					t.Errorf("Counted %d skips for %q, want %d", got, cqName, want)
 				}
 			}
 		})

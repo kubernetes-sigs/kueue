@@ -183,6 +183,12 @@ func setSkipped(e *entry, inadmissibleMsg string) {
 	e.LastAssignment = nil
 }
 
+func reportSkippedPreemptions(p map[string]int) {
+	for cqName, count := range p {
+		metrics.AdmissionCyclePreemptionSkips.WithLabelValues(cqName).Set(float64(count))
+	}
+}
+
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	s.attemptCount++
 	log := ctrl.LoggerFrom(ctx).WithValues("attemptCount", s.attemptCount)
@@ -219,6 +225,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	cycleCohortsUsage := cohortsUsage{}
 	cycleCohortsSkipPreemption := sets.New[string]()
 	preemptedWorkloads := sets.New[string]()
+	skippedPreemptions := make(map[string]int)
 	for i := range entries {
 		e := &entries[i]
 		mode := e.assignment.RepresentativeMode()
@@ -247,12 +254,16 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			}
 			if preemptedWorkloads.HasAny(pendingPreemptions...) {
 				setSkipped(e, "Workload has overlapping preemption targets with another workload")
+				skippedPreemptions[cq.Name]++
 				continue
 			}
 
 			usage := e.netUsage()
 			if !cq.Fits(usage) {
 				setSkipped(e, "Workload no longer fits after processing another workload")
+				if mode == flavorassigner.Preempt {
+					skippedPreemptions[cq.Name]++
+				}
 				continue
 			}
 			preemptedWorkloads.Insert(pendingPreemptions...)
@@ -269,6 +280,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 				}
 				if mode == flavorassigner.Preempt && cycleCohortsSkipPreemption.Has(cq.Cohort.Name) {
 					setSkipped(e, "Workload skipped because its preemption calculations were invalidated by another workload")
+					skippedPreemptions[cq.Name]++
 					continue
 				}
 			}
@@ -327,6 +339,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
+	reportSkippedPreemptions(skippedPreemptions)
 	metrics.AdmissionAttempt(result, time.Since(startTime))
 	if result != metrics.AdmissionResultSuccess {
 		return wait.SlowDown
