@@ -53,7 +53,34 @@ func (c *Manager[CQ, C]) DeleteClusterQueue(name string) {
 	if cq, ok := c.ClusterQueues[name]; ok {
 		c.unwireClusterQueue(cq)
 		delete(c.ClusterQueues, name)
+	}
+}
+
+func (c *Manager[CQ, C]) AddCohort(cohort C) {
+	cohort.markExplicit()
+	if oldCohort, ok := c.Cohorts[cohort.GetName()]; ok {
+		c.rewireChildren(oldCohort, cohort)
+	}
+	c.Cohorts[cohort.GetName()] = cohort
+}
+
+func (c *Manager[CQ, C]) DeleteCohort(name string) {
+	cohort, ok := c.Cohorts[name]
+	delete(c.Cohorts, name)
+	if !ok || cohort.childCount() == 0 {
 		return
+	}
+	implicitCohort := c.cohortFactory(name)
+	c.Cohorts[implicitCohort.GetName()] = implicitCohort
+	c.rewireChildren(cohort, implicitCohort)
+}
+
+// rewireChildren is used when we are changing a Cohort
+// from an implicit to an explicit Cohort, or vice-versa.
+func (c *Manager[CQ, C]) rewireChildren(old, new C) {
+	for _, cq := range old.ChildCQs() {
+		cq.setParent(new)
+		new.insertClusterQueue(cq)
 	}
 }
 
@@ -75,7 +102,7 @@ func (c *Manager[CQ, C]) getOrCreateCohort(cohortName string) C {
 }
 
 func (c *Manager[CQ, C]) cleanupCohort(cohort C) {
-	if cohort.childCount() == 0 {
+	if !cohort.isExplicit() && cohort.childCount() == 0 {
 		delete(c.Cohorts, cohort.GetName())
 	}
 }
@@ -96,5 +123,8 @@ type cohortNode[CQ nodeBase] interface {
 	insertClusterQueue(CQ)
 	deleteClusterQueue(CQ)
 	childCount() int
+	ChildCQs() []CQ
+	isExplicit() bool
+	markExplicit()
 	nodeBase
 }

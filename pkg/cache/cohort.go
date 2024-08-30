@@ -17,6 +17,7 @@ limitations under the License.
 package cache
 
 import (
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 )
 
@@ -34,6 +35,11 @@ func newCohort(name string) *cohort {
 		hierarchy.NewCohort[*clusterQueue, *cohort](),
 		NewResourceNode(),
 	}
+}
+
+func (c *cohort) updateCohort(apiCohort *kueuealpha.Cohort) {
+	c.resourceNode.Quotas = createResourceQuotas(apiCohort.Spec.ResourceGroups)
+	updateCohortResourceNode(c)
 }
 
 func (c *cohort) GetName() string {

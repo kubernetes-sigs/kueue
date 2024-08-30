@@ -134,13 +134,17 @@ var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borr
 
 func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
-		updateClusterQueueResourceNode(c)
 		c.AllocatableResourceGeneration += 1
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortResourceNode(oldParent)
 		}
 		if c.HasParent() {
+			// clusterQueue will be updated as part of tree update.
 			updateCohortResourceNode(c.Parent())
+		} else {
+			// since ClusterQueue has no parent, it won't be updated
+			// as part of tree update.
+			updateClusterQueueResourceNode(c)
 		}
 	}
 

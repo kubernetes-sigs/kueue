@@ -32,6 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
@@ -395,6 +396,27 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	}
 	c.hm.DeleteClusterQueue(cq.Name)
 	metrics.ClearCacheMetrics(cq.Name)
+}
+
+func (c *Cache) AddCohort(apiCohort *kueuealpha.Cohort) {
+	c.Lock()
+	defer c.Unlock()
+	cohort := newCohort(apiCohort.Name)
+	c.hm.AddCohort(cohort)
+	cohort.updateCohort(apiCohort)
+}
+
+func (c *Cache) DeleteCohort(apiCohort *kueuealpha.Cohort) {
+	c.Lock()
+	defer c.Unlock()
+	c.hm.DeleteCohort(apiCohort.Name)
+
+	// If the cohort still exists after deletion, it means
+	// that it has one or more children referencing it.
+	// We need to run update algorithm.
+	if cohort, ok := c.hm.Cohorts[apiCohort.Name]; ok {
+		updateCohortResourceNode(cohort)
+	}
 }
 
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {

@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -45,6 +46,7 @@ var snapCmpOpts = []cmp.Option{
 func TestSnapshot(t *testing.T) {
 	testCases := map[string]struct {
 		cqs                 []*kueue.ClusterQueue
+		cohorts             []*kueuealpha.Cohort
 		rfs                 []*kueue.ResourceFlavor
 		wls                 []*kueue.Workload
 		wantSnapshot        Snapshot
@@ -699,6 +701,82 @@ func TestSnapshot(t *testing.T) {
 				}
 			}(),
 		},
+		"cohort provides resources": {
+			rfs: []*kueue.ResourceFlavor{
+				utiltesting.MakeResourceFlavor("arm").Obj(),
+				utiltesting.MakeResourceFlavor("x86").Obj(),
+				utiltesting.MakeResourceFlavor("mips").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq").
+					Cohort("cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "7", "", "3").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "5").Obj(),
+					).
+					Obj(),
+			},
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "20").Obj(),
+					).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("mips").Resource(corev1.ResourceCPU, "42").Obj(),
+					).Obj(),
+			},
+			wantSnapshot: Snapshot{
+				ClusterQueues: map[string]*ClusterQueueSnapshot{
+					"cq": {
+						Name:                          "cq",
+						AllocatableResourceGeneration: 1,
+						ResourceGroups: []ResourceGroup{
+							{
+								CoveredResources: sets.New(corev1.ResourceCPU),
+								Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+							},
+						},
+						ResourceNode: ResourceNode{
+							Quotas: map[resources.FlavorResource]ResourceQuota{
+								{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 7_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](3_000)},
+								{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 5_000, BorrowingLimit: nil, LendingLimit: nil},
+							},
+							SubtreeQuota: resources.FlavorResourceQuantities{
+								{Flavor: "arm", Resource: corev1.ResourceCPU}: 7_000,
+								{Flavor: "x86", Resource: corev1.ResourceCPU}: 5_000,
+							},
+						},
+						FlavorFungibility: defaultFlavorFungibility,
+						FairWeight:        oneQuantity,
+						Preemption:        defaultPreemption,
+						NamespaceSelector: labels.Everything(),
+						Status:            active,
+						Cohort: &CohortSnapshot{
+							Name:                          "cohort",
+							AllocatableResourceGeneration: 1,
+							ResourceNode: ResourceNode{
+								Quotas: map[resources.FlavorResource]ResourceQuota{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}:  {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "x86", Resource: corev1.ResourceCPU}:  {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "mips", Resource: corev1.ResourceCPU}: {Nominal: 42_000, BorrowingLimit: nil, LendingLimit: nil},
+								},
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}:  13_000,
+									{Flavor: "x86", Resource: corev1.ResourceCPU}:  25_000,
+									{Flavor: "mips", Resource: corev1.ResourceCPU}: 42_000,
+								},
+							},
+						},
+					},
+				},
+				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+					"arm":  utiltesting.MakeResourceFlavor("arm").Obj(),
+					"x86":  utiltesting.MakeResourceFlavor("x86").Obj(),
+					"mips": utiltesting.MakeResourceFlavor("mips").Obj(),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -713,6 +791,9 @@ func TestSnapshot(t *testing.T) {
 				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
 					t.Fatalf("Failed adding ClusterQueue: %v", err)
 				}
+			}
+			for _, cohort := range tc.cohorts {
+				cache.AddCohort(cohort)
 			}
 			for _, rf := range tc.rfs {
 				cache.AddOrUpdateResourceFlavor(rf)

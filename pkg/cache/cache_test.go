@@ -1051,6 +1051,53 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "create cohort",
+			operation: func(cache *Cache) error {
+				cohort := utiltesting.MakeCohort("cohort").Obj()
+				cache.AddCohort(cohort)
+				return nil
+			},
+			wantCohorts: map[string]sets.Set[string]{
+				"cohort": nil,
+			},
+		},
+		{
+			name: "create and delete cohort",
+			operation: func(cache *Cache) error {
+				cohort := utiltesting.MakeCohort("cohort").Obj()
+				cache.AddCohort(cohort)
+				cache.DeleteCohort(cohort)
+				return nil
+			},
+			wantCohorts: nil,
+		},
+		{
+			name: "cohort remains after deletion when child exists",
+			operation: func(cache *Cache) error {
+				cohort := utiltesting.MakeCohort("cohort").Obj()
+				cache.AddCohort(cohort)
+
+				_ = cache.AddClusterQueue(context.Background(),
+					utiltesting.MakeClusterQueue("cq").Cohort("cohort").Obj())
+				cache.DeleteCohort(cohort)
+				return nil
+			},
+			wantClusterQueues: map[string]*clusterQueue{
+				"cq": {
+					Name:                          "cq",
+					NamespaceSelector:             labels.Everything(),
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					AllocatableResourceGeneration: 1,
+					FlavorFungibility:             defaultFlavorFungibility,
+					FairWeight:                    oneQuantity,
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{
+				"cohort": sets.New("cq"),
+			},
+		},
 	}
 
 	for _, tc := range cases {

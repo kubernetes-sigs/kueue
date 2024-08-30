@@ -163,7 +163,12 @@ func updateClusterQueueResourceNode(cq *clusterQueue) {
 func updateCohortResourceNode(cohort *cohort) {
 	cohort.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.SubtreeQuota))
 	cohort.resourceNode.Usage = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.Usage))
+
+	for fr, quota := range cohort.resourceNode.Quotas {
+		cohort.resourceNode.SubtreeQuota[fr] = quota.Nominal
+	}
 	for _, child := range cohort.ChildCQs() {
+		updateClusterQueueResourceNode(child)
 		for fr, childQuota := range child.resourceNode.SubtreeQuota {
 			cohort.resourceNode.SubtreeQuota[fr] += childQuota - child.resourceNode.guaranteedQuota(fr)
 		}
