@@ -31,7 +31,7 @@ var (
 )
 
 type RayDashboardClientInterface interface {
-	InitClient(url string)
+	InitClient(ctx context.Context, url string, rayCluster *rayv1.RayCluster) error
 	UpdateDeployments(ctx context.Context, configJson []byte) error
 	// V2/multi-app Rest API
 	GetServeDetails(ctx context.Context) (*ServeDetails, error)
@@ -46,16 +46,23 @@ type RayDashboardClientInterface interface {
 }
 
 type BaseDashboardClient struct {
-	client       http.Client
+	client       *http.Client
 	dashboardURL string
 }
 
-func GetRayDashboardClient() RayDashboardClientInterface {
-	return &RayDashboardClient{}
+func GetRayDashboardClientFunc(mgr ctrl.Manager, useKubernetesProxy bool) func() RayDashboardClientInterface {
+	return func() RayDashboardClientInterface {
+		return &RayDashboardClient{
+			mgr:                mgr,
+			useKubernetesProxy: useKubernetesProxy,
+		}
+	}
 }
 
 type RayDashboardClient struct {
+	mgr ctrl.Manager
 	BaseDashboardClient
+	useKubernetesProxy bool
 }
 
 // FetchHeadServiceURL fetches the URL that consists of the FQDN for the RayCluster's head service
@@ -97,15 +104,35 @@ func FetchHeadServiceURL(ctx context.Context, cli client.Client, rayCluster *ray
 		headSvc.Namespace,
 		domainName,
 		port)
-	log.Info("FetchHeadServiceURL", "head service URL", headServiceURL, "port", defaultPortName)
+	log.Info("FetchHeadServiceURL", "head service URL", headServiceURL)
 	return headServiceURL, nil
 }
 
-func (r *RayDashboardClient) InitClient(url string) {
-	r.client = http.Client{
+func (r *RayDashboardClient) InitClient(ctx context.Context, url string, rayCluster *rayv1.RayCluster) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	if r.useKubernetesProxy {
+		var err error
+		headSvcName := rayCluster.Status.Head.ServiceName
+		if headSvcName == "" {
+			log.Info("RayCluster is missing .status.head.serviceName, calling GenerateHeadServiceName instead...", "RayCluster name", rayCluster.Name, "namespace", rayCluster.Namespace)
+			headSvcName, err = GenerateHeadServiceName(RayClusterCRD, rayCluster.Spec, rayCluster.Name)
+			if err != nil {
+				return err
+			}
+		}
+
+		r.client = r.mgr.GetHTTPClient()
+		r.dashboardURL = fmt.Sprintf("%s/api/v1/namespaces/%s/services/%s:dashboard/proxy", r.mgr.GetConfig().Host, rayCluster.Namespace, headSvcName)
+		return nil
+	}
+
+	r.client = &http.Client{
 		Timeout: 2 * time.Second,
 	}
+
 	r.dashboardURL = "http://" + url
+	return nil
 }
 
 // UpdateDeployments update the deployments in the Ray cluster.
@@ -135,7 +162,7 @@ func (r *RayDashboardClient) UpdateDeployments(ctx context.Context, configJson [
 func (r *RayDashboardClient) GetMultiApplicationStatus(ctx context.Context) (map[string]*ServeApplicationStatus, error) {
 	serveDetails, err := r.GetServeDetails(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get serve details: %v", err)
+		return nil, fmt.Errorf("Failed to get serve details: %w", err)
 	}
 
 	return r.ConvertServeDetailsToApplicationStatuses(serveDetails)
@@ -171,12 +198,12 @@ func (r *RayDashboardClient) GetServeDetails(ctx context.Context) (*ServeDetails
 func (r *RayDashboardClient) ConvertServeDetailsToApplicationStatuses(serveDetails *ServeDetails) (map[string]*ServeApplicationStatus, error) {
 	detailsJson, err := json.Marshal(serveDetails.Applications)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to marshal serve details: %v.", serveDetails.Applications)
+		return nil, fmt.Errorf("Failed to marshal serve details: %v", serveDetails.Applications)
 	}
 
 	applicationStatuses := map[string]*ServeApplicationStatus{}
 	if err = json.Unmarshal(detailsJson, &applicationStatuses); err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal serve details bytes into map of application statuses: %v. Bytes: %s", err, string(detailsJson))
+		return nil, fmt.Errorf("Failed to unmarshal serve details bytes into map of application statuses: %w. Bytes: %s", err, string(detailsJson))
 	}
 
 	return applicationStatuses, nil
@@ -188,29 +215,29 @@ type RuntimeEnvType map[string]interface{}
 // Reference to https://docs.ray.io/en/latest/cluster/running-applications/job-submission/rest.html#ray-job-rest-api-spec
 // Reference to https://github.com/ray-project/ray/blob/cfbf98c315cfb2710c56039a3c96477d196de049/dashboard/modules/job/pydantic_models.py#L38-L107
 type RayJobInfo struct {
+	ErrorType    *string           `json:"error_type,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	RuntimeEnv   RuntimeEnvType    `json:"runtime_env,omitempty"`
 	JobStatus    rayv1.JobStatus   `json:"status,omitempty"`
 	Entrypoint   string            `json:"entrypoint,omitempty"`
 	JobId        string            `json:"job_id,omitempty"`
 	SubmissionId string            `json:"submission_id,omitempty"`
 	Message      string            `json:"message,omitempty"`
-	ErrorType    *string           `json:"error_type,omitempty"`
 	StartTime    uint64            `json:"start_time,omitempty"`
 	EndTime      uint64            `json:"end_time,omitempty"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
-	RuntimeEnv   RuntimeEnvType    `json:"runtime_env,omitempty"`
 }
 
 // RayJobRequest is the request body to submit.
 // Reference to https://docs.ray.io/en/latest/cluster/running-applications/job-submission/rest.html#ray-job-rest-api-spec
 // Reference to https://github.com/ray-project/ray/blob/cfbf98c315cfb2710c56039a3c96477d196de049/dashboard/modules/job/common.py#L325-L353
 type RayJobRequest struct {
-	Entrypoint   string             `json:"entrypoint"`
-	SubmissionId string             `json:"submission_id,omitempty"`
 	RuntimeEnv   RuntimeEnvType     `json:"runtime_env,omitempty"`
 	Metadata     map[string]string  `json:"metadata,omitempty"`
+	Resources    map[string]float32 `json:"entrypoint_resources,omitempty"`
+	Entrypoint   string             `json:"entrypoint"`
+	SubmissionId string             `json:"submission_id,omitempty"`
 	NumCpus      float32            `json:"entrypoint_num_cpus,omitempty"`
 	NumGpus      float32            `json:"entrypoint_num_gpus,omitempty"`
-	Resources    map[string]float32 `json:"entrypoint_resources,omitempty"`
 }
 
 type RayJobResponse struct {
@@ -318,6 +345,10 @@ func (r *RayDashboardClient) SubmitJobReq(ctx context.Context, request *RayJobRe
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return "", fmt.Errorf("SubmitJob fail: %s %s", resp.Status, string(body))
+	}
 
 	var jobResp RayJobResponse
 	if err = json.Unmarshal(body, &jobResp); err != nil {
@@ -445,7 +476,7 @@ func UnmarshalRuntimeEnvYAML(runtimeEnvYAML string) (RuntimeEnvType, error) {
 	var runtimeEnv RuntimeEnvType
 	err := yaml.Unmarshal([]byte(runtimeEnvYAML), &runtimeEnv)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal RuntimeEnvYAML: %v: %v", runtimeEnvYAML, err)
+		return nil, fmt.Errorf("failed to unmarshal RuntimeEnvYAML: %v: %w", runtimeEnvYAML, err)
 	}
 	return runtimeEnv, nil
 }

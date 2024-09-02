@@ -10,21 +10,21 @@ import (
 )
 
 type FakeRayDashboardClient struct {
-	BaseDashboardClient
 	multiAppStatuses map[string]*ServeApplicationStatus
-	serveDetails     ServeDetails
-
-	GetJobInfoMock atomic.Pointer[func(context.Context, string) (*RayJobInfo, error)]
+	GetJobInfoMock   atomic.Pointer[func(context.Context, string) (*RayJobInfo, error)]
+	BaseDashboardClient
+	serveDetails ServeDetails
 }
 
 var _ RayDashboardClientInterface = (*FakeRayDashboardClient)(nil)
 
-func (r *FakeRayDashboardClient) InitClient(url string) {
-	r.client = http.Client{}
+func (r *FakeRayDashboardClient) InitClient(_ context.Context, url string, _ *rayv1.RayCluster) error {
+	r.client = &http.Client{}
 	r.dashboardURL = "http://" + url
+	return nil
 }
 
-func (r *FakeRayDashboardClient) UpdateDeployments(_ context.Context, configJson []byte) error {
+func (r *FakeRayDashboardClient) UpdateDeployments(_ context.Context, _ []byte) error {
 	fmt.Print("UpdateDeployments fake succeeds.")
 	return nil
 }
@@ -59,23 +59,23 @@ func (r *FakeRayDashboardClient) ListJobs(ctx context.Context) (*[]RayJobInfo, e
 	return nil, nil
 }
 
-func (r *FakeRayDashboardClient) SubmitJob(_ context.Context, rayJob *rayv1.RayJob) (jobId string, err error) {
+func (r *FakeRayDashboardClient) SubmitJob(_ context.Context, _ *rayv1.RayJob) (jobId string, err error) {
 	return "", nil
 }
 
-func (r *FakeRayDashboardClient) SubmitJobReq(_ context.Context, request *RayJobRequest, name *string) (string, error) {
+func (r *FakeRayDashboardClient) SubmitJobReq(_ context.Context, _ *RayJobRequest, _ *string) (string, error) {
 	return "", nil
 }
 
-func (r *FakeRayDashboardClient) GetJobLog(_ context.Context, jobName string) (*string, error) {
+func (r *FakeRayDashboardClient) GetJobLog(_ context.Context, _ string) (*string, error) {
 	lg := "log"
 	return &lg, nil
 }
 
-func (r *FakeRayDashboardClient) StopJob(_ context.Context, jobName string) (err error) {
+func (r *FakeRayDashboardClient) StopJob(_ context.Context, _ string) (err error) {
 	return nil
 }
 
-func (r *FakeRayDashboardClient) DeleteJob(_ context.Context, jobName string) error {
+func (r *FakeRayDashboardClient) DeleteJob(_ context.Context, _ string) error {
 	return nil
 }

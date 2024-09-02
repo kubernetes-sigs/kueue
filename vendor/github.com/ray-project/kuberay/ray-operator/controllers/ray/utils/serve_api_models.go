@@ -15,10 +15,10 @@ type ServeDeploymentStatus struct {
 
 // Describes the status of an application
 type ServeApplicationStatus struct {
+	Deployments map[string]ServeDeploymentStatus `json:"deployments"`
 	Name        string                           `json:"name,omitempty"`
 	Status      string                           `json:"status"`
 	Message     string                           `json:"message,omitempty"`
-	Deployments map[string]ServeDeploymentStatus `json:"deployments"`
 }
 
 // V2 Serve API Response format. These extend the ServeDeploymentStatus and ServeApplicationStatus structs,
@@ -30,10 +30,10 @@ type ServeDeploymentDetails struct {
 }
 
 type ServeApplicationDetails struct {
-	ServeApplicationStatus
-	RoutePrefix string                            `json:"route_prefix,omitempty"`
-	DocsPath    string                            `json:"docs_path,omitempty"`
 	Deployments map[string]ServeDeploymentDetails `json:"deployments"`
+	ServeApplicationStatus
+	RoutePrefix string `json:"route_prefix,omitempty"`
+	DocsPath    string `json:"docs_path,omitempty"`
 }
 
 type ServeDetails struct {
