@@ -2,7 +2,7 @@ package utils
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // We are not using this for security purposes
 	"encoding/base32"
 	"fmt"
 	"math"
@@ -13,15 +13,18 @@ import (
 	"time"
 	"unicode"
 
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/util/json"
 
 	"k8s.io/apimachinery/pkg/util/rand"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
 
 const (
@@ -68,6 +71,38 @@ func IsCreated(pod *corev1.Pod) bool {
 	return pod.Status.Phase != ""
 }
 
+func FindHeadPodReadyCondition(headPod *corev1.Pod) metav1.Condition {
+	headPodReadyCondition := metav1.Condition{
+		Type:   string(rayv1.HeadPodReady),
+		Status: metav1.ConditionFalse,
+		Reason: rayv1.UnknownReason,
+	}
+
+	for _, cond := range headPod.Status.Conditions {
+		if cond.Type != corev1.PodReady {
+			continue
+		}
+		// Set the status based on the PodReady condition
+		headPodReadyCondition.Status = metav1.ConditionStatus(cond.Status)
+		headPodReadyCondition.Message = cond.Message
+
+		// Determine the reason; default to HeadPodRunningAndReady if the headPod is ready but no specific reason is provided
+		reason := cond.Reason
+		if cond.Status == corev1.ConditionTrue && reason == "" {
+			reason = rayv1.HeadPodRunningAndReady
+		}
+
+		// Update the reason if it's not empty
+		if reason != "" {
+			headPodReadyCondition.Reason = reason
+		}
+
+		// Since we're only interested in the PodReady condition, break after processing it
+		break
+	}
+	return headPodReadyCondition
+}
+
 // IsRunningAndReady returns true if pod is in the PodRunning Phase, if it has a condition of PodReady.
 func IsRunningAndReady(pod *corev1.Pod) bool {
 	if pod.Status.Phase != corev1.PodRunning {
@@ -100,6 +135,21 @@ func CheckRouteName(ctx context.Context, s string, n string) string {
 
 	// Pass through CheckName for remaining string validations
 	return CheckName(s)
+}
+
+// PodGenerateName returns the value that should be used for a Pod's generateName
+// based on the RayCluster name and node type (head or worker).
+func PodGenerateName(prefix string, nodeType rayv1.RayNodeType) string {
+	maxPrefixLength := 50 // 63 - (max(8,6) + 5 ) // 6 to 8 char are consumed at the end with "-head-" or -worker- + 5 generated.
+
+	var podPrefix string
+	if len(prefix) <= maxPrefixLength {
+		podPrefix = prefix
+	} else {
+		podPrefix = prefix[:maxPrefixLength]
+	}
+
+	return strings.ToLower(podPrefix + DashSymbol + string(nodeType) + DashSymbol)
 }
 
 // CheckName makes sure the name does not start with a numeric value and the total length is < 63 char
@@ -290,6 +340,22 @@ func CalculateMaxReplicas(cluster *rayv1.RayCluster) int32 {
 	return count
 }
 
+// CalculateReadyReplicas calculates ready worker replicas at the cluster level
+// A worker is ready if its Pod has a PodCondition with type == Ready and status == True
+func CalculateReadyReplicas(pods corev1.PodList) int32 {
+	count := int32(0)
+	for _, pod := range pods.Items {
+		if val, ok := pod.Labels[RayNodeTypeLabelKey]; !ok || val != string(rayv1.WorkerNode) {
+			continue
+		}
+		if IsRunningAndReady(&pod) {
+			count++
+		}
+	}
+
+	return count
+}
+
 // CalculateAvailableReplicas calculates available worker replicas at the cluster level
 // A worker is available if its Pod is running
 func CalculateAvailableReplicas(pods corev1.PodList) int32 {
@@ -414,65 +480,6 @@ func CheckAllPodsRunning(ctx context.Context, runningPods corev1.PodList) bool {
 	return true
 }
 
-func PodNotMatchingTemplate(pod corev1.Pod, template corev1.PodTemplateSpec) bool {
-	if pod.Status.Phase == corev1.PodRunning && pod.ObjectMeta.DeletionTimestamp == nil {
-		if len(template.Spec.Containers) != len(pod.Spec.Containers) {
-			return true
-		}
-		cmap := map[string]*corev1.Container{}
-		for _, container := range pod.Spec.Containers {
-			cmap[container.Name] = &container
-		}
-		for _, container1 := range template.Spec.Containers {
-			if container2, ok := cmap[container1.Name]; ok {
-				if container1.Image != container2.Image {
-					// image name do not match
-					return true
-				}
-				if len(container1.Resources.Requests) != len(container2.Resources.Requests) ||
-					len(container1.Resources.Limits) != len(container2.Resources.Limits) {
-					// resource entries do not match
-					return true
-				}
-
-				resources1 := []corev1.ResourceList{
-					container1.Resources.Requests,
-					container1.Resources.Limits,
-				}
-				resources2 := []corev1.ResourceList{
-					container2.Resources.Requests,
-					container2.Resources.Limits,
-				}
-				for i := range resources1 {
-					// we need to make sure all fields match
-					for name, quantity1 := range resources1[i] {
-						if quantity2, ok := resources2[i][name]; ok {
-							if quantity1.Cmp(quantity2) != 0 {
-								// request amount does not match
-								return true
-							}
-						} else {
-							// no such request
-							return true
-						}
-					}
-				}
-
-				// now we consider them equal
-				delete(cmap, container1.Name)
-			} else {
-				// container name do not match
-				return true
-			}
-		}
-		if len(cmap) != 0 {
-			// one or more containers do not match
-			return true
-		}
-	}
-	return false
-}
-
 // CompareJsonStruct This is a way to better compare if two objects are the same when they are json/yaml structs. reflect.DeepEqual will fail in some cases.
 func CompareJsonStruct(objA interface{}, objB interface{}) bool {
 	a, err := json.Marshal(objA)
@@ -510,10 +517,10 @@ func GenerateJsonHash(obj interface{}) (string, error) {
 		return "", err
 	}
 
-	hashBytes := sha1.Sum(serialObj)
+	hashBytes := sha1.Sum(serialObj) //nolint:gosec // We are not using this for security purposes
 
 	// Convert to an ASCII string
-	hashStr := string(base32.HexEncoding.EncodeToString(hashBytes[:]))
+	hashStr := base32.HexEncoding.EncodeToString(hashBytes[:])
 
 	return hashStr, nil
 }
@@ -560,4 +567,9 @@ func EnvVarByName(envName string, envVars []corev1.EnvVar) (corev1.EnvVar, bool)
 		}
 	}
 	return corev1.EnvVar{}, false
+}
+
+type ClientProvider interface {
+	GetDashboardClient(mgr manager.Manager) func() RayDashboardClientInterface
+	GetHttpProxyClient(mgr manager.Manager) func() RayHttpProxyClientInterface
 }
