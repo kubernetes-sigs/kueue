@@ -1738,10 +1738,12 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		createdWorkload := util.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdJob)
 		createdTime := createdWorkload.CreationTimestamp
 
-		createdJob.Spec.Parallelism = ptr.To[int32](1)
-
 		ginkgo.By("updating the job", func() {
-			gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				createdJob.Spec.Parallelism = ptr.To[int32](1)
+				g.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		createdWorkload = util.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdJob)
