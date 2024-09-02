@@ -1,5 +1,7 @@
 package utils
 
+import "errors"
+
 const (
 
 	// Default application name
@@ -23,6 +25,7 @@ const (
 	RayClusterHeadlessServiceLabelKey        = "ray.io/headless-worker-svc"
 	HashWithoutReplicasAndWorkersToDeleteKey = "ray.io/hash-without-replicas-and-workers-to-delete"
 	NumWorkerGroupsKey                       = "ray.io/num-worker-groups"
+	KubeRayVersion                           = "ray.io/kuberay-version"
 
 	// In KubeRay, the Ray container must be the first application container in a head or worker Pod.
 	RayContainerIndex = 0
@@ -134,13 +137,19 @@ const (
 	// flag for v1.1.0 and will be removed if the behavior proves to be stable enough.
 	ENABLE_PROBES_INJECTION = "ENABLE_PROBES_INJECTION"
 
+	// If set to true, kuberay creates a normal ClusterIP service for a Ray Head instead of a Headless service.
+	ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE = "ENABLE_RAY_HEAD_CLUSTER_IP_SERVICE"
+
+	// If set to true, the RayJob CR itself will be deleted if shutdownAfterJobFinishes is set to true. Note that all resources created by the RayJob CR will be deleted, including the K8s Job.
+	DELETE_RAYJOB_CR_AFTER_JOB_FINISHES = "DELETE_RAYJOB_CR_AFTER_JOB_FINISHES"
+
 	// Ray core default configurations
 	DefaultWorkerRayGcsReconnectTimeoutS = "600"
 
 	LOCAL_HOST = "127.0.0.1"
 	// Ray FT default readiness probe values
 	DefaultReadinessProbeInitialDelaySeconds = 10
-	DefaultReadinessProbeTimeoutSeconds      = 1
+	DefaultReadinessProbeTimeoutSeconds      = 2
 	DefaultReadinessProbePeriodSeconds       = 5
 	DefaultReadinessProbeSuccessThreshold    = 1
 	DefaultReadinessProbeFailureThreshold    = 10
@@ -148,7 +157,7 @@ const (
 
 	// Ray FT default liveness probe values
 	DefaultLivenessProbeInitialDelaySeconds = 30
-	DefaultLivenessProbeTimeoutSeconds      = 1
+	DefaultLivenessProbeTimeoutSeconds      = 2
 	DefaultLivenessProbePeriodSeconds       = 5
 	DefaultLivenessProbeSuccessThreshold    = 1
 	DefaultLivenessProbeFailureThreshold    = 120
@@ -161,7 +170,7 @@ const (
 	RayAgentRayletHealthPath  = "api/local_raylet_healthz"
 	RayDashboardGCSHealthPath = "api/gcs_healthz"
 	RayServeProxyHealthPath   = "-/healthz"
-	BaseWgetHealthCommand     = "wget -T 2 -q -O- http://localhost:%d/%s | grep success"
+	BaseWgetHealthCommand     = "wget -T %d -q -O- http://localhost:%d/%s | grep success"
 
 	// Finalizers for RayJob
 	RayJobStopJobFinalizer = "ray.io/rayjob-finalizer"
@@ -169,8 +178,11 @@ const (
 	// RayNodeHeadGroupLabelValue is the value for the RayNodeGroupLabelKey label on a head node
 	RayNodeHeadGroupLabelValue = "headgroup"
 
-	// Telemetry
-	KUBERAY_VERSION = "v1.1.1"
+	// KUBERAY_VERSION is the build version of KubeRay.
+	// The version is included in the RAY_USAGE_STATS_EXTRA_TAGS environment variable
+	// as well as the user-agent. This constant is updated before release.
+	// TODO: Update KUBERAY_VERSION to be a build-time variable.
+	KUBERAY_VERSION = "v1.2.1"
 )
 
 type ServiceType string
@@ -184,4 +196,29 @@ const (
 // This is also the only function to construct label filter of resources originated from a given CRDType.
 func RayOriginatedFromCRDLabelValue(crdType CRDType) string {
 	return string(crdType)
+}
+
+type errRayClusterReplicaFailure struct {
+	reason string
+}
+
+func (e *errRayClusterReplicaFailure) Error() string {
+	return e.reason
+}
+
+// These are markers used by the calculateStatus() for setting the RayClusterReplicaFailure condition.
+var (
+	ErrFailedDeleteAllPods   = &errRayClusterReplicaFailure{reason: "FailedDeleteAllPods"}
+	ErrFailedDeleteHeadPod   = &errRayClusterReplicaFailure{reason: "FailedDeleteHeadPod"}
+	ErrFailedCreateHeadPod   = &errRayClusterReplicaFailure{reason: "FailedCreateHeadPod"}
+	ErrFailedDeleteWorkerPod = &errRayClusterReplicaFailure{reason: "FailedDeleteWorkerPod"}
+	ErrFailedCreateWorkerPod = &errRayClusterReplicaFailure{reason: "FailedCreateWorkerPod"}
+)
+
+func RayClusterReplicaFailureReason(err error) string {
+	var failure *errRayClusterReplicaFailure
+	if errors.As(err, &failure) {
+		return failure.reason
+	}
+	return ""
 }
