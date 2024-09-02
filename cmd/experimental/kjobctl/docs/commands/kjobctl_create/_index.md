@@ -48,8 +48,8 @@ Create a task
 	--localqueue my-local-queue-name
 
   # Create slurm 
-  kjobctl create slurm --profile my-application-profile ./script.sh \
-	-- --array 0-5 --nodes 3 --ntasks 1
+  kjobctl create slurm --profile my-application-profile -- \
+	--array 0-5 --nodes 3 --ntasks 1 ./script.sh
 ```
 
 

@@ -612,31 +612,27 @@ func TestCreateCmd(t *testing.T) {
 			// Fake dynamic client not generating name. That's why we have <unknown>.
 			wantOut: "raycluster.ray.io/<unknown> created\n",
 		},
-		"shouldn't create slurm because script must be specified": {
+		"shouldn't create slurm because slurm args must be specified": {
 			args: func(tc *createCmdTestCase) []string {
-				return []string{"slurm", "--profile", "profile", "--", "test"}
+				return []string{"slurm", "--profile", "profile"}
 			},
-			wantErr: "must specify script",
+			wantErr: "requires at least 1 arg(s), only received 0",
 		},
-		"shouldn't create slurm because script must be specified with args length more that 1": {
+		"shouldn't create slurm because script must be specified on slurm args": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"slurm", "--profile", "profile", "./script.sh"}
+			},
+			wantErr: "unknown command \"./script.sh\" for \"create slurm\"",
+		},
+		"shouldn't create slurm because script must be specified": {
 			args: func(tc *createCmdTestCase) []string {
 				return []string{"slurm", "--profile", "profile", "--", "--array", "0-5"}
 			},
 			wantErr: "must specify script",
 		},
 		"shouldn't create slurm because script only one script must be specified": {
-			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
-				return []string{"slurm", "--profile", "profile", tc.tempFile, tc.tempFile}
-			},
-			wantErr: "must specify only one script",
-		},
-		"shouldn't create slurm because script only one script must be specified with slurm args": {
-			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
-			args: func(tc *createCmdTestCase) []string {
-				return []string{"slurm", "--profile", "profile", tc.tempFile, tc.tempFile}
+				return []string{"slurm", "--profile", "profile", "--", "./script.sh", "./script.sh"}
 			},
 			wantErr: "must specify only one script",
 		},
@@ -644,7 +640,7 @@ func TestCreateCmd(t *testing.T) {
 			beforeTest: beforeSlurmTest,
 			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
-				return []string{"slurm", tc.tempFile, "--profile", "profile"}
+				return []string{"slurm", "--profile", "profile", "--", tc.tempFile}
 			},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeJobTemplate("slurm-job-template", metav1.NamespaceDefault).
@@ -800,7 +796,7 @@ bash /slurm/script.sh
 			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
-					"slurm", tc.tempFile,
+					"slurm",
 					"--profile", "profile",
 					"--localqueue", "lq1",
 					"--",
@@ -812,6 +808,7 @@ bash /slurm/script.sh
 					"--input", "/slurm/input.txt",
 					"--job-name", "job-name",
 					"--partition", "lq1",
+					tc.tempFile,
 				}
 			},
 			kjobctlObjs: []runtime.Object{

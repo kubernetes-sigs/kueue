@@ -88,8 +88,8 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	--max-replicas small-group=5 \ 
 	--localqueue my-local-queue-name`
 	createSlurmExample = `  # Create slurm 
-  kjobctl create slurm --profile my-application-profile ./script.sh \
-	-- --array 0-5 --nodes 3 --ntasks 1`
+  kjobctl create slurm --profile my-application-profile -- \
+	--array 0-5 --nodes 3 --ntasks 1 ./script.sh`
 
 	profileFlagName           = "profile"
 	podRunningTimeoutFlagName = "pod-running-timeout"
@@ -296,7 +296,6 @@ var createModeSubcommands = map[string]modeSubcommand{
 		ModeName: v1alpha1.SlurmMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
 			subcmd.Use += " [--ignore-unknown-flags]" +
-				" SCRIPT" +
 				" -- " +
 				" [--array ARRAY]" +
 				" [--cpus-per-task QUANTITY]" +
@@ -310,7 +309,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				" [--error FILENAME_PATTERN]" +
 				" [--input FILENAME_PATTERN]" +
 				" [--job-name NAME]" +
-				" [--partition NAME]"
+				" [--partition NAME]" +
+				" SCRIPT"
 
 			subcmd.Short = "Create a slurm job"
 			subcmd.Example = createSlurmExample
@@ -419,19 +419,25 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	if o.ModeName == v1alpha1.SlurmMode {
 		argsLenAtDash := cmd.ArgsLenAtDash()
 
-		if argsLenAtDash == -1 && len(args) > 1 || argsLenAtDash > 1 {
-			return errors.New("must specify only one script")
+		if argsLenAtDash == -1 || argsLenAtDash > 0 {
+			return fmt.Errorf("unknown command \"%s\" for \"%s\"", args[0], cmd.CommandPath())
 		}
 
-		if argsLenAtDash == 0 {
+		if err := o.SlurmFlagSet.Parse(args[argsLenAtDash:]); err != nil {
+			return err
+		}
+
+		slurmArgs := o.SlurmFlagSet.Args()
+
+		if len(slurmArgs) == 0 {
 			return errors.New("must specify script")
 		}
 
-		o.Script = args[0]
-
-		if err := o.SlurmFlagSet.Parse(args[1:]); err != nil {
-			return err
+		if len(slurmArgs) > 1 {
+			return errors.New("must specify only one script")
 		}
+
+		o.Script = slurmArgs[0]
 	}
 
 	o.Namespace, _, err = clientGetter.ToRawKubeConfigLoader().Namespace()
