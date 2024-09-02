@@ -111,11 +111,19 @@ mpi-operator-crd: ## Copy the CRDs from the mpi-operator to the dep-crds directo
 KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/training-operator)
 .PHONY: kf-training-operator-crd
 kf-training-operator-crd: ## Copy the CRDs from the training-operator to the dep-crds directory.
-	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator/
-	# Remove `kubeflow.org_mpijobs.yaml` version v1 from the kustomization.yaml, kueue uses v2beta1 CRD from mpi-operator
-	cp -prf $(KF_TRAINING_ROOT)/manifests/* $(EXTERNAL_CRDS_DIR)/training-operator/
-	chmod -R u+w "${EXTERNAL_CRDS_DIR}/training-operator/"
-	sed -i '/kubeflow.org_mpijobs.yaml/d' $(EXTERNAL_CRDS_DIR)/training-operator/base/crds/kustomization.yaml
+	## Removing kubeflow.org_mpijobs.yaml is required as the version of MPIJob is conflicting between training-operator and mpi-operator - in integration tests.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator-crds/
+	find $(KF_TRAINING_ROOT)/manifests/base/crds/* -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp -pf {} $(EXTERNAL_CRDS_DIR)/training-operator-crds/ \;
+
+.PHONY: kf-training-operator-manifests
+kf-training-operator-manifests: ## Copy whole manifests folder from the training-operator to the dep-crds directory.
+	## Full version of the manifest is required for e2e multikueue tests.
+	if [ -d "$(EXTERNAL_CRDS_DIR)/training-operator" ]; then \
+		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/training-operator" && \
+		rm -rf "$(EXTERNAL_CRDS_DIR)/training-operator"; \
+	fi
+	mkdir -p "$(EXTERNAL_CRDS_DIR)/training-operator"
+	cp -rf "$(KF_TRAINING_ROOT)/manifests" "$(EXTERNAL_CRDS_DIR)/training-operator"
 
 RAY_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 .PHONY: ray-operator-crd
@@ -136,7 +144,7 @@ cluster-autoscaler-crd: ## Copy the CRDs from the cluster-autoscaler to the dep-
 	cp -f $(CLUSTER_AUTOSCALER_ROOT)/config/crd/* $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd kf-training-operator-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 .PHONY: kueuectl-docs

@@ -447,7 +447,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kubeflow.MPIReplicaTypeWorker,
-						ReplicaCount:  2,
+						ReplicaCount:  1,
 						RestartPolicy: "OnFailure",
 					},
 				).
@@ -479,7 +479,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration))
 
-					finishReasonMessage := fmt.Sprintf("MPIJob %s/%s successfully completed.", mpijob.Namespace, mpijob.Name)
+					finishReasonMessage := fmt.Sprintf("MPIJob %s successfully completed.", client.ObjectKeyFromObject(mpijob).String())
 					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

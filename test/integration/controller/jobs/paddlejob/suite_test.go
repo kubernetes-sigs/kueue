@@ -45,7 +45,7 @@ var (
 	ctx           context.Context
 	fwk           *framework.Framework
 	crdPath       = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	paddleCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "training-operator", "base", "crds")
+	paddleCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "training-operator-crds")
 )
 
 func TestAPIs(t *testing.T) {

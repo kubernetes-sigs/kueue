@@ -50,7 +50,6 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 
 type MPIJobReplicaSpecRequirement struct {
 	ReplicaType   kubeflow.MPIReplicaType
-	Name          string
 	ReplicaCount  int32
 	Annotations   map[string]string
 	RestartPolicy corev1.RestartPolicy
@@ -60,7 +59,6 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequ
 	j = j.MPIJobReplicaSpecsDefault()
 	for _, rs := range replicaSpecs {
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
-		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Name = rs.Name
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = rs.RestartPolicy
 
 		if rs.Annotations != nil {
@@ -76,7 +74,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecsDefault() *MPIJobWrapper {
 		Replicas: ptr.To[int32](1),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
-				RestartPolicy: "Never",
+				RestartPolicy: corev1.RestartPolicyNever,
 				Containers: []corev1.Container{
 					{
 						Name:      "mpijob",
@@ -94,7 +92,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecsDefault() *MPIJobWrapper {
 		Replicas: ptr.To[int32](1),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
-				RestartPolicy: "Never",
+				RestartPolicy: corev1.RestartPolicyNever,
 				Containers: []corev1.Container{
 					{
 						Name:      "mpijob",
@@ -111,7 +109,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecsDefault() *MPIJobWrapper {
 	return j
 }
 
-// Clone returns deep copy of the PaddleJobWrapper.
+// Clone returns deep copy of the MPIJobWrapper.
 func (j *MPIJobWrapper) Clone() *MPIJobWrapper {
 	return &MPIJobWrapper{MPIJob: *j.DeepCopy()}
 }
@@ -119,7 +117,7 @@ func (j *MPIJobWrapper) Clone() *MPIJobWrapper {
 // Label sets the label key and value
 func (j *MPIJobWrapper) Label(key, value string) *MPIJobWrapper {
 	if j.Labels == nil {
-		j.Labels = make(map[string]string)
+		j.Labels = make(map[string]string, 1)
 	}
 	j.Labels[key] = value
 	return j

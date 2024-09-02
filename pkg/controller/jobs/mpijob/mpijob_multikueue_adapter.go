@@ -67,7 +67,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// add the prebuilt workload
 	if remoteJob.Labels == nil {
-		remoteJob.Labels = map[string]string{}
+		remoteJob.Labels = make(map[string]string, 2)
 	}
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin

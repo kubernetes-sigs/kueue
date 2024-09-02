@@ -1038,13 +1038,11 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				testingmpijob.MPIJobReplicaSpecRequirement{
 					ReplicaType:   kubeflow.MPIReplicaTypeLauncher,
 					ReplicaCount:  1,
-					Name:          "launcher",
 					RestartPolicy: corev1.RestartPolicyOnFailure,
 				},
 				testingmpijob.MPIJobReplicaSpecRequirement{
 					ReplicaType:   kubeflow.MPIReplicaTypeWorker,
 					ReplicaCount:  1,
-					Name:          "worker",
 					RestartPolicy: corev1.RestartPolicyNever,
 				},
 			).
@@ -1062,7 +1060,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		admitWorkloadAndCheckWorkerCopies(multikueueAC.Name, wlLookupKey, admission)
 
-		ginkgo.By("changing the status of the XGBoostJob in the worker, updates the manager's XGBoostJob status", func() {
+		ginkgo.By("changing the status of the MPIJob in the worker, updates the manager's MPIJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdMPIJob := kubeflow.MPIJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())

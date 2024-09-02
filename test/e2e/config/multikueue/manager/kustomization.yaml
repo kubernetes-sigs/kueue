@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kubeflow
+resources:
+- ../../../../../dep-crds/training-operator/manifests/base/crds
+- namespace.yaml
+images:
+- name: kubeflow/training-operator
+secretGenerator:
+- name: training-operator-webhook-cert
+  options:
+    disableNameSuffixHash: true
+patchesStrategicMerge:
+- patch_crds.yaml
