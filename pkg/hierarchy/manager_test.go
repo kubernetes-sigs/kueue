@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -28,6 +29,13 @@ func TestManager(t *testing.T) {
 	type cqEdge struct {
 		cq     string
 		cohort string
+	}
+	opts := []cmp.Option{
+		cmpopts.EquateEmpty(),
+		cmpopts.SortSlices(func(a, b cqEdge) bool {
+			return a.cq < b.cq
+		}),
+		cmp.AllowUnexported(cqEdge{}),
 	}
 	tests := map[string]struct {
 		operations  func(M)
@@ -158,11 +166,65 @@ func TestManager(t *testing.T) {
 			wantCohorts: sets.New("cohort"),
 			wantCqEdge:  []cqEdge{{"queue1", "cohort"}},
 		},
+		"explicit cohort": {
+			operations: func(m M) {
+				m.AddCohort(newCohort("cohort"))
+			},
+			wantCohorts: sets.New("cohort"),
+		},
+		"delete explicit cohort": {
+			operations: func(m M) {
+				m.AddCohort(newCohort("cohort"))
+				m.DeleteCohort("cohort")
+			},
+			wantCohorts: sets.New[string](),
+		},
+		"delete explicit cohort idempotent": {
+			operations: func(m M) {
+				m.DeleteCohort("cohort")
+				m.AddCohort(newCohort("cohort"))
+				m.DeleteCohort("cohort")
+				m.DeleteCohort("cohort")
+			},
+			wantCohorts: sets.New[string](),
+		},
+		"explicit cohort persists after child deleted": {
+			operations: func(m M) {
+				m.AddClusterQueue(newCq("queue"))
+				m.UpdateClusterQueueEdge("queue", "cohort")
+				m.AddCohort(newCohort("cohort"))
+				m.DeleteClusterQueue("queue")
+			},
+			wantCohorts: sets.New("cohort"),
+		},
+		"explicit cohort downgraded to implicit cohort": {
+			operations: func(m M) {
+				m.AddCohort(newCohort("cohort"))
+				m.AddClusterQueue(newCq("queue"))
+				m.UpdateClusterQueueEdge("queue", "cohort")
+				m.DeleteCohort("cohort")
+			},
+			wantCohorts: sets.New("cohort"),
+			wantCqs:     sets.New("queue"),
+			wantCqEdge:  []cqEdge{{"queue", "cohort"}},
+		},
+		"cohort upgraded to explicit then downgraded to implicit then deleted": {
+			operations: func(m M) {
+				m.AddCohort(newCohort("cohort"))
+				m.AddClusterQueue(newCq("queue"))
+				m.UpdateClusterQueueEdge("queue", "cohort")
+				m.DeleteCohort("cohort")
+				m.DeleteClusterQueue("queue")
+			},
+			wantCohorts: sets.New[string](),
+			wantCqs:     sets.New[string](),
+			wantCqEdge:  []cqEdge{},
+		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			mgr := NewManager[*testClusterQueue, *testCohort](cohortFactory)
+			mgr := NewManager(newCohort)
 			tc.operations(mgr)
 			t.Run("verify clusterqueues", func(t *testing.T) {
 				gotCqs := sets.New[string]()
@@ -176,7 +238,7 @@ func TestManager(t *testing.T) {
 				if diff := cmp.Diff(tc.wantCqs, gotCqs); diff != "" {
 					t.Fatalf("Unexpected cqs -want +got %s", diff)
 				}
-				if diff := cmp.Diff(sets.New(tc.wantCqEdge...), sets.New(gotEdges...)); diff != "" {
+				if diff := cmp.Diff(tc.wantCqEdge, gotEdges, opts...); diff != "" {
 					t.Fatalf("Unexpected CQ->Cohort edges -want +got %s", diff)
 				}
 			})
@@ -192,7 +254,7 @@ func TestManager(t *testing.T) {
 				if diff := cmp.Diff(tc.wantCohorts, gotCohorts); diff != "" {
 					t.Fatalf("Unexpected cohorts -want +got %s", diff)
 				}
-				if diff := cmp.Diff(sets.New(tc.wantCqEdge...), sets.New(gotEdges...)); diff != "" {
+				if diff := cmp.Diff(tc.wantCqEdge, gotEdges, opts...); diff != "" {
 					t.Fatalf("Unexpected Cohort->CQ edges -want +got %s", diff)
 				}
 			})
@@ -205,7 +267,7 @@ type testCohort struct {
 	Cohort[*testClusterQueue, *testCohort]
 }
 
-func cohortFactory(name string) *testCohort {
+func newCohort(name string) *testCohort {
 	return &testCohort{
 		name:   name,
 		Cohort: NewCohort[*testClusterQueue, *testCohort](),

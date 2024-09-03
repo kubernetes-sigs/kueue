@@ -584,6 +584,28 @@ func (q *LocalQueueWrapper) Generation(num int64) *LocalQueueWrapper {
 	return q
 }
 
+type CohortWrapper struct {
+	kueuealpha.Cohort
+}
+
+func MakeCohort(name string) *CohortWrapper {
+	return &CohortWrapper{kueuealpha.Cohort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}}
+}
+
+func (c *CohortWrapper) Obj() *kueuealpha.Cohort {
+	return &c.Cohort
+}
+
+// ResourceGroup adds a ResourceGroup with flavors.
+func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrapper {
+	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, createResourceGroup(flavors...))
+	return c
+}
+
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 
@@ -624,8 +646,7 @@ func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheck
 	return c
 }
 
-// ResourceGroup adds a ResourceGroup with flavors.
-func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
+func createResourceGroup(flavors ...kueue.FlavorQuotas) kueue.ResourceGroup {
 	rg := kueue.ResourceGroup{
 		Flavors: flavors,
 	}
@@ -646,7 +667,12 @@ func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *Clus
 		}
 		rg.CoveredResources = resources
 	}
-	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, rg)
+	return rg
+}
+
+// ResourceGroup adds a ResourceGroup with flavors.
+func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
+	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, createResourceGroup(flavors...))
 	return c
 }
 

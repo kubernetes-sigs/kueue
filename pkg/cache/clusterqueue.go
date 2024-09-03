@@ -31,7 +31,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -100,51 +99,6 @@ func (c *clusterQueue) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
 }
 
-// cohort is a set of ClusterQueues that can borrow resources from each other.
-type cohort struct {
-	Name string
-	hierarchy.Cohort[*clusterQueue, *cohort]
-
-	resourceNode ResourceNode
-}
-
-func (c *cohort) GetName() string {
-	return c.Name
-}
-
-// implements hierarchicalResourceNode interface.
-
-func (c *cohort) getResourceNode() ResourceNode {
-	return c.resourceNode
-}
-
-func (c *cohort) parentHRN() hierarchicalResourceNode {
-	return c.Parent()
-}
-
-type ResourceGroup struct {
-	CoveredResources sets.Set[corev1.ResourceName]
-	Flavors          []kueue.ResourceFlavorReference
-	// The set of key labels from all flavors.
-	// Those keys define the affinity terms of a workload
-	// that can be matched against the flavors.
-	LabelKeys sets.Set[string]
-}
-
-func (rg *ResourceGroup) Clone() ResourceGroup {
-	return ResourceGroup{
-		CoveredResources: rg.CoveredResources.Clone(),
-		Flavors:          rg.Flavors,
-		LabelKeys:        rg.LabelKeys.Clone(),
-	}
-}
-
-type ResourceQuota struct {
-	Nominal        int64
-	BorrowingLimit *int64
-	LendingLimit   *int64
-}
-
 type queue struct {
 	key                string
 	reservingWorkloads int
@@ -152,14 +106,6 @@ type queue struct {
 	//TODO: rename this to better distinguish between reserved and "in use" quantities
 	usage         resources.FlavorResourceQuantities
 	admittedUsage resources.FlavorResourceQuantities
-}
-
-func newCohort(name string) *cohort {
-	return &cohort{
-		name,
-		hierarchy.NewCohort[*clusterQueue, *cohort](),
-		NewResourceNode(),
-	}
 }
 
 // FitInCohort supports the legacy
@@ -188,13 +134,17 @@ var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borr
 
 func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck, oldParent *cohort) error {
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
-		updateClusterQueueResourceNode(c)
 		c.AllocatableResourceGeneration += 1
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortResourceNode(oldParent)
 		}
 		if c.HasParent() {
+			// clusterQueue will be updated as part of tree update.
 			updateCohortResourceNode(c.Parent())
+		} else {
+			// since ClusterQueue has no parent, it won't be updated
+			// as part of tree update.
+			updateClusterQueueResourceNode(c)
 		}
 	}
 
@@ -237,38 +187,28 @@ func (c *clusterQueue) updateClusterQueue(in *kueue.ClusterQueue, resourceFlavor
 	return nil
 }
 
+func createdResourceGroups(kueueRgs []kueue.ResourceGroup) []ResourceGroup {
+	rgs := make([]ResourceGroup, len(kueueRgs))
+	for i, kueueRg := range kueueRgs {
+		rgs[i] = ResourceGroup{
+			CoveredResources: sets.New(kueueRg.CoveredResources...),
+			Flavors:          make([]kueue.ResourceFlavorReference, 0, len(kueueRg.Flavors)),
+		}
+		for _, fIn := range kueueRg.Flavors {
+			rgs[i].Flavors = append(rgs[i].Flavors, fIn.Name)
+		}
+	}
+	return rgs
+}
+
 // updateQuotasAndResourceGroups updates Quotas and ResourceGroups.
 // It returns true if any changes were made.
 func (c *clusterQueue) updateQuotasAndResourceGroups(in []kueue.ResourceGroup) bool {
 	oldRG := c.ResourceGroups
 	oldQuotas := c.resourceNode.Quotas
+	c.ResourceGroups = createdResourceGroups(in)
+	c.resourceNode.Quotas = createResourceQuotas(in)
 
-	c.ResourceGroups = make([]ResourceGroup, len(in))
-	c.resourceNode.Quotas = make(map[resources.FlavorResource]ResourceQuota, 0)
-	for i, rgIn := range in {
-		rg := &c.ResourceGroups[i]
-		*rg = ResourceGroup{
-			CoveredResources: sets.New(rgIn.CoveredResources...),
-			Flavors:          make([]kueue.ResourceFlavorReference, 0, len(rgIn.Flavors)),
-		}
-		for i := range rgIn.Flavors {
-			fIn := &rgIn.Flavors[i]
-			for _, rIn := range fIn.Resources {
-				nominal := resources.ResourceValue(rIn.Name, rIn.NominalQuota)
-				rQuota := ResourceQuota{
-					Nominal: nominal,
-				}
-				if rIn.BorrowingLimit != nil {
-					rQuota.BorrowingLimit = ptr.To(resources.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
-				}
-				if features.Enabled(features.LendingLimit) && rIn.LendingLimit != nil {
-					rQuota.LendingLimit = ptr.To(resources.ResourceValue(rIn.Name, *rIn.LendingLimit))
-				}
-				c.resourceNode.Quotas[resources.FlavorResource{Flavor: fIn.Name, Resource: rIn.Name}] = rQuota
-			}
-			rg.Flavors = append(rg.Flavors, fIn.Name)
-		}
-	}
 	// Start at 1, for backwards compatibility.
 	return c.AllocatableResourceGeneration == 0 ||
 		!equality.Semantic.DeepEqual(oldRG, c.ResourceGroups) ||

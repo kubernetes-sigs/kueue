@@ -20,6 +20,9 @@ import "k8s.io/apimachinery/pkg/util/sets"
 
 type Cohort[CQ, C nodeBase] struct {
 	childCqs sets.Set[CQ]
+	// Indicates whether this Cohort is backed
+	// by an API object.
+	explicit bool
 }
 
 func (c *Cohort[CQ, C]) Parent() C {
@@ -51,4 +54,12 @@ func (c *Cohort[CQ, C]) deleteClusterQueue(cq CQ) {
 
 func (c *Cohort[CQ, C]) childCount() int {
 	return c.childCqs.Len()
+}
+
+func (c *Cohort[CQ, C]) isExplicit() bool {
+	return c.explicit
+}
+
+func (c *Cohort[CQ, C]) markExplicit() {
+	c.explicit = true
 }
