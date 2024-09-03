@@ -50,7 +50,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	// +kubebuilder:scaffold:imports
 )
 
 const (

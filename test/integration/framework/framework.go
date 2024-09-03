@@ -109,8 +109,6 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 	err = kftraining.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	// +kubebuilder:scaffold:scheme
-
 	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
