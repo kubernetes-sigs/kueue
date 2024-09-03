@@ -319,6 +319,109 @@ Ray Cluster Status:
   Desired TPU:     0
 `,
 		},
+		"describe ray cluster with 'mode task' format": {
+			args:       []string{"raycluster", "sample-ray-cluster"},
+			argsFormat: modeTaskArgsFormat,
+			mapperKinds: []schema.GroupVersionKind{
+				rayv1.SchemeGroupVersion.WithKind("RayCluster"),
+			},
+			objs: []runtime.Object{
+				wrappers.MakeRayCluster("sample-ray-job", metav1.NamespaceDefault).
+					Profile("my-profile").
+					LocalQueue("lq").
+					State(rayv1.Failed).
+					Reason("Reason message").
+					DesiredCPU(apiresource.MustParse("1")).
+					DesiredGPU(apiresource.MustParse("5")).
+					DesiredMemory(apiresource.MustParse("2Gi")).
+					DesiredTPU(apiresource.MustParse("10")).
+					ReadyWorkerReplicas(1).
+					AvailableWorkerReplicas(1).
+					DesiredWorkerReplicas(1).
+					MinWorkerReplicas(1).
+					MaxWorkerReplicas(5).
+					Spec(
+						*wrappers.MakeRayClusterSpec().
+							HeadGroupSpec(rayv1.HeadGroupSpec{
+								RayStartParams: map[string]string{"p1": "v1", "p2": "v2"},
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											*wrappers.MakeContainer("ray-head", "rayproject/ray:2.9.0").
+												WithEnvVar(corev1.EnvVar{Name: "TASK_NAME", Value: "sample-interactive"}).
+												WithVolumeMount(corev1.VolumeMount{Name: "sample-volume", MountPath: "/sample"}).
+												Obj(),
+										},
+									},
+								},
+							}).
+							WithWorkerGroupSpec(
+								*wrappers.MakeWorkerGroupSpec("group1").
+									Replicas(1).
+									MinReplicas(1).
+									MaxReplicas(5).
+									RayStartParams(map[string]string{"p1": "v1", "p2": "v2"}).
+									WithContainer(
+										*wrappers.MakeContainer("ray-worker", "rayproject/ray:2.9.0").
+											WithEnvVar(corev1.EnvVar{Name: "TASK_NAME", Value: "sample-interactive"}).
+											WithVolumeMount(corev1.VolumeMount{Name: "sample-volume", MountPath: "/sample"}).
+											Obj(),
+									).
+									Obj(),
+							).
+							Suspend(true).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantOut: `Name:                       sample-ray-job
+Namespace:                  default
+Labels:                     kjobctl.x-k8s.io/profile=my-profile
+                            kueue.x-k8s.io/queue-name=lq
+Suspend:                    true
+State:                      failed
+Reason:                     Reason message
+Desired CPU:                1
+Desired GPU:                5
+Desired Memory:             2Gi
+Desired TPU:                10
+Ready Worker Replicas:      1
+Available Worker Replicas:  1
+Desired Worker Replicas:    1
+Min Worker Replicas:        1
+Max Worker Replicas:        5
+Head Group:
+  Start Params:    p1=v1
+                   p2=v2
+  Pod Template:
+    Containers:
+     ray-head:
+      Port:       <none>
+      Host Port:  <none>
+      Environment:
+        TASK_NAME:  sample-interactive
+      Mounts:
+        /sample from sample-volume (rw)
+    Volumes:  <none>
+Worker Groups:
+  group1:
+    Replicas:      1
+    Min Replicas:  1
+    Max Replicas:  5
+    Start Params:      p1=v1
+                       p2=v2
+    Pod Template:
+      Containers:
+       ray-worker:
+        Port:       <none>
+        Host Port:  <none>
+        Environment:
+          TASK_NAME:  sample-interactive
+        Mounts:
+          /sample from sample-volume (rw)
+      Volumes:  <none>
+`,
+		},
 	}
 
 	for name, tc := range testCases {
