@@ -17,6 +17,7 @@ limitations under the License.
 package wrappers
 
 import (
+	"strconv"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -61,6 +62,12 @@ func (j *JobWrapper) Completions(v int32) *JobWrapper {
 	return j
 }
 
+// CompletionMode updates job completions.
+func (j *JobWrapper) CompletionMode(completionMode batchv1.CompletionMode) *JobWrapper {
+	j.Job.Spec.CompletionMode = &completionMode
+	return j
+}
+
 // Parallelism updates job parallelism.
 func (j *JobWrapper) Parallelism(v int32) *JobWrapper {
 	j.Job.Spec.Parallelism = ptr.To(v)
@@ -101,7 +108,13 @@ func (j *JobWrapper) WithContainer(container corev1.Container) *JobWrapper {
 	return j
 }
 
-// WithEnvVar add volume to the pod template.
+// WithVolume add volume.
+func (j *JobWrapper) WithVolume(volume corev1.Volume) *JobWrapper {
+	j.Job.Spec.Template.Spec.Volumes = append(j.Job.Spec.Template.Spec.Volumes, volume)
+	return j
+}
+
+// WithEnvVar add env var to the container template.
 func (j *JobWrapper) WithEnvVar(envVar corev1.EnvVar) *JobWrapper {
 	for index := range j.Job.Spec.Template.Spec.InitContainers {
 		j.Job.Spec.Template.Spec.InitContainers[index].Env =
@@ -110,6 +123,19 @@ func (j *JobWrapper) WithEnvVar(envVar corev1.EnvVar) *JobWrapper {
 	for index := range j.Job.Spec.Template.Spec.Containers {
 		j.Job.Spec.Template.Spec.Containers[index].Env =
 			append(j.Job.Spec.Template.Spec.Containers[index].Env, envVar)
+	}
+	return j
+}
+
+// WithEnvVarIndexValue add env var to the container template with index value.
+func (j *JobWrapper) WithEnvVarIndexValue(name string) *JobWrapper {
+	for index := range j.Job.Spec.Template.Spec.InitContainers {
+		j.Job.Spec.Template.Spec.InitContainers[index].Env = append(j.Job.Spec.Template.Spec.InitContainers[index].Env,
+			corev1.EnvVar{Name: name, Value: strconv.Itoa(index)})
+	}
+	for index := range j.Job.Spec.Template.Spec.Containers {
+		j.Job.Spec.Template.Spec.Containers[index].Env = append(j.Job.Spec.Template.Spec.Containers[index].Env,
+			corev1.EnvVar{Name: name, Value: strconv.Itoa(index)})
 	}
 	return j
 }

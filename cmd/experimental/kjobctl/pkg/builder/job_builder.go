@@ -30,7 +30,7 @@ type jobBuilder struct {
 
 var _ builder = (*jobBuilder)(nil)
 
-func (b *jobBuilder) build(ctx context.Context) (runtime.Object, error) {
+func (b *jobBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	template, err := b.kjobctlClientset.KjobctlV1alpha1().JobTemplates(b.profile.Namespace).
 		Get(ctx, string(b.mode.Template), metav1.GetOptions{})
 	if err != nil {
@@ -56,7 +56,7 @@ func (b *jobBuilder) build(ctx context.Context) (runtime.Object, error) {
 		job.Spec.Completions = b.completions
 	}
 
-	return job, nil
+	return []runtime.Object{job}, nil
 }
 
 func newJobBuilder(b *Builder) *jobBuilder {

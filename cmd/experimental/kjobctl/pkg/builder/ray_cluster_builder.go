@@ -30,7 +30,7 @@ type rayClusterBuilder struct {
 
 var _ builder = (*rayClusterBuilder)(nil)
 
-func (b *rayClusterBuilder) build(ctx context.Context) (runtime.Object, error) {
+func (b *rayClusterBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	template, err := b.kjobctlClientset.KjobctlV1alpha1().RayClusterTemplates(b.profile.Namespace).
 		Get(ctx, string(b.mode.Template), metav1.GetOptions{})
 	if err != nil {
@@ -48,7 +48,7 @@ func (b *rayClusterBuilder) build(ctx context.Context) (runtime.Object, error) {
 
 	b.buildRayClusterSpec(&rayCluster.Spec)
 
-	return rayCluster, nil
+	return []runtime.Object{rayCluster}, nil
 }
 
 func newRayClusterBuilder(b *Builder) *rayClusterBuilder {

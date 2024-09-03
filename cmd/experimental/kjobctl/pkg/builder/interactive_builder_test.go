@@ -84,7 +84,7 @@ func TestInteractiveBuilder(t *testing.T) {
 		localQueue  string
 		k8sObjs     []runtime.Object
 		kjobctlObjs []runtime.Object
-		wantObj     runtime.Object
+		wantObj     []runtime.Object
 		wantErr     error
 	}{
 		"shouldn't build pod because template not found": {
@@ -108,7 +108,7 @@ func TestInteractiveBuilder(t *testing.T) {
 					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.InteractiveMode, Template: "pod-template"}).
 					Obj(),
 			},
-			wantObj: wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-").
+			wantObj: []runtime.Object{wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-interactive-").
 				Annotation("foo", "baz").
 				Label("foo", "bar").
 				Label(constants.ProfileLabel, "profile").
@@ -127,6 +127,7 @@ func TestInteractiveBuilder(t *testing.T) {
 						Obj().Template.Spec,
 				).
 				Obj(),
+			},
 		},
 		"should build job with replacements": {
 			namespace:  metav1.NamespaceDefault,
@@ -148,31 +149,33 @@ func TestInteractiveBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObj: wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-").
-				Annotation("foo", "baz").
-				Label("foo", "bar").
-				Label(constants.ProfileLabel, "profile").
-				Label(kueueconstants.QueueLabel, "lq1").
-				Spec(
-					testPodTemplateWrapper.Clone().
-						Command([]string{"sleep"}).
-						WithRequest(corev1.ResourceCPU, resource.MustParse("3")).
-						WithVolume("v3", "config3").
-						WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
-						WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
-						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
-						WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
-						WithEnvVar(corev1.EnvVar{
-							Name:  constants.EnvVarTaskID,
-							Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
-						}).
-						WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
-						WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
-						TTY().
-						Stdin().
-						Obj().Template.Spec,
-				).
-				Obj(),
+			wantObj: []runtime.Object{
+				wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-interactive-").
+					Annotation("foo", "baz").
+					Label("foo", "bar").
+					Label(constants.ProfileLabel, "profile").
+					Label(kueueconstants.QueueLabel, "lq1").
+					Spec(
+						testPodTemplateWrapper.Clone().
+							Command([]string{"sleep"}).
+							WithRequest(corev1.ResourceCPU, resource.MustParse("3")).
+							WithVolume("v3", "config3").
+							WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
+							WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
+							WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+							WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+							WithEnvVar(corev1.EnvVar{
+								Name:  constants.EnvVarTaskID,
+								Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+							}).
+							WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+							WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+							TTY().
+							Stdin().
+							Obj().Template.Spec,
+					).
+					Obj(),
+			},
 		},
 	}
 	for name, tc := range testCases {
