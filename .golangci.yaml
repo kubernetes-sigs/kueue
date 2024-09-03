@@ -57,9 +57,6 @@ issues:
       - staticcheck
       # TODO(#768): Drop when incrementing the API version.
       text: "SA1019: constants.QueueAnnotation is deprecated"
-    - linters:
-      - unused
-      path: "^pkg/hierarchy.cohort.go"
   # Show all issues from a linter
   max-issues-per-linter: 0
   # Show all issues with the same text
