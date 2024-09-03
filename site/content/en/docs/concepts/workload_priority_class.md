@@ -3,7 +3,7 @@ title: "Workload Priority Class"
 date: 2023-10-02
 weight: 6
 description: >
-  A priority class which value is utilized by Kueue controller and is independent from pod's priority.
+  A priority class whose value is utilized by Kueue controller and is independent from Pod's priority.
 ---
 
 A `WorkloadPriorityClass` allows you to control the [`Workload`'s](/docs/concepts/workload) priority without affecting the pod's priority.
