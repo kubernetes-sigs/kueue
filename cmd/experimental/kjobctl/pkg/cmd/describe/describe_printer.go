@@ -21,6 +21,7 @@ import (
 	"io"
 	"time"
 
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -38,7 +39,7 @@ type ResourceDescriber interface {
 	Describe(object *unstructured.Unstructured) (output string, err error)
 }
 
-// Describer returns a Describer for displaying the specified RESTMapping type or an error.
+// NewResourceDescriber Describer returns a Describer for displaying the specified RESTMapping type or an error.
 func NewResourceDescriber(mapping *meta.RESTMapping) (ResourceDescriber, error) {
 	if describer, ok := DescriberFor(mapping.GroupVersionKind.GroupKind()); ok {
 		return describer, nil
@@ -51,8 +52,9 @@ func NewResourceDescriber(mapping *meta.RESTMapping) (ResourceDescriber, error) 
 // Kubernetes types.
 func DescriberFor(kind schema.GroupKind) (ResourceDescriber, bool) {
 	describers := map[schema.GroupKind]ResourceDescriber{
-		{Group: batchv1.GroupName, Kind: "Job"}: &JobDescriber{},
-		{Group: corev1.GroupName, Kind: "Pod"}:  &PodDescriber{},
+		{Group: batchv1.GroupName, Kind: "Job"}:           &JobDescriber{},
+		{Group: corev1.GroupName, Kind: "Pod"}:            &PodDescriber{},
+		{Group: rayv1.GroupVersion.Group, Kind: "RayJob"}: &RayJobDescriber{},
 	}
 
 	f, ok := describers[kind]
@@ -158,6 +160,66 @@ func describePod(pod *corev1.Pod) (string, error) {
 		}
 
 		describeVolumes(pod.Spec.Volumes, w, "")
+
+		return nil
+	})
+}
+
+// RayJobDescriber generates information about a ray job.
+type RayJobDescriber struct{}
+
+func (d *RayJobDescriber) Describe(object *unstructured.Unstructured) (string, error) {
+	rayJob := &rayv1.RayJob{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), rayJob)
+	if err != nil {
+		return "", err
+	}
+
+	return describeRayJob(rayJob)
+}
+
+func describeRayJob(rayJob *rayv1.RayJob) (string, error) {
+	return tabbedString(func(out io.Writer) error {
+		w := describehelper.NewPrefixWriter(out)
+
+		w.Write(IndentLevelZero, "Name:\t%s\n", rayJob.Name)
+		w.Write(IndentLevelZero, "Namespace:\t%s\n", rayJob.Namespace)
+		if rayJob.Status.StartTime != nil {
+			w.Write(IndentLevelZero, "Start Time:\t%s\n", rayJob.Status.StartTime.Format(time.RFC1123Z))
+		}
+		if rayJob.Status.EndTime != nil {
+			w.Write(IndentLevelZero, "End Time:\t%s\n", rayJob.Status.EndTime.Format(time.RFC1123Z))
+		}
+		printLabelsMultiline(w, "Labels", rayJob.Labels)
+
+		if rayJob.DeletionTimestamp != nil {
+			w.Write(IndentLevelZero, "Job Deployment Status:\tTerminating (lasts %s)\n", translateTimestampSince(*rayJob.DeletionTimestamp))
+			w.Write(IndentLevelZero, "Job Status:\tTerminating (lasts %s)\n", translateTimestampSince(*rayJob.DeletionTimestamp))
+			w.Write(IndentLevelZero, "Termination Grace Period:\t%ds\n", *rayJob.DeletionGracePeriodSeconds)
+		} else {
+			if len(rayJob.Status.JobDeploymentStatus) > 0 {
+				w.Write(IndentLevelZero, "Job Deployment Status:\t%s\n", string(rayJob.Status.JobDeploymentStatus))
+			}
+			if len(rayJob.Status.JobStatus) > 0 {
+				w.Write(IndentLevelZero, "Job Status:\t%s\n", string(rayJob.Status.JobStatus))
+			}
+			if len(rayJob.Status.Reason) > 0 {
+				w.Write(IndentLevelZero, "Reason:\t%s\n", rayJob.Status.Reason)
+			}
+			if len(rayJob.Status.Message) > 0 {
+				w.Write(IndentLevelZero, "Message:\t%s\n", rayJob.Status.Message)
+			}
+		}
+
+		if len(rayJob.Status.RayClusterName) > 0 {
+			w.Write(IndentLevelZero, "Ray Cluster Name:\t%s\n", rayJob.Status.RayClusterName)
+		}
+
+		w.Write(IndentLevelZero, "Ray Cluster Status:\n")
+		w.Write(IndentLevelOne, "Desired CPU:\t%s\n", rayJob.Status.RayClusterStatus.DesiredCPU.String())
+		w.Write(IndentLevelOne, "Desired GPU:\t%s\n", rayJob.Status.RayClusterStatus.DesiredGPU.String())
+		w.Write(IndentLevelOne, "Desired Memory:\t%s\n", rayJob.Status.RayClusterStatus.DesiredMemory.String())
+		w.Write(IndentLevelOne, "Desired TPU:\t%s\n", rayJob.Status.RayClusterStatus.DesiredTPU.String())
 
 		return nil
 	})
