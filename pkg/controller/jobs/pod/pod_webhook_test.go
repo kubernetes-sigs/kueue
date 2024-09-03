@@ -655,7 +655,7 @@ func TestValidateUpdate(t *testing.T) {
 func TestGetPodOptions(t *testing.T) {
 	cases := map[string]struct {
 		integrationOpts map[string]any
-		wantOpts        configapi.PodIntegrationOptions
+		wantOpts        *configapi.PodIntegrationOptions
 		wantError       error
 	}{
 		"proper podIntegrationOptions exists": {
@@ -670,7 +670,7 @@ func TestGetPodOptions(t *testing.T) {
 				},
 				batchv1.SchemeGroupVersion.WithKind("Job").String(): nil,
 			},
-			wantOpts: configapi.PodIntegrationOptions{
+			wantOpts: &configapi.PodIntegrationOptions{
 				PodSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{"podKey": "podValue"},
 				},
@@ -683,7 +683,7 @@ func TestGetPodOptions(t *testing.T) {
 			integrationOpts: map[string]any{
 				batchv1.SchemeGroupVersion.WithKind("Job").String(): nil,
 			},
-			wantError: errPodOptsNotFound,
+			wantOpts: &configapi.PodIntegrationOptions{},
 		},
 		"podIntegrationOptions isn't of type PodIntegrationOptions": {
 			integrationOpts: map[string]any{
