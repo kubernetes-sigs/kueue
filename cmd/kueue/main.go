@@ -69,7 +69,6 @@ import (
 
 	// Ensure linking of the job controllers.
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
-	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -94,8 +93,6 @@ func init() {
 			return nil
 		}),
 	)
-
-	// +kubebuilder:scaffold:scheme
 }
 
 func main() {
@@ -286,7 +283,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
 		os.Exit(1)
 	}
-	// +kubebuilder:scaffold:builder
 }
 
 // setupProbeEndpoints registers the health endpoints
