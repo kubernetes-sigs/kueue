@@ -45,6 +45,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 	clocktesting "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	kjobctlfake "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
@@ -671,7 +672,7 @@ func TestCreateCmd(t *testing.T) {
 									ConfigMap: &corev1.ConfigMapVolumeSource{
 										Items: []corev1.KeyToPath{
 											{Key: "entrypoint.sh", Path: "entrypoint.sh"},
-											{Key: "script.sh", Path: "script.sh"},
+											{Key: "script", Path: "script", Mode: ptr.To[int32](0755)},
 										},
 									},
 								},
@@ -694,7 +695,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeConfigMap("", metav1.NamespaceDefault).
 							Profile("profile").
 							Data(map[string]string{
-								"script.sh": "#!/bin/bash\nsleep 300'",
+								"script": "#!/bin/bash\nsleep 300'",
 								"entrypoint.sh": `#!/usr/bin/bash
 
 set -o errexit
@@ -777,7 +778,7 @@ input_file=$(unmask_filename "$SBATCH_INPUT")
 output_file=$(unmask_filename "$SBATCH_OUTPUT")
 error_path=$(unmask_filename "$SBATCH_ERROR")
 
-bash /slurm/script.sh
+/slurm/script
 `,
 							}).
 							Obj(),
@@ -850,7 +851,7 @@ bash /slurm/script.sh
 									ConfigMap: &corev1.ConfigMapVolumeSource{
 										Items: []corev1.KeyToPath{
 											{Key: "entrypoint.sh", Path: "entrypoint.sh"},
-											{Key: "script.sh", Path: "script.sh"},
+											{Key: "script", Path: "script", Mode: ptr.To[int32](0755)},
 										},
 									},
 								},
@@ -874,7 +875,7 @@ bash /slurm/script.sh
 							Profile("profile").
 							LocalQueue("lq1").
 							Data(map[string]string{
-								"script.sh": "#!/bin/bash\nsleep 300'",
+								"script": "#!/bin/bash\nsleep 300'",
 								"entrypoint.sh": `#!/usr/bin/bash
 
 set -o errexit
@@ -957,7 +958,7 @@ input_file=$(unmask_filename "$SBATCH_INPUT")
 output_file=$(unmask_filename "$SBATCH_OUTPUT")
 error_path=$(unmask_filename "$SBATCH_ERROR")
 
-bash /slurm/script.sh <$input_file 1>$output_file 2>$error_file
+/slurm/script <$input_file 1>$output_file 2>$error_file
 `,
 							}).
 							Obj(),

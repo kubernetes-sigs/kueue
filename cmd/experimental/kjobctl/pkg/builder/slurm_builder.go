@@ -39,7 +39,7 @@ import (
 )
 
 const (
-	slurmScriptFilename     = "script.sh"
+	slurmScriptFilename     = "script"
 	slurmEntrypointFilename = "entrypoint.sh"
 	slurmPath               = "/slurm"
 
@@ -223,6 +223,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 					{
 						Key:  slurmScriptFilename,
 						Path: slurmScriptFilename,
+						Mode: ptr.To[int32](0755),
 					},
 				},
 			},
@@ -502,11 +503,10 @@ func getValueOrEmpty(ptr *resource.Quantity) string {
 
 func (b *slurmBuilder) buildEntrypointCommand() string {
 	strBuilder := strings.Builder{}
-	strBuilder.WriteString("bash")
-	strBuilder.WriteByte(' ')
+
 	strBuilder.WriteString(slurmPath)
 	strBuilder.WriteByte('/')
-	strBuilder.WriteString("script.sh")
+	strBuilder.WriteString(slurmScriptFilename)
 
 	if b.input != "" {
 		strBuilder.WriteString(" <$input_file")
