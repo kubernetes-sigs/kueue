@@ -525,17 +525,28 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.By("finishing the worker job", func() {
+			reachedPodsReason := "Reached expected number of succeeded pods"
 			finishJobReason := "Job finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
-				createdJob.Status.Conditions = append(createdJob.Status.Conditions, batchv1.JobCondition{
-					Type:               batchv1.JobComplete,
-					Status:             corev1.ConditionTrue,
-					LastProbeTime:      metav1.Now(),
-					LastTransitionTime: metav1.Now(),
-					Message:            finishJobReason,
-				})
+				createdJob.Status.Conditions = append(createdJob.Status.Conditions,
+					batchv1.JobCondition{
+						Type:               batchv1.JobSuccessCriteriaMet,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      metav1.Now(),
+						LastTransitionTime: metav1.Now(),
+						Message:            reachedPodsReason,
+					},
+					batchv1.JobCondition{
+						Type:               batchv1.JobComplete,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      metav1.Now(),
+						LastTransitionTime: metav1.Now(),
+						Message:            finishJobReason,
+					},
+				)
+				createdJob.Status.Succeeded = 1
 				createdJob.Status.StartTime = ptr.To(metav1.Now())
 				createdJob.Status.CompletionTime = ptr.To(metav1.Now())
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
@@ -605,6 +616,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.StartTime = &startTime
+				createdJob.Status.Active = 1
 				createdJob.Status.Ready = ptr.To[int32](1)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -618,17 +630,30 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 
 		ginkgo.By("finishing the worker job", func() {
+			reachedPodsReason := "Reached expected number of succeeded pods"
 			finishJobReason := "Job finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJob := batchv1.Job{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
-				createdJob.Status.Conditions = append(createdJob.Status.Conditions, batchv1.JobCondition{
-					Type:               batchv1.JobComplete,
-					Status:             corev1.ConditionTrue,
-					LastProbeTime:      metav1.Now(),
-					LastTransitionTime: metav1.Now(),
-					Message:            finishJobReason,
-				})
+				createdJob.Status.Conditions = append(createdJob.Status.Conditions,
+					batchv1.JobCondition{
+						Type:               batchv1.JobSuccessCriteriaMet,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      metav1.Now(),
+						LastTransitionTime: metav1.Now(),
+						Message:            reachedPodsReason,
+					},
+					batchv1.JobCondition{
+						Type:               batchv1.JobComplete,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      metav1.Now(),
+						LastTransitionTime: metav1.Now(),
+						Message:            finishJobReason,
+					},
+				)
+				createdJob.Status.Active = 0
+				createdJob.Status.Ready = ptr.To[int32](0)
+				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = ptr.To(metav1.Now())
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
