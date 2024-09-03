@@ -53,6 +53,17 @@ func TestDescribeCmd(t *testing.T) {
 		wantOutErr  string
 		wantErr     error
 	}{
+		"shouldn't describe none kjobctl owned jobs": {
+			args:       []string{"job", "sample-job-8c7zt"},
+			argsFormat: modeTaskArgsFormat,
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			objs: []runtime.Object{
+				wrappers.MakeJob("sample-job-8c7zt", metav1.NamespaceDefault).Obj(),
+			},
+			wantOutErr: "No resources found in default namespace.\n",
+		},
 		"describe job with 'mode task' format": {
 			args:       []string{"job", "sample-job-8c7zt"},
 			argsFormat: modeTaskArgsFormat,

@@ -190,6 +190,11 @@ func (o *DescribeOptions) Run() error {
 			continue
 		}
 
+		labels := obj.GetLabels()
+		if _, ok := labels[constants.ProfileLabel]; !ok {
+			continue
+		}
+
 		mapping := info.ResourceMapping()
 		describer, err := NewResourceDescriber(mapping)
 		if err != nil {
@@ -219,7 +224,7 @@ func (o *DescribeOptions) Run() error {
 		}
 	}
 
-	if len(infos) == 0 && len(allErrs) == 0 {
+	if first && len(allErrs) == 0 {
 		if o.AllNamespaces {
 			fmt.Fprintln(o.ErrOut, "No resources found")
 		} else {
