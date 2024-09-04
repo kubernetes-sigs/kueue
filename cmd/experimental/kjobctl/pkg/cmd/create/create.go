@@ -588,15 +588,15 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		return err
 	}
 
-	for _, obj := range objs {
+	for i := range objs {
 		if o.DryRunStrategy != util.DryRunClient {
-			obj, err = o.createObject(ctx, clientGetter, obj)
+			objs[i], err = o.createObject(ctx, clientGetter, objs[i])
 			if err != nil {
 				return err
 			}
 		}
 
-		err = o.PrintObj(obj, o.Out)
+		err = o.PrintObj(objs[i], o.Out)
 		if err != nil {
 			return err
 		}
