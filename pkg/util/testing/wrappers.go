@@ -607,7 +607,7 @@ func (c *CohortWrapper) Parent(parentName string) *CohortWrapper {
 
 // ResourceGroup adds a ResourceGroup with flavors.
 func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrapper {
-	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, createResourceGroup(flavors...))
+	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, ResourceGroup(flavors...))
 	return c
 }
 
@@ -651,7 +651,8 @@ func (c *ClusterQueueWrapper) AdmissionCheckStrategy(acs ...kueue.AdmissionCheck
 	return c
 }
 
-func createResourceGroup(flavors ...kueue.FlavorQuotas) kueue.ResourceGroup {
+// ResourceGroup creates a ResourceGroup with the given FlavorQuotas.
+func ResourceGroup(flavors ...kueue.FlavorQuotas) kueue.ResourceGroup {
 	rg := kueue.ResourceGroup{
 		Flavors: flavors,
 	}
@@ -677,7 +678,7 @@ func createResourceGroup(flavors ...kueue.FlavorQuotas) kueue.ResourceGroup {
 
 // ResourceGroup adds a ResourceGroup with flavors.
 func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
-	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, createResourceGroup(flavors...))
+	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, ResourceGroup(flavors...))
 	return c
 }
 

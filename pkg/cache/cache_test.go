@@ -1055,7 +1055,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "create cohort",
 			operation: func(cache *Cache) error {
 				cohort := utiltesting.MakeCohort("cohort").Obj()
-				cache.AddCohort(cohort)
+				cache.AddOrUpdateCohort(cohort)
 				return nil
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -1066,8 +1066,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "create and delete cohort",
 			operation: func(cache *Cache) error {
 				cohort := utiltesting.MakeCohort("cohort").Obj()
-				cache.AddCohort(cohort)
-				cache.DeleteCohort(cohort)
+				cache.AddOrUpdateCohort(cohort)
+				cache.DeleteCohort("cohort")
 				return nil
 			},
 			wantCohorts: nil,
@@ -1076,11 +1076,11 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "cohort remains after deletion when child exists",
 			operation: func(cache *Cache) error {
 				cohort := utiltesting.MakeCohort("cohort").Obj()
-				cache.AddCohort(cohort)
+				cache.AddOrUpdateCohort(cohort)
 
 				_ = cache.AddClusterQueue(context.Background(),
 					utiltesting.MakeClusterQueue("cq").Cohort("cohort").Obj())
-				cache.DeleteCohort(cohort)
+				cache.DeleteCohort("cohort")
 				return nil
 			},
 			wantClusterQueues: map[string]*clusterQueue{

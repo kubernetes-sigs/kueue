@@ -199,6 +199,7 @@ rules:
     resources:
       - admissionchecks
       - clusterqueues
+      - cohorts
       - localqueues
       - workloads
     verbs:
