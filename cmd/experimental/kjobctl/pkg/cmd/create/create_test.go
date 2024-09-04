@@ -35,14 +35,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/client-go/dynamic/fake"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8sscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
+	kubetesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/remotecommand"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -50,6 +54,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	kjobctlfake "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
+	cmdutil "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
@@ -1123,94 +1128,144 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 	}
 }
 
-func TestInteractivePod(t *testing.T) {
+func TestCreateOptionsRunInteractive(t *testing.T) {
+	testStartTime := time.Now()
+	userID := os.Getenv(constants.SystemEnvVarNameUser)
+
 	testCases := map[string]struct {
-		podName string
-		options *CreateOptions
-		pods    []runtime.Object
-		wantErr string
+		options                *CreateOptions
+		k8sObjs                []runtime.Object
+		kjobctlObjs            []runtime.Object
+		updatePodAfterCreation func(pod *corev1.Pod)
+		wantPodList            *corev1.PodList
+		wantErr                string
 	}{
 		"success": {
-			podName: "foo",
 			options: &CreateOptions{
-				Namespace:  "test",
-				Attach:     &fakeRemoteAttach{},
-				AttachFunc: testAttachFunc,
+				Namespace:   metav1.NamespaceDefault,
+				ProfileName: "profile",
+				ModeName:    v1alpha1.InteractiveMode,
+				Attach:      &fakeRemoteAttach{},
+				AttachFunc:  testAttachFunc,
 			},
-			pods: []runtime.Object{
-				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo",
-						Namespace: "test",
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name:  "bar",
-								Stdin: true,
-								TTY:   true,
-							},
-						},
-					},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-					},
+			k8sObjs: []runtime.Object{
+				wrappers.MakePodTemplate("pod-template", metav1.NamespaceDefault).
+					WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
+					Obj(),
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.InteractiveMode, "pod-template").Obj()).
+					Obj(),
+			},
+			updatePodAfterCreation: func(pod *corev1.Pod) {
+				pod.Status.Phase = corev1.PodRunning
+			},
+			wantPodList: &corev1.PodList{
+				Items: []corev1.Pod{
+					*wrappers.MakePod("", metav1.NamespaceDefault).
+						GenerateName("profile-interactive-").
+						Profile("profile").
+						Mode(v1alpha1.InteractiveMode).
+						WithContainer(*wrappers.MakeContainer("c1", "sleep").
+							TTY().
+							Stdin().
+							WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+							WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+							WithEnvVar(corev1.EnvVar{
+								Name:  constants.EnvVarTaskID,
+								Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+							}).
+							WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+							WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+							Obj()).
+						Phase(corev1.PodRunning).
+						Obj(),
 				},
 			},
 		},
-		"tty not allocated": {
-			podName: "foo",
+		"success with remove interactive pod": {
 			options: &CreateOptions{
-				Namespace:  "test",
-				Attach:     &fakeRemoteAttach{},
-				AttachFunc: testAttachFunc,
+				Namespace:            metav1.NamespaceDefault,
+				ProfileName:          "profile",
+				ModeName:             v1alpha1.InteractiveMode,
+				RemoveInteractivePod: true,
+				Attach:               &fakeRemoteAttach{},
+				AttachFunc:           testAttachFunc,
 			},
-			pods: []runtime.Object{
-				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo",
-						Namespace: "test",
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "bar",
-							},
-						},
-					},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-					},
-				},
+			k8sObjs: []runtime.Object{
+				wrappers.MakePodTemplate("pod-template", metav1.NamespaceDefault).
+					WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
+					Obj(),
 			},
-			wantErr: "error: Unable to use a TTY - container bar did not allocate one",
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.InteractiveMode, "pod-template").Obj()).
+					Obj(),
+			},
+			updatePodAfterCreation: func(pod *corev1.Pod) {
+				pod.Status.Phase = corev1.PodRunning
+			},
+			wantPodList: &corev1.PodList{},
+		},
+		"success with dry-run client": {
+			options: &CreateOptions{
+				Namespace:      metav1.NamespaceDefault,
+				ProfileName:    "profile",
+				ModeName:       v1alpha1.InteractiveMode,
+				DryRunStrategy: cmdutil.DryRunClient,
+				Attach:         &fakeRemoteAttach{},
+				AttachFunc:     testAttachFunc,
+			},
+			k8sObjs: []runtime.Object{
+				wrappers.MakePodTemplate("pod-template", metav1.NamespaceDefault).
+					WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
+					Obj(),
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.InteractiveMode, "pod-template").Obj()).
+					Obj(),
+			},
+			wantPodList: &corev1.PodList{},
 		},
 		"timeout waiting for pod": {
-			podName: "foo",
 			options: &CreateOptions{
-				Namespace:         "test",
-				Attach:            &fakeRemoteAttach{},
-				AttachFunc:        testAttachFunc,
-				PodRunningTimeout: 1 * time.Second,
+				Namespace:   metav1.NamespaceDefault,
+				ProfileName: "profile",
+				ModeName:    v1alpha1.InteractiveMode,
+				Attach:      &fakeRemoteAttach{},
+				AttachFunc:  testAttachFunc,
 			},
-			pods: []runtime.Object{
-				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo",
-						Namespace: "test",
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name:  "bar",
-								Stdin: true,
-								TTY:   true,
-							},
-						},
-					},
-					Status: corev1.PodStatus{
-						Phase: corev1.PodPending,
-					},
+			k8sObjs: []runtime.Object{
+				wrappers.MakePodTemplate("pod-template", metav1.NamespaceDefault).
+					WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
+					Obj(),
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.InteractiveMode, "pod-template").Obj()).
+					Obj(),
+			},
+			wantPodList: &corev1.PodList{
+				Items: []corev1.Pod{
+					*wrappers.MakePod("", metav1.NamespaceDefault).
+						GenerateName("profile-interactive-").
+						Profile("profile").
+						Mode(v1alpha1.InteractiveMode).
+						WithContainer(*wrappers.MakeContainer("c1", "sleep").
+							TTY().
+							Stdin().
+							WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+							WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+							WithEnvVar(corev1.EnvVar{
+								Name:  constants.EnvVarTaskID,
+								Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+							}).
+							WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+							WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+							Obj()).
+						Obj(),
 				},
 			},
 			wantErr: "context deadline exceeded",
@@ -1222,11 +1277,50 @@ func TestInteractivePod(t *testing.T) {
 			tc.options.IOStreams = streams
 			tc.options.Out = out
 			tc.options.ErrOut = outErr
+			tc.options.PrintFlags = genericclioptions.NewPrintFlags("created").WithTypeSetter(k8sscheme.Scheme)
+			printer, err := tc.options.PrintFlags.ToPrinter()
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.options.PrintObj = printer.PrintObj
 
-			clientset := k8sfake.NewSimpleClientset(tc.pods...)
-			tcg := cmdtesting.NewTestClientGetter().WithK8sClientset(clientset)
+			k8sClientset := k8sfake.NewSimpleClientset(tc.k8sObjs...)
+			kjobctlClientset := kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...)
+			dynamicClient := fake.NewSimpleDynamicClient(k8sscheme.Scheme)
+			restMapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{})
+			restMapper.Add(schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"}, meta.RESTScopeNamespace)
 
-			gotErr := tc.options.RunInteractivePod(context.TODO(), tcg, tc.podName)
+			dynamicClient.PrependReactor("create", "pods", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+				createAction := action.(kubetesting.CreateAction)
+
+				unstructuredObj := createAction.GetObject().(*unstructured.Unstructured)
+				unstructuredObj.SetName(unstructuredObj.GetGenerateName() + utilrand.String(5))
+
+				pod := &corev1.Pod{}
+
+				if err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), pod); err != nil {
+					return true, nil, err
+				}
+
+				if tc.updatePodAfterCreation != nil {
+					tc.updatePodAfterCreation(pod)
+				}
+
+				_, err = k8sClientset.CoreV1().Pods(pod.GetNamespace()).Create(context.Background(), pod, metav1.CreateOptions{})
+				if err != nil {
+					return true, nil, err
+				}
+
+				return true, unstructuredObj, err
+			})
+
+			tcg := cmdtesting.NewTestClientGetter().
+				WithK8sClientset(k8sClientset).
+				WithKjobctlClientset(kjobctlClientset).
+				WithDynamicClient(dynamicClient).
+				WithRESTMapper(restMapper)
+
+			gotErr := tc.options.Run(context.Background(), tcg, testStartTime)
 
 			var gotErrStr string
 			if gotErr != nil {
@@ -1234,6 +1328,16 @@ func TestInteractivePod(t *testing.T) {
 			}
 
 			if diff := cmp.Diff(tc.wantErr, gotErrStr); diff != "" {
+				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+
+			gotPodList, err := k8sClientset.CoreV1().Pods(metav1.NamespaceDefault).List(context.Background(), metav1.ListOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			defaultCmpOpts := []cmp.Option{cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")}
+			if diff := cmp.Diff(tc.wantPodList, gotPodList, defaultCmpOpts...); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 		})
@@ -1245,12 +1349,12 @@ type fakeRemoteAttach struct {
 	err error
 }
 
-func (f *fakeRemoteAttach) Attach(url *url.URL, config *restclient.Config, stdin io.Reader, stdout, stderr io.Writer, tty bool, terminalSizeQueue remotecommand.TerminalSizeQueue) error {
+func (f *fakeRemoteAttach) Attach(url *url.URL, _ *restclient.Config, _ io.Reader, _, _ io.Writer, _ bool, _ remotecommand.TerminalSizeQueue) error {
 	f.url = url
 	return f.err
 }
 
-func testAttachFunc(o *CreateOptions, containerToAttach *corev1.Container, sizeQueue remotecommand.TerminalSizeQueue, pod *corev1.Pod) func() error {
+func testAttachFunc(o *CreateOptions, _ *corev1.Container, sizeQueue remotecommand.TerminalSizeQueue, _ *corev1.Pod) func() error {
 	return func() error {
 		u, err := url.Parse("http://kjobctl.test")
 		if err != nil {
