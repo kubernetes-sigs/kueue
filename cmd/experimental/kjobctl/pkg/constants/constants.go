@@ -18,6 +18,7 @@ package constants
 
 const (
 	ProfileLabel = "kjobctl.x-k8s.io/profile"
+	ModeLabel    = "kjobctl.x-k8s.io/mode"
 )
 
 const (

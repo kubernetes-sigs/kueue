@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -63,6 +64,11 @@ func (j *RayClusterWrapper) CreationTimestamp(t time.Time) *RayClusterWrapper {
 // Profile sets the profile label.
 func (j *RayClusterWrapper) Profile(v string) *RayClusterWrapper {
 	return j.Label(constants.ProfileLabel, v)
+}
+
+// Mode sets the profile label.
+func (j *RayClusterWrapper) Mode(v v1alpha1.ApplicationProfileMode) *RayClusterWrapper {
+	return j.Label(constants.ModeLabel, string(v))
 }
 
 // LocalQueue sets the localqueue label.

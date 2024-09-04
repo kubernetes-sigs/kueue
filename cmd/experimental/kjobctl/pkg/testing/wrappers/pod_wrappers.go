@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -53,6 +54,11 @@ func (j *PodWrapper) GenerateName(v string) *PodWrapper {
 // Profile sets the profile label.
 func (j *PodWrapper) Profile(v string) *PodWrapper {
 	return j.Label(constants.ProfileLabel, v)
+}
+
+// Mode sets the profile label.
+func (j *PodWrapper) Mode(v v1alpha1.ApplicationProfileMode) *PodWrapper {
+	return j.Label(constants.ModeLabel, string(v))
 }
 
 // LocalQueue sets the localqueue label.

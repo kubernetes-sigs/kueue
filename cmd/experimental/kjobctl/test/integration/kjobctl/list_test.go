@@ -31,6 +31,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/list"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
@@ -60,6 +61,7 @@ var _ = ginkgo.Describe("Kjobctl List", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		ginkgo.JustBeforeEach(func() {
 			j1 = wrappers.MakeJob("j1", ns.Name).
 				Profile("profile1").
+				Mode(v1alpha1.JobMode).
 				Completions(3).
 				WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
 				RestartPolicy(corev1.RestartPolicyOnFailure).
@@ -68,6 +70,7 @@ var _ = ginkgo.Describe("Kjobctl List", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			j2 = wrappers.MakeJob("j2", ns.Name).
 				Profile("profile1").
+				Mode(v1alpha1.JobMode).
 				Completions(3).
 				WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
 				RestartPolicy(corev1.RestartPolicyOnFailure).
@@ -76,6 +79,7 @@ var _ = ginkgo.Describe("Kjobctl List", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 			j3 = wrappers.MakeJob("very-long-job-name", ns.Name).
 				Profile("profile1").
+				Mode(v1alpha1.JobMode).
 				Completions(3).
 				WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
 				RestartPolicy(corev1.RestartPolicyOnFailure).
@@ -274,6 +278,68 @@ very-long-ray-cluster-name   profile1                 0                 0       
 				duration.HumanDuration(executeTime.Sub(rc1.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(rc2.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(rc3.CreationTimestamp.Time)),
+			)))
+		})
+	})
+
+	ginkgo.When("List Slurm Jobs", func() {
+		var (
+			j1 *batchv1.Job
+			j2 *batchv1.Job
+			j3 *batchv1.Job
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			j1 = wrappers.MakeJob("j1", ns.Name).
+				Profile("profile1").
+				Mode(v1alpha1.SlurmMode).
+				Completions(3).
+				WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
+				RestartPolicy(corev1.RestartPolicyOnFailure).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, j1)).To(gomega.Succeed())
+
+			j2 = wrappers.MakeJob("j2", ns.Name).
+				Profile("profile1").
+				Mode(v1alpha1.SlurmMode).
+				Completions(3).
+				WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
+				RestartPolicy(corev1.RestartPolicyOnFailure).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, j2)).To(gomega.Succeed())
+
+			j3 = wrappers.MakeJob("very-long-job-name", ns.Name).
+				Profile("profile1").
+				Mode(v1alpha1.SlurmMode).
+				Completions(3).
+				WithContainer(*wrappers.MakeContainer("c1", "sleep").Obj()).
+				RestartPolicy(corev1.RestartPolicyOnFailure).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, j3)).To(gomega.Succeed())
+		})
+
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should print slurm jobs list with paging", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kjobctl := cmd.NewKjobctlCmd(cmd.KjobctlOptions{ConfigFlags: configFlags, IOStreams: streams,
+				Clock: testingclock.NewFakeClock(executeTime)})
+
+			os.Setenv(list.KjobctlListRequestLimitEnvName, "1")
+			kjobctl.SetArgs([]string{"list", "slurm", "--namespace", ns.Name})
+			err := kjobctl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                 PROFILE    LOCAL QUEUE   COMPLETIONS   DURATION   AGE
+j1                   profile1                 0/3                      %s
+j2                   profile1                 0/3                      %s
+very-long-job-name   profile1                 0/3                      %s
+`,
+				duration.HumanDuration(executeTime.Sub(j1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(j2.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(j3.CreationTimestamp.Time)),
 			)))
 		})
 	})

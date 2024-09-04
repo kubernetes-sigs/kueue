@@ -160,6 +160,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeJob("", metav1.NamespaceDefault).
 							GenerateName("profile-job-").
 							Profile("profile").
+							Mode(v1alpha1.JobMode).
 							Obj(),
 					},
 				},
@@ -183,6 +184,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeRayJob("", metav1.NamespaceDefault).
 							GenerateName("profile-rayjob-").
 							Profile("profile").
+							Mode(v1alpha1.RayJobMode).
 							Obj(),
 					},
 				},
@@ -206,6 +208,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeRayCluster("", metav1.NamespaceDefault).
 							GenerateName("profile-raycluster-").
 							Profile("profile").
+							Mode(v1alpha1.RayClusterMode).
 							Obj(),
 					},
 				},
@@ -229,6 +232,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeJob("", metav1.NamespaceDefault).
 							GenerateName("profile-job-").
 							Profile("profile").
+							Mode(v1alpha1.JobMode).
 							Obj(),
 					},
 				},
@@ -254,6 +258,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeJob("", metav1.NamespaceDefault).
 							GenerateName("profile-job-").
 							Profile("profile").
+							Mode(v1alpha1.JobMode).
 							LocalQueue("lq1").
 							Obj(),
 					},
@@ -283,6 +288,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeJob("", metav1.NamespaceDefault).
 							GenerateName("profile-job-").
 							Profile("profile").
+							Mode(v1alpha1.JobMode).
 							Parallelism(5).
 							Completions(1).
 							Obj(),
@@ -313,6 +319,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeJob("", metav1.NamespaceDefault).
 							GenerateName("profile-job-").
 							Profile("profile").
+							Mode(v1alpha1.JobMode).
 							Parallelism(1).
 							Completions(5).
 							Obj(),
@@ -345,6 +352,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeJob("", metav1.NamespaceDefault).
 							GenerateName("profile-job-").
 							Profile("profile").
+							Mode(v1alpha1.JobMode).
 							Parallelism(1).
 							Completions(1).
 							WithContainer(*wrappers.MakeContainer("c1", "sleep").Command("sleep", "15s").Obj()).
@@ -387,6 +395,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeJob("", metav1.NamespaceDefault).
 							GenerateName("profile-job-").
 							Profile("profile").
+							Mode(v1alpha1.JobMode).
 							Parallelism(1).
 							Completions(1).
 							WithContainer(
@@ -435,6 +444,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeRayJob("", metav1.NamespaceDefault).
 							GenerateName("profile-rayjob-").
 							Profile("profile").
+							Mode(v1alpha1.RayJobMode).
 							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").Replicas(5).Obj()).
 							Obj(),
 					},
@@ -462,6 +472,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeRayJob("", metav1.NamespaceDefault).
 							GenerateName("profile-rayjob-").
 							Profile("profile").
+							Mode(v1alpha1.RayJobMode).
 							Entrypoint("sleep 3s").
 							Obj(),
 					},
@@ -494,6 +505,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeRayJob("", metav1.NamespaceDefault).
 							GenerateName("profile-rayjob-").
 							Profile("profile").
+							Mode(v1alpha1.RayJobMode).
 							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").MinReplicas(5).Obj()).
 							Obj(),
 					},
@@ -526,6 +538,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeRayJob("", metav1.NamespaceDefault).
 							GenerateName("profile-rayjob-").
 							Profile("profile").
+							Mode(v1alpha1.RayJobMode).
 							WithWorkerGroupSpec(*wrappers.MakeWorkerGroupSpec("g1").MaxReplicas(5).Obj()).
 							Obj(),
 					},
@@ -558,6 +571,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeRayJob("", metav1.NamespaceDefault).
 							GenerateName("profile-rayjob-").
 							Profile("profile").
+							Mode(v1alpha1.RayJobMode).
 							WithRayClusterLabelSelector("rc1").
 							Obj(),
 					},
@@ -606,6 +620,7 @@ func TestCreateCmd(t *testing.T) {
 						*wrappers.MakeRayCluster("", metav1.NamespaceDefault).
 							GenerateName("profile-raycluster-").
 							Profile("profile").
+							Mode(v1alpha1.RayClusterMode).
 							Obj(),
 					},
 				},
@@ -663,6 +678,7 @@ func TestCreateCmd(t *testing.T) {
 							Completions(1).
 							CompletionMode(batchv1.IndexedCompletion).
 							Profile("profile").
+							Mode(v1alpha1.SlurmMode).
 							WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
 								Command("bash", "/slurm/entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{MountPath: "/slurm"}).
@@ -694,6 +710,7 @@ func TestCreateCmd(t *testing.T) {
 					Items: []corev1.ConfigMap{
 						*wrappers.MakeConfigMap("", metav1.NamespaceDefault).
 							Profile("profile").
+							Mode(v1alpha1.SlurmMode).
 							Data(map[string]string{
 								"script": "#!/bin/bash\nsleep 300'",
 								"entrypoint.sh": `#!/usr/bin/bash
@@ -833,6 +850,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 							Completions(9).
 							CompletionMode(batchv1.IndexedCompletion).
 							Profile("profile").
+							Mode(v1alpha1.SlurmMode).
 							LocalQueue("lq1").
 							WithContainer(*wrappers.MakeContainer("c1-0", "bash:4.4").
 								Command("bash", "/slurm/entrypoint.sh").
@@ -873,6 +891,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					Items: []corev1.ConfigMap{
 						*wrappers.MakeConfigMap("", metav1.NamespaceDefault).
 							Profile("profile").
+							Mode(v1alpha1.SlurmMode).
 							LocalQueue("lq1").
 							Data(map[string]string{
 								"script": "#!/bin/bash\nsleep 300'",

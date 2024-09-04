@@ -232,6 +232,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 					Completions(5).
 					CompletionMode(batchv1.IndexedCompletion).
 					Profile("profile").
+					Mode(v1alpha1.SlurmMode).
 					WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
 						Command("bash", "/slurm/entrypoint.sh").
 						WithVolumeMount(corev1.VolumeMount{MountPath: "/slurm"}).
@@ -258,6 +259,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 					Obj(),
 				wrappers.MakeConfigMap("", metav1.NamespaceDefault).
 					Profile("profile").
+					Mode(v1alpha1.SlurmMode).
 					Data(map[string]string{
 						"script": "#!/bin/bash\nsleep 300'",
 						"entrypoint.sh": `#!/usr/bin/bash

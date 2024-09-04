@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
 
-func TestJobCmd(t *testing.T) {
+func TestSlurmCmd(t *testing.T) {
 	testStartTime := time.Now()
 
 	testCases := map[string]struct {
@@ -53,43 +53,16 @@ func TestJobCmd(t *testing.T) {
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", "ns1").
 					Profile("profile1").
-					Mode(v1alpha1.JobMode).
-					LocalQueue("lq1").
-					Completions(3).
-					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
-					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
-					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
-					Succeeded(3).
-					Obj(),
-				wrappers.MakeJob("j2", "ns2").
-					LocalQueue("lq2").
-					Completions(3).
-					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
-					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
-					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
-					Succeeded(3).
-					Obj(),
-			},
-			wantOut: `NAME   PROFILE    LOCAL QUEUE   COMPLETIONS   DURATION   AGE
-j1     profile1   lq1           3/3           60m        60m
-`,
-		},
-		"should print only Job mode jobs": {
-			ns: "ns1",
-			objs: []runtime.Object{
-				wrappers.MakeJob("j1", "ns1").
-					Profile("profile1").
-					Mode(v1alpha1.JobMode).
-					LocalQueue("lq1").
-					Completions(3).
-					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
-					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
-					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
-					Succeeded(3).
-					Obj(),
-				wrappers.MakeJob("j2", "ns2").
-					LocalQueue("lq2").
 					Mode(v1alpha1.SlurmMode).
+					LocalQueue("lq1").
+					Completions(3).
+					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Succeeded(3).
+					Obj(),
+				wrappers.MakeJob("j2", "ns2").
+					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
@@ -101,12 +74,38 @@ j1     profile1   lq1           3/3           60m        60m
 j1     profile1   lq1           3/3           60m        60m
 `,
 		},
-		"should print job list with namespace filter": {
+		"should print only Slurm mode jobs": {
 			ns: "ns1",
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", "ns1").
 					Profile("profile1").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
+					LocalQueue("lq1").
+					Completions(3).
+					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Succeeded(3).
+					Obj(),
+				wrappers.MakeJob("j2", "ns2").
+					LocalQueue("lq2").
+					Completions(3).
+					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Succeeded(3).
+					Obj(),
+			},
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   COMPLETIONS   DURATION   AGE
+j1     profile1   lq1           3/3           60m        60m
+`,
+		},
+		"should print slurm job list with namespace filter": {
+			ns: "ns1",
+			objs: []runtime.Object{
+				wrappers.MakeJob("j1", "ns1").
+					Profile("profile1").
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -116,7 +115,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", "ns2").
 					Profile("profile2").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -129,12 +128,12 @@ j1     profile1   lq1           3/3           60m        60m
 j1     profile1   lq1           3/3           60m        60m
 `,
 		},
-		"should print job list with profile filter": {
+		"should print slurm job list with profile filter": {
 			args: []string{"--profile", "profile1"},
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -144,7 +143,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -157,12 +156,12 @@ j1     profile1   lq1           3/3           60m        60m
 j1     profile1   lq1           3/3           60m        60m
 `,
 		},
-		"should print job list with profile filter (short flag)": {
+		"should print slurm job list with profile filter (short flag)": {
 			args: []string{"-p", "profile1"},
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -172,7 +171,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -185,12 +184,12 @@ j1     profile1   lq1           3/3           60m        60m
 j1     profile1   lq1           3/3           60m        60m
 `,
 		},
-		"should print job list with localqueue filter": {
+		"should print slurm job list with localqueue filter": {
 			args: []string{"--localqueue", "lq1"},
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq1").
 					LocalQueue("lq1").
 					Completions(3).
@@ -201,7 +200,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq2").
 					LocalQueue("lq2").
 					Completions(3).
@@ -215,12 +214,12 @@ j1     profile1   lq1           3/3           60m        60m
 j1     profile1   lq1           3/3           60m        60m
 `,
 		},
-		"should print job list with localqueue filter (short flag)": {
+		"should print slurm job list with localqueue filter (short flag)": {
 			args: []string{"-q", "lq1"},
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -230,7 +229,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq2").
 					LocalQueue("lq2").
 					Completions(3).
@@ -244,12 +243,12 @@ j1     profile1   lq1           3/3           60m        60m
 j1     profile1   lq1           3/3           60m        60m
 `,
 		},
-		"should print job list with label selector filter": {
+		"should print slurm job list with label selector filter": {
 			args: []string{"--selector", "foo=bar"},
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq1").
 					Label("foo", "bar").
 					Completions(3).
@@ -260,7 +259,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -273,12 +272,12 @@ j1     profile1   lq1           3/3           60m        60m
 j1     profile1   lq1           3/3           60m        60m
 `,
 		},
-		"should print job list with label selector filter (short flag)": {
+		"should print slurm job list with label selector filter (short flag)": {
 			args: []string{"-l", "foo=bar"},
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq1").
 					Label("foo", "bar").
 					Completions(3).
@@ -289,7 +288,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -302,12 +301,12 @@ j1     profile1   lq1           3/3           60m        60m
 j1     profile1   lq1           3/3           60m        60m
 `,
 		},
-		"should print job list with field selector filter": {
+		"should print slurm job list with field selector filter": {
 			args: []string{"--field-selector", "metadata.name=j1"},
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -317,7 +316,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
-					Mode(v1alpha1.JobMode).
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -368,7 +367,7 @@ j1     profile1   lq1           3/3           60m        60m
 				tcg.WithNamespace(tc.ns)
 			}
 
-			cmd := NewJobCmd(tcg, streams, testingclock.NewFakeClock(testStartTime))
+			cmd := NewSlurmCmd(tcg, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
