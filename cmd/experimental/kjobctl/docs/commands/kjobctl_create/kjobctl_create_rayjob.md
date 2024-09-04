@@ -23,12 +23,12 @@ kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUE
 
 ```
   # Create rayjob 
-  kjobctl create rayjob \ 
-	--profile my-application-profile  \
-	--cmd &#34;python /home/ray/samples/sample_code.py&#34; \
+  kjobctl create rayjob \
+	--profile my-application-profile \
+	--cmd "python /home/ray/samples/sample_code.py" \
 	--replicas small-group=1 \
-	--min-replicas small-group=1 \ 
-	--max-replicas small-group=5 \ 
+	--min-replicas small-group=1 \
+	--max-replicas small-group=5 \
 	--localqueue my-local-queue-name
 ```
 

@@ -16,35 +16,35 @@ Create a task
 
 ```
   # Create job 
-  kjobctl create job \ 
-	--profile my-application-profile  \
-	--cmd &#34;sleep 5&#34; \
+  kjobctl create job \
+	--profile my-application-profile \
+	--cmd "sleep 5" \
 	--parallelism 4 \
-	--completions 4 \ 
-	--request cpu=500m,ram=4Gi \
+	--completions 4 \
+	--request cpu=500m,memory=4Gi \
 	--localqueue my-local-queue-name
 
   # Create interactive 
-  kjobctl create interactive \ 
+  kjobctl create interactive \
 	--profile my-application-profile  \
 	--pod-running-timeout 30s \
 	--rm
 
   # Create rayjob 
-  kjobctl create rayjob \ 
-	--profile my-application-profile  \
-	--cmd &#34;python /home/ray/samples/sample_code.py&#34; \
+  kjobctl create rayjob \
+	--profile my-application-profile \
+	--cmd "python /home/ray/samples/sample_code.py" \
 	--replicas small-group=1 \
-	--min-replicas small-group=1 \ 
-	--max-replicas small-group=5 \ 
+	--min-replicas small-group=1 \
+	--max-replicas small-group=5 \
 	--localqueue my-local-queue-name
 
   # Create raycluster 
-  kjobctl create raycluster \ 
-	--profile my-application-profile  \
+  kjobctl create raycluster \
+	--profile my-application-profile \
 	--replicas small-group=1 \
-	--min-replicas small-group=1 \ 
-	--max-replicas small-group=5 \ 
+	--min-replicas small-group=1 \
+	--max-replicas small-group=5 \
 	--localqueue my-local-queue-name
 
   # Create slurm 

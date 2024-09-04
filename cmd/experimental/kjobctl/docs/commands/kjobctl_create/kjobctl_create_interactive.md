@@ -20,7 +20,7 @@ kjobctl create interactive --profile APPLICATION_PROFILE_NAME [--localqueue LOCA
 
 ```
   # Create interactive 
-  kjobctl create interactive \ 
+  kjobctl create interactive \
 	--profile my-application-profile  \
 	--pod-running-timeout 30s \
 	--rm
