@@ -25,10 +25,6 @@ type CohortSnapshot struct {
 	Members sets.Set[*ClusterQueueSnapshot]
 
 	ResourceNode ResourceNode
-
-	// AllocatableResourceGeneration equals to
-	// the sum of allocatable generation among its members.
-	AllocatableResourceGeneration int64
 }
 
 // The methods below implement hierarchicalResourceNode interface.

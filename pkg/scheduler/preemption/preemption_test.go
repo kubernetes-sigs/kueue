@@ -50,7 +50,6 @@ import (
 var snapCmpOpts = []cmp.Option{
 	cmpopts.EquateEmpty(),
 	cmpopts.IgnoreUnexported(cache.ClusterQueueSnapshot{}),
-	cmpopts.IgnoreFields(cache.CohortSnapshot{}, "AllocatableResourceGeneration"),
 	cmpopts.IgnoreFields(cache.ClusterQueueSnapshot{}, "AllocatableResourceGeneration"),
 	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueueSnapshot]) sets.Set[string] {
 		result := make(sets.Set[string], len(s))

@@ -287,8 +287,7 @@ func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[
 }
 
 func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueueSnapshot) bool {
-	return cq.AllocatableResourceGeneration > wl.LastAssignment.ClusterQueueGeneration ||
-		(cq.Cohort != nil && cq.Cohort.AllocatableResourceGeneration > wl.LastAssignment.CohortGeneration)
+	return cq.AllocatableResourceGeneration > wl.LastAssignment.ClusterQueueGeneration
 }
 
 // Assign assigns a flavor to each of the resources requested in each pod set.
@@ -301,12 +300,6 @@ func (a *FlavorAssigner) Assign(log logr.Logger, counts []int32) Assignment {
 			keysValues := []any{
 				"cq.AllocatableResourceGeneration", a.cq.AllocatableResourceGeneration,
 				"wl.LastAssignment.ClusterQueueGeneration", a.wl.LastAssignment.ClusterQueueGeneration,
-			}
-			if a.cq.Cohort != nil {
-				keysValues = append(keysValues,
-					"cq.Cohort.AllocatableResourceGeneration", a.cq.Cohort.AllocatableResourceGeneration,
-					"wl.LastAssignment.CohortGeneration", a.wl.LastAssignment.CohortGeneration,
-				)
 			}
 			logV.Info("Clearing Workload's last assignment because it was outdated", keysValues...)
 		}
@@ -330,12 +323,8 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodS
 		Usage:   make(resources.FlavorResourceQuantities),
 		LastState: workload.AssignmentClusterQueueState{
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
-			CohortGeneration:       0,
 			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
 		},
-	}
-	if a.cq.Cohort != nil {
-		assignment.LastState.CohortGeneration = a.cq.Cohort.AllocatableResourceGeneration
 	}
 
 	for i, podSet := range requests {

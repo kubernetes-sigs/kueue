@@ -108,7 +108,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*clusterQueue{
 				"a": {
 					Name:                          "a",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -126,7 +126,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"c": {
 					Name:                          "c",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 3,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -144,7 +144,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"e": {
 					Name:                          "e",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        pending,
@@ -234,7 +234,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*clusterQueue{
 				"a": {
 					Name:                          "a",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					FlavorFungibility:             defaultFlavorFungibility,
 					NamespaceSelector:             labels.Nothing(),
 					Status:                        active,
@@ -252,7 +252,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"c": {
 					Name:                          "c",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 3,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -270,7 +270,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"e": {
 					Name:                          "e",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        pending,
@@ -335,7 +335,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*clusterQueue{
 				"a": {
 					Name:                          "a",
-					AllocatableResourceGeneration: 2,
+					AllocatableResourceGeneration: 4,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -344,7 +344,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"b": {
 					Name:                          "b",
-					AllocatableResourceGeneration: 2,
+					AllocatableResourceGeneration: 3,
 					NamespaceSelector:             labels.Everything(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -353,7 +353,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"c": {
 					Name:                          "c",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 5,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -371,7 +371,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"e": {
 					Name:                          "e",
-					AllocatableResourceGeneration: 2,
+					AllocatableResourceGeneration: 4,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -380,7 +380,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"f": {
 					Name:                          "f",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 3,
 					NamespaceSelector:             labels.Nothing(),
 					Status:                        active,
 					Preemption:                    defaultPreemption,
@@ -509,7 +509,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*clusterQueue{
 				"a": {
 					Name:                          "a",
-					AllocatableResourceGeneration: 2,
+					AllocatableResourceGeneration: 4,
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
@@ -518,7 +518,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"b": {
 					Name:                          "b",
-					AllocatableResourceGeneration: 2,
+					AllocatableResourceGeneration: 3,
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
@@ -527,7 +527,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"c": {
 					Name:                          "c",
-					AllocatableResourceGeneration: 2,
+					AllocatableResourceGeneration: 4,
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
 					Preemption:                    defaultPreemption,
@@ -567,7 +567,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"c": {
 					Name:                          "c",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 3,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -576,7 +576,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"e": {
 					Name:                          "e",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        pending,
@@ -616,7 +616,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*clusterQueue{
 				"a": {
 					Name:                          "a",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -634,7 +634,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"c": {
 					Name:                          "c",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 3,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -652,7 +652,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"e": {
 					Name:                          "e",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
 					Status:                        active,
@@ -1089,7 +1089,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:             labels.Everything(),
 					Status:                        active,
 					Preemption:                    defaultPreemption,
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					FlavorFungibility:             defaultFlavorFungibility,
 					FairWeight:                    oneQuantity,
 				},
