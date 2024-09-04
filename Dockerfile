@@ -1,5 +1,6 @@
-ARG BUILDER_IMAGE
-ARG BASE_IMAGE
+ARG BUILDER_IMAGE=golang:1.22.6
+ARG BASE_IMAGE=gcr.io/distroless/static:nonroot
+
 # Build the manager binary
 FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
 
