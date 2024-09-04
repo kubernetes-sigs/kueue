@@ -94,10 +94,10 @@ func TestSlurmCmd(t *testing.T) {
 				*wrappers.MakeConfigMap("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
 				*wrappers.MakeConfigMap("j2", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
 			},
-			wantOutErr: `jobs.batch "j1" not used for Slurm mode
-configmaps "j1" not used for Slurm mode
-jobs.batch "j2" not used for Slurm mode
-configmaps "j2" not used for Slurm mode
+			wantOutErr: `jobs.batch "j1" created in "" mode. Switch to the correct mode to delete it
+configmaps "j1" created in "" mode. Switch to the correct mode to delete it
+jobs.batch "j2" created in "Job" mode. Switch to the correct mode to delete it
+configmaps "j2" created in "Job" mode. Switch to the correct mode to delete it
 `,
 		},
 		"should delete slurm job": {

@@ -151,7 +151,8 @@ func (o *JobOptions) Run(ctx context.Context) error {
 			continue
 		}
 		if job.Labels[constants.ModeLabel] != string(v1alpha1.JobMode) {
-			fmt.Fprintf(o.ErrOut, "jobs.batch \"%s\" not used for Job mode\n", job.Name)
+			fmt.Fprintf(o.ErrOut, "jobs.batch \"%s\" created in \"%s\" mode. Switch to the correct mode to delete it\n",
+				job.Name, job.Labels[constants.ModeLabel])
 			continue
 		}
 

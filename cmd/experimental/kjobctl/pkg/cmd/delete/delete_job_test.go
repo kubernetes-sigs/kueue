@@ -76,7 +76,9 @@ func TestJobCmd(t *testing.T) {
 				*wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
 				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.SlurmMode).Obj(),
 			},
-			wantOutErr: "jobs.batch \"j1\" not used for Job mode\njobs.batch \"j2\" not used for Job mode\n",
+			wantOutErr: `jobs.batch "j1" created in "" mode. Switch to the correct mode to delete it
+jobs.batch "j2" created in "Slurm" mode. Switch to the correct mode to delete it
+`,
 		},
 		"should delete job": {
 			args: []string{"j1"},

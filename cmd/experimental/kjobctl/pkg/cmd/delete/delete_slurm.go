@@ -161,7 +161,8 @@ func (o *SlurmOptions) deleteJob(ctx context.Context, jobName string) error {
 		return nil
 	}
 	if job.Labels[constants.ModeLabel] != string(v1alpha1.SlurmMode) {
-		fmt.Fprintf(o.ErrOut, "jobs.batch \"%s\" not used for Slurm mode\n", job.Name)
+		fmt.Fprintf(o.ErrOut, "jobs.batch \"%s\" created in \"%s\" mode. Switch to the correct mode to delete it\n",
+			job.Name, job.Labels[constants.ModeLabel])
 		return nil
 	}
 
@@ -196,7 +197,8 @@ func (o *SlurmOptions) deleteConfigMap(ctx context.Context, configMapName string
 		return nil
 	}
 	if configMap.Labels[constants.ModeLabel] != string(v1alpha1.SlurmMode) {
-		fmt.Fprintf(o.ErrOut, "configmaps \"%s\" not used for Slurm mode\n", configMap.Name)
+		fmt.Fprintf(o.ErrOut, "configmaps \"%s\" created in \"%s\" mode. Switch to the correct mode to delete it\n",
+			configMap.Name, configMap.Labels[constants.ModeLabel])
 		return nil
 	}
 
