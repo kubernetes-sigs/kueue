@@ -13,7 +13,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
 package describe
 
 import (
@@ -66,6 +65,10 @@ func parseAppProfileModeName(s string) ([]string, error) {
 func resourceFor(mode string) string {
 	if strings.EqualFold(mode, string(v1alpha1.InteractiveMode)) {
 		return "pod"
+	}
+
+	if strings.EqualFold(mode, string(v1alpha1.SlurmMode)) {
+		return "job"
 	}
 
 	return strings.ToLower(mode)

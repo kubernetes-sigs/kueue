@@ -17,17 +17,24 @@ limitations under the License.
 package describe
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/client-go/kubernetes"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
@@ -66,6 +73,8 @@ type DescribeOptions struct {
 	ResourceGVK     schema.GroupVersionKind
 	ResourceBuilder *resource.Builder
 
+	Clientset kubernetes.Interface
+
 	genericiooptions.IOStreams
 }
 
@@ -93,7 +102,7 @@ func NewDescribeCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 				return err
 			}
 
-			return o.Run()
+			return o.Run(cmd.Context())
 		},
 	}
 
@@ -131,6 +140,11 @@ func (o *DescribeOptions) Complete(clientGetter util.ClientGetter, args []string
 
 	o.ResourceBuilder = clientGetter.NewResourceBuilder()
 
+	o.Clientset, err = clientGetter.K8sClientset()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -163,7 +177,7 @@ func (o *DescribeOptions) parseArgs(args []string) error {
 	return nil
 }
 
-func (o *DescribeOptions) Run() error {
+func (o *DescribeOptions) Run(ctx context.Context) error {
 	builder := o.customizeResourceBuilder()
 
 	r := builder.Do()
@@ -173,6 +187,15 @@ func (o *DescribeOptions) Run() error {
 	infos, err := r.Infos()
 	if err != nil {
 		return err
+	}
+
+	if strings.EqualFold(o.ModeName, string(v1alpha1.SlurmMode)) {
+		configMapsAsInfos, err := o.getConfigMaps(ctx)
+		if err != nil {
+			return err
+		}
+
+		infos = append(infos, configMapsAsInfos...)
 	}
 
 	allErrs := []error{}
@@ -260,4 +283,58 @@ func (o *DescribeOptions) customizeResourceBuilder() *resource.Builder {
 	}
 
 	return builder.Flatten()
+}
+
+func (o *DescribeOptions) getConfigMaps(ctx context.Context) ([]*resource.Info, error) {
+	infos := make([]*resource.Info, 0)
+
+	if o.argsFormat == modeTaskArgsFormat || o.argsFormat == modeSlashTaskArgsFormat {
+		cm, err := o.Clientset.CoreV1().ConfigMaps(o.Namespace).Get(ctx, o.TaskName, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+
+		info, err := configMapToInfo(cm)
+		if err != nil {
+			return nil, err
+		}
+
+		infos = append(infos, info)
+	} else {
+		cmList, err := o.Clientset.CoreV1().ConfigMaps(o.Namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: constants.ProfileLabel,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, cm := range cmList.Items {
+			info, err := configMapToInfo(&cm)
+			if err != nil {
+				return nil, err
+			}
+
+			infos = append(infos, info)
+		}
+	}
+
+	return infos, nil
+}
+
+func configMapToInfo(cm *corev1.ConfigMap) (*resource.Info, error) {
+	u, err := runtime.DefaultUnstructuredConverter.ToUnstructured(cm)
+	if err != nil {
+		return nil, err
+	}
+
+	obj := &unstructured.Unstructured{Object: u}
+	return &resource.Info{
+		Mapping: &meta.RESTMapping{
+			GroupVersionKind: schema.GroupVersionKind{
+				Version: "v1",
+				Kind:    "ConfigMap",
+			},
+		},
+		Object: obj,
+	}, nil
 }
