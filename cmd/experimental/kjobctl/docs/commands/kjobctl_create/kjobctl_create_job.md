@@ -20,12 +20,12 @@ kjobctl create job --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_
 
 ```
   # Create job 
-  kjobctl create job \ 
-	--profile my-application-profile  \
-	--cmd &#34;sleep 5&#34; \
+  kjobctl create job \
+	--profile my-application-profile \
+	--cmd "sleep 5" \
 	--parallelism 4 \
-	--completions 4 \ 
-	--request cpu=500m,ram=4Gi \
+	--completions 4 \
+	--request cpu=500m,memory=4Gi \
 	--localqueue my-local-queue-name
 ```
 

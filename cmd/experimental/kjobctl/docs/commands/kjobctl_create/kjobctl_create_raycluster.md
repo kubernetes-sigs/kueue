@@ -23,11 +23,11 @@ kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL
 
 ```
   # Create raycluster 
-  kjobctl create raycluster \ 
-	--profile my-application-profile  \
+  kjobctl create raycluster \
+	--profile my-application-profile \
 	--replicas small-group=1 \
-	--min-replicas small-group=1 \ 
-	--max-replicas small-group=5 \ 
+	--min-replicas small-group=1 \
+	--max-replicas small-group=5 \
 	--localqueue my-local-queue-name
 ```
 
