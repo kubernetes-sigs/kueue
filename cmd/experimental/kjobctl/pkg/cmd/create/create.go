@@ -602,7 +602,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		}
 	}
 
-	if o.ModeName == v1alpha1.InteractiveMode {
+	if o.DryRunStrategy == util.DryRunNone && o.ModeName == v1alpha1.InteractiveMode {
 		pod := objs[0].(*corev1.Pod)
 		return o.RunInteractivePod(ctx, clientGetter, pod.Name)
 	}
