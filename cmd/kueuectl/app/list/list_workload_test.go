@@ -201,10 +201,24 @@ wl1               j1         lq1          cq1            PENDING                
 					}...).
 					Obj(),
 				utiltesting.MakeWorkload("wl3", metav1.NamespaceDefault).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j3", "test-uid").
+					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j3", "test-uid").
 					Queue("lq3").
 					Active(true).
 					Admission(utiltesting.MakeAdmission("cq3").Obj()).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Conditions([]metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionFalse,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
+						},
+					}...).
+					Obj(),
+				utiltesting.MakeWorkload("wl4", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j4", "test-uid").
+					Queue("lq4").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq4").Obj()).
 					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
@@ -219,11 +233,32 @@ wl1               j1         lq1          cq1            PENDING                
 						},
 					}...).
 					Obj(),
+				utiltesting.MakeWorkload("wl5", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j5", "test-uid").
+					Queue("lq5").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq5").Obj()).
+					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
+					Conditions([]metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)),
+						},
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionFalse,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
+						},
+					}...).
+					Obj(),
 			},
 			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS     POSITION IN QUEUE   DURATION   AGE
 wl1               j1         lq1          cq1            PENDING                                   60m
 wl2               j2         lq2          cq2            ADMITTED                       60m        120m
-wl3               j3         lq3          cq3            FINISHED                       60m        3h
+wl3               j3         lq3          cq3            PENDING                                   120m
+wl4               j4         lq4          cq4            FINISHED                       60m        3h
+wl5               j5         lq5          cq5            ADMITTED                       120m       3h
 `,
 		},
 		"should print workload list with only admitted and finished status flags": {

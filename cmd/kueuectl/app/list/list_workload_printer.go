@@ -141,10 +141,12 @@ func (p *listWorkloadPrinter) printWorkload(wl *v1beta1.Workload) metav1.TableRo
 	}
 
 	var duration string
-	if admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, v1beta1.WorkloadAdmitted); admittedCond != nil {
+	if admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, v1beta1.WorkloadAdmitted); admittedCond != nil &&
+		admittedCond.Status == metav1.ConditionTrue {
 		finishedTime := p.clock.Now()
 
-		if finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, v1beta1.WorkloadFinished); finishedCond != nil {
+		if finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, v1beta1.WorkloadFinished); finishedCond != nil &&
+			finishedCond.Status == metav1.ConditionTrue {
 			finishedTime = finishedCond.LastTransitionTime.Time
 		}
 
