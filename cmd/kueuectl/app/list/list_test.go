@@ -125,9 +125,9 @@ cq2    cohort2   0                   0                    false    120m
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   DURATION   AGE
-ns1         wl1               j1         lq1          cq1            PENDING                                  60m
-ns2         wl2               j2         lq2          cq2            PENDING                                  120m
+			wantOut: `NAMESPACE   NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+ns1         wl1               j1         lq1          cq1            PENDING                                   60m
+ns2         wl2               j2         lq2          cq2            PENDING                                   120m
 `,
 		},
 		"should print workload list with all namespaces (short command and flag)": {
@@ -148,9 +148,9 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   DURATION   AGE
-ns1         wl1               j1         lq1          cq1            PENDING                                  60m
-ns2         wl2               j2         lq2          cq2            PENDING                                  120m
+			wantOut: `NAMESPACE   NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+ns1         wl1               j1         lq1          cq1            PENDING                                   60m
+ns2         wl2               j2         lq2          cq2            PENDING                                   120m
 `,
 		},
 	}

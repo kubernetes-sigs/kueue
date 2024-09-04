@@ -25,7 +25,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	durationutil "k8s.io/apimachinery/pkg/util/duration"
+	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/utils/clock"
@@ -76,7 +76,7 @@ func (p *listWorkloadPrinter) PrintObj(obj runtime.Object, out io.Writer) error 
 			{Name: "ClusterQueue", Type: "string"},
 			{Name: "Status", Type: "string"},
 			{Name: "Position in Queue", Type: "string"},
-			{Name: "Duration", Type: "string"},
+			{Name: "Exec Time", Type: "string"},
 			{Name: "Age", Type: "string"},
 		},
 		Rows: p.printWorkloadList(list),
@@ -140,7 +140,7 @@ func (p *listWorkloadPrinter) printWorkload(wl *v1beta1.Workload) metav1.TableRo
 		positionInQueue = fmt.Sprintf("%d", pendingWorkload.PositionInLocalQueue)
 	}
 
-	var duration string
+	var execTime string
 	if admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, v1beta1.WorkloadAdmitted); admittedCond != nil &&
 		admittedCond.Status == metav1.ConditionTrue {
 		finishedTime := p.clock.Now()
@@ -150,7 +150,7 @@ func (p *listWorkloadPrinter) printWorkload(wl *v1beta1.Workload) metav1.TableRo
 			finishedTime = finishedCond.LastTransitionTime.Time
 		}
 
-		duration = durationutil.HumanDuration(finishedTime.Sub(admittedCond.LastTransitionTime.Time))
+		execTime = duration.HumanDuration(finishedTime.Sub(admittedCond.LastTransitionTime.Time))
 	}
 
 	row.Cells = []any{
@@ -161,8 +161,8 @@ func (p *listWorkloadPrinter) printWorkload(wl *v1beta1.Workload) metav1.TableRo
 		clusterQueueName,
 		strings.ToUpper(workload.Status(wl)),
 		positionInQueue,
-		duration,
-		durationutil.HumanDuration(p.clock.Since(wl.CreationTimestamp.Time)),
+		execTime,
+		duration.HumanDuration(p.clock.Since(wl.CreationTimestamp.Time)),
 	}
 
 	return row
