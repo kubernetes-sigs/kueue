@@ -271,6 +271,25 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
+        path: /mutate-apps-v1-statefulset
+    failurePolicy: Fail
+    name: mstatefulset.kb.io
+    rules:
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - statefulsets
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
         path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
     failurePolicy: Fail
     name: mclusterqueue.kb.io
@@ -600,6 +619,26 @@ webhooks:
           - UPDATE
         resources:
           - rayjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-apps-v1-statefulset
+    failurePolicy: Fail
+    name: vstatefulset.kb.io
+    rules:
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - statefulsets
     sideEffects: None
   - admissionReviewVersions:
       - v1

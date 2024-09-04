@@ -492,6 +492,7 @@ Possible options:</p>
 <li>&quot;kubeflow.org/xgboostjob&quot;</li>
 <li>&quot;pod&quot;</li>
 <li>&quot;deployment&quot;</li>
+<li>&quot;statefulset&quot;</li>
 </ul>
 </td>
 </tr>
