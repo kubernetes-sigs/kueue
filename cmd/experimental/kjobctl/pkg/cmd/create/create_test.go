@@ -1133,12 +1133,12 @@ func TestCreateOptionsRunInteractive(t *testing.T) {
 	userID := os.Getenv(constants.SystemEnvVarNameUser)
 
 	testCases := map[string]struct {
-		options                *CreateOptions
-		k8sObjs                []runtime.Object
-		kjobctlObjs            []runtime.Object
-		updatePodAfterCreation func(pod *corev1.Pod)
-		wantPodList            *corev1.PodList
-		wantErr                string
+		options        *CreateOptions
+		k8sObjs        []runtime.Object
+		kjobctlObjs    []runtime.Object
+		createMutation func(pod *corev1.Pod)
+		wantPodList    *corev1.PodList
+		wantErr        string
 	}{
 		"success": {
 			options: &CreateOptions{
@@ -1158,7 +1158,7 @@ func TestCreateOptionsRunInteractive(t *testing.T) {
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.InteractiveMode, "pod-template").Obj()).
 					Obj(),
 			},
-			updatePodAfterCreation: func(pod *corev1.Pod) {
+			createMutation: func(pod *corev1.Pod) {
 				pod.Status.Phase = corev1.PodRunning
 			},
 			wantPodList: &corev1.PodList{
@@ -1203,7 +1203,7 @@ func TestCreateOptionsRunInteractive(t *testing.T) {
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.InteractiveMode, "pod-template").Obj()).
 					Obj(),
 			},
-			updatePodAfterCreation: func(pod *corev1.Pod) {
+			createMutation: func(pod *corev1.Pod) {
 				pod.Status.Phase = corev1.PodRunning
 			},
 			wantPodList: &corev1.PodList{},
@@ -1302,8 +1302,8 @@ func TestCreateOptionsRunInteractive(t *testing.T) {
 					return true, nil, err
 				}
 
-				if tc.updatePodAfterCreation != nil {
-					tc.updatePodAfterCreation(pod)
+				if tc.createMutation != nil {
+					tc.createMutation(pod)
 				}
 
 				_, err = k8sClientset.CoreV1().Pods(pod.GetNamespace()).Create(context.Background(), pod, metav1.CreateOptions{})
