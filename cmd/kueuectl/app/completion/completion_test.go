@@ -67,12 +67,13 @@ func TestWorkloadNameCompletionFunc(t *testing.T) {
 			wantNames:     []string{"wl2"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
-		"shouldn't return workload names because only one argument can be passed": {
+		"should filter workload names": {
 			objs: []runtime.Object{
 				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).Active(true).Obj(),
 				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Active(false).Obj(),
 			},
 			args:          []string{"wl2"},
+			wantNames:     []string{"wl1"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 	}
