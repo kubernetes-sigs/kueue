@@ -1,3 +1,25 @@
+## v0.8.1
+
+Changes since `v0.8.0`:
+
+### Feature
+
+- Add gauge metric admission_cycle_preemption_skips that reports the number of Workloads in a ClusterQueue
+  that got preemptions candidates, but had to be skipped in the last cycle. (#2942, @alculquicondor)
+- Publish images via artifact registry (#2832, @alculquicondor)
+
+### Bug or Regression
+
+- CLI: Support `-` and `.` in the resource flavor name on `create cq` (#2706, @trasc)
+- Detect and enable support for job CRDs installed after Kueue starts. (#2991, @ChristianZaccaria)
+- Fix over-admission after deleting resources from borrowing ClusterQueue. (#2879, @mbobrovskyi)
+- Fix support for kuberay 1.2.x (#2983, @mbobrovskyi)
+- Helm: Fix a bug for "unclosed action error". (#2688, @mbobrovskyi)
+- Prevent infinite preemption loop when PrioritySortingWithinCohort=false
+  is used together with borrowWithinCohort. (#2831, @mimowo)
+- Support for helm charts in the us-central1-docker.pkg.dev/k8s-staging-images/charts repository (#2834, @IrvingMg)
+- Update Flavor selection logic to prefer Flavors which allow reclamation of lent nominal quota, over Flavors which require preempting workloads within the ClusterQueue. This matches the behavior in the single Flavor case. (#2829, @gabesaba)
+
 ## v0.8.0
 
 Changes since `v0.7.0`:
