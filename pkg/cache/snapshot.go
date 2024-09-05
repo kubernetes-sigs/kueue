@@ -130,13 +130,11 @@ func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
 		Members:      make(sets.Set[*ClusterQueueSnapshot], len(c.ChildCQs())),
 		ResourceNode: c.resourceNode.Clone(),
 	}
-	cohortSnap.AllocatableResourceGeneration = 0
 	for _, cq := range c.ChildCQs() {
 		if cq.Active() {
 			cqSnap := cqs[cq.Name]
 			cqSnap.Cohort = cohortSnap
 			cohortSnap.Members.Insert(cqSnap)
-			cohortSnap.AllocatableResourceGeneration += cqSnap.AllocatableResourceGeneration
 		}
 	}
 }

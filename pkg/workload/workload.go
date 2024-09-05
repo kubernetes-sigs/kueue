@@ -78,7 +78,6 @@ func Status(w *kueue.Workload) string {
 
 type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int
-	CohortGeneration       int64
 	ClusterQueueGeneration int64
 }
 
@@ -100,7 +99,6 @@ func WithExcludedResourcePrefixes(n []string) InfoOption {
 func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
 	c := AssignmentClusterQueueState{
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
-		CohortGeneration:       s.CohortGeneration,
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
 	}
 	for ps, flavorIdx := range s.LastTriedFlavorIdx {
