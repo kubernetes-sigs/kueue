@@ -17,6 +17,25 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
+        path: /mutate-apps-v1-deployment
+    failurePolicy: Fail
+    name: mdeployment.kb.io
+    rules:
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - deployments
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
         path: /mutate-batch-v1-job
     failurePolicy: Fail
     name: mjob.kb.io
@@ -241,25 +260,6 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
-        path: /mutate-apps-v1-deployment
-    failurePolicy: Fail
-    name: mdeployment.kb.io
-    rules:
-      - apiGroups:
-          - apps
-        apiVersions:
-          - v1
-        operations:
-          - CREATE
-        resources:
-          - deployments
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
         path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
     failurePolicy: Fail
     name: mclusterqueue.kb.io
@@ -324,6 +324,26 @@ metadata:
   {{- end }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-apps-v1-deployment
+    failurePolicy: Fail
+    name: vdeployment.kb.io
+    rules:
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - deployments
+    sideEffects: None
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -558,26 +578,6 @@ webhooks:
           - UPDATE
         resources:
           - rayjobs
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
-        path: /validate-apps-v1-deployment
-    failurePolicy: Fail
-    name: vdeployment.kb.io
-    rules:
-      - apiGroups:
-          - apps
-        apiVersions:
-          - v1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - deployments
     sideEffects: None
   - admissionReviewVersions:
       - v1
