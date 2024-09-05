@@ -112,6 +112,12 @@ func (j *RayClusterWrapper) DesiredWorkerReplicas(desiredWorkerReplicas int32) *
 	return j
 }
 
+// ReadyWorkerReplicas set ReadyWorkerReplicas.
+func (j *RayClusterWrapper) ReadyWorkerReplicas(readyWorkerReplicas int32) *RayClusterWrapper {
+	j.RayCluster.Status.ReadyWorkerReplicas = readyWorkerReplicas
+	return j
+}
+
 // AvailableWorkerReplicas set AvailableWorkerReplicas.
 func (j *RayClusterWrapper) AvailableWorkerReplicas(availableWorkerReplicas int32) *RayClusterWrapper {
 	j.RayCluster.Status.AvailableWorkerReplicas = availableWorkerReplicas
@@ -136,8 +142,32 @@ func (j *RayClusterWrapper) DesiredGPU(desiredGPU resource.Quantity) *RayCluster
 	return j
 }
 
+// DesiredTPU set DesiredTPU.
+func (j *RayClusterWrapper) DesiredTPU(desiredTPU resource.Quantity) *RayClusterWrapper {
+	j.RayCluster.Status.DesiredTPU = desiredTPU
+	return j
+}
+
+// MinWorkerReplicas set MinWorkerReplicas.
+func (j *RayClusterWrapper) MinWorkerReplicas(minWorkerReplicas int32) *RayClusterWrapper {
+	j.RayCluster.Status.MinWorkerReplicas = minWorkerReplicas
+	return j
+}
+
+// MaxWorkerReplicas set MaxWorkerReplicas.
+func (j *RayClusterWrapper) MaxWorkerReplicas(maxWorkerReplicas int32) *RayClusterWrapper {
+	j.RayCluster.Status.MaxWorkerReplicas = maxWorkerReplicas
+	return j
+}
+
 // State set State.
 func (j *RayClusterWrapper) State(state rayv1.ClusterState) *RayClusterWrapper {
 	j.RayCluster.Status.State = state
+	return j
+}
+
+// Reason set Reason.
+func (j *RayClusterWrapper) Reason(reason string) *RayClusterWrapper {
+	j.RayCluster.Status.Reason = reason
 	return j
 }

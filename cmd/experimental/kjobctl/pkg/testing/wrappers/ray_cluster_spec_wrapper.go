@@ -19,6 +19,7 @@ package wrappers
 import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 )
 
 // RayClusterSpecWrapper wraps a RayClusterSpec.
@@ -181,5 +182,11 @@ func (w *RayClusterSpecWrapper) MaxReplicas(groupName string, maxReplicas int32)
 		}
 	}
 
+	return w
+}
+
+// Suspend set suspend.
+func (w *RayClusterSpecWrapper) Suspend(suspend bool) *RayClusterSpecWrapper {
+	w.RayClusterSpec.Suspend = ptr.To(suspend)
 	return w
 }
