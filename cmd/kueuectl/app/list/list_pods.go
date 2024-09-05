@@ -228,6 +228,9 @@ func (o *PodOptions) getPodLabelSelector() (string, error) {
 		return "", nil
 	}
 
+	if cbs.NewJob == nil {
+		return "", nil
+	}
 	genericJob := cbs.NewJob()
 
 	jobWithPodLabelSelector, ok := genericJob.(jobframework.JobWithPodLabelSelector)
