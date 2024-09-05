@@ -510,9 +510,9 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 		}
 	}
 
-	if cq.Cohort != nil && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
+	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
 		onlyLowerPriority := cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyAny
-		for cohortCQ := range cq.Cohort.Members {
+		for _, cohortCQ := range cq.Parent().ChildCQs() {
 			if cq == cohortCQ || !cqIsBorrowing(cohortCQ, frsNeedPreemption) {
 				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
 				continue
@@ -532,7 +532,7 @@ func (p *Preemptor) findCandidates(wl *kueue.Workload, cq *cache.ClusterQueueSna
 }
 
 func cqIsBorrowing(cq *cache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
-	if cq.Cohort == nil {
+	if !cq.HasParent() {
 		return false
 	}
 	for fr := range frsNeedPreemption {
