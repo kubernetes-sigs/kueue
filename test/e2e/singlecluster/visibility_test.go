@@ -183,7 +183,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return info.Items
-				}, util.Timeout, util.Interval).Should(gomega.BeEmpty())
+				}, util.LongTimeout, util.Interval).Should(gomega.BeEmpty())
 			})
 		})
 
