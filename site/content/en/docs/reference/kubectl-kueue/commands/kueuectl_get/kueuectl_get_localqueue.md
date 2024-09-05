@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;get  {localqueue [lq]}&#34; to kubectl
+Pass-through &#34;{get Display a resource []}  {localqueue  [lq]}&#34; to kubectl
 
 ```
 kueuectl get localqueue [flags]
@@ -219,5 +219,5 @@ kueuectl get localqueue [flags]
 
 ## See Also
 
-* [kueuectl get](../)	 - Pass-through &#34;get&#34; to kubectl
+* [kueuectl get](../)	 - Display a resource
 

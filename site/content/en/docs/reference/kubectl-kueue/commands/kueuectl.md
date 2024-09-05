@@ -204,12 +204,12 @@ Controls Kueue queueing manager
 ## See Also
 
 * [kueuectl create](../kueuectl_create/)	 - Create a resource
-* [kueuectl delete](../kueuectl_delete/)	 - Pass-through &#34;delete&#34; to kubectl
-* [kueuectl describe](../kueuectl_describe/)	 - Pass-through &#34;describe&#34; to kubectl
-* [kueuectl edit](../kueuectl_edit/)	 - Pass-through &#34;edit&#34; to kubectl
-* [kueuectl get](../kueuectl_get/)	 - Pass-through &#34;get&#34; to kubectl
+* [kueuectl delete](../kueuectl_delete/)	 - Delete a resource
+* [kueuectl describe](../kueuectl_describe/)	 - Show details of a resource
+* [kueuectl edit](../kueuectl_edit/)	 - Edit a resource on the server
+* [kueuectl get](../kueuectl_get/)	 - Display a resource
 * [kueuectl list](../kueuectl_list/)	 - Display resources
-* [kueuectl patch](../kueuectl_patch/)	 - Pass-through &#34;patch&#34; to kubectl
+* [kueuectl patch](../kueuectl_patch/)	 - Update fields of a resource
 * [kueuectl resume](../kueuectl_resume/)	 - Resume the resource
 * [kueuectl stop](../kueuectl_stop/)	 - Stop the resource
 * [kueuectl version](../kueuectl_version/)	 - Prints the client version and the kueue controller manager image, if installed

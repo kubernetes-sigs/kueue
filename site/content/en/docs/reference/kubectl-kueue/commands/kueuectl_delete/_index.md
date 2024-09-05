@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;delete&#34; to kubectl
+Delete a resource
 
 
 ## Options
@@ -216,8 +216,8 @@ Pass-through &#34;delete&#34; to kubectl
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
-* [kueuectl delete clusterqueue](kueuectl_delete_clusterqueue/)	 - Pass-through &#34;delete  {clusterqueue [cq]}&#34; to kubectl
-* [kueuectl delete localqueue](kueuectl_delete_localqueue/)	 - Pass-through &#34;delete  {localqueue [lq]}&#34; to kubectl
-* [kueuectl delete resourceflavor](kueuectl_delete_resourceflavor/)	 - Pass-through &#34;delete  {resourceflavor [rf]}&#34; to kubectl
-* [kueuectl delete workload](kueuectl_delete_workload/)	 - Pass-through &#34;delete  {workload [wl]}&#34; to kubectl
+* [kueuectl delete clusterqueue](kueuectl_delete_clusterqueue/)	 - Pass-through &#34;{delete Delete a resource []}  {clusterqueue  [cq]}&#34; to kubectl
+* [kueuectl delete localqueue](kueuectl_delete_localqueue/)	 - Pass-through &#34;{delete Delete a resource []}  {localqueue  [lq]}&#34; to kubectl
+* [kueuectl delete resourceflavor](kueuectl_delete_resourceflavor/)	 - Pass-through &#34;{delete Delete a resource []}  {resourceflavor  [rf]}&#34; to kubectl
+* [kueuectl delete workload](kueuectl_delete_workload/)	 - Pass-through &#34;{delete Delete a resource []}  {workload  [wl]}&#34; to kubectl
 

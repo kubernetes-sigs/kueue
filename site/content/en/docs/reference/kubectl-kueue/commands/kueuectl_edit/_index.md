@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;edit&#34; to kubectl
+Edit a resource on the server
 
 
 ## Options
@@ -216,8 +216,8 @@ Pass-through &#34;edit&#34; to kubectl
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
-* [kueuectl edit clusterqueue](kueuectl_edit_clusterqueue/)	 - Pass-through &#34;edit  {clusterqueue [cq]}&#34; to kubectl
-* [kueuectl edit localqueue](kueuectl_edit_localqueue/)	 - Pass-through &#34;edit  {localqueue [lq]}&#34; to kubectl
-* [kueuectl edit resourceflavor](kueuectl_edit_resourceflavor/)	 - Pass-through &#34;edit  {resourceflavor [rf]}&#34; to kubectl
-* [kueuectl edit workload](kueuectl_edit_workload/)	 - Pass-through &#34;edit  {workload [wl]}&#34; to kubectl
+* [kueuectl edit clusterqueue](kueuectl_edit_clusterqueue/)	 - Pass-through &#34;{edit Edit a resource on the server []}  {clusterqueue  [cq]}&#34; to kubectl
+* [kueuectl edit localqueue](kueuectl_edit_localqueue/)	 - Pass-through &#34;{edit Edit a resource on the server []}  {localqueue  [lq]}&#34; to kubectl
+* [kueuectl edit resourceflavor](kueuectl_edit_resourceflavor/)	 - Pass-through &#34;{edit Edit a resource on the server []}  {resourceflavor  [rf]}&#34; to kubectl
+* [kueuectl edit workload](kueuectl_edit_workload/)	 - Pass-through &#34;{edit Edit a resource on the server []}  {workload  [wl]}&#34; to kubectl
 
