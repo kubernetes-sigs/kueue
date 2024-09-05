@@ -85,11 +85,17 @@ func (c *Cache) Snapshot() Snapshot {
 		InactiveClusterQueueSets: sets.New[string](),
 	}
 	for _, cohort := range c.hm.Cohorts {
+		if c.hm.CycleChecker.HasCycle(cohort) {
+			continue
+		}
 		snap.AddCohort(cohort.Name)
 		snap.Cohorts[cohort.Name].ResourceNode = cohort.resourceNode.Clone()
+		if cohort.HasParent() {
+			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
+		}
 	}
 	for _, cq := range c.hm.ClusterQueues {
-		if !cq.Active() {
+		if !cq.Active() || (cq.HasParent() && c.hm.CycleChecker.HasCycle(cq.Parent())) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
