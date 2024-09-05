@@ -13,10 +13,18 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;delete workload&#34; to kubectl
+Delete the given Workload and corresponding to it Job
 
 ```
-kueuectl delete workload [flags]
+kueuectl delete workload NAME [--cascade STRATEGY] [--dry-run STRATEGY]
+```
+
+
+## Examples
+
+```
+  # Delete the Workload
+  kueuectl delete workload my-workload
 ```
 
 
@@ -30,12 +38,66 @@ kueuectl delete workload [flags]
     </colgroup>
     <tbody>
     <tr>
+        <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: true</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, ignore any errors in templates when a field or map key is missing in the template. Only applies to golang and jsonpath output formats.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--cascade string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;background&#34;</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Must be &#34;background&#34;, &#34;orphan&#34;, or &#34;foreground&#34;. Defaults to background.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--dry-run string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;none&#34;</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Must be &#34;none&#34;, &#34;server&#34;, or &#34;client&#34;. If client strategy, only print the object that would be sent, without sending it. If server strategy, submit server-side request without persisting the resource.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-h, --help</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>help for workload</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-o, --output string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--show-managed-fields</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--template string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
         </td>
     </tr>
     </tbody>
