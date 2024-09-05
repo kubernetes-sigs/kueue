@@ -26,22 +26,23 @@ import (
 
 func TestManager(t *testing.T) {
 	type M = Manager[*testClusterQueue, *testCohort]
-	type cqEdge struct {
-		cq     string
-		cohort string
+	type edge struct {
+		child  string
+		parent string
 	}
 	opts := []cmp.Option{
 		cmpopts.EquateEmpty(),
-		cmpopts.SortSlices(func(a, b cqEdge) bool {
-			return a.cq < b.cq
+		cmpopts.SortSlices(func(a, b edge) bool {
+			return a.child < b.child
 		}),
-		cmp.AllowUnexported(cqEdge{}),
+		cmp.AllowUnexported(edge{}),
 	}
 	tests := map[string]struct {
-		operations  func(M)
-		wantCqs     sets.Set[string]
-		wantCohorts sets.Set[string]
-		wantCqEdge  []cqEdge
+		operations     func(M)
+		wantCqs        sets.Set[string]
+		wantCohorts    sets.Set[string]
+		wantCqEdge     []edge
+		wantCohortEdge []edge
 	}{
 		"create queues": {
 			operations: func(m M) {
@@ -77,7 +78,7 @@ func TestManager(t *testing.T) {
 				"cohort-a",
 				"cohort-b",
 			),
-			wantCqEdge: []cqEdge{
+			wantCqEdge: []edge{
 				{"queue1", "cohort-a"},
 				{"queue2", "cohort-a"},
 				{"queue3", "cohort-b"},
@@ -95,12 +96,12 @@ func TestManager(t *testing.T) {
 			},
 			wantCqs:     sets.New("queue1", "queue2"),
 			wantCohorts: sets.New("cohort-b", "cohort-c"),
-			wantCqEdge: []cqEdge{
+			wantCqEdge: []edge{
 				{"queue1", "cohort-b"},
 				{"queue2", "cohort-c"},
 			},
 		},
-		"updating idempotent": {
+		"updating cqs idempotent": {
 			operations: func(m M) {
 				m.AddClusterQueue(newCq("queue1"))
 				m.AddClusterQueue(newCq("queue2"))
@@ -111,15 +112,30 @@ func TestManager(t *testing.T) {
 				m.UpdateClusterQueueEdge("queue2", "cohort-c")
 				m.UpdateClusterQueueEdge("queue1", "cohort-b")
 				m.UpdateClusterQueueEdge("queue2", "cohort-c")
-				m.UpdateClusterQueueEdge("queue2", "cohort-c")
-				m.UpdateClusterQueueEdge("queue1", "cohort-b")
 			},
 			wantCqs:     sets.New("queue1", "queue2"),
 			wantCohorts: sets.New("cohort-b", "cohort-c"),
-			wantCqEdge: []cqEdge{
+			wantCqEdge: []edge{
 				{"queue1", "cohort-b"},
 				{"queue2", "cohort-c"},
 			},
+		},
+		"updating cohort idempotent": {
+			operations: func(m M) {
+				m.AddCohort("cohort")
+				m.UpdateCohortEdge("cohort", "root")
+				m.UpdateCohortEdge("cohort", "newroot")
+				m.UpdateCohortEdge("cohort", "newroot")
+			},
+			wantCohorts:    sets.New("cohort", "newroot"),
+			wantCohortEdge: []edge{{"cohort", "newroot"}},
+		},
+		"adding cohort idempotent": {
+			operations: func(m M) {
+				m.AddCohort("cohort")
+				m.AddCohort("cohort")
+			},
+			wantCohorts: sets.New("cohort"),
 		},
 		"delete cohorts": {
 			operations: func(m M) {
@@ -150,7 +166,7 @@ func TestManager(t *testing.T) {
 			},
 			wantCqs: sets.New[string](),
 		},
-		"cohort remains as long as one of its children remains": {
+		"cohort remains as long as one of its child cqs remains": {
 			operations: func(m M) {
 				m.AddClusterQueue(newCq("queue1"))
 				m.AddClusterQueue(newCq("queue2"))
@@ -164,17 +180,31 @@ func TestManager(t *testing.T) {
 			},
 			wantCqs:     sets.New("queue1"),
 			wantCohorts: sets.New("cohort"),
-			wantCqEdge:  []cqEdge{{"queue1", "cohort"}},
+			wantCqEdge:  []edge{{"queue1", "cohort"}},
+		},
+		"cohort remains as long as one of its child cohorts remains": {
+			operations: func(m M) {
+				m.AddCohort("cohort1")
+				m.AddCohort("cohort2")
+				m.AddCohort("cohort3")
+				m.UpdateCohortEdge("cohort1", "root")
+				m.UpdateCohortEdge("cohort2", "root")
+				m.UpdateCohortEdge("cohort3", "root")
+				m.DeleteCohort("cohort2")
+				m.DeleteCohort("cohort3")
+			},
+			wantCohorts:    sets.New("cohort1", "root"),
+			wantCohortEdge: []edge{{"cohort1", "root"}},
 		},
 		"explicit cohort": {
 			operations: func(m M) {
-				m.AddCohort(newCohort("cohort"))
+				m.AddCohort("cohort")
 			},
 			wantCohorts: sets.New("cohort"),
 		},
 		"delete explicit cohort": {
 			operations: func(m M) {
-				m.AddCohort(newCohort("cohort"))
+				m.AddCohort("cohort")
 				m.DeleteCohort("cohort")
 			},
 			wantCohorts: sets.New[string](),
@@ -182,7 +212,7 @@ func TestManager(t *testing.T) {
 		"delete explicit cohort idempotent": {
 			operations: func(m M) {
 				m.DeleteCohort("cohort")
-				m.AddCohort(newCohort("cohort"))
+				m.AddCohort("cohort")
 				m.DeleteCohort("cohort")
 				m.DeleteCohort("cohort")
 			},
@@ -192,25 +222,25 @@ func TestManager(t *testing.T) {
 			operations: func(m M) {
 				m.AddClusterQueue(newCq("queue"))
 				m.UpdateClusterQueueEdge("queue", "cohort")
-				m.AddCohort(newCohort("cohort"))
+				m.AddCohort("cohort")
 				m.DeleteClusterQueue("queue")
 			},
 			wantCohorts: sets.New("cohort"),
 		},
 		"explicit cohort downgraded to implicit cohort": {
 			operations: func(m M) {
-				m.AddCohort(newCohort("cohort"))
+				m.AddCohort("cohort")
 				m.AddClusterQueue(newCq("queue"))
 				m.UpdateClusterQueueEdge("queue", "cohort")
 				m.DeleteCohort("cohort")
 			},
 			wantCohorts: sets.New("cohort"),
 			wantCqs:     sets.New("queue"),
-			wantCqEdge:  []cqEdge{{"queue", "cohort"}},
+			wantCqEdge:  []edge{{"queue", "cohort"}},
 		},
 		"cohort upgraded to explicit then downgraded to implicit then deleted": {
 			operations: func(m M) {
-				m.AddCohort(newCohort("cohort"))
+				m.AddCohort("cohort")
 				m.AddClusterQueue(newCq("queue"))
 				m.UpdateClusterQueueEdge("queue", "cohort")
 				m.DeleteCohort("cohort")
@@ -218,7 +248,75 @@ func TestManager(t *testing.T) {
 			},
 			wantCohorts: sets.New[string](),
 			wantCqs:     sets.New[string](),
-			wantCqEdge:  []cqEdge{},
+			wantCqEdge:  []edge{},
+		},
+		"hierarchical cohorts": {
+			//               root
+			//              /    \
+			//           left    right
+			//           /            \
+			//  left-left              right-right
+			operations: func(m M) {
+				m.AddCohort("root")
+				m.AddCohort("left")
+				m.AddCohort("right")
+				m.AddCohort("left-left")
+				m.AddCohort("right-right")
+				m.UpdateCohortEdge("left", "root")
+				m.UpdateCohortEdge("right", "root")
+				m.UpdateCohortEdge("left-left", "left")
+				m.UpdateCohortEdge("right-right", "right")
+
+				m.AddClusterQueue(newCq("cq"))
+				m.UpdateClusterQueueEdge("cq", "right-right")
+			},
+			wantCqs: sets.New("cq"),
+			wantCqEdge: []edge{
+				{"cq", "right-right"},
+			},
+			wantCohorts: sets.New("root", "left", "right", "left-left", "right-right"),
+			wantCohortEdge: []edge{
+				{"left", "root"},
+				{"right", "root"},
+				{"left-left", "left"},
+				{"right-right", "right"},
+			},
+		},
+		"delete node in middle of hierarchy": {
+			// Before: fully connected
+			//
+			//               root
+			//              /    \
+			//            left    right
+			//           /            \
+			//  left-left              right-right
+			//
+			// After: left is an implicit Cohort
+			//
+			//               root
+			//                   \
+			//            left    right
+			//           /             \
+			//  left-left               right-right
+			operations: func(m M) {
+				m.AddCohort("root")
+				m.AddCohort("left")
+				m.AddCohort("right")
+				m.AddCohort("left-left")
+				m.AddCohort("right-right")
+				m.UpdateCohortEdge("left", "root")
+				m.UpdateCohortEdge("right", "root")
+				m.UpdateCohortEdge("left-left", "left")
+				m.UpdateCohortEdge("right-right", "right")
+
+				m.DeleteCohort("left")
+			},
+			wantCohorts: sets.New("root", "left", "right", "left-left", "right-right"),
+			wantCohortEdge: []edge{
+				{"right", "root"},
+				{"left-left", "left"},
+				{"right-right", "right"},
+			},
 		},
 	}
 
@@ -228,11 +326,11 @@ func TestManager(t *testing.T) {
 			tc.operations(mgr)
 			t.Run("verify clusterqueues", func(t *testing.T) {
 				gotCqs := sets.New[string]()
-				gotEdges := make([]cqEdge, 0, len(tc.wantCqEdge))
+				gotEdges := make([]edge, 0, len(tc.wantCqEdge))
 				for _, cq := range mgr.ClusterQueues {
 					gotCqs.Insert(cq.GetName())
 					if cq.HasParent() {
-						gotEdges = append(gotEdges, cqEdge{cq.GetName(), cq.Parent().GetName()})
+						gotEdges = append(gotEdges, edge{cq.GetName(), cq.Parent().GetName()})
 					}
 				}
 				if diff := cmp.Diff(tc.wantCqs, gotCqs); diff != "" {
@@ -244,18 +342,32 @@ func TestManager(t *testing.T) {
 			})
 			t.Run("verify cohorts", func(t *testing.T) {
 				gotCohorts := sets.New[string]()
-				gotEdges := make([]cqEdge, 0, len(tc.wantCqEdge))
+				gotCqEdges := make([]edge, 0, len(tc.wantCqEdge))
+				gotCohortChildEdges := make([]edge, 0, len(tc.wantCohortEdge))
+				gotCohortParentEdges := make([]edge, 0, len(tc.wantCohortEdge))
 				for _, cohort := range mgr.Cohorts {
 					gotCohorts.Insert(cohort.GetName())
 					for _, cq := range cohort.ChildCQs() {
-						gotEdges = append(gotEdges, cqEdge{cq.GetName(), cohort.GetName()})
+						gotCqEdges = append(gotCqEdges, edge{cq.GetName(), cohort.GetName()})
+					}
+					for _, childCohort := range cohort.ChildCohorts() {
+						gotCohortChildEdges = append(gotCohortChildEdges, edge{childCohort.GetName(), cohort.GetName()})
+					}
+					if cohort.HasParent() {
+						gotCohortParentEdges = append(gotCohortParentEdges, edge{cohort.GetName(), cohort.Parent().GetName()})
 					}
 				}
 				if diff := cmp.Diff(tc.wantCohorts, gotCohorts); diff != "" {
 					t.Fatalf("Unexpected cohorts -want +got %s", diff)
 				}
-				if diff := cmp.Diff(tc.wantCqEdge, gotEdges, opts...); diff != "" {
-					t.Fatalf("Unexpected Cohort->CQ edges -want +got %s", diff)
+				if diff := cmp.Diff(tc.wantCqEdge, gotCqEdges, opts...); diff != "" {
+					t.Fatalf("Unexpected CQ<-Cohort edges -want +got %s", diff)
+				}
+				if diff := cmp.Diff(tc.wantCohortEdge, gotCohortChildEdges, opts...); diff != "" {
+					t.Fatalf("Unexpected Cohort<-Cohort edges -want +got %s", diff)
+				}
+				if diff := cmp.Diff(tc.wantCohortEdge, gotCohortParentEdges, opts...); diff != "" {
+					t.Fatalf("Unexpected Cohort->Cohort edges -want +got %s", diff)
 				}
 			})
 		})

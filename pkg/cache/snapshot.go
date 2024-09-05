@@ -85,7 +85,8 @@ func (c *Cache) Snapshot() Snapshot {
 		InactiveClusterQueueSets: sets.New[string](),
 	}
 	for _, cohort := range c.hm.Cohorts {
-		snap.AddCohort(snapshotCohort(cohort))
+		snap.AddCohort(cohort.Name)
+		snap.Cohorts[cohort.Name].ResourceNode = cohort.resourceNode.Clone()
 	}
 	for _, cq := range c.hm.ClusterQueues {
 		if !cq.Active() {
@@ -124,12 +125,6 @@ func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 		cc.ResourceGroups[i] = rg.Clone()
 	}
 	return cc
-}
-
-func snapshotCohort(c *cohort) *CohortSnapshot {
-	snapshot := newCohortSnapshot(c.Name)
-	snapshot.ResourceNode = c.resourceNode.Clone()
-	return snapshot
 }
 
 func newCohortSnapshot(name string) *CohortSnapshot {
