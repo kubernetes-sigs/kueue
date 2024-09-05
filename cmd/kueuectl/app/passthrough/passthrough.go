@@ -39,39 +39,39 @@ var (
 		{name: "resourceflavor", aliases: []string{"rf"}}}
 )
 
-func NewCommands() ([]*cobra.Command, error) {
-	kubectlPath, err := exec.LookPath("kubectl")
-	if err != nil {
-		return nil, fmt.Errorf("pass-through commands are not available: %w, PATH=%q", err, os.Getenv("PATH"))
-	}
-
+func NewCommands() []*cobra.Command {
 	commands := make([]*cobra.Command, len(passThroughCmds))
 	for i, pCmd := range passThroughCmds {
-		commands[i] = newCmd(kubectlPath, pCmd, passThroughTypes)
+		commands[i] = newCmd(pCmd, passThroughTypes)
 	}
-	return commands, nil
+	return commands
 }
 
-func newCmd(kubectlPath string, command string, ptTypes []passThroughType) *cobra.Command {
+func newCmd(command string, ptTypes []passThroughType) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   command,
 		Short: fmt.Sprintf("Pass-through %q to kubectl", command),
 	}
 
 	for _, ptType := range ptTypes {
-		cmd.AddCommand(newSubcommand(kubectlPath, command, ptType))
+		cmd.AddCommand(newSubcommand(command, ptType))
 	}
 
 	return cmd
 }
 
-func newSubcommand(kubectlPath string, command string, ptType passThroughType) *cobra.Command {
+func newSubcommand(command string, ptType passThroughType) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                ptType.name,
 		Aliases:            ptType.aliases,
 		Short:              fmt.Sprintf("Pass-through \"%s  %s\" to kubectl", command, ptType),
 		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			kubectlPath, err := exec.LookPath("kubectl")
+			if err != nil {
+				return fmt.Errorf("pass-through command are not available: %w, PATH=%q", err, os.Getenv("PATH"))
+			}
+
 			cmd.SilenceUsage = true
 
 			// prepare the args
