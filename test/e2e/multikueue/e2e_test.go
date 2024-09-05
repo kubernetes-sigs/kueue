@@ -455,8 +455,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Image(kfmpi.MPIReplicaTypeLauncher, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
-				Image(kfmpi.MPIReplicaTypeWorker, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(kfmpi.MPIReplicaTypeLauncher, util.E2eTestSleepImage, []string{"1ms"}).
+				Image(kfmpi.MPIReplicaTypeWorker, util.E2eTestSleepImage, []string{"1ms"}).
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {

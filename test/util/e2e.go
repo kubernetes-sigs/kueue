@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	// Dummy sleep image to use for testing.
+	// E2eTestSleepImage is the image used for testing.
 	E2eTestSleepImage = "gcr.io/k8s-staging-perf-tests/sleep@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea"
 )
 
