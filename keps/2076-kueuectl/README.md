@@ -25,6 +25,7 @@
   - [Stop Workload](#stop-workload)
   - [Resume Workload](#resume-workload)
   - [Pass-through](#pass-through)
+  - [Delete Workload](#delete-workload)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -339,7 +340,42 @@ so that the users won't have to remember to switch the command to kubectl.
 * `describe workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
 * `edit workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
 * `patch workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
-* `delete workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `delete clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+
+### Delete Workload
+
+Motivation:
+The pass-through delete workload command doesn't actually delete the Workload but 
+instead requeues it. This can confuse users, as the Workload remains listed even 
+after they attempt to delete it, due to its recreation.
+
+This command will delete the Workload and its corresponding Job(s). If the Workload 
+owns any Jobs, the command will prompt for deletion approval, displaying the Jobs 
+that will be deleted along with the Workload.
+
+Format:
+```
+kueuectl delete workload name
+```
+
+Flags:
+```
+-y, --yes             Confirm the deletion of the Workload and its corresponding Job.
+    --all             Delete all Workloads, in the specified namespace.
+    --all-namespaces  Using with --all flag. Delete all Workloads, in all namespaces.
+```
+
+Approval Output:
+```
+This operation will also delete:
+  - jobs.batch/name associated with the name workload
+Do you want to proceed (y/n)?
+```
+
+Deletion Process Output:
+```
+workload.kueue.x-k8s.io/name deleted
+```
 
 ### Test Plan
 
