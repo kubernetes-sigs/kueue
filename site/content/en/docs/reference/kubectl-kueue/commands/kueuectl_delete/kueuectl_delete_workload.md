@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;delete  {workload [wl]}&#34; to kubectl
+Pass-through &#34;{delete Delete a resource []}  {workload  [wl]}&#34; to kubectl
 
 ```
 kueuectl delete workload [flags]
@@ -219,5 +219,5 @@ kueuectl delete workload [flags]
 
 ## See Also
 
-* [kueuectl delete](../)	 - Pass-through &#34;delete&#34; to kubectl
+* [kueuectl delete](../)	 - Delete a resource
 

@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;patch&#34; to kubectl
+Update fields of a resource
 
 
 ## Options
@@ -216,8 +216,8 @@ Pass-through &#34;patch&#34; to kubectl
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
-* [kueuectl patch clusterqueue](kueuectl_patch_clusterqueue/)	 - Pass-through &#34;patch  {clusterqueue [cq]}&#34; to kubectl
-* [kueuectl patch localqueue](kueuectl_patch_localqueue/)	 - Pass-through &#34;patch  {localqueue [lq]}&#34; to kubectl
-* [kueuectl patch resourceflavor](kueuectl_patch_resourceflavor/)	 - Pass-through &#34;patch  {resourceflavor [rf]}&#34; to kubectl
-* [kueuectl patch workload](kueuectl_patch_workload/)	 - Pass-through &#34;patch  {workload [wl]}&#34; to kubectl
+* [kueuectl patch clusterqueue](kueuectl_patch_clusterqueue/)	 - Pass-through &#34;{patch Update fields of a resource []}  {clusterqueue  [cq]}&#34; to kubectl
+* [kueuectl patch localqueue](kueuectl_patch_localqueue/)	 - Pass-through &#34;{patch Update fields of a resource []}  {localqueue  [lq]}&#34; to kubectl
+* [kueuectl patch resourceflavor](kueuectl_patch_resourceflavor/)	 - Pass-through &#34;{patch Update fields of a resource []}  {resourceflavor  [rf]}&#34; to kubectl
+* [kueuectl patch workload](kueuectl_patch_workload/)	 - Pass-through &#34;{patch Update fields of a resource []}  {workload  [wl]}&#34; to kubectl
 
