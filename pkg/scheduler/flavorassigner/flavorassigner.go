@@ -613,7 +613,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	lackQuantity := resources.ResourceQuantity(fr.Resource, lack)
 	msg := fmt.Sprintf("insufficient unused quota in cohort for %s in flavor %s, %s more needed", fr.Resource, fr.Flavor, &lackQuantity)
-	if a.cq.Cohort == nil {
+	if !a.cq.HasParent() {
 		if mode == noFit {
 			msg = fmt.Sprintf("insufficient quota for %s in flavor %s in ClusterQueue", fr.Resource, fr.Flavor)
 		} else {

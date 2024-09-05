@@ -273,17 +273,17 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			}
 			preemptedWorkloads.Insert(pendingPreemptions...)
 			cq.AddUsage(usage)
-		} else if cq.Cohort != nil {
-			sum := cycleCohortsUsage.totalUsageForCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage)
+		} else if cq.HasParent() {
+			sum := cycleCohortsUsage.totalUsageForCommonFlavorResources(cq.Parent().Name, e.assignment.Usage)
 			// Check whether there was an assignment in this cycle that could render the next assignments invalid:
 			// - If the workload no longer fits in the cohort.
 			// - If there was another assignment in the cohort, then the preemption calculation is no longer valid.
-			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) {
+			if cycleCohortsUsage.hasCommonFlavorResources(cq.Parent().Name, e.assignment.Usage) {
 				if mode == flavorassigner.Fit && !cq.FitInCohort(sum) {
 					setSkipped(e, "Workload no longer fits after processing another workload")
 					continue
 				}
-				if mode == flavorassigner.Preempt && cycleCohortsSkipPreemption.Has(cq.Cohort.Name) {
+				if mode == flavorassigner.Preempt && cycleCohortsSkipPreemption.Has(cq.Parent().Name) {
 					setSkipped(e, "Workload skipped because its preemption calculations were invalidated by another workload")
 					skippedPreemptions[cq.Name]++
 					continue
@@ -291,7 +291,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			}
 			// Even if the workload will not be admitted after this point, due to preemption pending or other failures,
 			// we should still account for its usage.
-			cycleCohortsUsage.add(cq.Cohort.Name, resourcesToReserve(e, cq))
+			cycleCohortsUsage.add(cq.Parent().Name, resourcesToReserve(e, cq))
 		}
 		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
 			if len(e.preemptionTargets) != 0 {
@@ -305,8 +305,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 					e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
 					e.requeueReason = queue.RequeueReasonPendingPreemption
 				}
-				if cq.Cohort != nil {
-					cycleCohortsSkipPreemption.Insert(cq.Cohort.Name)
+				if cq.HasParent() {
+					cycleCohortsSkipPreemption.Insert(cq.Parent().Name)
 				}
 			} else {
 				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
@@ -329,8 +329,8 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		if err := s.admit(ctx, e, cq); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
-		if cq.Cohort != nil {
-			cycleCohortsSkipPreemption.Insert(cq.Cohort.Name)
+		if cq.HasParent() {
+			cycleCohortsSkipPreemption.Insert(cq.Parent().Name)
 		}
 	}
 

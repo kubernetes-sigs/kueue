@@ -1954,11 +1954,11 @@ func TestAssignFlavors(t *testing.T) {
 			}
 
 			if tc.cohortResources != nil {
-				if clusterQueue.Cohort == nil {
+				if !clusterQueue.HasParent() {
 					t.Fatalf("Test case has cohort resources, but cluster queue doesn't have cohort")
 				}
-				clusterQueue.Cohort.ResourceNode.Usage = tc.cohortResources.usage
-				clusterQueue.Cohort.ResourceNode.SubtreeQuota = tc.cohortResources.requestableResources
+				clusterQueue.Parent().ResourceNode.Usage = tc.cohortResources.usage
+				clusterQueue.Parent().ResourceNode.SubtreeQuota = tc.cohortResources.requestableResources
 			}
 			clusterQueue.ResourceNode.Usage = tc.clusterQueueUsage
 
@@ -2269,7 +2269,6 @@ func TestLastAssignmentOutdated(t *testing.T) {
 					},
 				},
 				cq: &cache.ClusterQueueSnapshot{
-					Cohort:                        nil,
 					AllocatableResourceGeneration: 1,
 				},
 			},

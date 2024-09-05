@@ -16,27 +16,25 @@ limitations under the License.
 
 package cache
 
-import (
-	"k8s.io/apimachinery/pkg/util/sets"
-)
+import "sigs.k8s.io/kueue/pkg/hierarchy"
 
 type CohortSnapshot struct {
-	Name    string
-	Members sets.Set[*ClusterQueueSnapshot]
+	Name string
 
 	ResourceNode ResourceNode
+	hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]
+}
+
+func (c *CohortSnapshot) GetName() string {
+	return c.Name
 }
 
 // The methods below implement hierarchicalResourceNode interface.
-
-func (c *CohortSnapshot) HasParent() bool {
-	return false
-}
 
 func (c *CohortSnapshot) getResourceNode() ResourceNode {
 	return c.ResourceNode
 }
 
 func (c *CohortSnapshot) parentHRN() hierarchicalResourceNode {
-	return nil
+	return c.Parent()
 }
