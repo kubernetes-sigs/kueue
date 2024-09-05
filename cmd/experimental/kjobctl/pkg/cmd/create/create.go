@@ -588,21 +588,21 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		return err
 	}
 
-	for _, obj := range objs {
+	for i := range objs {
 		if o.DryRunStrategy != util.DryRunClient {
-			obj, err = o.createObject(ctx, clientGetter, obj)
+			objs[i], err = o.createObject(ctx, clientGetter, objs[i])
 			if err != nil {
 				return err
 			}
 		}
 
-		err = o.PrintObj(obj, o.Out)
+		err = o.PrintObj(objs[i], o.Out)
 		if err != nil {
 			return err
 		}
 	}
 
-	if o.ModeName == v1alpha1.InteractiveMode {
+	if o.DryRunStrategy == util.DryRunNone && o.ModeName == v1alpha1.InteractiveMode {
 		pod := objs[0].(*corev1.Pod)
 		return o.RunInteractivePod(ctx, clientGetter, pod.Name)
 	}
