@@ -19,7 +19,10 @@ package jobframework
 import (
 	"context"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -68,11 +71,20 @@ func TestSetupControllers(t *testing.T) {
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
 		},
+		"ray.io/raycluster": {
+			NewReconciler:         testNewReconciler,
+			SetupWebhook:          testSetupWebhook,
+			JobType:               &rayv1.RayCluster{},
+			SetupIndexes:          testSetupIndexes,
+			AddToScheme:           testAddToScheme,
+			CanSupportIntegration: testCanSupportIntegration,
+		},
 	}
 
 	cases := map[string]struct {
 		opts                    []Option
 		mapperGVKs              []schema.GroupVersionKind
+		delayedGVKs             []*schema.GroupVersionKind
 		wantError               error
 		wantEnabledIntegrations []string
 	}{
@@ -99,6 +111,20 @@ func TestSetupControllers(t *testing.T) {
 			},
 			wantEnabledIntegrations: []string{"batch/job"},
 		},
+		"mapper doesn't have ray.io/raycluster when Controllers have been setup, but eventually does": {
+			opts: []Option{
+				WithEnabledFrameworks([]string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"}),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+				kubeflow.SchemeGroupVersionKind,
+				// Not including RayCluster
+			},
+			delayedGVKs: []*schema.GroupVersionKind{
+				{Group: "ray.io", Version: "v1", Kind: "RayCluster"},
+			},
+			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob", "ray.io/raycluster"},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -110,7 +136,7 @@ func TestSetupControllers(t *testing.T) {
 				}
 			}
 
-			_, logger := utiltesting.ContextWithLog(t)
+			ctx, logger := utiltesting.ContextWithLog(t)
 			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kubeflow.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme).Build()
 
 			mgrOpts := ctrlmgr.Options{
@@ -124,10 +150,14 @@ func TestSetupControllers(t *testing.T) {
 						gvs = append(gvs, gvk.GroupVersion())
 					}
 					mapper := apimeta.NewDefaultRESTMapper(gvs)
-					for _, gvk := range tc.mapperGVKs {
-						mapper.Add(gvk, apimeta.RESTScopeNamespace)
+					testMapper := &TestRESTMapper{
+						DefaultRESTMapper: mapper,
+						lock:              sync.RWMutex{},
 					}
-					return mapper, nil
+					for _, gvk := range tc.mapperGVKs {
+						testMapper.Add(gvk, apimeta.RESTScopeNamespace)
+					}
+					return testMapper, nil
 				},
 			}
 			mgr, err := ctrlmgr.New(&rest.Config{}, mgrOpts)
@@ -135,15 +165,55 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			gotError := manager.setupControllers(mgr, logger, tc.opts...)
+			gotError := manager.setupControllers(ctx, mgr, logger, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantEnabledIntegrations, manager.enabledIntegrations.SortedList()); len(diff) != 0 {
+			if len(tc.delayedGVKs) > 0 {
+				simulateDelayedIntegration(mgr, tc.delayedGVKs)
+				for _, gvk := range tc.delayedGVKs {
+					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
+				}
+			}
+
+			diff := cmp.Diff(tc.wantEnabledIntegrations, manager.getEnabledIntegrations().SortedList())
+			if len(diff) != 0 {
 				t.Errorf("Unexpected enabled integrations (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+type TestRESTMapper struct {
+	*apimeta.DefaultRESTMapper
+	lock sync.RWMutex
+}
+
+func (m *TestRESTMapper) RESTMapping(gk schema.GroupKind, versions ...string) (*apimeta.RESTMapping, error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.DefaultRESTMapper.RESTMapping(gk, versions...)
+}
+
+// Simulates the delayed availability of GVKs
+func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.GroupVersionKind) {
+	mapper := mgr.GetRESTMapper().(*TestRESTMapper)
+	mapper.lock.Lock()
+	defer mapper.lock.Unlock()
+
+	for _, gvk := range delayedGVKs {
+		mapper.Add(*gvk, apimeta.RESTScopeNamespace)
+	}
+}
+
+func testDelayedIntegration(manager *integrationManager, crdName string) {
+	for {
+		_, ok := manager.getEnabledIntegrations()[crdName]
+		if ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
