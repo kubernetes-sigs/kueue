@@ -302,7 +302,7 @@ func (o *DescribeOptions) getConfigMaps(ctx context.Context) ([]*resource.Info, 
 		infos = append(infos, info)
 	} else {
 		cmList, err := o.Clientset.CoreV1().ConfigMaps(o.Namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: constants.ProfileLabel,
+			LabelSelector: fmt.Sprintf("%s,%s=%s", constants.ProfileLabel, constants.ModeLabel, v1alpha1.SlurmMode),
 		})
 		if err != nil {
 			return nil, err
