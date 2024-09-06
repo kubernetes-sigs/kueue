@@ -44,7 +44,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -57,7 +57,7 @@ func TestWorkloadCmd(t *testing.T) {
 	testCases := map[string]struct {
 		ns               string
 		apiResourceLists []*metav1.APIResourceList
-		pendingWorkloads []v1alpha1.PendingWorkload
+		pendingWorkloads []visibility.PendingWorkload
 		objs             []runtime.Object
 		args             []string
 		mapperKinds      []schema.GroupVersionKind
@@ -823,7 +823,7 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 `,
 		},
 		"should print workload list with position in queue": {
-			pendingWorkloads: []v1alpha1.PendingWorkload{
+			pendingWorkloads: []visibility.PendingWorkload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "wl1",
@@ -921,7 +921,7 @@ wl2               j2         lq2          cq2            PENDING   22           
 			// Default `Reaction` handle all verbs and resources, so need to add on
 			// head of chain.
 			clientset.PrependReactor("get", "clusterqueues", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
-				obj := &v1alpha1.PendingWorkloadsSummary{Items: tc.pendingWorkloads}
+				obj := &visibility.PendingWorkloadsSummary{Items: tc.pendingWorkloads}
 				return true, obj, err
 			})
 			clientset.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists

@@ -22,10 +22,6 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation) in version v0.6.0 or later.
 
-### Enable the VisibilityOnDemand feature gate
-
-VisibilityOnDemand is an `Alpha` feature disabled by default. To use the visibility API  change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`.
-
 ### Configure API Priority and Fairness:
 
 To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) configuration for the visibility API apply one of the manifests, depending on your Kubernetes version:
@@ -37,7 +33,13 @@ To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/c
 
 ## Monitor pending workloads on demand
 
-{{< feature-state state="alpha" for_version="v0.6" >}}
+{{< feature-state state="beta" for_version="v0.9" >}}
+{{% alert title="Note" color="primary" %}}
+
+`VisibilityOnDemand` is a Beta feature enabled by default.
+
+You can disable it by setting the `VisibilityOnDemand` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+{{% /alert %}}
 
 To install a simple setup of ClusterQueue
 
@@ -66,7 +68,7 @@ for i in {1..6}; do kubectl create -f https://kueue.sigs.k8s.io/examples/jobs/sa
 To view pending workloads in ClusterQueue `cluster-queue` run the following command:
 
 ```shell
-kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1alpha1/clusterqueues/cluster-queue/pendingworkloads"
+kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/cluster-queue/pendingworkloads"
 ```
 
 You should get results similar to:
@@ -74,7 +76,7 @@ You should get results similar to:
 ```json
 {
   "kind": "PendingWorkloadsSummary",
-  "apiVersion": "visibility.kueue.x-k8s.io/v1alpha1",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
   "metadata": {
     "creationTimestamp": null
   },
@@ -147,7 +149,7 @@ You can pass optional query parameters:
 To view only 1 pending workloads use, starting from position 1 in ClusterQueue run:
 
 ```shell
-kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1alpha1/clusterqueues/cluster-queue/pendingworkloads?limit=1&offset=1"
+kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/cluster-queue/pendingworkloads?limit=1&offset=1"
 ```
 
 You should get results similar to 
@@ -155,7 +157,7 @@ You should get results similar to
 ``` json
 {
   "kind": "PendingWorkloadsSummary",
-  "apiVersion": "visibility.kueue.x-k8s.io/v1alpha1",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
   "metadata": {
     "creationTimestamp": null
   },
@@ -188,7 +190,7 @@ You should get results similar to
 Similarly to ClusterQueue, to view pending workloads in LocalQueue `user-queue` run the following command:
 
 ```shell
-kubectl get --raw /apis/visibility.kueue.x-k8s.io/v1alpha1/namespaces/default/localqueues/user-queue/pendingworkloads
+kubectl get --raw /apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/default/localqueues/user-queue/pendingworkloads
 ```
 
 You should get results similar to:
@@ -196,7 +198,7 @@ You should get results similar to:
 ``` json
 {
   "kind": "PendingWorkloadsSummary",
-  "apiVersion": "visibility.kueue.x-k8s.io/v1alpha1",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
   "metadata": {
     "creationTimestamp": null
   },
@@ -269,7 +271,7 @@ You can pass optional query parameters:
 To view only 1 pending workloads use, starting from position 1 in LocalQueue run:
 
 ```shell
-kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1alpha1/namespaces/default/localqueues/user-queue/pendingworkloads?limit=1&offset=1"
+kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/default/localqueues/user-queue/pendingworkloads?limit=1&offset=1"
 
 ```
 You should get results similar to 
@@ -277,7 +279,7 @@ You should get results similar to
 ``` json
 {
   "kind": "PendingWorkloadsSummary",
-  "apiVersion": "visibility.kueue.x-k8s.io/v1alpha1",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
   "metadata": {
     "creationTimestamp": null
   },

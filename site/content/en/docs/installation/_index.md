@@ -243,7 +243,8 @@ The currently supported features are:
 | `ProvisioningACC`                 | `false` | Alpha | 0.5   | 0.6   |
 | `ProvisioningACC`                 | `true`  | Beta  | 0.7   |       |
 | `QueueVisibility`                 | `false` | Alpha | 0.5   |       |
-| `VisibilityOnDemand`              | `false` | Alpha | 0.6   |       |
+| `VisibilityOnDemand`              | `false` | Alpha | 0.6   |  0.8  |
+| `VisibilityOnDemand`              | `true`  | Beta  | 0.9   |       |
 | `PrioritySortingWithinCohort`     | `true`  | Beta  | 0.6   |       |
 | `LendingLimit`                    | `false` | Alpha | 0.6   | 0.8   |
 | `LendingLimit`                    | `true`  | Beta  | 0.9   |       |

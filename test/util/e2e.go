@@ -20,9 +20,9 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
-	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
+	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
 )
 
 const (
@@ -61,7 +61,7 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	return client, cfg
 }
 
-func CreateVisibilityClient(user string) visibilityv1alpha1.VisibilityV1alpha1Interface {
+func CreateVisibilityClient(user string) visibilityv1beta1.VisibilityV1beta1Interface {
 	cfg, err := config.GetConfigWithContext("")
 	if err != nil {
 		fmt.Printf("unable to get kubeconfig: %s", err)
@@ -78,7 +78,7 @@ func CreateVisibilityClient(user string) visibilityv1alpha1.VisibilityV1alpha1In
 		fmt.Printf("unable to create kueue clientset: %s", err)
 		os.Exit(1)
 	}
-	visibilityClient := kueueClient.VisibilityV1alpha1()
+	visibilityClient := kueueClient.VisibilityV1beta1()
 	return visibilityClient
 }
 

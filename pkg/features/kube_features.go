@@ -60,6 +60,7 @@ const (
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/pull/1300
 	// alpha: v0.6
+	// beta: v0.9
 	//
 	// Enables Kueue visibility on demand
 	VisibilityOnDemand featuregate.Feature = "VisibilityOnDemand"
@@ -116,7 +117,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	QueueVisibility:                 {Default: false, PreRelease: featuregate.Alpha},
 	FlavorFungibility:               {Default: true, PreRelease: featuregate.Beta},
 	ProvisioningACC:                 {Default: true, PreRelease: featuregate.Beta},
-	VisibilityOnDemand:              {Default: false, PreRelease: featuregate.Alpha},
+	VisibilityOnDemand:              {Default: true, PreRelease: featuregate.Beta},
 	PrioritySortingWithinCohort:     {Default: true, PreRelease: featuregate.Beta},
 	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
 	LendingLimit:                    {Default: true, PreRelease: featuregate.Beta},
