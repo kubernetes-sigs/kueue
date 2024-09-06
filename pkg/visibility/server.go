@@ -21,8 +21,8 @@ import (
 	"os"
 	"strings"
 
+	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
-	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/v1alpha1/openapi"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/visibility/api"
 
