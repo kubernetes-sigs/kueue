@@ -359,7 +359,7 @@ you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].lendingLimit`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
 
 {{< feature-state state="beta" for_version="v0.9" >}}
-{{% alert title="Warning" color="warning" %}}
+{{% alert title="Note" color="primary" %}}
 
 `LendingLimit` is a Beta feature enabled by default.
 
