@@ -7,7 +7,7 @@ Installing the `kubectl-kjob` plugin, `kjobctl`.
 ### 1. Install Kubernetes CRDs
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.8.0/kubectl-kjob-manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.8.1/kubectl-kjob-manifests.yaml
 ```
 
 ### 2. Download the latest release:
