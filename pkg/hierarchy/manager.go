@@ -35,66 +35,66 @@ func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ, C]](newCohort func(stri
 	}
 }
 
-func (c *Manager[CQ, C]) AddClusterQueue(cq CQ) {
-	c.ClusterQueues[cq.GetName()] = cq
+func (m *Manager[CQ, C]) AddClusterQueue(cq CQ) {
+	m.ClusterQueues[cq.GetName()] = cq
 }
 
-func (c *Manager[CQ, C]) UpdateClusterQueueEdge(name, parentName string) {
-	cq := c.ClusterQueues[name]
-	c.unwireClusterQueue(cq)
+func (m *Manager[CQ, C]) UpdateClusterQueueEdge(name, parentName string) {
+	cq := m.ClusterQueues[name]
+	m.detachClusterQueueFromParent(cq)
 	if parentName != "" {
-		parent := c.getOrCreateCohort(parentName)
+		parent := m.getOrCreateCohort(parentName)
 		parent.insertClusterQueue(cq)
 		cq.setParent(parent)
 	}
 }
 
-func (c *Manager[CQ, C]) DeleteClusterQueue(name string) {
-	if cq, ok := c.ClusterQueues[name]; ok {
-		c.unwireClusterQueue(cq)
-		delete(c.ClusterQueues, name)
+func (m *Manager[CQ, C]) DeleteClusterQueue(name string) {
+	if cq, ok := m.ClusterQueues[name]; ok {
+		m.detachClusterQueueFromParent(cq)
+		delete(m.ClusterQueues, name)
 	}
 }
 
-func (c *Manager[CQ, C]) AddCohort(cohortName string) {
-	oldCohort, ok := c.Cohorts[cohortName]
+func (m *Manager[CQ, C]) AddCohort(cohortName string) {
+	oldCohort, ok := m.Cohorts[cohortName]
 	if ok && oldCohort.isExplicit() {
 		return
 	}
 	if !ok {
-		c.Cohorts[cohortName] = c.cohortFactory(cohortName)
+		m.Cohorts[cohortName] = m.cohortFactory(cohortName)
 	}
-	c.Cohorts[cohortName].markExplicit()
+	m.Cohorts[cohortName].markExplicit()
 }
 
-func (c *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
-	cohort := c.Cohorts[name]
-	c.detachCohortFromParent(cohort)
+func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
+	cohort := m.Cohorts[name]
+	m.detachCohortFromParent(cohort)
 	if parentName != "" {
-		parent := c.getOrCreateCohort(parentName)
+		parent := m.getOrCreateCohort(parentName)
 		parent.insertCohortChild(cohort)
 		cohort.setParent(parent)
 	}
 }
 
-func (c *Manager[CQ, C]) DeleteCohort(name string) {
-	cohort, ok := c.Cohorts[name]
+func (m *Manager[CQ, C]) DeleteCohort(name string) {
+	cohort, ok := m.Cohorts[name]
 	if !ok {
 		return
 	}
-	delete(c.Cohorts, name)
-	c.detachCohortFromParent(cohort)
+	delete(m.Cohorts, name)
+	m.detachCohortFromParent(cohort)
 	if !cohort.hasChildren() {
 		return
 	}
-	implicitCohort := c.cohortFactory(name)
-	c.Cohorts[implicitCohort.GetName()] = implicitCohort
-	c.transferChildren(cohort, implicitCohort)
+	implicitCohort := m.cohortFactory(name)
+	m.Cohorts[implicitCohort.GetName()] = implicitCohort
+	m.transferChildren(cohort, implicitCohort)
 }
 
 // transferChildren is used when we are changing a Cohort
 // from an explicit to an implicit Cohort.
-func (c *Manager[CQ, C]) transferChildren(old, new C) {
+func (m *Manager[CQ, C]) transferChildren(old, new C) {
 	for _, cq := range old.ChildCQs() {
 		cq.setParent(new)
 		new.insertClusterQueue(cq)
@@ -105,36 +105,36 @@ func (c *Manager[CQ, C]) transferChildren(old, new C) {
 	}
 }
 
-func (c *Manager[CQ, C]) unwireClusterQueue(cq CQ) {
+func (m *Manager[CQ, C]) detachClusterQueueFromParent(cq CQ) {
 	if cq.HasParent() {
 		parent := cq.Parent()
 		parent.deleteClusterQueue(cq)
-		c.cleanupCohort(parent)
+		m.cleanupCohort(parent)
 		var zero C
 		cq.setParent(zero)
 	}
 }
 
-func (c *Manager[CQ, C]) detachCohortFromParent(cohort C) {
+func (m *Manager[CQ, C]) detachCohortFromParent(cohort C) {
 	if cohort.HasParent() {
 		parent := cohort.Parent()
 		parent.deleteCohortChild(cohort)
-		c.cleanupCohort(parent)
+		m.cleanupCohort(parent)
 		var zero C
 		cohort.setParent(zero)
 	}
 }
 
-func (c *Manager[CQ, C]) getOrCreateCohort(cohortName string) C {
-	if _, ok := c.Cohorts[cohortName]; !ok {
-		c.Cohorts[cohortName] = c.cohortFactory(cohortName)
+func (m *Manager[CQ, C]) getOrCreateCohort(cohortName string) C {
+	if _, ok := m.Cohorts[cohortName]; !ok {
+		m.Cohorts[cohortName] = m.cohortFactory(cohortName)
 	}
-	return c.Cohorts[cohortName]
+	return m.Cohorts[cohortName]
 }
 
-func (c *Manager[CQ, C]) cleanupCohort(cohort C) {
+func (m *Manager[CQ, C]) cleanupCohort(cohort C) {
 	if !cohort.isExplicit() && !cohort.hasChildren() {
-		delete(c.Cohorts, cohort.GetName())
+		delete(m.Cohorts, cohort.GetName())
 	}
 }
 
