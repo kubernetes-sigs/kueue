@@ -401,8 +401,8 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 func (c *Cache) AddCohort(apiCohort *kueuealpha.Cohort) {
 	c.Lock()
 	defer c.Unlock()
-	cohort := newCohort(apiCohort.Name)
-	c.hm.AddCohort(cohort)
+	c.hm.AddCohort(apiCohort.Name)
+	cohort := c.hm.Cohorts[apiCohort.Name]
 	cohort.updateCohort(apiCohort)
 }
 

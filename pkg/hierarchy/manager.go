@@ -18,7 +18,7 @@ package hierarchy
 
 // Manager stores Cohorts and ClusterQueues, and maintains the edges
 // between them.
-type Manager[CQ clusterQueueNode[C], C cohortNode[CQ]] struct {
+type Manager[CQ clusterQueueNode[C], C cohortNode[CQ, C]] struct {
 	Cohorts       map[string]C
 	ClusterQueues map[string]CQ
 	cohortFactory func(string) C
@@ -27,7 +27,7 @@ type Manager[CQ clusterQueueNode[C], C cohortNode[CQ]] struct {
 // NewManager creates a new Manager. A newCohort function must
 // be provided to instantiate Cohorts in the case that a
 // ClusterQueue references a Cohort not backed by an API object.
-func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ]](newCohort func(string) C) Manager[CQ, C] {
+func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ, C]](newCohort func(string) C) Manager[CQ, C] {
 	return Manager[CQ, C]{
 		make(map[string]C),
 		make(map[string]CQ),
@@ -56,31 +56,52 @@ func (c *Manager[CQ, C]) DeleteClusterQueue(name string) {
 	}
 }
 
-func (c *Manager[CQ, C]) AddCohort(cohort C) {
-	cohort.markExplicit()
-	if oldCohort, ok := c.Cohorts[cohort.GetName()]; ok {
-		c.rewireChildren(oldCohort, cohort)
+func (c *Manager[CQ, C]) AddCohort(cohortName string) {
+	oldCohort, ok := c.Cohorts[cohortName]
+	if ok && oldCohort.isExplicit() {
+		return
 	}
-	c.Cohorts[cohort.GetName()] = cohort
+	if !ok {
+		c.Cohorts[cohortName] = c.cohortFactory(cohortName)
+	}
+	c.Cohorts[cohortName].markExplicit()
+}
+
+func (c *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
+	cohort := c.Cohorts[name]
+	c.detachCohortFromParent(cohort)
+	if parentName != "" {
+		parent := c.getOrCreateCohort(parentName)
+		parent.insertCohortChild(cohort)
+		cohort.setParent(parent)
+	}
 }
 
 func (c *Manager[CQ, C]) DeleteCohort(name string) {
 	cohort, ok := c.Cohorts[name]
+	if !ok {
+		return
+	}
 	delete(c.Cohorts, name)
-	if !ok || cohort.childCount() == 0 {
+	c.detachCohortFromParent(cohort)
+	if !cohort.hasChildren() {
 		return
 	}
 	implicitCohort := c.cohortFactory(name)
 	c.Cohorts[implicitCohort.GetName()] = implicitCohort
-	c.rewireChildren(cohort, implicitCohort)
+	c.transferChildren(cohort, implicitCohort)
 }
 
-// rewireChildren is used when we are changing a Cohort
-// from an implicit to an explicit Cohort, or vice-versa.
-func (c *Manager[CQ, C]) rewireChildren(old, new C) {
+// transferChildren is used when we are changing a Cohort
+// from an explicit to an implicit Cohort.
+func (c *Manager[CQ, C]) transferChildren(old, new C) {
 	for _, cq := range old.ChildCQs() {
 		cq.setParent(new)
 		new.insertClusterQueue(cq)
+	}
+	for _, childCohort := range old.ChildCohorts() {
+		childCohort.setParent(new)
+		new.insertCohortChild(childCohort)
 	}
 }
 
@@ -94,6 +115,16 @@ func (c *Manager[CQ, C]) unwireClusterQueue(cq CQ) {
 	}
 }
 
+func (c *Manager[CQ, C]) detachCohortFromParent(cohort C) {
+	if cohort.HasParent() {
+		parent := cohort.Parent()
+		parent.deleteCohortChild(cohort)
+		c.cleanupCohort(parent)
+		var zero C
+		cohort.setParent(zero)
+	}
+}
+
 func (c *Manager[CQ, C]) getOrCreateCohort(cohortName string) C {
 	if _, ok := c.Cohorts[cohortName]; !ok {
 		c.Cohorts[cohortName] = c.cohortFactory(cohortName)
@@ -102,7 +133,7 @@ func (c *Manager[CQ, C]) getOrCreateCohort(cohortName string) C {
 }
 
 func (c *Manager[CQ, C]) cleanupCohort(cohort C) {
-	if !cohort.isExplicit() && cohort.childCount() == 0 {
+	if !cohort.isExplicit() && !cohort.hasChildren() {
 		delete(c.Cohorts, cohort.GetName())
 	}
 }
@@ -119,10 +150,17 @@ type clusterQueueNode[C nodeBase] interface {
 	nodeBase
 }
 
-type cohortNode[CQ nodeBase] interface {
+type cohortNode[CQ, C nodeBase] interface {
+	Parent() C
+	HasParent() bool
+	setParent(C)
+	insertCohortChild(C)
+	deleteCohortChild(C)
+	ChildCohorts() []C
+
 	insertClusterQueue(CQ)
 	deleteClusterQueue(CQ)
-	childCount() int
+	hasChildren() bool
 	ChildCQs() []CQ
 	isExplicit() bool
 	markExplicit()
