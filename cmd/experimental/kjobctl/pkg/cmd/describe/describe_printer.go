@@ -41,7 +41,7 @@ type ResourceDescriber interface {
 	Describe(object *unstructured.Unstructured) (output string, err error)
 }
 
-// Describer returns a Describer for displaying the specified RESTMapping type or an error.
+// NewResourceDescriber returns a Describer for displaying the specified RESTMapping type or an error.
 func NewResourceDescriber(mapping *meta.RESTMapping) (ResourceDescriber, error) {
 	if describer, ok := DescriberFor(mapping.GroupVersionKind.GroupKind()); ok {
 		return describer, nil
