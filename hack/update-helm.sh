@@ -295,13 +295,6 @@ for output_file in "${DEST_VISIBILITY_DIR}"/*.yaml; do
   selector:
   {{- include "kueue.selectorLabels" . | nindent 4 }}
 EOT
-    fi
-    $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
-
-  {
-  echo '{{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}'
-  cat "$output_file"
-  echo "{{- end }}"
-  } > "${output_file}.tmp"
-  mv "${output_file}.tmp" "${output_file}"
+  fi
+  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
 done

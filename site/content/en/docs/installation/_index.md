@@ -10,7 +10,6 @@ description: >
 - [Before you begin](#before-you-begin)
 - [Install a released version](#install-a-released-version)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
-  - [Add visibility API to monitor pending workloads](#add-visibility-api-to-monitor-pending-workloads)
   - [Uninstall](#uninstall)
 - [Install a custom-configured released version](#install-a-custom-configured-released-version)
 - [Install the latest development version](#install-the-latest-development-version)
@@ -74,20 +73,6 @@ We can follow `https://prometheus-operator.dev/docs/prologue/quick-start/` to in
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/prometheus.yaml
 ```
-
-### Add visibility API to monitor pending workloads
-
-{{< feature-state state="alpha" for_version="v0.6" >}}
-
-
-To add the visibility API that enables monitoring pending workloads, change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`, and run the following command
-
-```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-api.yaml
-```
-
-See [the visibility API](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand) for more details.
-
 
 ### Uninstall
 
