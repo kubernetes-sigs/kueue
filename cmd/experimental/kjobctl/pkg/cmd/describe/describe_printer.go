@@ -316,14 +316,17 @@ func describeConfigMap(configMap *corev1.ConfigMap) (string, error) {
 		printLabelsMultiline(w, "Labels", configMap.Labels)
 
 		w.Write(IndentLevelZero, "\nData\n====\n")
-		for k, v := range configMap.Data {
+		sortedKeys := sortMapKeys(configMap.Data)
+		for _, k := range sortedKeys {
 			w.Write(IndentLevelZero, "%s:\n----\n", k)
-			w.Write(IndentLevelZero, "%s\n", v)
+			w.Write(IndentLevelZero, "%s\n", configMap.Data[k])
 			w.Write(IndentLevelZero, "\n")
 		}
+
 		w.Write(IndentLevelZero, "\nBinaryData\n====\n")
-		for k, v := range configMap.BinaryData {
-			w.Write(IndentLevelZero, "%s: %s bytes\n", k, strconv.Itoa(len(v)))
+		sortedKeys = sortMapKeys(configMap.BinaryData)
+		for _, k := range sortedKeys {
+			w.Write(IndentLevelZero, "%s: %s bytes\n", k, strconv.Itoa(len(configMap.BinaryData[k])))
 		}
 		w.Write(IndentLevelZero, "\n")
 

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -96,6 +97,17 @@ func gvkFor(mapper meta.RESTMapper, resource string) (schema.GroupVersionKind, e
 	}
 
 	return gvk, err
+}
+
+func sortMapKeys[T any](m map[string]T) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	return keys
 }
 
 // below functions copied from https://github.com/kubernetes/kubectl/blob/master/pkg/describe/describe.go

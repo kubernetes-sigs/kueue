@@ -36,22 +36,25 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/resource"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	restfake "k8s.io/client-go/rest/fake"
 	"k8s.io/utils/ptr"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
 
 func TestDescribeCmd(t *testing.T) {
 	testCases := map[string]struct {
-		args        []string
-		argsFormat  int
-		objs        []runtime.Object
-		mapperKinds []schema.GroupVersionKind
-		wantOut     string
-		wantOutErr  string
-		wantErr     error
+		args             []string
+		argsFormat       int
+		objs             []runtime.Object
+		withK8sClientSet bool
+		mapperKinds      []schema.GroupVersionKind
+		wantOut          string
+		wantOutErr       string
+		wantErr          error
 	}{
 		"shouldn't describe none kjobctl owned jobs": {
 			args:       []string{"job", "sample-job-8c7zt"},
@@ -98,6 +101,240 @@ Pod Template:
     Environment:  <none>
     Mounts:       <none>
   Volumes:        <none>
+`,
+		},
+		"describe slurm with 'mode task' format": {
+			args:       []string{"slurm", "sample-job-8c7zt"},
+			argsFormat: modeTaskArgsFormat,
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+				corev1.SchemeGroupVersion.WithKind("ConfigMap"),
+			},
+			withK8sClientSet: true,
+			objs: []runtime.Object{
+				getSampleJob("sample-job-8c7zt"),
+				wrappers.MakeConfigMap("sample-job-8c7zt", "default").
+					Profile("profile").
+					Mode(v1alpha1.SlurmMode).
+					Data(map[string]string{
+						"script": "#!/bin/bash\nsleep 300",
+						"entrypoint.sh": `#!/usr/bin/bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# External variables
+# JOB_COMPLETION_INDEX  - completion index of the job.
+# JOB_CONTAINER_INDEX   - container index in the container template.
+
+# ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
+declare -A array_indexes=(["0"]="0") 	# Requires bash v4+
+
+container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
+container_indexes=(${container_indexes//,/ })
+
+if [[ ! -v container_indexes[${JOB_CONTAINER_INDEX}] ]];
+then
+exit 0
+fi
+
+SBATCH_ARRAY_INX=
+SBATCH_GPUS_PER_TASK=
+SBATCH_MEM_PER_CPU=
+SBATCH_MEM_PER_GPU=
+SBATCH_OUTPUT=
+SBATCH_ERROR=
+SBATCH_INPUT=
+SBATCH_JOB_NAME=
+SBATCH_PARTITION=
+
+export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
+export SLURM_ARRAY_TASK_COUNT=1  		# Total number of tasks in a job array.
+export SLURM_ARRAY_TASK_MAX=0    		# Job array’s maximum ID (index) number.
+export SLURM_ARRAY_TASK_MIN=0    		# Job array’s minimum ID (index) number.
+export SLURM_TASKS_PER_NODE=1    		# Number of tasks to be initiated on each node.
+export SLURM_CPUS_PER_TASK=       		# Number of CPUs per task.
+export SLURM_CPUS_ON_NODE=        		# Number of CPUs on the allocated node (actually pod).
+export SLURM_JOB_CPUS_PER_NODE=   		# Count of processors available to the job on this node.
+export SLURM_CPUS_PER_GPU=        		# Number of CPUs requested per allocated GPU.
+export SLURM_MEM_PER_CPU=         	# Memory per CPU. Same as --mem-per-cpu .
+export SLURM_MEM_PER_GPU=         	# Memory per GPU.
+export SLURM_MEM_PER_NODE=        	# Memory per node. Same as --mem.
+export SLURM_GPUS=0                	# Number of GPUs requested (in total).
+export SLURM_NTASKS=1              	# Same as -n, –ntasks. The number of tasks.
+export SLURM_NTASKS_PER_NODE=1  		# Number of tasks requested per node.
+export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
+export SLURM_NNODES=1            		# Total number of nodes (actually pods) in the job’s resource allocation.
+export SLURM_SUBMIT_DIR=/slurm        		# The path of the job submission directory.
+export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
+
+export SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * SLURM_TASKS_PER_NODE + JOB_CONTAINER_INDEX + SLURM_ARRAY_JOB_ID ))   # The Job ID.
+export SLURM_JOBID=$SLURM_JOB_ID                                                                                    # Deprecated. Same as $SLURM_JOB_ID
+export SLURM_ARRAY_TASK_ID=${container_indexes[${JOB_CONTAINER_INDEX}]}												# Task ID.
+
+unmask_filename () {
+replaced="$1"
+
+if [[ "$replaced" == "\\"* ]]; then
+replaced="${replaced//\\/}"
+echo "${replaced}"
+return 0
+fi
+
+replaced=$(echo "$replaced" | sed -E "s/(%)(%A)/\1\n\2/g;:a s/(^|[^\n])%A/\1$SLURM_ARRAY_JOB_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%a)/\1\n\2/g;:a s/(^|[^\n])%a/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%j)/\1\n\2/g;:a s/(^|[^\n])%j/\1$SLURM_JOB_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%N)/\1\n\2/g;:a s/(^|[^\n])%N/\1$HOSTNAME/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%n)/\1\n\2/g;:a s/(^|[^\n])%n/\1$JOB_COMPLETION_INDEX/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%t)/\1\n\2/g;:a s/(^|[^\n])%t/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%u)/\1\n\2/g;:a s/(^|[^\n])%u/\1$USER_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%x)/\1\n\2/g;:a s/(^|[^\n])%x/\1$SBATCH_JOB_NAME/;ta;s/\n//g")
+
+replaced="${replaced//%%/%}"
+
+echo "$replaced"
+}
+
+input_file=$(unmask_filename "$SBATCH_INPUT")
+output_file=$(unmask_filename "$SBATCH_OUTPUT")
+error_path=$(unmask_filename "$SBATCH_ERROR")
+
+/slurm/script
+`,
+					}).
+					Obj(),
+			},
+			wantOut: `Name:           sample-job-8c7zt
+Namespace:      default
+Labels:         kjobctl.x-k8s.io/profile=sample-profile
+Parallelism:    3
+Completions:    2
+Start Time:     Mon, 01 Jan 2024 00:00:00 +0000
+Completed At:   Mon, 01 Jan 2024 00:00:33 +0000
+Duration:       33s
+Pods Statuses:  0 Active / 2 Succeeded / 0 Failed
+Pod Template:
+  Containers:
+   sample-container:
+    Port:       <none>
+    Host Port:  <none>
+    Command:
+      sleep
+      15s
+    Args:
+      30s
+    Requests:
+      cpu:        1
+      memory:     200Mi
+    Environment:  <none>
+    Mounts:       <none>
+  Volumes:        <none>
+
+
+Name:       sample-job-8c7zt
+Namespace:  default
+Labels:     kjobctl.x-k8s.io/mode=Slurm
+            kjobctl.x-k8s.io/profile=profile
+
+Data
+====
+entrypoint.sh:
+----
+#!/usr/bin/bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# External variables
+# JOB_COMPLETION_INDEX  - completion index of the job.
+# JOB_CONTAINER_INDEX   - container index in the container template.
+
+# ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
+declare -A array_indexes=(["0"]="0")   # Requires bash v4+
+
+container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
+container_indexes=(${container_indexes//,/ })
+
+if [[ ! -v container_indexes[${JOB_CONTAINER_INDEX}] ]];
+then
+exit 0
+fi
+
+SBATCH_ARRAY_INX=
+SBATCH_GPUS_PER_TASK=
+SBATCH_MEM_PER_CPU=
+SBATCH_MEM_PER_GPU=
+SBATCH_OUTPUT=
+SBATCH_ERROR=
+SBATCH_INPUT=
+SBATCH_JOB_NAME=
+SBATCH_PARTITION=
+
+export SLURM_ARRAY_JOB_ID=1                  # Job array’s master job ID number.
+export SLURM_ARRAY_TASK_COUNT=1              # Total number of tasks in a job array.
+export SLURM_ARRAY_TASK_MAX=0                # Job array’s maximum ID (index) number.
+export SLURM_ARRAY_TASK_MIN=0                # Job array’s minimum ID (index) number.
+export SLURM_TASKS_PER_NODE=1                # Number of tasks to be initiated on each node.
+export SLURM_CPUS_PER_TASK=                  # Number of CPUs per task.
+export SLURM_CPUS_ON_NODE=                   # Number of CPUs on the allocated node (actually pod).
+export SLURM_JOB_CPUS_PER_NODE=              # Count of processors available to the job on this node.
+export SLURM_CPUS_PER_GPU=                   # Number of CPUs requested per allocated GPU.
+export SLURM_MEM_PER_CPU=                  # Memory per CPU. Same as --mem-per-cpu .
+export SLURM_MEM_PER_GPU=                  # Memory per GPU.
+export SLURM_MEM_PER_NODE=                 # Memory per node. Same as --mem.
+export SLURM_GPUS=0                        # Number of GPUs requested (in total).
+export SLURM_NTASKS=1                      # Same as -n, –ntasks. The number of tasks.
+export SLURM_NTASKS_PER_NODE=1               # Number of tasks requested per node.
+export SLURM_NPROCS=$SLURM_NTASKS          # Same as -n, --ntasks. See $SLURM_NTASKS.
+export SLURM_NNODES=1                        # Total number of nodes (actually pods) in the job’s resource allocation.
+export SLURM_SUBMIT_DIR=/slurm               # The path of the job submission directory.
+export SLURM_SUBMIT_HOST=$HOSTNAME         # The hostname of the node used for job submission.
+
+export SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * SLURM_TASKS_PER_NODE + JOB_CONTAINER_INDEX + SLURM_ARRAY_JOB_ID ))   # The Job ID.
+export SLURM_JOBID=$SLURM_JOB_ID                                                                                    # Deprecated. Same as $SLURM_JOB_ID
+export SLURM_ARRAY_TASK_ID=${container_indexes[${JOB_CONTAINER_INDEX}]}                        # Task ID.
+
+unmask_filename () {
+replaced="$1"
+
+if [[ "$replaced" == "\\"* ]]; then
+replaced="${replaced//\\/}"
+echo "${replaced}"
+return 0
+fi
+
+replaced=$(echo "$replaced" | sed -E "s/(%)(%A)/\1\n\2/g;:a s/(^|[^\n])%A/\1$SLURM_ARRAY_JOB_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%a)/\1\n\2/g;:a s/(^|[^\n])%a/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%j)/\1\n\2/g;:a s/(^|[^\n])%j/\1$SLURM_JOB_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%N)/\1\n\2/g;:a s/(^|[^\n])%N/\1$HOSTNAME/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%n)/\1\n\2/g;:a s/(^|[^\n])%n/\1$JOB_COMPLETION_INDEX/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%t)/\1\n\2/g;:a s/(^|[^\n])%t/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%u)/\1\n\2/g;:a s/(^|[^\n])%u/\1$USER_ID/;ta;s/\n//g")
+replaced=$(echo "$replaced" | sed -E "s/(%)(%x)/\1\n\2/g;:a s/(^|[^\n])%x/\1$SBATCH_JOB_NAME/;ta;s/\n//g")
+
+replaced="${replaced//%%/%}"
+
+echo "$replaced"
+}
+
+input_file=$(unmask_filename "$SBATCH_INPUT")
+output_file=$(unmask_filename "$SBATCH_OUTPUT")
+error_path=$(unmask_filename "$SBATCH_ERROR")
+
+/slurm/script
+
+
+script:
+----
+#!/bin/bash
+sleep 300
+
+
+BinaryData
+====
+
 `,
 		},
 		"describe specific task with 'mode slash task' format": {
@@ -441,6 +678,9 @@ Worker Groups:
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
 			tcg := cmdtesting.NewTestClientGetter()
+			if tc.withK8sClientSet {
+				tcg.WithK8sClientset(k8sfake.NewSimpleClientset(tc.objs...))
+			}
 
 			if len(tc.mapperKinds) != 0 {
 				mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{})
