@@ -21,16 +21,16 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 )
 
 func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
-		job                        *kubeflow.MPIJob
+		job                        *kfmpi.MPIJob
 		manageJobsWithoutQueueName bool
-		want                       *kubeflow.MPIJob
+		want                       *kfmpi.MPIJob
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  testingutil.MakeMPIJob("job", "default").Queue("queue").Suspend(false).Obj(),

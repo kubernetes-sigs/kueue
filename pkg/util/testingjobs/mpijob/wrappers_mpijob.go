@@ -17,7 +17,7 @@ limitations under the License.
 package testing
 
 import (
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,35 +28,35 @@ import (
 )
 
 // MPIJobWrapper wraps a Job.
-type MPIJobWrapper struct{ kubeflow.MPIJob }
+type MPIJobWrapper struct{ kfmpi.MPIJob }
 
 // MakeMPIJob creates a wrapper for a suspended job with a single container and parallelism=1.
 func MakeMPIJob(name, ns string) *MPIJobWrapper {
-	return &MPIJobWrapper{kubeflow.MPIJob{
+	return &MPIJobWrapper{kfmpi.MPIJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   ns,
 			Annotations: make(map[string]string, 1),
 		},
-		Spec: kubeflow.MPIJobSpec{
-			RunPolicy: kubeflow.RunPolicy{
+		Spec: kfmpi.MPIJobSpec{
+			RunPolicy: kfmpi.RunPolicy{
 				Suspend: ptr.To(true),
 			},
-			MPIReplicaSpecs: make(map[kubeflow.MPIReplicaType]*kubeflow.ReplicaSpec),
+			MPIReplicaSpecs: make(map[kfmpi.MPIReplicaType]*kfmpi.ReplicaSpec),
 		},
 	},
 	}
 }
 
 type MPIJobReplicaSpecRequirement struct {
-	ReplicaType   kubeflow.MPIReplicaType
+	ReplicaType   kfmpi.MPIReplicaType
 	ReplicaCount  int32
 	Annotations   map[string]string
 	RestartPolicy corev1.RestartPolicy
 }
 
 func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequirement) *MPIJobWrapper {
-	j = j.MPIJobReplicaSpecsDefault()
+	j = j.GenericLauncherAndWorker()
 	for _, rs := range replicaSpecs {
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Replicas = ptr.To[int32](rs.ReplicaCount)
 		j.Spec.MPIReplicaSpecs[rs.ReplicaType].Template.Spec.RestartPolicy = rs.RestartPolicy
@@ -69,8 +69,8 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequ
 	return j
 }
 
-func (j *MPIJobWrapper) MPIJobReplicaSpecsDefault() *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher] = &kubeflow.ReplicaSpec{
+func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = &kfmpi.ReplicaSpec{
 		Replicas: ptr.To[int32](1),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
@@ -88,7 +88,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecsDefault() *MPIJobWrapper {
 		},
 	}
 
-	j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker] = &kubeflow.ReplicaSpec{
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker] = &kfmpi.ReplicaSpec{
 		Replicas: ptr.To[int32](1),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
@@ -126,7 +126,7 @@ func (j *MPIJobWrapper) Label(key, value string) *MPIJobWrapper {
 // PriorityClass updates job priorityclass.
 func (j *MPIJobWrapper) PriorityClass(pc string) *MPIJobWrapper {
 	if j.Spec.RunPolicy.SchedulingPolicy == nil {
-		j.Spec.RunPolicy.SchedulingPolicy = &kubeflow.SchedulingPolicy{}
+		j.Spec.RunPolicy.SchedulingPolicy = &kfmpi.SchedulingPolicy{}
 	}
 	j.Spec.RunPolicy.SchedulingPolicy.PriorityClass = pc
 	return j
@@ -142,7 +142,7 @@ func (j *MPIJobWrapper) WorkloadPriorityClass(wpc string) *MPIJobWrapper {
 }
 
 // Obj returns the inner Job.
-func (j *MPIJobWrapper) Obj() *kubeflow.MPIJob {
+func (j *MPIJobWrapper) Obj() *kfmpi.MPIJob {
 	return &j.MPIJob
 }
 
@@ -156,14 +156,14 @@ func (j *MPIJobWrapper) Queue(queue string) *MPIJobWrapper {
 }
 
 // Request adds a resource request to the default container.
-func (j *MPIJobWrapper) Request(replicaType kubeflow.MPIReplicaType, r corev1.ResourceName, v string) *MPIJobWrapper {
+func (j *MPIJobWrapper) Request(replicaType kfmpi.MPIReplicaType, r corev1.ResourceName, v string) *MPIJobWrapper {
 	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
 	return j
 }
 
 // Parallelism updates job parallelism.
 func (j *MPIJobWrapper) Parallelism(p int32) *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas = ptr.To(p)
+	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Replicas = ptr.To(p)
 	return j
 }
 
@@ -180,7 +180,7 @@ func (j *MPIJobWrapper) UID(uid string) *MPIJobWrapper {
 }
 
 // PodAnnotation sets annotation at the pod template level
-func (j *MPIJobWrapper) PodAnnotation(replicaType kubeflow.MPIReplicaType, k, v string) *MPIJobWrapper {
+func (j *MPIJobWrapper) PodAnnotation(replicaType kfmpi.MPIReplicaType, k, v string) *MPIJobWrapper {
 	if j.Spec.MPIReplicaSpecs[replicaType].Template.Annotations == nil {
 		j.Spec.MPIReplicaSpecs[replicaType].Template.Annotations = make(map[string]string)
 	}
@@ -189,7 +189,7 @@ func (j *MPIJobWrapper) PodAnnotation(replicaType kubeflow.MPIReplicaType, k, v 
 }
 
 // PodLabel sets label at the pod template level
-func (j *MPIJobWrapper) PodLabel(replicaType kubeflow.MPIReplicaType, k, v string) *MPIJobWrapper {
+func (j *MPIJobWrapper) PodLabel(replicaType kfmpi.MPIReplicaType, k, v string) *MPIJobWrapper {
 	if j.Spec.MPIReplicaSpecs[replicaType].Template.Labels == nil {
 		j.Spec.MPIReplicaSpecs[replicaType].Template.Labels = make(map[string]string)
 	}
@@ -204,12 +204,12 @@ func (j *MPIJobWrapper) Generation(num int64) *MPIJobWrapper {
 }
 
 // StatusConditions adds a condition
-func (j *MPIJobWrapper) StatusConditions(c kubeflow.JobCondition) *MPIJobWrapper {
+func (j *MPIJobWrapper) StatusConditions(c kfmpi.JobCondition) *MPIJobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
 	return j
 }
 
-func (j *MPIJobWrapper) Image(replicaType kubeflow.MPIReplicaType, image string, args []string) *MPIJobWrapper {
+func (j *MPIJobWrapper) Image(replicaType kfmpi.MPIReplicaType, image string, args []string) *MPIJobWrapper {
 	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Image = image
 	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
 	return j

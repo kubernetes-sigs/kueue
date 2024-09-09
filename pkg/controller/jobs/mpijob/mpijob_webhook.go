@@ -19,7 +19,7 @@ package mpijob
 import (
 	"context"
 
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -41,7 +41,7 @@ func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&kubeflow.MPIJob{}).
+		For(&kfmpi.MPIJob{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		Complete()

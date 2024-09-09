@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -48,7 +48,7 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	err = kftraining.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = kubeflow.AddToScheme(scheme.Scheme)
+	err = kfmpi.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})

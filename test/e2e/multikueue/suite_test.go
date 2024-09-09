@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -96,8 +96,8 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs", resourceVerbs...),
 			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
-			policyRule(kubeflow.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
-			policyRule(kubeflow.SchemeGroupVersion.Group, "mpijobs/status", "get"),
+			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
+			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs/status", "get"),
 		},
 	}
 	err := c.Create(ctx, cr)

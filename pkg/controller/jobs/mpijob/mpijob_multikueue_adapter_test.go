@@ -22,7 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -49,28 +49,28 @@ func TestMultikueueAdapter(t *testing.T) {
 	mpiJobBuilder := utiltestingmpijob.MakeMPIJob("mpijob1", TestNamespace)
 
 	cases := map[string]struct {
-		managersJobSets []kubeflow.MPIJob
-		workerJobSets   []kubeflow.MPIJob
+		managersJobSets []kfmpi.MPIJob
+		workerJobSets   []kfmpi.MPIJob
 
 		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError           error
-		wantManagersJobSets []kubeflow.MPIJob
-		wantWorkerJobSets   []kubeflow.MPIJob
+		wantManagersJobSets []kfmpi.MPIJob
+		wantWorkerJobSets   []kfmpi.MPIJob
 	}{
 
 		"sync creates missing remote mpijob": {
-			managersJobSets: []kubeflow.MPIJob{
+			managersJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
-			wantManagersJobSets: []kubeflow.MPIJob{
+			wantManagersJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.DeepCopy(),
 			},
-			wantWorkerJobSets: []kubeflow.MPIJob{
+			wantWorkerJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
@@ -78,35 +78,35 @@ func TestMultikueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote mpijob": {
-			managersJobSets: []kubeflow.MPIJob{
+			managersJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.DeepCopy(),
 			},
-			workerJobSets: []kubeflow.MPIJob{
+			workerJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
-					StatusConditions(kubeflow.JobCondition{Type: kubeflow.JobSucceeded, Status: corev1.ConditionTrue}).
+					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
-			wantManagersJobSets: []kubeflow.MPIJob{
+			wantManagersJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
-					StatusConditions(kubeflow.JobCondition{Type: kubeflow.JobSucceeded, Status: corev1.ConditionTrue}).
+					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
-			wantWorkerJobSets: []kubeflow.MPIJob{
+			wantWorkerJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
-					StatusConditions(kubeflow.JobCondition{Type: kubeflow.JobSucceeded, Status: corev1.ConditionTrue}).
+					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
 		},
 		"remote mpijob is deleted": {
-			workerJobSets: []kubeflow.MPIJob{
+			workerJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
@@ -119,13 +119,13 @@ func TestMultikueueAdapter(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			managerBuilder := utiltesting.NewClientBuilder(kubeflow.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			managerBuilder = managerBuilder.WithLists(&kubeflow.MPIJobList{Items: tc.managersJobSets})
-			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobSets, func(w *kubeflow.MPIJob) client.Object { return w })...)
+			managerBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			managerBuilder = managerBuilder.WithLists(&kfmpi.MPIJobList{Items: tc.managersJobSets})
+			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobSets, func(w *kfmpi.MPIJob) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 
-			workerBuilder := utiltesting.NewClientBuilder(kubeflow.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			workerBuilder = workerBuilder.WithLists(&kubeflow.MPIJobList{Items: tc.workerJobSets})
+			workerBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			workerBuilder = workerBuilder.WithLists(&kfmpi.MPIJobList{Items: tc.workerJobSets})
 			workerClient := workerBuilder.Build()
 
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -138,7 +138,7 @@ func TestMultikueueAdapter(t *testing.T) {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 
-			gotManagersJobSets := &kubeflow.MPIJobList{}
+			gotManagersJobSets := &kfmpi.MPIJobList{}
 			if err := managerClient.List(ctx, gotManagersJobSets); err != nil {
 				t.Errorf("unexpected list manager's mpijobs error %s", err)
 			} else {
@@ -147,7 +147,7 @@ func TestMultikueueAdapter(t *testing.T) {
 				}
 			}
 
-			gotWorkerJobSets := &kubeflow.MPIJobList{}
+			gotWorkerJobSets := &kfmpi.MPIJobList{}
 			if err := workerClient.List(ctx, gotWorkerJobSets); err != nil {
 				t.Errorf("unexpected list worker's mpijobs error %s", err)
 			} else {

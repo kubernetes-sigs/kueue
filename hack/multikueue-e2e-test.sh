@@ -57,7 +57,7 @@ function startup {
             MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml"
         fi
 
-	    echo "Using manager config: $MANAGER_KIND_CONFIG"
+	      echo "Using manager config: $MANAGER_KIND_CONFIG"
         cluster_create "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KIND_CONFIG"
         cluster_create "$WORKER1_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
         cluster_create "$WORKER2_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"

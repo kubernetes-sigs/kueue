@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -40,13 +40,13 @@ type multikueueAdapter struct{}
 var _ jobframework.MultiKueueAdapter = (*multikueueAdapter)(nil)
 
 func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
-	localJob := kubeflow.MPIJob{}
+	localJob := kfmpi.MPIJob{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
 		return err
 	}
 
-	remoteJob := kubeflow.MPIJob{}
+	remoteJob := kfmpi.MPIJob{}
 	err = remoteClient.Get(ctx, key, &remoteJob)
 	if client.IgnoreNotFound(err) != nil {
 		return err
@@ -60,7 +60,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		})
 	}
 
-	remoteJob = kubeflow.MPIJob{
+	remoteJob = kfmpi.MPIJob{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
@@ -76,11 +76,9 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 }
 
 func (b *multikueueAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
-	job := kubeflow.MPIJob{}
-	err := remoteClient.Get(ctx, key, &job)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
+	job := kfmpi.MPIJob{}
+	job.SetName(key.Name)
+	job.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
@@ -99,11 +97,11 @@ func (b *multikueueAdapter) GVK() schema.GroupVersionKind {
 var _ jobframework.MultiKueueWatcher = (*multikueueAdapter)(nil)
 
 func (*multikueueAdapter) GetEmptyList() client.ObjectList {
-	return &kubeflow.MPIJobList{}
+	return &kfmpi.MPIJobList{}
 }
 
 func (*multikueueAdapter) WorkloadKeyFor(o runtime.Object) (types.NamespacedName, error) {
-	job, isJob := o.(*kubeflow.MPIJob)
+	job, isJob := o.(*kfmpi.MPIJob)
 	if !isJob {
 		return types.NamespacedName{}, errors.New("not a mpijob")
 	}

@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -1036,12 +1036,12 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			Queue(managerLq.Name).
 			MPIJobReplicaSpecs(
 				testingmpijob.MPIJobReplicaSpecRequirement{
-					ReplicaType:   kubeflow.MPIReplicaTypeLauncher,
+					ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
 					ReplicaCount:  1,
 					RestartPolicy: corev1.RestartPolicyOnFailure,
 				},
 				testingmpijob.MPIJobReplicaSpecRequirement{
-					ReplicaType:   kubeflow.MPIReplicaTypeWorker,
+					ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 					ReplicaCount:  1,
 					RestartPolicy: corev1.RestartPolicyNever,
 				},
@@ -1062,13 +1062,13 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 		ginkgo.By("changing the status of the MPIJob in the worker, updates the manager's MPIJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdMPIJob := kubeflow.MPIJob{}
+				createdMPIJob := kfmpi.MPIJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
-				createdMPIJob.Status.ReplicaStatuses = map[kubeflow.MPIReplicaType]*kubeflow.ReplicaStatus{
-					kubeflow.MPIReplicaTypeLauncher: {
+				createdMPIJob.Status.ReplicaStatuses = map[kfmpi.MPIReplicaType]*kfmpi.ReplicaStatus{
+					kfmpi.MPIReplicaTypeLauncher: {
 						Active: 1,
 					},
-					kubeflow.MPIReplicaTypeWorker: {
+					kfmpi.MPIReplicaTypeWorker: {
 						Active:    1,
 						Succeeded: 1,
 					},
@@ -1076,14 +1076,14 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdMPIJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdMPIJob := kubeflow.MPIJob{}
+				createdMPIJob := kfmpi.MPIJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
 				g.Expect(createdMPIJob.Status.ReplicaStatuses).To(gomega.Equal(
-					map[kubeflow.MPIReplicaType]*kubeflow.ReplicaStatus{
-						kubeflow.MPIReplicaTypeLauncher: {
+					map[kfmpi.MPIReplicaType]*kfmpi.ReplicaStatus{
+						kfmpi.MPIReplicaTypeLauncher: {
 							Active: 1,
 						},
-						kubeflow.MPIReplicaTypeWorker: {
+						kfmpi.MPIReplicaTypeWorker: {
 							Active:    1,
 							Succeeded: 1,
 						},
@@ -1094,10 +1094,10 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		ginkgo.By("finishing the worker MPIJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			finishJobReason := "MPIJob finished successfully"
 			gomega.Eventually(func(g gomega.Gomega) {
-				createdMPIJob := kubeflow.MPIJob{}
+				createdMPIJob := kfmpi.MPIJob{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
-				createdMPIJob.Status.Conditions = append(createdMPIJob.Status.Conditions, kubeflow.JobCondition{
-					Type:    kubeflow.JobSucceeded,
+				createdMPIJob.Status.Conditions = append(createdMPIJob.Status.Conditions, kfmpi.JobCondition{
+					Type:    kfmpi.JobSucceeded,
 					Status:  corev1.ConditionTrue,
 					Reason:  "ByTest",
 					Message: finishJobReason,

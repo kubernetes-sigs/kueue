@@ -33,7 +33,7 @@ import (
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/utils/ptr"
 
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -441,22 +441,22 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(managerLq.Name).
 				MPIJobReplicaSpecs(
 					testingmpijob.MPIJobReplicaSpecRequirement{
-						ReplicaType:   kubeflow.MPIReplicaTypeLauncher,
+						ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
 						ReplicaCount:  1,
 						RestartPolicy: "OnFailure",
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
-						ReplicaType:   kubeflow.MPIReplicaTypeWorker,
+						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount:  1,
 						RestartPolicy: "OnFailure",
 					},
 				).
-				Request(kubeflow.MPIReplicaTypeLauncher, corev1.ResourceCPU, "1").
-				Request(kubeflow.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
-				Request(kubeflow.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
-				Request(kubeflow.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Image(kubeflow.MPIReplicaTypeLauncher, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
-				Image(kubeflow.MPIReplicaTypeWorker, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "1").
+				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "200M").
+				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "0.5").
+				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
+				Image(kfmpi.MPIReplicaTypeLauncher, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(kfmpi.MPIReplicaTypeWorker, "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {
@@ -470,10 +470,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			ginkgo.By("Waiting for the MPIJob to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdMPIJob := &kubeflow.MPIJob{}
+					createdMPIJob := &kfmpi.MPIJob{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(mpijob), createdMPIJob)).To(gomega.Succeed())
-					g.Expect(createdMPIJob.Status.ReplicaStatuses[kubeflow.MPIReplicaTypeLauncher]).To(gomega.BeComparableTo(
-						&kubeflow.ReplicaStatus{
+					g.Expect(createdMPIJob.Status.ReplicaStatuses[kfmpi.MPIReplicaTypeLauncher]).To(gomega.BeComparableTo(
+						&kfmpi.ReplicaStatus{
 							Active:    0,
 							Succeeded: 1,
 						},
@@ -489,7 +489,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					workerWl := &kueue.Workload{}
 					g.Expect(k8sWorker1Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
 					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
-					workerMPIJob := &kubeflow.MPIJob{}
+					workerMPIJob := &kfmpi.MPIJob{}
 					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(mpijob), workerMPIJob)).To(utiltesting.BeNotFoundError())
 					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(mpijob), workerMPIJob)).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
