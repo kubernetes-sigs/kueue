@@ -2,15 +2,15 @@ title: Configurable Resource Transformers
 kep-number: 2937
 authors:
   - "@dgrove-oss"
-status: provisional
+status: implementable
 creation-date: 2024-09-06
 reviewers:
-  - TBD
+  - mimowo
 approvers:
-  - TBD
+  - mimowo
 
 # The target maturity stage in the current dev cycle for this KEP.
-stage: alpha
+stage: beta
 
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
@@ -23,4 +23,6 @@ milestone:
 
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled
-disable-supported: false
+feature-gates:
+  - name: ConfigurableResourceTransformations
+disable-supported: true
