@@ -100,6 +100,15 @@ kueuectl delete workload NAME [--cascade STRATEGY] [--dry-run STRATEGY]
             <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
         </td>
     </tr>
+    <tr>
+        <td colspan="2">-y, --yes</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Confirm the deletion of the workload.</p>
+        </td>
+    </tr>
     </tbody>
 </table>
 
