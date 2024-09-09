@@ -8,6 +8,8 @@
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
+    - [Story 1A - Using Replace with MIG](#story-1a---using-replace-with-mig)
+    - [Story 1B - Using Retain with MIG](#story-1b---using-retain-with-mig)
     - [Story 2](#story-2)
 - [Design Details](#design-details)
   - [Option 1: Singleton Matrix Input Focused](#option-1-singleton-matrix-input-focused)
@@ -70,9 +72,9 @@ matrix when adjusting the resource request for its input Workload object.
 
 ### User Stories (Optional)
 
-In the user stories below, we use a 4-tuple (InputResourceName, OutputResourceName, OutputQuantity, Replace)
+In the user stories below, we use a 4-tuple (InputResourceName, OutputResourceName, OutputQuantity, Replace/Retain)
 to express a resource transformation operation. In the actual implementation, this transformation would
-be encoded as an entry in the  `ResourceTransformation` matrix which would be created by
+be encoded as an entry in a `ResourceTransformation` matrix which would be created by
 a cluster admin.
 
 #### Story 1
@@ -85,13 +87,20 @@ MIG resources created by the NVIDIA GPU Operator using the mixed strategy
 In the mixed strategy, instead of there being a single `nvidia.com/gpu` extended resource, 
 there is a proliferation of extended resource of the form `nvidia.com/mig-1g.5gb`, `nvidia.com/mig-2g.10gb`,
 `nvidia.com/mig-4g.20gb`, and so on.  For quota management purposes, we would like to abstract
-these into a single extended resource `kueue.x-k8s.io/accelerator-memory` and completely elide
-the MIG extended resource from the quota calculation.
+these into a single primary extended resource `kueue.x-k8s.io/accelerator-memory`.
 
-Concretely, the cluster admin would register the following transformations:
-* (`nvidia.com/mig-1g.5gb`, `kueue.x-k8s.io/accelerator-memory`, `5G`, `true`)
-* (`nvidia.com/mig-2g.10gb`, `kueue.x-k8s.io/accelerator-memory`, `10G`, `true`)
-* (`nvidia.com/mig-4g.20gb`, `kueue.x-k8s.io/accelerator-memory`, `20G`, `true`)
+#### Story 1A - Using Replace with MIG
+
+If an operator such as [InstaSlice][instaslice] is deployed
+that is capable of dynamically managing the MIG partitions available on the cluster,
+the cluster admin may desire to completely elide the details of different MIG variants
+from their quota management.
+
+To do this, the cluster admin could register the following transformations:
+* (`nvidia.com/mig-1g.5gb`, `kueue.x-k8s.io/accelerator-memory`, `5G`, `replace`)
+* (`nvidia.com/mig-2g.10gb`, `kueue.x-k8s.io/accelerator-memory`, `10G`, `replace`)
+* (`nvidia.com/mig-4g.20gb`, `kueue.x-k8s.io/accelerator-memory`, `20G`, `replace`)
+* (`nvidia.com/mig-7g.40gb`, `kueue.x-k8s.io/accelerator-memory`, `40G`, `replace`)
 
 A Job requesting the resources below:
 ```yaml
@@ -107,10 +116,100 @@ would yield a Workload requesting:
   cpu: 1
 ```
 
-The covered resources in a ClusterQueue would only need to include `kueue.x-k8s.io/accelerator-memory`
-and would not need to list every MIG variant resource. 
+In this scenario, the covered resources in a ClusterQueue would only need
+to include `kueue.x-k8s.io/accelerator-memory`
+and would not need to assign redundant and potentially confusing quotas to every MIG variant.
+
+```yaml
+...
+  - coveredResources: ["cpu", "memory", "kueue.x-k8s.io/accelerator-memory"]
+    flavors:
+    - name: default-flavor
+      resources:
+      - name: "cpu"
+        nominalQuota: ...
+      - name: "memory"
+        nominalQuota: ...
+      - name: kueue.x-k8s.io/accelerator-memory
+        nominalQuota: 320G
+```
+To compare, to acheive the identical effective quotas without `replace` the covered
+resource stanza of each ClusterQueue would need to be:
+```yaml
+...
+  - coveredResources: ["cpu", "memory", "kueue.x-k8s.io/accelerator-memory"]
+    flavors:
+    - name: default-flavor
+      resources:
+      - name: "cpu"
+        nominalQuota: ...
+      - name: "memory"
+        nominalQuota: ...
+      - name: kueue.x-k8s.io/accelerator-memory
+        nominalQuota: 200G
+      - name: nvidia.com/mig-1g.5gb
+        nominalQuota: 40  # 200G/5g
+      - name: nvidia.com/mig-2g.10gb
+        nominalQuota: 20  # 200G/10g
+      - name: nvidia.com/mig-4g.20gb
+        nominalQuota: 10  # 200G/20g
+      - name: nvidia.com/mig-7g.40gb
+        nominalQuota: 5  # 200G/40g
+```
+
+#### Story 1B - Using Retain with MIG
+
+However, some cluster admins may desire to use `retain` for MIG resources to exercise
+finer grained control over the use of MIG partitions.
+To do this, the cluster admin could register the following transformations:
+* (`nvidia.com/mig-1g.5gb`, `kueue.x-k8s.io/accelerator-memory`, `5G`, `retain`)
+* (`nvidia.com/mig-2g.10gb`, `kueue.x-k8s.io/accelerator-memory`, `10G`, `retain`)
+* (`nvidia.com/mig-4g.20gb`, `kueue.x-k8s.io/accelerator-memory`, `20G`, `retain`)
+* (`nvidia.com/mig-7g.40gb`, `kueue.x-k8s.io/accelerator-memory`, `40G`, `retain`)
+
+A Job requesting the resources below:
+```yaml
+  nvidia.com/mig-1g.5gb: 2
+  nvidia.com/mig-2g.10gb: 1
+  memory: 100M
+  cpu: 1
+```
+would yield a Workload requesting:
+```yaml
+  kueue.x-k8s.io/accelerator-memory: 20G
+  nvidia.com/mig-1g.5gb: 2
+  nvidia.com/mig-2g.10gb: 1
+  memory: 100M
+  cpu: 1
+```
+
+Below is an example resource group that the cluster admin could define that
+prevents the usage of `7g.40gb` paritions and puts a tighter cap on `4g.20gb`
+partitions than would be implied by the `accelerator-memory` quota:
+```yaml
+...
+  - coveredResources: ["cpu", "memory", "kueue.x-k8s.io/accelerator-memory"]
+    flavors:
+    - name: default-flavor
+      resources:
+      - name: "cpu"
+        nominalQuota: ...
+      - name: "memory"
+        nominalQuota: ...
+      - name: kueue.x-k8s.io/accelerator-memory
+        nominalQuota: 200G
+      - name: nvidia.com/mig-1g.5gb
+        nominalQuota: 40  # 200G/5g
+      - name: nvidia.com/mig-2g.10gb
+        nominalQuota: 20  # 200G/10g
+      - name: nvidia.com/mig-4g.20gb
+        nominalQuota: 4  # less than the 10 that would be allowed by the acelerator-memory quota
+      - name: nvidia.com/mig-7g.40gb
+        nominalQuota: 0  # not allowed -- inefficient use of GPU resources
+```
 
 [mig]: https://docs.nvidia.com/datacenter/cloud-native/kubernetes/latest/index.html#the-mixed-strategy
+[instaslice] https://github.com/openshift/instaslice-operator
 
 #### Story 2
 
@@ -138,13 +237,17 @@ use a config map containing a single yaml field that would be deserialized
 into the type defined below.
 
 ```go
+type ResourceTransformationStrategy string
+const Retain ResourceTransformationStrategy = "Retain"
+const Replace ResourceTransformationStrategy = "Replace"
+
 type ResourceTransformation struct {
   // key is the output resource name and value is the quantity of the output resource 
   // that corresponds to 1 unit of the input resource
   Functions map[corev1.ResourceName ]resource.Quantity `json:"functions"`
 
   // should the input resource be replaced (true) or retained (false)
-  Replace bool `json:"replace"`
+  Strategy ResourceTransformationStrategy `json:"strategy"`
 }
 
 type ResourceTransformationMatrix struct {
@@ -162,55 +265,59 @@ avoids conflicting definitions of `Replace` for an input resource.
 This is similar to Option 1, but makes the output resource the
 primary key.  
 ```go
+type ResourceTransformationStrategy string
+const Retain ResourceTransformationStrategy = "Retain"
+const Replace ResourceTransformationStrategy = "Replace"
+
 type ResourceTransformationMatrix struct {
   // The transformations to apply where the first map key is the output resource name
   // and the inner map key is the input resource name
   Transformations map[corev1.ResourceName]map[corev1.ResourceName]resource.Quantity `json:"transformations"`
 
-  // The map key is the input resource name. True means it should be replaced after it is transformed
-  ReplaceInput map[corev1.ResourceName]bool `json:"replaceInput"`
+  // The map key is the input resource name.
+  Strategy map[corev1.ResourceName]ResourceTransformationStrategy `json:"strategy"`
 }
 ```
 
 Grouping by output makes it easier for the cluster admin to see/specify
 all the resources that map into a given output as a unit.  However it
-comes at the cost of a separate map to specify the replace boolean. 
-It may also be confusing that the `Transformations` map is keyed by
-output name as the primary key while `ReplaceInput` is keyed by input name.
+comes at the cost of a separate map to specify strategy.
+It may be confusing that the `Transformations` map is keyed by
+output name as the primary key while `Strategy` is keyed by input name.
 
 ### Comparison
 
 Consider the following list of 4-tuples
 
-* (`nvidia.com/mig-1g.5gb`, `kueue.x-k8s.io/accelerator-memory`, `5G`, `true`)
-* (`nvidia.com/mig-2g.10gb`, `kueue.x-k8s.io/accelerator-memory`, `10G`, `true`)
-* (`nvidia.com/mig-4g.20gb`, `kueue.x-k8s.io/accelerator-memory`, `20G`, `true`)
-* (`nvidia.com/mig-1g.5gb`, `kueue.x-k8s.io/credits`, `10`, `true`)
-* (`nvidia.com/mig-2g.10gb`, `kueue.x-k8s.io/credits`, `15`, `true`)
-* (`nvidia.com/mig-4g.20gb`, `kueue.x-k8s.io/credits`, `30`, `true`)
-* (`cpu`, `kueue.x-k8s.io/credits`, `1`, `false`)
+* (`nvidia.com/mig-1g.5gb`, `kueue.x-k8s.io/accelerator-memory`, `5G`, `replace`)
+* (`nvidia.com/mig-2g.10gb`, `kueue.x-k8s.io/accelerator-memory`, `10G`, `replace`)
+* (`nvidia.com/mig-4g.20gb`, `kueue.x-k8s.io/accelerator-memory`, `20G`, `replace`)
+* (`nvidia.com/mig-1g.5gb`, `kueue.x-k8s.io/credits`, `10`, `replace`)
+* (`nvidia.com/mig-2g.10gb`, `kueue.x-k8s.io/credits`, `15`, `replace`)
+* (`nvidia.com/mig-4g.20gb`, `kueue.x-k8s.io/credits`, `30`, `replace`)
+* (`cpu`, `kueue.x-k8s.io/credits`, `1`, `retain`)
 
 Option 1
 ```yaml
 resourceTransformationMatrix:
   transformations:
     nvidia.com/mig-1g.5gb:
-      replace: true
+      strategy: Replace
       functions:
         kueue.x-k8s.io/accelerator-memory: 5G
         kueue.x-k8s.io/credits: 10
     nvidia.com/mig-2g.10gb:
-      replace: true
+      strategy: Replace
       functions:
         kueue.x-k8s.io/accelerator-memory: 10G
         kueue.x-k8s.io/credits: 15
     nvidia.com/mig-4g.20gb:
-      replace: true
+      strategy: Replace
       functions:
         kueue.x-k8s.io/accelerator-memory: 20G
         kueue.x-k8s.io/credits: 30
     cpu:
-      replace: false
+      strategy: Retain
       functions:
         kueue.x-k8s.io/credits: 1
 ```
@@ -228,10 +335,11 @@ resourceTransformationMatrix:
       nvidia.com/mig-2g.10gb: 15
       nvidia.com/mig-4g.20gb: 30
       cpu: 1
-  replaceInput:
-    nvidia.com/mig-1g.5gb: true
-    nvidia.com/mig-2g.10gb: true
-    nvidia.com/mig-4g.20gb: true
+  strategy:
+    nvidia.com/mig-1g.5gb: Replace
+    nvidia.com/mig-2g.10gb: Replace
+    nvidia.com/mig-4g.20gb: Replace
+    cpu: Retain
 ```
 
 Option 2 is likely to be terser, but I find Option 1 slightly more intutive because
@@ -250,14 +358,18 @@ None
 
 #### Unit Tests
 
-Unit tests of the helper function invoked from `workload.AdjustResources`
-will be added.
+Unit tests of the helper function invoked from `workload.AdjustResources` will be added.
 
-- `pkg/workload`: `2024-09-07` - `2.8%`
+Unit tests of loading the `ResourceTransformationMatrix` from a `Configuration` will be added.
 
 #### Integration tests
 
-Unclear what is necessary.  Please advise.
+Need to pick a few existing integration tests and run similar scenarios
+on a kueue controller configured with resource transformations defined.
+Probably the simplest approach would be to add the `credits` resource in
+the second user story and submit a sequenece of jobs to a ClusterQueue
+configured to have fewer `credits` than its corresponding cpu/memory resources
+to verify that jobs are being queued based on `credits`.
 
 ### Graduation Criteria
 
