@@ -31,7 +31,7 @@ VisibilityOnDemand is an `Alpha` feature disabled by default. To use the visibil
 To install the visibility API, run the following command
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/visibility-api.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-api.yaml
 ```
 
 ## Monitor pending workloads on demand
