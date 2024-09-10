@@ -19,6 +19,7 @@ package describe
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -198,6 +199,10 @@ func (o *DescribeOptions) Run(ctx context.Context) error {
 		infos = append(infos, configMapsAsInfos...)
 	}
 
+	slices.SortFunc(infos, func(a, b *resource.Info) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
 	allErrs := []error{}
 	errs := sets.NewString()
 	first := true
@@ -335,6 +340,7 @@ func configMapToInfo(cm *corev1.ConfigMap) (*resource.Info, error) {
 				Kind:    "ConfigMap",
 			},
 		},
+		Name:   obj.GetName(),
 		Object: obj,
 	}, nil
 }
