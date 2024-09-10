@@ -11,7 +11,13 @@ Ensure the following prerequisites are met:
 
 ## Slurm Mode in Kjob
 
-This mode is specifically designed to support Slurm, a highly scalable cluster management and job scheduling system. Although Kjob does not directly incorporate Slurm's components, it simulates Slurm behavior to facilitate a smooth transition for users. By translating Slurm concepts such as nodes into Kubernetes-compatible terms like pods, Kjob ensures that users familiar with Slurm will find the Kjob environment intuitive and easy to use. The addition of the Slurm mode to the ApplicationProfile in Kjob aims to replicate the experience of using the sbatch command in Slurm as closely as possible, thereby enhancing user satisfaction and efficiency in managing cluster jobs within a Kubernetes context.
+This mode is specifically designed to offer a compatibility mode for [Slurm](https://slurm.schedmd.com/) jobs. Kjob does not directly incorporate Slurm's components.
+
+Instead, it simulates Slurm behavior to facilitate a smooth transition for users.
+
+By translating Slurm concepts such as nodes into Kubernetes-compatible terms like pods, Kjob ensures that users familiar with Slurm will find the Kjob environment intuitive and easy to use. 
+
+The addition of the Slurm mode to the ApplicationProfile in Kjob aims to replicate the experience of using the sbatch command in Slurm as closely as possible, thereby enhancing user satisfaction and efficiency in managing cluster jobs within a Kubernetes context.
 
 ### Supported Options
 
@@ -31,7 +37,7 @@ Kjob provides support for executing Slurm scripts by offering several options th
 | -N, --nodes         | Specifies the number of pods to be used at a time - parallelism in indexed jobs. |
 | -n, --ntasks        | Specifies the number of identical containers inside of a pod, usually 1. |
 | -o, --output        | Specifies where to redirect the standard output stream of a task. If not passed, it proceeds to stdout and is available via `kubectl logs`. |
-| --partition         | Specifies the local queue name. |
+| --partition         | Specifies the local queue name. See [Local Queue](https://kueue.sigs.k8s.io/docs/concepts/local_queue/) for more information. |
 
 If an unsupported flag is passed in the script, the command will fail with an error unless `--ignore-unknown-flags` is given.
 
@@ -101,7 +107,7 @@ Once you have created your template, you need an `ApplicationProfile` containing
 apiVersion: kjobctl.x-k8s.io/v1alpha1
 kind: ApplicationProfile
 metadata:
-  name: sample-profile
+  name: slurm-profile
   namespace: default
 spec:
   supportedModes:
@@ -110,11 +116,13 @@ spec:
       requiredFlags: []
 ```
 
-Then, create the ApplicationProfile by running:
+Then, save the file as `application_profile.yaml` and create the ApplicationProfile by running:
 
 ```bash
-kubectl create -f config/samples/application_profile.yaml
+kubectl create -f application_profile.yaml
 ```
+
+> Note: This setup process, including the creation of the JobTemplate and ApplicationProfile, only needs to be completed once and can be applied to subsequent Python script executions.
 
 ### 2. Load the Python Script
 
@@ -157,10 +165,10 @@ data:
     print('Stop at ' + time.strftime('%H:%M:%S'))
 ```
 
-To create the `VolumeBundle`, run:
+To create the `VolumeBundle`, save the file as `slurm_volume_bundle.yaml` and run:
 
 ```bash
-kubectl create -f config/samples/slurm_volume_bundle.yaml
+kubectl create -f slurm_volume_bundle.yaml
 ```
 
 ### 3. Submit Job
@@ -180,10 +188,10 @@ python /home/slurm/samples/sample_code.py
 exit 0
 ```
 
-To run this batch script, execute:
+To run this batch script, save it as `slurm-sample.sh` and execute:
 
 ```bash
-kubectl-kjob create slurm --profile sample-profile --config config/samples/slurm-sample.sh
+kubectl-kjob create slurm --profile slurm-profile -- slurm-sample.sh
 ```
 
 Now, after submitting the job, you should be able to see something similar to the following output in the logs:
