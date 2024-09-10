@@ -112,7 +112,7 @@ func NewPodCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 
 	o.PrintFlags.AddFlags(cmd)
 
-	addAllNamespacesFlagVar(cmd, &o.AllNamespaces)
+	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addForObjectFlagVar(cmd, &o.UserSpecifiedForObject)

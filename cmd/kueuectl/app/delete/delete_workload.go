@@ -18,6 +18,7 @@ package delete
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -47,9 +48,11 @@ const (
 type WorkloadOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
 
-	Names     []string
-	Namespace string
-	Confirmed bool
+	Names         []string
+	Namespace     string
+	AllNamespaces bool
+	Confirmed     bool
+	DeleteAll     bool
 
 	CascadeStrategy metav1.DeletionPropagation
 	DryRunStrategy  util.DryRunStrategy
@@ -79,7 +82,6 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 		Aliases:               []string{"wl"},
 		Short:                 "Delete the given Workload and corresponding to it Job",
 		Example:               wlExample,
-		Args:                  cobra.MinimumNArgs(1),
 		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, ptr.To(true)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
@@ -94,7 +96,9 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	}
 
 	cmd.Flags().BoolVarP(&o.Confirmed, "yes", "y", false, "Confirm the deletion of the workload.")
+	cmd.Flags().BoolVar(&o.DeleteAll, "all", false, "Delete all resources, in the namespace of the specified resource types.")
 
+	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addCascadingFlag(cmd)
 	util.AddDryRunFlag(cmd)
 
@@ -106,6 +110,18 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 // Complete completes all the required options
 func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.Names = args
+
+	if !o.DeleteAll && len(o.Names) == 0 {
+		return errors.New("requires at least 1 arg(s), only received 0")
+	}
+
+	if o.DeleteAll && len(o.Names) > 0 {
+		return errors.New("name cannot be provided when a selector is specified")
+	}
+
+	if o.AllNamespaces && len(o.Names) > 0 {
+		return errors.New("a resource cannot be retrieved by name across all namespaces")
+	}
 
 	var err error
 
@@ -171,7 +187,17 @@ func GroupVersionResourceWithName(gvr schema.GroupVersionResource, name string) 
 
 // Run delete a resource
 func (o *WorkloadOptions) Run(ctx context.Context) error {
-	workloads, haveAssociatedResources, err := o.getWorkloads(ctx)
+	var (
+		workloads               []*v1beta1.Workload
+		haveAssociatedResources bool
+		err                     error
+	)
+
+	if o.DeleteAll {
+		workloads, haveAssociatedResources, err = o.getAllWorkloads(ctx)
+	} else {
+		workloads, haveAssociatedResources, err = o.getWorkloads(ctx)
+	}
 	if err != nil {
 		return err
 	}
@@ -186,7 +212,13 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	}
 
 	if o.DryRunStrategy == util.DryRunNone && !o.Confirmed && haveAssociatedResources {
-		confirmationMessage := o.generateConfirmationMessage(workloadResources)
+		var confirmationMessage string
+		if o.DeleteAll {
+			confirmationMessage = "This operation will also delete the jobs associated with these workloads.\n"
+		} else {
+			confirmationMessage = o.generateConfirmationMessage(workloadResources)
+		}
+
 		if !o.confirmation(confirmationMessage) {
 			fmt.Fprintf(o.Out, "Deletion is canceled\n")
 			return nil
@@ -198,6 +230,31 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*v1beta1.Workload, bool, error) {
+	var namespace string
+	if !o.AllNamespaces {
+		namespace = o.Namespace
+	}
+
+	list, err := o.Client.Workloads(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, false, err
+	}
+
+	var haveAssociatedWorkloads bool
+
+	workloads := make([]*v1beta1.Workload, 0, len(list.Items))
+	for index := range list.Items {
+		wl := &list.Items[index]
+		workloads = append(workloads, wl)
+		if len(wl.OwnerReferences) > 0 {
+			haveAssociatedWorkloads = true
+		}
+	}
+
+	return workloads, haveAssociatedWorkloads, nil
 }
 
 func (o *WorkloadOptions) getWorkloads(ctx context.Context) ([]*v1beta1.Workload, bool, error) {
@@ -295,13 +352,13 @@ func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResou
 			}
 
 			for _, nr := range nrs {
-				if err := o.DynamicClient.Resource(nr.GroupVersionResource).Namespace(o.Namespace).
+				if err := o.DynamicClient.Resource(nr.GroupVersionResource).Namespace(wl.Namespace).
 					Delete(ctx, nr.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
 					return err
 				}
 			}
 
-			if err := o.Client.Workloads(o.Namespace).Delete(ctx, wl.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
+			if err := o.Client.Workloads(wl.Namespace).Delete(ctx, wl.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
 				return err
 			}
 		}

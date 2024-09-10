@@ -112,7 +112,7 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 
 	o.PrintFlags.AddFlags(cmd)
 
-	addAllNamespacesFlagVar(cmd, &o.AllNamespaces)
+	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)

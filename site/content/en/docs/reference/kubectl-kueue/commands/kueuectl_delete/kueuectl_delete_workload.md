@@ -38,6 +38,24 @@ kueuectl delete workload NAME [--cascade STRATEGY] [--dry-run STRATEGY]
     </colgroup>
     <tbody>
     <tr>
+        <td colspan="2">--all</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Delete all resources, in the namespace of the specified resource types.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-A, --all-namespaces</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: true</td>
     </tr>
     <tr>

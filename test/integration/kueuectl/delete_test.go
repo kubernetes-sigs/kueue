@@ -37,35 +37,44 @@ import (
 // TODO: Move this tests to unit after merge https://github.com/kubernetes-sigs/kueue/pull/2402.
 var _ = ginkgo.Describe("Kueuectl Delete", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		ns   *corev1.Namespace
+		ns1  *corev1.Namespace
+		ns2  *corev1.Namespace
 		wl1  *v1beta1.Workload
 		wl2  *v1beta1.Workload
 		wl3  *v1beta1.Workload
+		wl4  *v1beta1.Workload
 		job1 *bactchv1.Job
 		job2 *bactchv1.Job
+		job3 *bactchv1.Job
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "ns-"}}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		ns1 = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "ns-"}}
+		gomega.Expect(k8sClient.Create(ctx, ns1)).To(gomega.Succeed())
+		ns2 = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "ns-"}}
+		gomega.Expect(k8sClient.Create(ctx, ns2)).To(gomega.Succeed())
 
-		job1 = testingjob.MakeJob("job1", ns.Name).Obj()
+		job1 = testingjob.MakeJob("job1", ns1.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job1)).To(gomega.Succeed())
-		job2 = testingjob.MakeJob("job2", ns.Name).Obj()
+		job2 = testingjob.MakeJob("job2", ns1.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job2)).To(gomega.Succeed())
+		job3 = testingjob.MakeJob("job3", ns2.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, job3)).To(gomega.Succeed())
 
 		jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
 
-		wl1 = testing.MakeWorkload("wl1", ns.Name).OwnerReference(jobGVK, job1.Name, string(job1.UID)).Obj()
+		wl1 = testing.MakeWorkload("wl1", ns1.Name).OwnerReference(jobGVK, job1.Name, string(job1.UID)).Obj()
 		gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
-		wl2 = testing.MakeWorkload("wl2", ns.Name).OwnerReference(jobGVK, job2.Name, string(job2.UID)).Obj()
+		wl2 = testing.MakeWorkload("wl2", ns1.Name).OwnerReference(jobGVK, job2.Name, string(job2.UID)).Obj()
 		gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
-		wl3 = testing.MakeWorkload("wl3", ns.Name).Obj()
+		wl3 = testing.MakeWorkload("wl3", ns2.Name).OwnerReference(jobGVK, job3.Name, string(job3.UID)).Obj()
 		gomega.Expect(k8sClient.Create(ctx, wl3)).To(gomega.Succeed())
+		wl4 = testing.MakeWorkload("wl4", ns1.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, wl4)).To(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns1)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Deleting a Workload", func() {
@@ -80,7 +89,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 				input.WriteString("n\n")
 
-				kueuectl.SetArgs([]string{"delete", "workload", wl1.Name, "--namespace", ns.Name})
+				kueuectl.SetArgs([]string{"delete", "workload", wl1.Name, "--namespace", ns1.Name})
 				err := kueuectl.Execute()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 				gomega.Expect(output.String()).To(gomega.Equal(`This operation will also delete:
@@ -107,7 +116,7 @@ Do you want to proceed (y/n)? Deletion is canceled
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(errOutput)
 
-				kueuectl.SetArgs([]string{"delete", "workload", "foo", "--namespace", ns.Name, "--yes"})
+				kueuectl.SetArgs([]string{"delete", "workload", "foo", "--namespace", ns1.Name, "--yes"})
 				err := kueuectl.Execute()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 				gomega.Expect(output.String()).To(gomega.Equal(""))
@@ -126,7 +135,7 @@ Do you want to proceed (y/n)? Deletion is canceled
 
 				input.WriteString("y\n")
 
-				kueuectl.SetArgs([]string{"delete", "workload", wl1.Name, "--namespace", ns.Name})
+				kueuectl.SetArgs([]string{"delete", "workload", wl1.Name, "--namespace", ns1.Name})
 				err := kueuectl.Execute()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 				gomega.Expect(output.String()).To(gomega.Equal(`This operation will also delete:
@@ -153,12 +162,9 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(errOutput)
 
-				kueuectl.SetArgs([]string{"delete", "workload", wl1.Name, wl2.Name, "--namespace", ns.Name, "--yes"})
+				kueuectl.SetArgs([]string{"delete", "workload", wl1.Name, wl2.Name, "--namespace", ns1.Name, "--yes"})
 				err := kueuectl.Execute()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				gomega.Expect(output.String()).To(gomega.Equal(`workload.kueue.x-k8s.io/wl1 deleted
-workload.kueue.x-k8s.io/wl2 deleted
-`))
 				gomega.Expect(errOutput.String()).To(
 					gomega.Equal(""))
 			})
@@ -184,16 +190,90 @@ workload.kueue.x-k8s.io/wl2 deleted
 				kueuectl.SetOut(output)
 				kueuectl.SetErr(errOutput)
 
-				kueuectl.SetArgs([]string{"delete", "workload", wl3.Name, "--namespace", ns.Name})
+				kueuectl.SetArgs([]string{"delete", "workload", wl4.Name, "--namespace", ns1.Name})
 				err := kueuectl.Execute()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				gomega.Expect(output.String()).To(gomega.Equal("workload.kueue.x-k8s.io/wl3 deleted\n"))
+				gomega.Expect(output.String()).To(gomega.Equal("workload.kueue.x-k8s.io/wl4 deleted\n"))
 				gomega.Expect(errOutput.String()).To(gomega.Equal(""))
 			})
 
 			ginkgo.By("Check that the Workload and its corresponding Job were successfully deleted", func() {
+				createdWl4 := &v1beta1.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl4), createdWl4)).To(testing.BeNotFoundError())
+			})
+		})
+
+		ginkgo.It("Should delete all Workloads and the Jobs corresponding to them", func() {
+			ginkgo.By("Delete Workloads", func() {
+				streams, input, output, errOutput := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(input)
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(errOutput)
+
+				input.WriteString("y\n")
+
+				kueuectl.SetArgs([]string{"delete", "workload", "--namespace", ns1.Name, "--all"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				gomega.Expect(output.String()).To(gomega.ContainSubstring(`This operation will also delete the jobs associated with these workloads.
+Do you want to proceed (y/n)?`))
+				gomega.Expect(errOutput.String()).To(
+					gomega.Equal(""))
+			})
+
+			ginkgo.By("Check that the Workloads and their corresponding Jobs were successfully deleted", func() {
+				createdJob1 := &bactchv1.Job{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job1), createdJob1)).To(testing.BeNotFoundError())
+				createdJob2 := &bactchv1.Job{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job2), createdJob2)).To(testing.BeNotFoundError())
+
+				createdWl1 := &v1beta1.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), createdWl1)).To(testing.BeNotFoundError())
+				createdWl2 := &v1beta1.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), createdWl2)).To(testing.BeNotFoundError())
+				createdWl3 := &v1beta1.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl4), createdWl3)).To(testing.BeNotFoundError())
+			})
+		})
+
+		ginkgo.It("Should delete all Workloads and the Jobs corresponding to them in all namespaces", func() {
+			ginkgo.By("Delete Workloads", func() {
+				streams, input, output, errOutput := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(input)
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(errOutput)
+
+				input.WriteString("y\n")
+
+				kueuectl.SetArgs([]string{"delete", "workload", "--namespace", ns1.Name, "--all", "--all-namespaces"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				gomega.Expect(output.String()).To(gomega.ContainSubstring(`This operation will also delete the jobs associated with these workloads.
+Do you want to proceed (y/n)?`))
+				gomega.Expect(errOutput.String()).To(
+					gomega.Equal(""))
+			})
+
+			ginkgo.By("Check that the Workloads and their corresponding Jobs were successfully deleted", func() {
+				createdJob1 := &bactchv1.Job{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job1), createdJob1)).To(testing.BeNotFoundError())
+				createdJob2 := &bactchv1.Job{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job2), createdJob2)).To(testing.BeNotFoundError())
+				createdJob3 := &bactchv1.Job{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job3), createdJob3)).To(testing.BeNotFoundError())
+
+				createdWl1 := &v1beta1.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), createdWl1)).To(testing.BeNotFoundError())
+				createdWl2 := &v1beta1.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), createdWl2)).To(testing.BeNotFoundError())
 				createdWl3 := &v1beta1.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), createdWl3)).To(testing.BeNotFoundError())
+				createdWl4 := &v1beta1.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl4), createdWl4)).To(testing.BeNotFoundError())
 			})
 		})
 	})
