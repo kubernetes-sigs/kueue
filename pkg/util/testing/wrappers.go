@@ -600,6 +600,11 @@ func (c *CohortWrapper) Obj() *kueuealpha.Cohort {
 	return &c.Cohort
 }
 
+func (c *CohortWrapper) Parent(parentName string) *CohortWrapper {
+	c.Cohort.Spec.Parent = parentName
+	return c
+}
+
 // ResourceGroup adds a ResourceGroup with flavors.
 func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrapper {
 	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, createResourceGroup(flavors...))

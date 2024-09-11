@@ -29,3 +29,8 @@ func validateResourceName(name corev1.ResourceName, fldPath *field.Path) field.E
 	}
 	return allErrs
 }
+
+type validationConfig struct {
+	hasParent                        bool
+	enforceNominalGreaterThanLending bool
+}
