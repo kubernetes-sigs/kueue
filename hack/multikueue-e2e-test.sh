@@ -41,6 +41,8 @@ function cleanup {
     fi
     #do the image restore here for the case when an error happened during deploy
     restore_managers_image
+    # Remove the `newTag` for the `kubeflow/training-operator` to revert to the default version
+    $YQ eval 'del(.images[] | select(.name == "kubeflow/training-operator").newTag)' -i "$KUBEFLOW_MANIFEST_MANAGER/kustomization.yaml"
 }
 
 
