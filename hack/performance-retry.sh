@@ -32,7 +32,8 @@ for i in $(seq 1 "$1"); do
 		break
 	else
 		if [ "$i" -lt "$1" ]; then
-			mv "${ARTIFACTS}/junit.xml" "${ARTIFACTS}/junit-fail-${i}.xml" || echo "Unable to copy ${ARTIFACTS}/junit.xml"
+			mv "${ARTIFACTS}/junit.xml" "${ARTIFACTS}/junit-fail-${i}.xml" || echo "Unable to back-up ${ARTIFACTS}/junit.xml"
+			mv "${ARTIFACTS}/run-performance-scheduler" "${ARTIFACTS}/run-performance-scheduler-fail-${i}" || echo "Unable to back-up ${ARTIFACTS}/run-performance-scheduler"
 		else 
 			exit $err
 		fi
