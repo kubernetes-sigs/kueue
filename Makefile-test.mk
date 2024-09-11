@@ -139,12 +139,17 @@ run-performance-scheduler: envtest performance-scheduler-runner minimalkueue
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
 		--minimalKueue=$(MINIMALKUEUE_RUNNER) $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
 
-.PHONY: test-performance-scheduler
-test-performance-scheduler: gotestsum run-performance-scheduler
+.PHONY: test-performance-scheduler-once
+test-performance-scheduler-once: gotestsum run-performance-scheduler
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
 		--summary=$(SCALABILITY_RUN_DIR)/summary.yaml \
 		--cmdStats=$(SCALABILITY_RUN_DIR)/minimalkueue.stats.yaml \
 		--range=$(PROJECT_DIR)/test/performance/scheduler/default_rangespec.yaml
+
+PERFORMANCE_RETRY_COUNT?=2
+.PHONY: test-performance-scheduler
+test-performance-scheduler:
+	ARTIFACTS=$(ARTIFACTS) ./hack/performance-retry.sh $(PERFORMANCE_RETRY_COUNT)
 
 .PHONY: run-performance-scheduler-in-cluster
 run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
