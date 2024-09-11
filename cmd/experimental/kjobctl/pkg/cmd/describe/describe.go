@@ -199,6 +199,9 @@ func (o *DescribeOptions) Run(ctx context.Context) error {
 		infos = append(infos, configMapsAsInfos...)
 	}
 
+	// In Slurm mode, configMaps are created with the same name as the jobs they are mounted on.
+	// Since the first half of the slice contains jobs and the second half contains configMaps,
+	// sorting objects by name will interleave jobs with their corresponding configMap.
 	slices.SortFunc(infos, func(a, b *resource.Info) int {
 		return strings.Compare(a.Name, b.Name)
 	})
