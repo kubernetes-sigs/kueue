@@ -50,6 +50,7 @@ Argo Workflows lacks native support within Kueue.
 
 - Enable support for Argo Workflow within Kueue, allowing users to simply add a label 
 `kueue.x-k8s.io/queue-name` to their workflows and submit them initially in a suspended state.
+- Should be easily extended to support other workflow managers.
 
 ### Non-Goals
 
