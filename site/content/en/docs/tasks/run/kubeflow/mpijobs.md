@@ -23,6 +23,11 @@ In order to use MPIJob you need to restart Kueue after the installation.
 You can do it by running: `kubectl delete pods -lcontrol-plane=controller-manager -nkueue-system`.
 {{% /alert %}}
 
+{{% alert title="Note" color="primary" %}}
+While using both MPI Operator and Training Operator, it is required to disable Training Operator's MPIJob option.
+Training Operator deployment needs to be  modified to enable all kubeflow jobs except MPIJob, as mentioned [here](https://github.com/kubeflow/training-operator/issues/1777).
+{{% /alert %}}
+
 ## MPI Operator definition
 
 ### a. Queue selection

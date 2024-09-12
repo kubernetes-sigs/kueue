@@ -1,0 +1,15 @@
+$patch: merge
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: training-operator
+spec:
+  template:
+    spec:
+      containers:
+      - name: training-operator
+        args:
+        - --enable-scheme=tfjob
+        - --enable-scheme=pytorchjob
+        - --enable-scheme=xgboostjob
+        - --enable-scheme=paddlejob

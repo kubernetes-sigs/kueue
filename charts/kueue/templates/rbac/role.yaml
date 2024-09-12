@@ -205,6 +205,7 @@ rules:
       - mpijobs/status
     verbs:
       - get
+      - patch
       - update
   - apiGroups:
       - kubeflow.org

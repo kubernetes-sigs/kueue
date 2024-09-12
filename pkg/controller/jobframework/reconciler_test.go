@@ -22,7 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,7 +59,7 @@ func TestIsParentJobManaged(t *testing.T) {
 		},
 		"child job has ownerReference with known non-existing workload owner": {
 			job: testingjob.MakeJob(childJobName, jobNamespace).
-				OwnerReference(parentJobName, kubeflow.SchemeGroupVersionKind).
+				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 			wantErr: ErrWorkloadOwnerNotFound,
 		},
@@ -69,7 +69,7 @@ func TestIsParentJobManaged(t *testing.T) {
 				Queue("test-q").
 				Obj(),
 			job: testingjob.MakeJob(childJobName, jobNamespace).
-				OwnerReference(parentJobName, kubeflow.SchemeGroupVersionKind).
+				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 			wantManaged: true,
 		},
@@ -78,14 +78,14 @@ func TestIsParentJobManaged(t *testing.T) {
 				UID(parentJobName).
 				Obj(),
 			job: testingjob.MakeJob(childJobName, jobNamespace).
-				OwnerReference(parentJobName, kubeflow.SchemeGroupVersionKind).
+				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(EnableIntegrationsForTest(t, "kubeflow.org/mpijob"))
-			builder := utiltesting.NewClientBuilder(kubeflow.AddToScheme)
+			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme)
 			if tc.parentJob != nil {
 				builder = builder.WithObjects(tc.parentJob)
 			}

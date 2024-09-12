@@ -23,10 +23,15 @@ export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/downl
 export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
 export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
 
-export KUBEFLOW_MANIFEST="https://github.com/kubeflow/training-operator/manifests/overlays/standalone?ref=${KUBEFLOW_VERSION}"
-#no matching semver tag unfortunately
-export KUBEFLOW_IMAGE=kubeflow/training-operator:v1-855e096
-export KUBEFLOW_CRDS=${ROOT_DIR}/dep-crds/training-operator/
+export KUBEFLOW_MANIFEST_MANAGER=${ROOT_DIR}/test/e2e/config/multikueue/manager
+export KUBEFLOW_MANIFEST_WORKER=${ROOT_DIR}/test/e2e/config/multikueue/worker
+KUBEFLOW_IMAGE_VERSION=$($KUSTOMIZE build "$KUBEFLOW_MANIFEST_WORKER" | $YQ e 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image | split(":") | .[1]')
+export KUBEFLOW_IMAGE_VERSION
+export KUBEFLOW_IMAGE=kubeflow/training-operator:${KUBEFLOW_IMAGE_VERSION}
+
+export KUBEFLOW_MPI_MANIFEST="https://raw.githubusercontent.com/kubeflow/mpi-operator/${KUBEFLOW_MPI_VERSION}/deploy/v2beta1/mpi-operator.yaml"
+export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
+export KUBEFLOW_MPI_CRD=${ROOT_DIR}/dep-crds/mpi-operator/kubeflow.org_mpijobs.yaml
 
 # $1 - cluster name
 function cluster_cleanup {
@@ -74,9 +79,16 @@ function install_jobset {
 
 #$1 - cluster name
 function install_kubeflow {
-    cluster_kind_load_image "${1}" ${KUBEFLOW_IMAGE}
+    cluster_kind_load_image "${1}" "${KUBEFLOW_IMAGE}"
     kubectl config use-context "kind-${1}"
-    kubectl apply -k "${KUBEFLOW_MANIFEST}"
+    kubectl apply -k "${KUBEFLOW_MANIFEST_WORKER}"
+}
+
+#$1 - cluster name
+function install_mpi {
+    cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
+    kubectl config use-context "kind-${1}"
+    kubectl apply --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
