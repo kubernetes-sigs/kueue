@@ -71,6 +71,11 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		return "ClusterQueue", err
 	}
 
+	cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager)
+	if err := cohortRec.SetupWithManager(mgr, cfg); err != nil {
+		return "Cohort", err
+	}
+
 	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
 		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),

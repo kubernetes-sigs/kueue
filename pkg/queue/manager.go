@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
@@ -109,6 +110,21 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 	return m
 }
 
+func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueuealpha.Cohort) {
+	m.Lock()
+	defer m.Unlock()
+	m.hm.AddCohort(cohort.Name)
+	if m.moveWorkloadsCohort(ctx, m.hm.Cohorts[cohort.Name]) {
+		m.Broadcast()
+	}
+}
+
+func (m *Manager) DeleteCohort(cohortName string) {
+	m.Lock()
+	defer m.Unlock()
+	m.hm.DeleteCohort(cohortName)
+}
+
 func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
 	m.Lock()
 	defer m.Unlock()
@@ -139,7 +155,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		}
 	}
 
-	queued := m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl)
+	queued := m.moveWorkloadsCQ(ctx, cqImpl)
 	m.reportPendingWorkloads(cq.Name, cqImpl)
 	if queued || addedWorkloads {
 		m.Broadcast()
@@ -164,7 +180,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
-	if (specUpdated && m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
+	if (specUpdated && m.moveWorkloadsCQ(ctx, cqImpl)) || (!oldActive && cqImpl.Active()) {
 		m.reportPendingWorkloads(cq.Name, cqImpl)
 		m.Broadcast()
 	}
@@ -394,7 +410,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		return
 	}
 
-	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cq) {
+	if m.moveWorkloadsCQ(ctx, cq) {
 		m.Broadcast()
 	}
 }
@@ -415,7 +431,7 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 		if !exists {
 			continue
 		}
-		if m.queueAllInadmissibleWorkloadsInCohort(ctx, cq) {
+		if m.moveWorkloadsCQ(ctx, cq) {
 			queued = true
 		}
 	}
@@ -425,23 +441,27 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 	}
 }
 
-// queueAllInadmissibleWorkloadsInCohort moves all workloads in the same
+// moveWorkloadsCQ moves all workloads in the same
 // cohort with this ClusterQueue from inadmissibleWorkloads to heap. If the
 // cohort of this ClusterQueue is empty, it just moves all workloads in this
 // ClusterQueue. If at least one workload is moved, returns true, otherwise
 // returns false.
 // The events listed below could make workloads in the same cohort admissible.
-// Then queueAllInadmissibleWorkloadsInCohort need to be invoked.
+// Then moveWorkloadsCQ need to be invoked.
 // 1. delete events for any admitted workload in the cohort.
 // 2. add events of any cluster queue in the cohort.
 // 3. update events of any cluster queue in the cohort.
-func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq *ClusterQueue) bool {
-	if !cq.HasParent() {
-		return cq.QueueInadmissibleWorkloads(ctx, m.client)
+// 4. update of cohort.
+func (m *Manager) moveWorkloadsCQ(ctx context.Context, cq *ClusterQueue) bool {
+	if cq.HasParent() {
+		return m.moveWorkloadsCohort(ctx, cq.Parent())
 	}
+	return cq.QueueInadmissibleWorkloads(ctx, m.client)
+}
 
+func (m *Manager) moveWorkloadsCohort(ctx context.Context, cohort *cohort) bool {
 	queued := false
-	for _, clusterQueue := range cq.Parent().ChildCQs() {
+	for _, clusterQueue := range cohort.ChildCQs() {
 		queued = clusterQueue.QueueInadmissibleWorkloads(ctx, m.client) || queued
 	}
 	return queued

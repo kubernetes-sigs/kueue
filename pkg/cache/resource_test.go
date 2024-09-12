@@ -215,7 +215,7 @@ func TestAvailable(t *testing.T) {
 				_ = cache.AddClusterQueue(ctx, &cq)
 			}
 			for _, cohort := range tc.cohorts {
-				cache.AddCohort(&cohort)
+				cache.AddOrUpdateCohort(&cohort)
 			}
 
 			snapshot := cache.Snapshot()

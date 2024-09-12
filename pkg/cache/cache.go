@@ -398,7 +398,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	metrics.ClearCacheMetrics(cq.Name)
 }
 
-func (c *Cache) AddCohort(apiCohort *kueuealpha.Cohort) {
+func (c *Cache) AddOrUpdateCohort(apiCohort *kueuealpha.Cohort) {
 	c.Lock()
 	defer c.Unlock()
 	c.hm.AddCohort(apiCohort.Name)
@@ -406,15 +406,15 @@ func (c *Cache) AddCohort(apiCohort *kueuealpha.Cohort) {
 	cohort.updateCohort(apiCohort)
 }
 
-func (c *Cache) DeleteCohort(apiCohort *kueuealpha.Cohort) {
+func (c *Cache) DeleteCohort(cohortName string) {
 	c.Lock()
 	defer c.Unlock()
-	c.hm.DeleteCohort(apiCohort.Name)
+	c.hm.DeleteCohort(cohortName)
 
 	// If the cohort still exists after deletion, it means
 	// that it has one or more children referencing it.
 	// We need to run update algorithm.
-	if cohort, ok := c.hm.Cohorts[apiCohort.Name]; ok {
+	if cohort, ok := c.hm.Cohorts[cohortName]; ok {
 		updateCohortResourceNode(cohort)
 	}
 }
