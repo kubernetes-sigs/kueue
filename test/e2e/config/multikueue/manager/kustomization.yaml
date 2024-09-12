@@ -8,5 +8,5 @@ secretGenerator:
   - name: training-operator-webhook-cert
     options:
       disableNameSuffixHash: true
-patchesStrategicMerge:
-  - patch_crds.yaml
+patches:
+  - path: patch_crds.yaml
