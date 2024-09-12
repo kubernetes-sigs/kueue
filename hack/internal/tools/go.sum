@@ -533,8 +533,8 @@ sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240813183042-b901db1
 sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240813183042-b901db121e1f/go.mod h1:IaDsO8xSPRxRG1/rm9CP7+jPmj0nMNAuNi/yiHnLX8k=
 sigs.k8s.io/controller-tools v0.16.1 h1:gvIsZm+2aimFDIBiDKumR7EBkc+oLxljoUVfRbDI6RI=
 sigs.k8s.io/controller-tools v0.16.1/go.mod h1:0I0xqjR65YTfoO12iR+mZR6s6UAVcUARgXRlsu0ljB0=
-sigs.k8s.io/jobset v0.5.2 h1:276q5Pi/ErLYj+GQ0ydEXR6tx3LwBhEzHLQv+k8bYF4=
-sigs.k8s.io/jobset v0.5.2/go.mod h1:Vg99rj/6OoGvy1uvywGEHOcVLCWWJYkJtisKqdWzcFw=
+sigs.k8s.io/jobset v0.6.0 h1:s5laI2rXo4CZ/I/GvG9aRlWwUnGntrV7MMtPNC1UtoU=
+sigs.k8s.io/jobset v0.6.0/go.mod h1:lOpd2X6PFNiz03N4g1NipmDH5G1Ck53Yz2CRy8zaxt8=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd h1:EDPBXCAspyGV4jQlpZSudPeMmr1bNJefnuqLsRAsHZo=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd/go.mod h1:B8JuhiUyNFVKdsE8h686QcCxMaH6HrOAZj4vswFpcB0=
 sigs.k8s.io/kind v0.23.0 h1:8fyDGWbWTeCcCTwA04v4Nfr45KKxbSPH1WO9K+jVrBg=

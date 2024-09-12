@@ -22,10 +22,17 @@ import (
 const (
 	JobSetNameKey         string = "jobset.sigs.k8s.io/jobset-name"
 	ReplicatedJobReplicas string = "jobset.sigs.k8s.io/replicatedjob-replicas"
-	ReplicatedJobNameKey  string = "jobset.sigs.k8s.io/replicatedjob-name"
-	JobIndexKey           string = "jobset.sigs.k8s.io/job-index"
-	JobKey                string = "jobset.sigs.k8s.io/job-key"
-	JobNameKey            string = "job-name" // TODO(#26): Migrate to the fully qualified label name.
+	// ReplicatedJobNameKey is used to index into a Jobs labels and retrieve the name of the parent ReplicatedJob
+	ReplicatedJobNameKey string = "jobset.sigs.k8s.io/replicatedjob-name"
+	// JobIndexKey is a label/annotation set to the index of the Job replica within its parent replicatedJob.
+	// For each replicatedJob, this value will range from 0 to replicas-1, where `replicas`
+	// is equal to jobset.spec.replicatedJobs[*].replicas.
+	JobIndexKey string = "jobset.sigs.k8s.io/job-index"
+	// JobGlobalIndexKey is a label/annotation set to an integer that is unique across the entire JobSet.
+	// For each JobSet, this value will range from 0 to N-1, where N=total number of jobs in the jobset.
+	JobGlobalIndexKey string = "jobset.sigs.k8s.io/job-global-index"
+	// JobKey holds the SHA256 hash of the namespaced job name, which can be used to uniquely identify the job.
+	JobKey string = "jobset.sigs.k8s.io/job-key"
 	// ExclusiveKey is an annotation that can be set on the JobSet or on a ReplicatedJob template.
 	// If set at the JobSet level, all child jobs from all ReplicatedJobs will be scheduled using exclusive
 	// job placement per topology group (defined as the label value).
@@ -43,6 +50,11 @@ const (
 	// JobSetControllerName is the reserved value for the managedBy field for the built-in
 	// JobSet controller.
 	JobSetControllerName = "jobset.sigs.k8s.io/jobset-controller"
+
+	// CoordinatorKey is used as an annotation and label on Jobs and Pods. If the JobSet spec
+	// defines the .spec.coordinator field, this annotation/label will be added to store a stable
+	// network endpoint where the coordinator pod can be reached.
+	CoordinatorKey = "jobset.sigs.k8s.io/coordinator"
 )
 
 type JobSetConditionType string
@@ -94,7 +106,26 @@ type JobSetSpec struct {
 	// Suspend suspends all running child Jobs when set to true.
 	Suspend *bool `json:"suspend,omitempty"`
 
-	// ManagedBy is used to indicate the controller or entity that manages a JobSet
+	// Coordinator can be used to assign a specific pod as the coordinator for
+	// the JobSet. If defined, an annotation will be added to all Jobs and pods with
+	// coordinator pod, which contains the stable network endpoint where the
+	// coordinator pod can be reached.
+	// jobset.sigs.k8s.io/coordinator=<pod hostname>.<headless service>
+	// +optional
+	Coordinator *Coordinator `json:"coordinator,omitempty"`
+
+	// ManagedBy is used to indicate the controller or entity that manages a JobSet.
+	// The built-in JobSet controller reconciles JobSets which don't have this
+	// field at all or the field value is the reserved string
+	// `jobset.sigs.k8s.io/jobset-controller`, but skips reconciling JobSets
+	// with a custom value for this field.
+	//
+	// The value must be a valid domain-prefixed path (e.g. acme.io/foo) -
+	// all characters before the first "/" must be a valid subdomain as defined
+	// by RFC 1123. All characters trailing the first "/" must be valid HTTP Path
+	// characters as defined by RFC 3986. The value cannot exceed 63 characters.
+	// The field is immutable.
+	// +optional
 	ManagedBy *string `json:"managedBy,omitempty"`
 
 	// TTLSecondsAfterFinished limits the lifetime of a JobSet that has finished
@@ -118,6 +149,13 @@ type JobSetStatus struct {
 
 	// Restarts tracks the number of times the JobSet has restarted (i.e. recreated in case of RecreateAll policy).
 	Restarts int32 `json:"restarts,omitempty"`
+
+	// RestartsCountTowardsMax tracks the number of times the JobSet has restarted that counts towards the maximum allowed number of restarts.
+	RestartsCountTowardsMax int32 `json:"restartsCountTowardsMax,omitempty"`
+
+	// TerminalState the state of the JobSet when it finishes execution.
+	// It can be either Complete or Failed. Otherwise, it is empty by default.
+	TerminalState string `json:"terminalState,omitempty"`
 
 	// ReplicatedJobsStatus track the number of JobsReady for each replicatedJob.
 	// +optional
@@ -154,6 +192,7 @@ type ReplicatedJobStatus struct {
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="TerminalState",JSONPath=".status.terminalState",type=string,description="Final state of JobSet"
 // +kubebuilder:printcolumn:name="Restarts",JSONPath=".status.restarts",type=string,description="Number of restarts"
 // +kubebuilder:printcolumn:name="Completed",type="string",priority=0,JSONPath=".status.conditions[?(@.type==\"Completed\")].status"
 // +kubebuilder:printcolumn:name="Suspended",type="string",JSONPath=".spec.suspend",description="JobSet suspended"
@@ -200,6 +239,11 @@ type Network struct {
 	// Defaults to <jobSet.name> if not set.
 	// +optional
 	Subdomain string `json:"subdomain,omitempty"`
+
+	// Indicates if DNS records of pods should be published before the pods are ready.
+	// Defaults to True.
+	// +optional
+	PublishNotReadyAddresses *bool `json:"publishNotReadyAddresses,omitempty"`
 }
 
 // Operator defines the target of a SuccessPolicy or FailurePolicy.
@@ -213,10 +257,56 @@ const (
 	OperatorAny Operator = "Any"
 )
 
+// FailurePolicyAction defines the action the JobSet controller will take for
+// a given FailurePolicyRule.
+type FailurePolicyAction string
+
+const (
+	// Fail the JobSet immediately, regardless of maxRestarts.
+	FailJobSet FailurePolicyAction = "FailJobSet"
+
+	// Restart the JobSet if the number of restart attempts is less than MaxRestarts.
+	// Otherwise, fail the JobSet.
+	RestartJobSet FailurePolicyAction = "RestartJobSet"
+
+	// Do not count the failure against maxRestarts.
+	RestartJobSetAndIgnoreMaxRestarts FailurePolicyAction = "RestartJobSetAndIgnoreMaxRestarts"
+)
+
+// FailurePolicyRule defines a FailurePolicyAction to be executed if a child job
+// fails due to a reason listed in OnJobFailureReasons.
+type FailurePolicyRule struct {
+	// The name of the failure policy rule.
+	// The name is defaulted to 'failurePolicyRuleN' where N is the index of the failure policy rule.
+	// The name must match the regular expression "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$".
+	Name string `json:"name"`
+	// The action to take if the rule is matched.
+	// +kubebuilder:validation:Enum:=FailJobSet;RestartJobSet;RestartJobSetAndIgnoreMaxRestarts
+	Action FailurePolicyAction `json:"action"`
+	// The requirement on the job failure reasons. The requirement
+	// is satisfied if at least one reason matches the list.
+	// The rules are evaluated in order, and the first matching
+	// rule is executed.
+	// An empty list applies the rule to any job failure reason.
+	// +kubebuilder:validation:UniqueItems:true
+	OnJobFailureReasons []string `json:"onJobFailureReasons,omitempty"`
+	// TargetReplicatedJobs are the names of the replicated jobs the operator applies to.
+	// An empty list will apply to all replicatedJobs.
+	// +optional
+	// +listType=atomic
+	TargetReplicatedJobs []string `json:"targetReplicatedJobs,omitempty"`
+}
+
 type FailurePolicy struct {
 	// MaxRestarts defines the limit on the number of JobSet restarts.
 	// A restart is achieved by recreating all active child jobs.
 	MaxRestarts int32 `json:"maxRestarts,omitempty"`
+
+	// List of failure policy rules for this JobSet.
+	// For a given Job failure, the rules will be evaluated in order,
+	// and only the first matching rule will be executed.
+	// If no matching rule is found, the RestartJobSet action is applied.
+	Rules []FailurePolicyRule `json:"rules,omitempty"`
 }
 
 type SuccessPolicy struct {
@@ -250,6 +340,20 @@ type StartupPolicy struct {
 	// when all the jobs of the previous one are ready.
 	// +kubebuilder:validation:Enum=AnyOrder;InOrder
 	StartupPolicyOrder StartupPolicyOptions `json:"startupPolicyOrder"`
+}
+
+// Coordinator defines which pod can be marked as the coordinator for the JobSet workload.
+type Coordinator struct {
+	// ReplicatedJob is the name of the ReplicatedJob which contains
+	// the coordinator pod.
+	ReplicatedJob string `json:"replicatedJob"`
+
+	// JobIndex is the index of Job which contains the coordinator pod
+	// (i.e., for a ReplicatedJob with N replicas, there are Job indexes 0 to N-1).
+	JobIndex int `json:"jobIndex,omitempty"`
+
+	// PodIndex is the Job completion index of the coordinator pod.
+	PodIndex int `json:"podIndex,omitempty"`
 }
 
 func init() {
