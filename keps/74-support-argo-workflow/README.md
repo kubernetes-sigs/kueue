@@ -241,6 +241,8 @@ STEP            TEMPLATE  PODNAME  DURATION  MESSAGE
 
 #### How to suspend a workflow step by step
 
+It is hard for users to add suspend template manually in a workflow before each
+leaf template. Some tools are needed to help them to do this.
 We introduce three ways to manage the workflow. Responsebilities are different for the
 workflow-controller and kueue-controller in two ways.
 
@@ -264,13 +266,9 @@ job-controller in Kueue subsequently organizes these pods into groups (identifia
 status) and creates corresponding workloads for each group. Following workload acceptance, the scheduling 
 gates are removed from the pods, enabling their scheduling and execution.
 
-#### Drawback and Limitations
-
-
-
 #### Advantages
 
-
+- It can support queuing by layer level.
 
 ### Plain Pod as An Unit
 
@@ -285,9 +283,11 @@ admitted by Kueue.
 
 #### Advantages
 
-
+- Can reuse the existing ability.
 
 ## Additional Details
+
+The implementation details will be added after the discussion.
 
 ### Test Plan
 
@@ -326,10 +326,9 @@ extending the production code to implement this enhancement.
 -->
 The code will adhere to regular best practices for unit tests and coverage.
 
-
-
 #### Integration tests
 
+Integration tests should be added to ensure workflow work well like other kinds of workloads.
 
 ### Graduation Criteria
 <!--
@@ -349,26 +348,3 @@ milestones with these graduation criteria:
 -->
 
 The feature starts at the beta level. 
-
-
-## Implementation History
-
-<!--
-Major milestones in the lifecycle of a KEP should be tracked in this section.
-Major milestones might include:
-- the `Summary` and `Motivation` sections being merged, signaling SIG acceptance
-- the `Proposal` section being merged, signaling agreement on a proposed design
-- the date implementation started
-- the first Kubernetes release where an initial version of the KEP was available
-- the version of Kubernetes where the KEP graduated to general availability
-- when the KEP was retired or superseded
--->
-
-## Drawbacks
-
-<!--
-Why should this KEP _not_ be implemented?
--->
-
-
-## Alternatives
