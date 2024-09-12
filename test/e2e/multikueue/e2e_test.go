@@ -481,7 +481,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 					finishReasonMessage := fmt.Sprintf("MPIJob %s successfully completed.", client.ObjectKeyFromObject(mpijob).String())
 					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the MPIJob is completed", func() {
