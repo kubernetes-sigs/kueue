@@ -97,9 +97,10 @@ func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val in
 
 // Available returns the current capacity available, before preempting
 // any workloads. Includes local capacity and capacity borrowed from
-// Cohort.
+// Cohort. When the ClusterQueue/Cohort is in debt, Available
+// will return 0.
 func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) int64 {
-	return available(c, fr, true)
+	return max(0, available(c, fr, true))
 }
 
 // PotentialAvailable returns the largest workload this ClusterQueue could
