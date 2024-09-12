@@ -416,7 +416,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Succeeded: 1,
 							Selector:  fmt.Sprintf("training.kubeflow.org/job-name=%s,training.kubeflow.org/operator-name=pytorchjob-controller,training.kubeflow.org/replica-type=master", createdPyTorchJob.Name),
 						},
-						util.IgnoreConditionTimestampsAndObservedGeneration))
+					))
 
 					finishReasonMessage := fmt.Sprintf("PyTorchJob %s is successfully completed.", pyTorchJob.Name)
 					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
@@ -477,7 +477,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 							Active:    0,
 							Succeeded: 1,
 						},
-						util.IgnoreConditionTimestampsAndObservedGeneration))
+					))
 
 					finishReasonMessage := fmt.Sprintf("MPIJob %s successfully completed.", client.ObjectKeyFromObject(mpijob).String())
 					checkFinishStatusCondition(g, wlLookupKey, finishReasonMessage)
