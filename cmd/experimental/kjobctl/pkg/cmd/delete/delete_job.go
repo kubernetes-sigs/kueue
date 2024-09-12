@@ -150,6 +150,11 @@ func (o *JobOptions) Run(ctx context.Context) error {
 			fmt.Fprintf(o.ErrOut, "jobs.batch \"%s\" not created via kjob\n", job.Name)
 			continue
 		}
+		if job.Labels[constants.ModeLabel] != string(v1alpha1.JobMode) {
+			fmt.Fprintf(o.ErrOut, "jobs.batch \"%s\" created in \"%s\" mode. Switch to the correct mode to delete it\n",
+				job.Name, job.Labels[constants.ModeLabel])
+			continue
+		}
 
 		if o.DryRunStrategy != util.DryRunClient {
 			deleteOptions := metav1.DeleteOptions{

@@ -29,6 +29,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	kubetesting "k8s.io/client-go/testing"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
@@ -46,12 +47,12 @@ func TestJobCmd(t *testing.T) {
 		"shouldn't delete job because it is not found": {
 			args: []string{"j"},
 			objs: []runtime.Object{
-				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
-				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
+				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantJobs: []batchv1.Job{
-				*wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
-				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				*wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
+				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantOutErr: "jobs.batch \"j\" not found\n",
 		},
@@ -65,33 +66,47 @@ func TestJobCmd(t *testing.T) {
 			},
 			wantOutErr: "jobs.batch \"j1\" not created via kjob\n",
 		},
+		"shouldn't delete job because it is not used for Job mode": {
+			args: []string{"j1", "j2"},
+			objs: []runtime.Object{
+				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
+				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.SlurmMode).Obj(),
+			},
+			wantJobs: []batchv1.Job{
+				*wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
+				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.SlurmMode).Obj(),
+			},
+			wantOutErr: `jobs.batch "j1" created in "" mode. Switch to the correct mode to delete it
+jobs.batch "j2" created in "Slurm" mode. Switch to the correct mode to delete it
+`,
+		},
 		"should delete job": {
 			args: []string{"j1"},
 			objs: []runtime.Object{
-				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
-				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
+				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantJobs: []batchv1.Job{
-				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantOut: "job.batch/j1 deleted\n",
 		},
 		"should delete jobs": {
 			args: []string{"j1", "j2"},
 			objs: []runtime.Object{
-				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
-				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
+				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantOut: "job.batch/j1 deleted\njob.batch/j2 deleted\n",
 		},
 		"should delete only one job": {
 			args: []string{"j1", "j"},
 			objs: []runtime.Object{
-				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
-				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
+				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantJobs: []batchv1.Job{
-				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantOut:    "job.batch/j1 deleted\n",
 			wantOutErr: "jobs.batch \"j\" not found\n",
@@ -99,24 +114,24 @@ func TestJobCmd(t *testing.T) {
 		"shouldn't delete job with client dry run": {
 			args: []string{"j1", "--dry-run", "client"},
 			objs: []runtime.Object{
-				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
-				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
+				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantJobs: []batchv1.Job{
-				*wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
-				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				*wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
+				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantOut: "job.batch/j1 deleted (client dry run)\n",
 		},
 		"shouldn't delete job with server dry run": {
 			args: []string{"j1", "--dry-run", "server"},
 			objs: []runtime.Object{
-				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
-				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
+				wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantJobs: []batchv1.Job{
-				*wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Obj(),
-				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Obj(),
+				*wrappers.MakeJob("j1", metav1.NamespaceDefault).Profile("p1").Mode(v1alpha1.JobMode).Obj(),
+				*wrappers.MakeJob("j2", metav1.NamespaceDefault).Profile("p2").Mode(v1alpha1.JobMode).Obj(),
 			},
 			wantOut: "job.batch/j1 deleted (server dry run)\n",
 		},
