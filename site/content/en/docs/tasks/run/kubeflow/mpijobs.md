@@ -19,7 +19,7 @@ Check [the MPI Operator installation guide](https://github.com/kubeflow/mpi-oper
 You can [modify kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include MPIJobs as an allowed workload.
 
 {{% alert title="Note" color="primary" %}}
-In order to use MPIJob you need to restart Kueue after the installation.
+In order to use MPIJob, prior to v0.8.1, you need to restart Kueue after the installation.
 You can do it by running: `kubectl delete pods -lcontrol-plane=controller-manager -nkueue-system`.
 {{% /alert %}}
 
