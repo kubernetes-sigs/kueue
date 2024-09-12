@@ -21,7 +21,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// ResourceFlavorSpecApplyConfiguration represents an declarative configuration of the ResourceFlavorSpec type for use
+// ResourceFlavorSpecApplyConfiguration represents a declarative configuration of the ResourceFlavorSpec type for use
 // with apply.
 type ResourceFlavorSpecApplyConfiguration struct {
 	NodeLabels  map[string]string `json:"nodeLabels,omitempty"`
@@ -29,7 +29,7 @@ type ResourceFlavorSpecApplyConfiguration struct {
 	Tolerations []v1.Toleration   `json:"tolerations,omitempty"`
 }
 
-// ResourceFlavorSpecApplyConfiguration constructs an declarative configuration of the ResourceFlavorSpec type for use with
+// ResourceFlavorSpecApplyConfiguration constructs a declarative configuration of the ResourceFlavorSpec type for use with
 // apply.
 func ResourceFlavorSpec() *ResourceFlavorSpecApplyConfiguration {
 	return &ResourceFlavorSpecApplyConfiguration{}

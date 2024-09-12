@@ -19,14 +19,11 @@ package v1beta1
 
 import (
 	"context"
-	json "encoding/json"
-	"fmt"
-	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	rest "k8s.io/client-go/rest"
+	gentype "k8s.io/client-go/gentype"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -54,143 +51,18 @@ type ResourceFlavorInterface interface {
 
 // resourceFlavors implements ResourceFlavorInterface
 type resourceFlavors struct {
-	client rest.Interface
+	*gentype.ClientWithListAndApply[*v1beta1.ResourceFlavor, *v1beta1.ResourceFlavorList, *kueuev1beta1.ResourceFlavorApplyConfiguration]
 }
 
 // newResourceFlavors returns a ResourceFlavors
 func newResourceFlavors(c *KueueV1beta1Client) *resourceFlavors {
 	return &resourceFlavors{
-		client: c.RESTClient(),
+		gentype.NewClientWithListAndApply[*v1beta1.ResourceFlavor, *v1beta1.ResourceFlavorList, *kueuev1beta1.ResourceFlavorApplyConfiguration](
+			"resourceflavors",
+			c.RESTClient(),
+			scheme.ParameterCodec,
+			"",
+			func() *v1beta1.ResourceFlavor { return &v1beta1.ResourceFlavor{} },
+			func() *v1beta1.ResourceFlavorList { return &v1beta1.ResourceFlavorList{} }),
 	}
-}
-
-// Get takes name of the resourceFlavor, and returns the corresponding resourceFlavor object, and an error if there is any.
-func (c *resourceFlavors) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.ResourceFlavor, err error) {
-	result = &v1beta1.ResourceFlavor{}
-	err = c.client.Get().
-		Resource("resourceflavors").
-		Name(name).
-		VersionedParams(&options, scheme.ParameterCodec).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// List takes label and field selectors, and returns the list of ResourceFlavors that match those selectors.
-func (c *resourceFlavors) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.ResourceFlavorList, err error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	result = &v1beta1.ResourceFlavorList{}
-	err = c.client.Get().
-		Resource("resourceflavors").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Watch returns a watch.Interface that watches the requested resourceFlavors.
-func (c *resourceFlavors) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	opts.Watch = true
-	return c.client.Get().
-		Resource("resourceflavors").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Watch(ctx)
-}
-
-// Create takes the representation of a resourceFlavor and creates it.  Returns the server's representation of the resourceFlavor, and an error, if there is any.
-func (c *resourceFlavors) Create(ctx context.Context, resourceFlavor *v1beta1.ResourceFlavor, opts v1.CreateOptions) (result *v1beta1.ResourceFlavor, err error) {
-	result = &v1beta1.ResourceFlavor{}
-	err = c.client.Post().
-		Resource("resourceflavors").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(resourceFlavor).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Update takes the representation of a resourceFlavor and updates it. Returns the server's representation of the resourceFlavor, and an error, if there is any.
-func (c *resourceFlavors) Update(ctx context.Context, resourceFlavor *v1beta1.ResourceFlavor, opts v1.UpdateOptions) (result *v1beta1.ResourceFlavor, err error) {
-	result = &v1beta1.ResourceFlavor{}
-	err = c.client.Put().
-		Resource("resourceflavors").
-		Name(resourceFlavor.Name).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(resourceFlavor).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Delete takes name of the resourceFlavor and deletes it. Returns an error if one occurs.
-func (c *resourceFlavors) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	return c.client.Delete().
-		Resource("resourceflavors").
-		Name(name).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *resourceFlavors) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	var timeout time.Duration
-	if listOpts.TimeoutSeconds != nil {
-		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
-	}
-	return c.client.Delete().
-		Resource("resourceflavors").
-		VersionedParams(&listOpts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// Patch applies the patch and returns the patched resourceFlavor.
-func (c *resourceFlavors) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ResourceFlavor, err error) {
-	result = &v1beta1.ResourceFlavor{}
-	err = c.client.Patch(pt).
-		Resource("resourceflavors").
-		Name(name).
-		SubResource(subresources...).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Apply takes the given apply declarative configuration, applies it and returns the applied resourceFlavor.
-func (c *resourceFlavors) Apply(ctx context.Context, resourceFlavor *kueuev1beta1.ResourceFlavorApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ResourceFlavor, err error) {
-	if resourceFlavor == nil {
-		return nil, fmt.Errorf("resourceFlavor provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(resourceFlavor)
-	if err != nil {
-		return nil, err
-	}
-	name := resourceFlavor.Name
-	if name == nil {
-		return nil, fmt.Errorf("resourceFlavor.Name must be provided to Apply")
-	}
-	result = &v1beta1.ResourceFlavor{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Resource("resourceflavors").
-		Name(*name).
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
 }

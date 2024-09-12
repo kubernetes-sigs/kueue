@@ -531,7 +531,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	syncHndl := handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: e.Object.GetName(),
 			}})
@@ -539,7 +539,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	fsWatcherHndl := handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			// batch the events
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: e.Object.GetName(),
@@ -598,8 +598,8 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueuealpha.MultiKueueCluster{}).
 		Watches(&corev1.Secret{}, &secretHandler{client: c.localClient}).
-		WatchesRawSource(&source.Channel{Source: c.watchEndedCh}, syncHndl).
-		WatchesRawSource(&source.Channel{Source: c.fsWatcher.reconcile}, fsWatcherHndl).
+		WatchesRawSource(source.Channel(c.watchEndedCh, syncHndl)).
+		WatchesRawSource(source.Channel(c.fsWatcher.reconcile, fsWatcherHndl)).
 		WithEventFilter(filter).
 		Complete(c)
 }
@@ -610,7 +610,7 @@ type secretHandler struct {
 
 var _ handler.EventHandler = (*secretHandler)(nil)
 
-func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	secret, isSecret := event.Object.(*corev1.Secret)
 	if !isSecret {
 		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on create event")
@@ -621,7 +621,7 @@ func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q w
 	}
 }
 
-func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	secret, isSecret := event.ObjectNew.(*corev1.Secret)
 	if !isSecret {
 		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on update event")
@@ -632,7 +632,7 @@ func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q w
 	}
 }
 
-func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	secret, isSecret := event.Object.(*corev1.Secret)
 	if !isSecret {
 		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on delete event")
@@ -643,7 +643,7 @@ func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q w
 	}
 }
 
-func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	secret, isSecret := event.Object.(*corev1.Secret)
 	if !isSecret {
 		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on generic event")
@@ -654,7 +654,7 @@ func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q
 	}
 }
 
-func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q workqueue.RateLimitingInterface) error {
+func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueuealpha.MultiKueueClusterList{}
 	if err := s.client.List(ctx, users, client.MatchingFields{UsingKubeConfigs: strings.Join([]string{secret.Namespace, secret.Name}, "/")}); err != nil {
 		return err

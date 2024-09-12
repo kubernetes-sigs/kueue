@@ -249,6 +249,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 		"shouldn't create resource flavor with dry-run client": {
 			rfName:  "rf",
 			args:    []string{"--dry-run", "client"},
+			wantRf:  &v1beta1.ResourceFlavor{},
 			wantOut: "resourceflavor.kueue.x-k8s.io/rf created (client dry run)\n",
 		},
 		"should create resource flavor": {

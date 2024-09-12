@@ -559,8 +559,9 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range testCases {
-		defer features.SetFeatureGateDuringTest(t, features.QueueVisibility, tc.enableQueueVisibility)()
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.QueueVisibility, tc.enableQueueVisibility)
+
 			cq := utiltesting.MakeClusterQueue(cqName).
 				QueueingStrategy(kueue.StrictFIFO).Obj()
 			lq := utiltesting.MakeLocalQueue(lqName, "").

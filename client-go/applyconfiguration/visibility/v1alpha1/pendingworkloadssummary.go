@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// PendingWorkloadsSummaryApplyConfiguration represents an declarative configuration of the PendingWorkloadsSummary type for use
+// PendingWorkloadsSummaryApplyConfiguration represents a declarative configuration of the PendingWorkloadsSummary type for use
 // with apply.
 type PendingWorkloadsSummaryApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
@@ -31,7 +31,7 @@ type PendingWorkloadsSummaryApplyConfiguration struct {
 	Items                            []PendingWorkloadApplyConfiguration `json:"items,omitempty"`
 }
 
-// PendingWorkloadsSummaryApplyConfiguration constructs an declarative configuration of the PendingWorkloadsSummary type for use with
+// PendingWorkloadsSummaryApplyConfiguration constructs a declarative configuration of the PendingWorkloadsSummary type for use with
 // apply.
 func PendingWorkloadsSummary() *PendingWorkloadsSummaryApplyConfiguration {
 	b := &PendingWorkloadsSummaryApplyConfiguration{}
@@ -209,4 +209,10 @@ func (b *PendingWorkloadsSummaryApplyConfiguration) WithItems(values ...*Pending
 		b.Items = append(b.Items, *values[i])
 	}
 	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *PendingWorkloadsSummaryApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }

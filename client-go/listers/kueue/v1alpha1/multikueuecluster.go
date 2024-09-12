@@ -18,8 +18,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/listers"
 	"k8s.io/client-go/tools/cache"
 	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
@@ -38,30 +38,10 @@ type MultiKueueClusterLister interface {
 
 // multiKueueClusterLister implements the MultiKueueClusterLister interface.
 type multiKueueClusterLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*v1alpha1.MultiKueueCluster]
 }
 
 // NewMultiKueueClusterLister returns a new MultiKueueClusterLister.
 func NewMultiKueueClusterLister(indexer cache.Indexer) MultiKueueClusterLister {
-	return &multiKueueClusterLister{indexer: indexer}
-}
-
-// List lists all MultiKueueClusters in the indexer.
-func (s *multiKueueClusterLister) List(selector labels.Selector) (ret []*v1alpha1.MultiKueueCluster, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.MultiKueueCluster))
-	})
-	return ret, err
-}
-
-// Get retrieves the MultiKueueCluster from the index for a given name.
-func (s *multiKueueClusterLister) Get(name string) (*v1alpha1.MultiKueueCluster, error) {
-	obj, exists, err := s.indexer.GetByKey(name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("multikueuecluster"), name)
-	}
-	return obj.(*v1alpha1.MultiKueueCluster), nil
+	return &multiKueueClusterLister{listers.New[*v1alpha1.MultiKueueCluster](indexer, v1alpha1.Resource("multikueuecluster"))}
 }

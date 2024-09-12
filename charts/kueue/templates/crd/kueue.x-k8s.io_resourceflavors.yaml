@@ -8,7 +8,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.16.1
   name: resourceflavors.kueue.x-k8s.io
 spec:
   conversion:
@@ -71,7 +71,6 @@ spec:
                   nodeLabels should be injected into the pods of the Workload by the
                   controller that integrates with the Workload object.
 
-
                   nodeLabels can be up to 8 elements.
                 maxProperties: 8
                 type: object
@@ -83,10 +82,8 @@ spec:
                   Workloads' podsets must have tolerations for these nodeTaints in order to
                   get assigned this ResourceFlavor during admission.
 
-
                   An example of a nodeTaint is
                   cloud.provider.com/preemptible="true":NoSchedule
-
 
                   nodeTaints can be up to 8 elements.
                 items:
@@ -129,10 +126,8 @@ spec:
                   tolerations are extra tolerations that will be added to the pods admitted in
                   the quota associated with this resource flavor.
 
-
                   An example of a toleration is
                   cloud.provider.com/preemptible="true":NoSchedule
-
 
                   tolerations can be up to 8 elements.
                 items:

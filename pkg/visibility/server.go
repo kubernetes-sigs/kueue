@@ -29,6 +29,7 @@ import (
 	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
+	utilversion "k8s.io/apiserver/pkg/util/version"
 	"k8s.io/client-go/pkg/version"
 	_ "k8s.io/component-base/metrics/prometheus/restclient" // for client-go metrics registration
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -61,7 +62,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager
 		os.Exit(1)
 	}
 
-	if err := visibilityServer.PrepareRun().Run(ctx.Done()); err != nil {
+	if err := visibilityServer.PrepareRun().RunWithContext(ctx); err != nil {
 		setupLog.Error(err, "Error running visibility server")
 		os.Exit(1)
 	}
@@ -82,15 +83,16 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) er
 
 func newVisibilityServerConfig() *genericapiserver.RecommendedConfig {
 	c := genericapiserver.NewRecommendedConfig(api.Codecs)
-	versionGet := version.Get()
-	c.Config.Version = &versionGet
+	versionInfo := version.Get()
+	version := strings.Split(versionInfo.String(), "-")[0]
 	// enable OpenAPI schemas
+	c.Config.EffectiveVersion = utilversion.NewEffectiveVersion(version)
 	c.Config.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
 	c.Config.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(api.Scheme))
 	c.Config.OpenAPIConfig.Info.Title = "Kueue visibility-server"
 	c.Config.OpenAPIV3Config.Info.Title = "Kueue visibility-server"
-	c.Config.OpenAPIConfig.Info.Version = strings.Split(c.Config.Version.String(), "-")[0]
-	c.Config.OpenAPIV3Config.Info.Version = strings.Split(c.Config.Version.String(), "-")[0]
+	c.Config.OpenAPIConfig.Info.Version = version
+	c.Config.OpenAPIV3Config.Info.Version = version
 
 	c.EnableMetrics = true
 

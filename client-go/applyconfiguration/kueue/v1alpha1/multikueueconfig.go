@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// MultiKueueConfigApplyConfiguration represents an declarative configuration of the MultiKueueConfig type for use
+// MultiKueueConfigApplyConfiguration represents a declarative configuration of the MultiKueueConfig type for use
 // with apply.
 type MultiKueueConfigApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
@@ -31,7 +31,7 @@ type MultiKueueConfigApplyConfiguration struct {
 	Spec                             *MultiKueueConfigSpecApplyConfiguration `json:"spec,omitempty"`
 }
 
-// MultiKueueConfig constructs an declarative configuration of the MultiKueueConfig type for use with
+// MultiKueueConfig constructs a declarative configuration of the MultiKueueConfig type for use with
 // apply.
 func MultiKueueConfig(name string) *MultiKueueConfigApplyConfiguration {
 	b := &MultiKueueConfigApplyConfiguration{}
@@ -205,4 +205,10 @@ func (b *MultiKueueConfigApplyConfiguration) ensureObjectMetaApplyConfigurationE
 func (b *MultiKueueConfigApplyConfiguration) WithSpec(value *MultiKueueConfigSpecApplyConfiguration) *MultiKueueConfigApplyConfiguration {
 	b.Spec = value
 	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *MultiKueueConfigApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }

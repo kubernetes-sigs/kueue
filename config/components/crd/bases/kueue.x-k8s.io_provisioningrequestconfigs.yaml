@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.16.1
   name: provisioningrequestconfigs.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -45,13 +45,10 @@ spec:
                 description: |-
                   managedResources contains the list of resources managed by the autoscaling.
 
-
                   If empty, all resources are considered managed.
-
 
                   If not empty, the ProvisioningRequest will contain only the podsets that are
                   requesting at least one of them.
-
 
                   If none of the workloads podsets is requesting at least a managed resource,
                   the workload is considered ready.

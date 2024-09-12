@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -112,6 +113,7 @@ func mainWithExitCode() int {
 	options := ctrl.Options{
 		Scheme: scheme,
 		Controller: crconfig.Controller{
+			SkipNameValidation: ptr.To(true),
 			GroupKindConcurrency: map[string]int{
 				kueue.GroupVersion.WithKind("Workload").GroupKind().String():       5,
 				kueue.GroupVersion.WithKind("LocalQueue").GroupKind().String():     1,

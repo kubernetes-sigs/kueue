@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// ClusterQueueApplyConfiguration represents an declarative configuration of the ClusterQueue type for use
+// ClusterQueueApplyConfiguration represents a declarative configuration of the ClusterQueue type for use
 // with apply.
 type ClusterQueueApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
@@ -31,7 +31,7 @@ type ClusterQueueApplyConfiguration struct {
 	Summary                          *PendingWorkloadsSummaryApplyConfiguration `json:"pendingWorkloadsSummary,omitempty"`
 }
 
-// ClusterQueue constructs an declarative configuration of the ClusterQueue type for use with
+// ClusterQueue constructs a declarative configuration of the ClusterQueue type for use with
 // apply.
 func ClusterQueue(name string) *ClusterQueueApplyConfiguration {
 	b := &ClusterQueueApplyConfiguration{}
@@ -205,4 +205,10 @@ func (b *ClusterQueueApplyConfiguration) ensureObjectMetaApplyConfigurationExist
 func (b *ClusterQueueApplyConfiguration) WithSummary(value *PendingWorkloadsSummaryApplyConfiguration) *ClusterQueueApplyConfiguration {
 	b.Summary = value
 	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *ClusterQueueApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }

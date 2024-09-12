@@ -328,7 +328,7 @@ func TestValidateClusterQueue(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.disableLendingLimit {
-				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
+				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
 			gotErr := ValidateClusterQueue(tc.clusterQueue)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {

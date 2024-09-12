@@ -453,7 +453,7 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: e.Object.GetNamespace(),
 				Name:      e.Object.GetName(),
@@ -462,8 +462,9 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("multikueue-workload").
 		For(&kueue.Workload{}).
-		WatchesRawSource(&source.Channel{Source: w.clusters.wlUpdateCh}, syncHndl).
+		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		WithEventFilter(w).
 		Complete(w)
 }

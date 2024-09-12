@@ -67,11 +67,11 @@ type multiplePreemptionsCompatibility int
 
 func (mode multiplePreemptionsCompatibility) runTest(baseName string, t *testing.T, f func(t *testing.T)) {
 	if mode == Both || mode == Legacy {
-		defer features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, false)()
+		features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, false)
 		t.Run(baseName+" LegacyMode", f)
 	}
 	if mode == Both || mode == MultiplePremptions {
-		defer features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, true)()
+		features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, true)
 		t.Run(baseName+" MultiplePreemptionsMode", f)
 	}
 }
@@ -2563,10 +2563,10 @@ func TestSchedule(t *testing.T) {
 		tc.multiplePreemptions.runTest(name, t, func(t *testing.T) {
 			metrics.AdmissionCyclePreemptionSkips.Reset()
 			if tc.disableLendingLimit {
-				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
+				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
 			if tc.disablePartialAdmission {
-				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)()
+				features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -2958,7 +2958,7 @@ func TestEntryOrdering(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Cleanup(features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting))
+			features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting)
 			sort.Sort(entryOrdering{
 				entries:          tc.input,
 				workloadOrdering: tc.workloadOrdering},
