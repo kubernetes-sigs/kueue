@@ -175,8 +175,29 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 	return clientcmd.Write(cfg)
 }
 
+func cleanKubeconfigForMultiKueueSA(ctx context.Context, c client.Client, ns string, prefix string) error {
+	roleName := prefix + "-role"
+
+	err := c.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}})
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	err = c.Delete(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: prefix + "-sa"}})
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	err = c.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-crb"}})
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	return nil
+}
+
 func makeMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string, kubeconfig []byte) error {
-	w1Secret := &corev1.Secret{
+	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 			Name:      name,
@@ -185,7 +206,17 @@ func makeMultiKueueSecret(ctx context.Context, c client.Client, namespace string
 			"kubeconfig": kubeconfig,
 		},
 	}
-	return c.Create(ctx, w1Secret)
+	return c.Create(ctx, secret)
+}
+
+func cleanMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+		},
+	}
+	return client.IgnoreNotFound(c.Delete(ctx, secret))
 }
 
 func TestAPIs(t *testing.T) {
@@ -248,4 +279,12 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, "kueue-system", "mksa")).To(gomega.Succeed())
+	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, "kueue-system", "mksa")).To(gomega.Succeed())
+
+	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue1")).To(gomega.Succeed())
+	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue2")).To(gomega.Succeed())
 })
