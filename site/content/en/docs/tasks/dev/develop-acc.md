@@ -31,11 +31,10 @@ based on the ACC's custom logic. It can either allow the admission, requeue or f
 The [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/) implements this in `pkg/controller/admissionchecks/provisioning/controller.go`
 
 ### Parameters Object Type
+Optionally, you can define a cluster level object type to hold the Admission Check parameters specific to your implementation.
+Users can reference instances of this object type in the AdmissionCheck definition in [spec.parameters](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference).
 
-Optionally, a custom cluster level object type holding the Admission Check specific parameters can be defined. 
-Instances of this object type can be referenced in the AdmissionCheck definition by [spec.parameters](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference) and provide implementation specific data to the ACC.
-
-The [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/) uses [ProvisioningRequestConfig](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig) for this purpose.
+For example, the [Provisioning Admission Check Controller](/docs/admission-check-controllers/provisioning/) uses [ProvisioningRequestConfig](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig) for this purpose.
 
 ## Utility Code
 
