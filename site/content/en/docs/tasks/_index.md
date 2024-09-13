@@ -59,6 +59,7 @@ A _platform developer_ integrates Kueue with other software and/or contributes t
 As a platform developer, you can learn how to:
 - [Integrate a custom Job with Kueue](dev/integrate_a_custom_job).
 - [Enable pprof endpoints](dev/enabling_pprof_endpoints).
+- [Develop a custom AdmissionCheck Controller](dev/develop-acc).
 
 ## Troubleshooting
 
