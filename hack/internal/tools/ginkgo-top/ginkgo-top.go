@@ -45,8 +45,8 @@ type Event struct {
 
 var (
 	reportPath = flag.String("i", "ginkgo.json", "input file name")
-	count      = flag.Uint("count", 0, "number of items")
-	noEvents   = flag.Bool("noEvents", false, "don't show events")
+	maxCount   = flag.Uint("maxCount", 0, "maximum number of items")
+	withEvents = flag.Bool("withEvents", true, "show events")
 )
 
 func main() {
@@ -71,7 +71,7 @@ func main() {
 				Name:               s.LeafNodeText,
 				Duration:           s.RunTime,
 			}
-			if !*noEvents {
+			if *withEvents {
 				for _, ev := range s.SpecEvents {
 					if ev.Duration > 0 {
 						event := Event{
@@ -94,8 +94,8 @@ func main() {
 	})
 
 	yout := yaml.NewEncoder(os.Stdout)
-	if *count > 0 {
-		yout.Encode(flattenSpecs[:min(int(*count), len(flattenSpecs))])
+	if *maxCount > 0 {
+		yout.Encode(flattenSpecs[:min(int(*maxCount), len(flattenSpecs))])
 	} else {
 		yout.Encode(flattenSpecs)
 	}
