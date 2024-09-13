@@ -56,7 +56,10 @@ func AddDryRunFlag(cmd *cobra.Command) {
 }
 
 func GetDryRunStrategy(cmd *cobra.Command) (DryRunStrategy, error) {
-	var dryRunFlag = FlagString(cmd, "dry-run")
+	dryRunFlag, err := cmd.Flags().GetString("dry-run")
+	if err != nil {
+		return DryRunNone, err
+	}
 	switch dryRunFlag {
 	case "client":
 		return DryRunClient, nil

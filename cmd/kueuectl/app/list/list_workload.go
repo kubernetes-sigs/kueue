@@ -128,7 +128,10 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 }
 
 func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
-	var statusesFlags = util.FlagStringArray(cmd, "status")
+	statusesFlags, err := cmd.Flags().GetStringArray("status")
+	if err != nil {
+		return nil, err
+	}
 
 	statuses := sets.New[int]()
 

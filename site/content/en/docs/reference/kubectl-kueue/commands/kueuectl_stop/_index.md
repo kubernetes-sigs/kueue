@@ -19,7 +19,7 @@ Stop the resource
 ## Examples
 
 ```
-  # Stop the workload 
+  # Stop the workload
   kueuectl stop workload my-workload
 ```
 
