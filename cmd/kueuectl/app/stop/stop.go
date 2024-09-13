@@ -18,15 +18,18 @@ package stop
 
 import (
 	"github.com/spf13/cobra"
+
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/kubectl/pkg/util/templates"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	stopExample = `  
-	# Stop the workload 
-  	kueuectl stop workload my-workload`
+var (
+	stopExample = templates.Examples(`
+	# Stop the workload
+	kueuectl stop workload my-workload
+`)
 )
 
 func NewStopCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
