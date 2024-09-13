@@ -22,6 +22,7 @@ type Manager[CQ clusterQueueNode[C], C cohortNode[CQ, C]] struct {
 	Cohorts       map[string]C
 	ClusterQueues map[string]CQ
 	cohortFactory func(string) C
+	CycleChecker  CycleChecker
 }
 
 // NewManager creates a new Manager. A newCohort function must
@@ -32,6 +33,7 @@ func NewManager[CQ clusterQueueNode[C], C cohortNode[CQ, C]](newCohort func(stri
 		make(map[string]C),
 		make(map[string]CQ),
 		newCohort,
+		CycleChecker{make(map[string]bool)},
 	}
 }
 
@@ -68,6 +70,7 @@ func (m *Manager[CQ, C]) AddCohort(cohortName string) {
 }
 
 func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
+	m.resetCycleChecker()
 	cohort := m.Cohorts[name]
 	m.detachCohortFromParent(cohort)
 	if parentName != "" {
@@ -78,6 +81,7 @@ func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName string) {
 }
 
 func (m *Manager[CQ, C]) DeleteCohort(name string) {
+	m.resetCycleChecker()
 	cohort, ok := m.Cohorts[name]
 	if !ok {
 		return
@@ -136,6 +140,10 @@ func (m *Manager[CQ, C]) cleanupCohort(cohort C) {
 	if !cohort.isExplicit() && !cohort.hasChildren() {
 		delete(m.Cohorts, cohort.GetName())
 	}
+}
+
+func (m *Manager[CQ, C]) resetCycleChecker() {
+	m.CycleChecker = CycleChecker{make(map[string]bool, len(m.Cohorts))}
 }
 
 type nodeBase interface {

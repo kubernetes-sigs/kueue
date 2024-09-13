@@ -374,6 +374,125 @@ func TestManager(t *testing.T) {
 	}
 }
 
+func TestCycles(t *testing.T) {
+	type M = Manager[*testClusterQueue, *testCohort]
+	cases := map[string]struct {
+		operations func(M)
+		wantCycles map[string]bool
+	}{
+		"no cycles": {
+			operations: func(m M) {
+				m.AddCohort("root")
+				m.AddCohort("left")
+				m.AddCohort("right")
+				m.UpdateCohortEdge("left", "root")
+				m.UpdateCohortEdge("right", "root")
+			},
+			wantCycles: map[string]bool{
+				"root":  false,
+				"left":  false,
+				"right": false,
+			},
+		},
+		"self-cycle": {
+			operations: func(m M) {
+				m.AddCohort("root")
+				m.UpdateCohortEdge("root", "root")
+			},
+			wantCycles: map[string]bool{
+				"root": true,
+			},
+		},
+		"remove self-cycle": {
+			operations: func(m M) {
+				m.AddCohort("root")
+				m.UpdateCohortEdge("root", "root")
+				// we call HasCycle to test invalidation
+				m.CycleChecker.HasCycle(m.Cohorts["root"])
+				m.UpdateCohortEdge("root", "")
+			},
+			wantCycles: map[string]bool{
+				"root": false,
+			},
+		},
+		"cycle": {
+			operations: func(m M) {
+				m.AddCohort("cohort-a")
+				m.AddCohort("cohort-b")
+				m.UpdateCohortEdge("cohort-a", "cohort-b")
+				m.UpdateCohortEdge("cohort-b", "cohort-a")
+			},
+			wantCycles: map[string]bool{
+				"cohort-a": true,
+				"cohort-b": true,
+			},
+		},
+		"remove cycle via edge update": {
+			operations: func(m M) {
+				m.AddCohort("cohort-a")
+				m.AddCohort("cohort-b")
+				m.UpdateCohortEdge("cohort-a", "cohort-b")
+				m.UpdateCohortEdge("cohort-b", "cohort-a")
+
+				// we call HasCycle to test invalidation
+				m.CycleChecker.HasCycle(m.Cohorts["cohort-a"])
+
+				m.UpdateCohortEdge("cohort-a", "cohort-c")
+			},
+			wantCycles: map[string]bool{
+				"cohort-a": false,
+				"cohort-b": false,
+				"cohort-c": false,
+			},
+		},
+		"remove cycle via edge deletion": {
+			operations: func(m M) {
+				m.AddCohort("cohort-a")
+				m.AddCohort("cohort-b")
+				m.UpdateCohortEdge("cohort-a", "cohort-b")
+				m.UpdateCohortEdge("cohort-b", "cohort-a")
+				m.CycleChecker.HasCycle(m.Cohorts["cohort-a"])
+
+				m.UpdateCohortEdge("cohort-a", "")
+			},
+			wantCycles: map[string]bool{
+				"cohort-a": false,
+				"cohort-b": false,
+			},
+		},
+		"remove cycle via node deletion": {
+			operations: func(m M) {
+				m.AddCohort("cohort-a")
+				m.AddCohort("cohort-b")
+				m.UpdateCohortEdge("cohort-a", "cohort-b")
+				m.UpdateCohortEdge("cohort-b", "cohort-a")
+				m.CycleChecker.HasCycle(m.Cohorts["cohort-a"])
+				m.DeleteCohort("cohort-b")
+			},
+			wantCycles: map[string]bool{
+				"cohort-a": false,
+				"cohort-b": false,
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mgr := NewManager(newCohort)
+			tc.operations(mgr)
+			for _, cohort := range mgr.Cohorts {
+				got := mgr.CycleChecker.HasCycle(cohort)
+				if got != tc.wantCycles[cohort.GetName()] {
+					t.Errorf("-want +got: %v %v", tc.wantCycles[cohort.GetName()], got)
+				}
+			}
+			if diff := cmp.Diff(mgr.CycleChecker.cycles, tc.wantCycles); diff != "" {
+				t.Errorf("-want +got: %v", diff)
+			}
+		})
+	}
+}
+
 type testCohort struct {
 	name string
 	Cohort[*testClusterQueue, *testCohort]
@@ -388,6 +507,10 @@ func newCohort(name string) *testCohort {
 
 func (t *testCohort) GetName() string {
 	return t.name
+}
+
+func (t *testCohort) CCParent() CycleCheckable {
+	return t.Parent()
 }
 
 type testClusterQueue struct {
