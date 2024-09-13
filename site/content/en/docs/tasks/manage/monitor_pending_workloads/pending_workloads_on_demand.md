@@ -26,6 +26,15 @@ Make sure the following conditions are met:
 
 VisibilityOnDemand is an `Alpha` feature disabled by default. To use the visibility API  change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`.
 
+### Configure API Priority and Fairness:
+
+To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) configuration for the visibility API apply one of the manifests, depending on your Kubernetes version:
+
+{{< tabpane lang="shell" persist=disabled >}}
+{{< tab header="Kubernetes 1.29 or newer" >}} kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-apf.yaml {{< /tab >}}
+{{< tab header="Kubernetes 1.28" >}} kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-apf-1-28.yaml {{< /tab >}}
+{{< /tabpane >}}
+
 ## Monitor pending workloads on demand
 
 {{< feature-state state="alpha" for_version="v0.6" >}}

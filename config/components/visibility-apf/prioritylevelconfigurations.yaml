@@ -1,0 +1,16 @@
+apiVersion: flowcontrol.apiserver.k8s.io/v1
+kind: PriorityLevelConfiguration
+metadata:
+  name: visibility
+  namespace: system
+spec:
+  limited:
+    lendablePercent: 90
+    limitResponse:
+      queuing:
+        handSize: 4
+        queueLengthLimit: 50
+        queues: 16
+      type: Queue
+    nominalConcurrencyShares: 10
+  type: Limited
