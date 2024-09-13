@@ -37,8 +37,9 @@ import (
 
 const (
 	cqLong    = `Puts the given ClusterQueue on hold.`
-	cqExample = `  # Stop the clusterqueue
-  kueuectl stop clusterqueue my-clusterqueue`
+	cqExample = `  
+	# Stop the clusterqueue
+  	kueuectl stop clusterqueue my-clusterqueue`
 )
 
 type ClusterQueueOptions struct {

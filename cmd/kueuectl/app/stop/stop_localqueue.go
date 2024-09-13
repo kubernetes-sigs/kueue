@@ -37,8 +37,9 @@ import (
 
 const (
 	lqLong    = `Puts the given LocalQueue on hold.`
-	lqExample = `  # Stop the localqueue
-  kueuectl stop localqueue my-localqueue`
+	lqExample = `  
+	# Stop the localqueue
+  	kueuectl stop localqueue my-localqueue`
 )
 
 type LocalQueueOptions struct {

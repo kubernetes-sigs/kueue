@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	stopExample = `  # Stop the workload 
-  kueuectl stop workload my-workload`
+	stopExample = `  
+	# Stop the workload 
+  	kueuectl stop workload my-workload`
 )
 
 func NewStopCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
