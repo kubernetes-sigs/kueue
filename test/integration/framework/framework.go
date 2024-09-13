@@ -63,29 +63,31 @@ type Framework struct {
 func (f *Framework) Init() *rest.Config {
 	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
 
-	ginkgo.By("bootstrapping test environment")
-	f.testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     append(f.DepCRDPaths, f.CRDPath),
-		ErrorIfCRDPathMissing: true,
-	}
-	if len(f.WebhookPath) > 0 {
-		f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
-	}
+	var cfg *rest.Config
+	ginkgo.By("bootstrapping test environment", func() {
+		f.testEnv = &envtest.Environment{
+			CRDDirectoryPaths:     append(f.DepCRDPaths, f.CRDPath),
+			ErrorIfCRDPathMissing: true,
+		}
+		if len(f.WebhookPath) > 0 {
+			f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
+		}
 
-	if len(f.APIServerFeatureGates) > 0 {
-		f.testEnv.ControlPlane.GetAPIServer().Configure().Append("feature-gates", strings.Join(f.APIServerFeatureGates, ","))
-	}
+		if len(f.APIServerFeatureGates) > 0 {
+			f.testEnv.ControlPlane.GetAPIServer().Configure().Append("feature-gates", strings.Join(f.APIServerFeatureGates, ","))
+		}
 
-	if level, err := strconv.Atoi(os.Getenv("API_LOG_LEVEL")); err == nil && level > 0 {
-		f.testEnv.ControlPlane.GetAPIServer().Configure().Append("v", strconv.Itoa(level))
-		f.testEnv.ControlPlane.GetAPIServer().Out = ginkgo.GinkgoWriter
-		f.testEnv.ControlPlane.GetAPIServer().Err = ginkgo.GinkgoWriter
-	}
+		if level, err := strconv.Atoi(os.Getenv("API_LOG_LEVEL")); err == nil && level > 0 {
+			f.testEnv.ControlPlane.GetAPIServer().Configure().Append("v", strconv.Itoa(level))
+			f.testEnv.ControlPlane.GetAPIServer().Out = ginkgo.GinkgoWriter
+			f.testEnv.ControlPlane.GetAPIServer().Err = ginkgo.GinkgoWriter
+		}
 
-	cfg, err := f.testEnv.Start()
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
-
+		var err error
+		cfg, err = f.testEnv.Start()
+		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+		gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
+	})
 	return cfg
 }
 
