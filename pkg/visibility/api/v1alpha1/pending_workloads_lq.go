@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package rest
+package v1alpha1
 
 import (
 	"context"
@@ -21,6 +21,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -31,33 +32,33 @@ import (
 	_ "k8s.io/metrics/pkg/apis/metrics/install"
 )
 
-type pendingWorkloadsInCqREST struct {
+type pendingWorkloadsInLqREST struct {
 	queueMgr *queue.Manager
 	log      logr.Logger
 }
 
-var _ rest.Storage = &pendingWorkloadsInCqREST{}
-var _ rest.GetterWithOptions = &pendingWorkloadsInCqREST{}
-var _ rest.Scoper = &pendingWorkloadsInCqREST{}
+var _ rest.Storage = &pendingWorkloadsInLqREST{}
+var _ rest.GetterWithOptions = &pendingWorkloadsInLqREST{}
+var _ rest.Scoper = &pendingWorkloadsInLqREST{}
 
-func NewPendingWorkloadsInCqREST(kueueMgr *queue.Manager) *pendingWorkloadsInCqREST {
-	return &pendingWorkloadsInCqREST{
+func NewPendingWorkloadsInLqREST(kueueMgr *queue.Manager) *pendingWorkloadsInLqREST {
+	return &pendingWorkloadsInLqREST{
 		queueMgr: kueueMgr,
-		log:      ctrl.Log.WithName("pending-workload-in-cq"),
+		log:      ctrl.Log.WithName("pending-workload-in-lq"),
 	}
 }
 
 // New implements rest.Storage interface
-func (m *pendingWorkloadsInCqREST) New() runtime.Object {
+func (m *pendingWorkloadsInLqREST) New() runtime.Object {
 	return &v1alpha1.PendingWorkloadsSummary{}
 }
 
 // Destroy implements rest.Storage interface
-func (m *pendingWorkloadsInCqREST) Destroy() {}
+func (m *pendingWorkloadsInLqREST) Destroy() {}
 
 // Get implements rest.GetterWithOptions interface
 // It fetches information about pending workloads and returns according to query params
-func (m *pendingWorkloadsInCqREST) Get(_ context.Context, name string, opts runtime.Object) (runtime.Object, error) {
+func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts runtime.Object) (runtime.Object, error) {
 	pendingWorkloadOpts, ok := opts.(*v1alpha1.PendingWorkloadOptions)
 	if !ok {
 		return nil, fmt.Errorf("invalid options object: %#v", opts)
@@ -65,31 +66,33 @@ func (m *pendingWorkloadsInCqREST) Get(_ context.Context, name string, opts runt
 	limit := pendingWorkloadOpts.Limit
 	offset := pendingWorkloadOpts.Offset
 
-	wls := make([]v1alpha1.PendingWorkload, 0, limit)
-	pendingWorkloadsInfo := m.queueMgr.PendingWorkloadsInfo(name)
-	if pendingWorkloadsInfo == nil {
-		return nil, errors.NewNotFound(v1alpha1.Resource("clusterqueue"), name)
+	namespace := genericapirequest.NamespaceValue(ctx)
+	cqName, ok := m.queueMgr.ClusterQueueFromLocalQueue(queue.QueueKey(namespace, name))
+	if !ok {
+		return nil, errors.NewNotFound(v1alpha1.Resource("localqueue"), name)
 	}
 
-	localQueuePositions := make(map[string]int32, 0)
-
-	for index := 0; index < int(offset+limit) && index < len(pendingWorkloadsInfo); index++ {
-		// Update positions in LocalQueue
-		wlInfo := pendingWorkloadsInfo[index]
-		queueName := wlInfo.Obj.Spec.QueueName
-		positionInLocalQueue := localQueuePositions[queueName]
-		localQueuePositions[queueName]++
-
-		if index >= int(offset) {
-			// Add a workload to results
-			wls = append(wls, *newPendingWorkload(wlInfo, positionInLocalQueue, index))
+	wls := make([]v1alpha1.PendingWorkload, 0, limit)
+	skippedWls := 0
+	for index, wlInfo := range m.queueMgr.PendingWorkloadsInfo(cqName) {
+		if len(wls) >= int(limit) {
+			break
+		}
+		if wlInfo.Obj.Spec.QueueName == name {
+			if skippedWls < int(offset) {
+				skippedWls++
+			} else {
+				// Add a workload to results
+				wls = append(wls, *newPendingWorkload(wlInfo, int32(len(wls)+int(offset)), index))
+			}
 		}
 	}
+
 	return &v1alpha1.PendingWorkloadsSummary{Items: wls}, nil
 }
 
 // NewGetOptions creates a new options object
-func (m *pendingWorkloadsInCqREST) NewGetOptions() (runtime.Object, bool, string) {
+func (m *pendingWorkloadsInLqREST) NewGetOptions() (runtime.Object, bool, string) {
 	// If no query parameters were passed the generated defaults function are not executed so it's necessary to set default values here as well
 	return &v1alpha1.PendingWorkloadOptions{
 		Limit: constants.DefaultPendingWorkloadsLimit,
@@ -97,6 +100,6 @@ func (m *pendingWorkloadsInCqREST) NewGetOptions() (runtime.Object, bool, string
 }
 
 // NamespaceScoped implements rest.Scoper interface
-func (m *pendingWorkloadsInCqREST) NamespaceScoped() bool {
-	return false
+func (m *pendingWorkloadsInLqREST) NamespaceScoped() bool {
+	return true
 }
