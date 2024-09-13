@@ -25,7 +25,7 @@ import (
 
 	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/queue"
-	apirest "sigs.k8s.io/kueue/pkg/visibility/api/rest"
+	apiv1alpha1 "sigs.k8s.io/kueue/pkg/visibility/api/v1alpha1"
 )
 
 var (
@@ -45,10 +45,10 @@ func init() {
 // Install installs API scheme defined in apis/v1alpha1 and registers storage
 func Install(server *genericapiserver.GenericAPIServer, kueueMgr *queue.Manager) error {
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(v1alpha1.GroupVersion.Group, Scheme, ParameterCodec, Codecs)
-	pendingWorkloadsInCqREST := apirest.NewPendingWorkloadsInCqREST(kueueMgr)
-	cqREST := apirest.NewCqREST()
-	pendingWorkloadsInLqREST := apirest.NewPendingWorkloadsInLqREST(kueueMgr)
-	lqREST := apirest.NewLqREST()
+	pendingWorkloadsInCqREST := apiv1alpha1.NewPendingWorkloadsInCqREST(kueueMgr)
+	cqREST := apiv1alpha1.NewCqREST()
+	pendingWorkloadsInLqREST := apiv1alpha1.NewPendingWorkloadsInLqREST(kueueMgr)
+	lqREST := apiv1alpha1.NewLqREST()
 
 	visibilityServerResources := map[string]rest.Storage{
 		"clusterqueues":                  cqREST,
