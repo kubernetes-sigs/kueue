@@ -49,4 +49,9 @@ spec:
             cpu: 500m
             memory: 512Mi
       serviceAccountName: controller-manager
+      tolerations:
+        - key: kueue.x-k8s.io/nodegroup
+          effect: NoSchedule
+          operator: Exists
+          value: "true"
       terminationGracePeriodSeconds: 10
