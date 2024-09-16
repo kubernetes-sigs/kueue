@@ -58,6 +58,9 @@ type Framework struct {
 	APIServerFeatureGates []string
 	testEnv               *envtest.Environment
 	cancel                context.CancelFunc
+
+	managerCancel context.CancelFunc
+	managerDone   <-chan struct{}
 }
 
 func (f *Framework) Init() *rest.Config {
@@ -124,46 +127,71 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Clien
 }
 
 func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup) {
-	webhookInstallOptions := &f.testEnv.WebhookInstallOptions
-	mgrOpts := manager.Options{
-		Scheme: scheme.Scheme,
-		Metrics: metricsserver.Options{
-			BindAddress: "0", // disable metrics to avoid conflicts between packages.
-		},
-		WebhookServer: webhook.NewServer(
-			webhook.Options{
-				Host:    webhookInstallOptions.LocalServingHost,
-				Port:    webhookInstallOptions.LocalServingPort,
-				CertDir: webhookInstallOptions.LocalServingCertDir,
-			}),
-		Controller: crconfig.Controller{
-			SkipNameValidation: ptr.To(true),
-		},
-	}
-	mgr, err := ctrl.NewManager(cfg, mgrOpts)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
+	ginkgo.By("starting the manager", func() {
+		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
+		mgrOpts := manager.Options{
+			Scheme: scheme.Scheme,
+			Metrics: metricsserver.Options{
+				BindAddress: "0", // disable metrics to avoid conflicts between packages.
+			},
+			WebhookServer: webhook.NewServer(
+				webhook.Options{
+					Host:    webhookInstallOptions.LocalServingHost,
+					Port:    webhookInstallOptions.LocalServingPort,
+					CertDir: webhookInstallOptions.LocalServingCertDir,
+				}),
+			Controller: crconfig.Controller{
+				SkipNameValidation: ptr.To(true),
+			},
+		}
+		mgr, err := ctrl.NewManager(cfg, mgrOpts)
+		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-	managerSetup(ctx, mgr)
+		managerCtx, managerCancel := context.WithCancel(ctx)
+		managerSetup(managerCtx, mgr)
 
-	go func() {
-		defer ginkgo.GinkgoRecover()
-		err := mgr.Start(ctx)
-		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
-	}()
+		done := make(chan struct{})
 
-	if len(f.WebhookPath) > 0 {
-		// wait for the webhook server to get ready
-		dialer := &net.Dialer{Timeout: time.Second}
-		addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
-		gomega.Eventually(func() error {
-			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
-			if err != nil {
-				return err
-			}
-			conn.Close()
-			return nil
-		}).Should(gomega.Succeed())
-	}
+		f.managerCancel = managerCancel
+		f.managerDone = done
+
+		go func() {
+			defer close(done)
+			defer ginkgo.GinkgoRecover()
+			err := mgr.Start(managerCtx)
+			gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
+		}()
+
+		if len(f.WebhookPath) > 0 {
+			// wait for the webhook server to get ready
+			dialer := &net.Dialer{Timeout: time.Second}
+			addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
+			gomega.Eventually(func() error {
+				conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
+				if err != nil {
+					return err
+				}
+				conn.Close()
+				return nil
+			}).Should(gomega.Succeed())
+		}
+	})
+}
+
+func (f *Framework) StopManager(ctx context.Context) {
+	ginkgo.By("stoping the manager", func() {
+		if f.managerCancel == nil {
+			return
+		}
+
+		f.managerCancel()
+		select {
+		case <-f.managerDone:
+			ginkgo.GinkgoLogr.Info("manager stopped")
+		case <-ctx.Done():
+			ginkgo.GinkgoLogr.Info("manager stop canceled")
+		}
+	})
 }
 
 func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
