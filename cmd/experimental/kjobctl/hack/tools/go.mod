@@ -11,7 +11,7 @@ require (
 	k8s.io/code-generator v0.31.1
 	k8s.io/component-base v0.31.1
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240813183042-b901db121e1f
-	sigs.k8s.io/controller-tools v0.16.2
+	sigs.k8s.io/controller-tools v0.16.3
 	sigs.k8s.io/kueue/cmd/experimental/kjobctl v0.0.0-00010101000000-000000000000
 	sigs.k8s.io/kustomize/kustomize/v5 v5.4.3
 )
