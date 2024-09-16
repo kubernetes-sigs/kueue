@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package job
+package job_webhook
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -32,25 +32,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("Job Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var ns *corev1.Namespace
-
-	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			CRDPath:     crdPath,
-			WebhookPath: webhookPath,
-		}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.SetupClient(cfg)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.Teardown()
-	})
 
 	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, func() {
 		ginkgo.BeforeAll(func() {
