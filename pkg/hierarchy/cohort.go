@@ -18,6 +18,7 @@ package hierarchy
 
 import "k8s.io/apimachinery/pkg/util/sets"
 
+//lint:ignore U1000 due to https://github.com/dominikh/go-tools/issues/1602.
 type Cohort[CQ, C nodeBase] struct {
 	parent       C
 	childCohorts sets.Set[C]
