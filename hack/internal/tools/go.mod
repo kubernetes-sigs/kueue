@@ -3,7 +3,7 @@ module sigs.k8s.io/kueue/internal/tools
 go 1.22.6
 
 require (
-	github.com/gohugoio/hugo v0.134.1
+	github.com/gohugoio/hugo v0.134.2
 	github.com/golangci/golangci-lint v1.60.3
 	github.com/mikefarah/yq/v4 v4.44.3
 	github.com/onsi/ginkgo/v2 v2.20.2
@@ -32,6 +32,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/Masterminds/sprig/v3 v3.2.3 // indirect
 	github.com/a8m/envsubst v1.4.2 // indirect
+	github.com/alecthomas/assert/v2 v2.7.0 // indirect
 	github.com/alecthomas/participle/v2 v2.1.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
