@@ -36,24 +36,31 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Job Webhook", func() {
+var _ = ginkgo.Describe("Job Webhook", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var ns *corev1.Namespace
 
-	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-		ginkgo.BeforeAll(func() {
-			fwk = &framework.Framework{
-				CRDPath:     crdPath,
-				WebhookPath: webhookPath,
-			}
-			cfg = fwk.Init()
+	ginkgo.BeforeAll(func() {
+		fwk = &framework.Framework{
+			CRDPath:     crdPath,
+			WebhookPath: webhookPath,
+		}
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.SetupClient(cfg)
+	})
 
+	ginkgo.AfterAll(func() {
+		fwk.Teardown()
+	})
+
+	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, func() {
+		ginkgo.BeforeAll(func() {
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+			fwk.StartManager(ctx, cfg, managerSetup(
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
@@ -71,7 +78,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterAll(func() {
-			fwk.Teardown()
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("checking the workload is not created when JobMinParallelismAnnotation is invalid", func() {
@@ -122,14 +129,9 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 	})
 
-	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, func() {
 		ginkgo.BeforeAll(func() {
-			fwk = &framework.Framework{
-				CRDPath:     crdPath,
-				WebhookPath: webhookPath,
-			}
-			cfg = fwk.Init()
-			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(false)))
+			fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(false)))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
@@ -143,7 +145,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterAll(func() {
-			fwk.Teardown()
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("should suspend a Job when created in unsuspend state", func() {
