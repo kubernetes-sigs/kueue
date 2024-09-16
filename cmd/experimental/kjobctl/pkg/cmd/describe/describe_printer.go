@@ -19,6 +19,7 @@ package describe
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -40,7 +41,7 @@ type ResourceDescriber interface {
 	Describe(object *unstructured.Unstructured) (output string, err error)
 }
 
-// NewResourceDescriber Describer returns a Describer for displaying the specified RESTMapping type or an error.
+// NewResourceDescriber returns a Describer for displaying the specified RESTMapping type or an error.
 func NewResourceDescriber(mapping *meta.RESTMapping) (ResourceDescriber, error) {
 	if describer, ok := DescriberFor(mapping.GroupVersionKind.GroupKind()); ok {
 		return describer, nil
@@ -57,6 +58,7 @@ func DescriberFor(kind schema.GroupKind) (ResourceDescriber, bool) {
 		{Group: corev1.GroupName, Kind: "Pod"}:                &PodDescriber{},
 		{Group: rayv1.GroupVersion.Group, Kind: "RayJob"}:     &RayJobDescriber{},
 		{Group: rayv1.GroupVersion.Group, Kind: "RayCluster"}: &RayClusterDescriber{},
+		{Group: corev1.GroupName, Kind: "ConfigMap"}:          &ConfigMapDescriber{},
 	}
 
 	f, ok := describers[kind]
@@ -287,6 +289,46 @@ func describeRayCluster(rayCluster *rayv1.RayCluster) (string, error) {
 			printLabelsMultiline(workerGroupWriter, "Start Params", wg.RayStartParams)
 			describePodTemplate(&wg.Template, workerGroupWriter)
 		}
+
+		return nil
+	})
+}
+
+// ConfigMapDescriber generates information about a configMap.
+type ConfigMapDescriber struct{}
+
+func (d *ConfigMapDescriber) Describe(object *unstructured.Unstructured) (string, error) {
+	configMap := &corev1.ConfigMap{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), configMap)
+	if err != nil {
+		return "", err
+	}
+
+	return describeConfigMap(configMap)
+}
+
+func describeConfigMap(configMap *corev1.ConfigMap) (string, error) {
+	return tabbedString(func(out io.Writer) error {
+		w := describehelper.NewPrefixWriter(out)
+
+		w.Write(IndentLevelZero, "Name:\t%s\n", configMap.Name)
+		w.Write(IndentLevelZero, "Namespace:\t%s\n", configMap.Namespace)
+		printLabelsMultiline(w, "Labels", configMap.Labels)
+
+		w.Write(IndentLevelZero, "\nData\n====\n")
+		sortedKeys := sortMapKeys(configMap.Data)
+		for _, k := range sortedKeys {
+			w.Write(IndentLevelZero, "%s:\n----\n", k)
+			w.Write(IndentLevelZero, "%s\n", configMap.Data[k])
+			w.Write(IndentLevelZero, "\n")
+		}
+
+		w.Write(IndentLevelZero, "\nBinaryData\n====\n")
+		sortedKeys = sortMapKeys(configMap.BinaryData)
+		for _, k := range sortedKeys {
+			w.Write(IndentLevelZero, "%s: %s bytes\n", k, strconv.Itoa(len(configMap.BinaryData[k])))
+		}
+		w.Write(IndentLevelZero, "\n")
 
 		return nil
 	})
