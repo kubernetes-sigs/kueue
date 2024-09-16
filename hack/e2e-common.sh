@@ -33,8 +33,8 @@ export KUBEFLOW_MPI_MANIFEST="https://raw.githubusercontent.com/kubeflow/mpi-ope
 export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 export KUBEFLOW_MPI_CRD=${ROOT_DIR}/dep-crds/mpi-operator/kubeflow.org_mpijobs.yaml
 
-#sleep image to use for testing.
-export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea
+# sleep image to use for testing.
+export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea
 
 # $1 - cluster name
 function cluster_cleanup {
@@ -57,7 +57,12 @@ function cluster_create {
 
 # $1 cluster
 function cluster_kind_load {
-	cluster_kind_load_image "$1" "$E2E_TEST_IMAGE"
+	e2e_test_sleep_image_without_sha=${E2E_TEST_IMAGE%%@*}
+	# We can load image by a digest but we cannot reference it by the digest that we pulled.
+	# For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
+	# Manually create tag for image with digest which is already pulled
+	docker tag $E2E_TEST_IMAGE "$e2e_test_sleep_image_without_sha"
+	cluster_kind_load_image "$1" "${e2e_test_sleep_image_without_sha}"
 	cluster_kind_load_image "$1" "$IMAGE_TAG"
 }
 
