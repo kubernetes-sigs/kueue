@@ -50,6 +50,7 @@ func TestWorkloadCmd(t *testing.T) {
 		gvk           schema.GroupVersionKind
 		wantWorkloads []v1beta1.Workload
 		wantJobList   runtime.Object
+		ignoreOut     bool
 		wantOut       string
 		wantOutErr    string
 		wantErr       string
@@ -228,7 +229,8 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 					},
 				},
 			},
-			wantOut: "workload.kueue.x-k8s.io/wl1 deleted\nworkload.kueue.x-k8s.io/wl2 deleted\n",
+			// We do not know in which order the result will be displayed.
+			ignoreOut: true,
 		},
 		"should delete all workloads and the jobs corresponding to them in all namespaces": {
 			args: []string{"--all", "-y", "-A"},
@@ -251,7 +253,8 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 					},
 				},
 			},
-			wantOut: "workload.kueue.x-k8s.io/wl1 deleted\nworkload.kueue.x-k8s.io/wl2 deleted\nworkload.kueue.x-k8s.io/wl3 deleted\n",
+			// We do not know in which order the result will be displayed.
+			ignoreOut: true,
 		},
 		"shouldn't delete a workload with dry-run=client flag": {
 			args: []string{"wl1", "--dry-run", "client"},
@@ -379,9 +382,11 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 				return
 			}
 
-			gotOut := out.String()
-			if diff := cmp.Diff(tc.wantOut, gotOut); diff != "" {
-				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
+			if !tc.ignoreOut {
+				gotOut := out.String()
+				if diff := cmp.Diff(tc.wantOut, gotOut); diff != "" {
+					t.Errorf("Unexpected output (-want/+got)\n%s", diff)
+				}
 			}
 
 			gotOutErr := outErr.String()
