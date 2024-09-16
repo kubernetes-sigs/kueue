@@ -17,7 +17,6 @@ limitations under the License.
 package podsready
 
 import (
-	"path/filepath"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -34,7 +33,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -70,11 +68,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	)
 
 	ginkgo.JustBeforeEach(func() {
-		fwk = &framework.Framework{
-			CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
-			WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
-		}
-		cfg = fwk.Init()
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
 				Enable:         true,
@@ -87,7 +80,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				},
 			},
 		}
-		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup(configuration))
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
 
 		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
@@ -122,7 +115,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, devClusterQ, true)
-		fwk.Teardown()
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		fwk.StopManager(ctx)
 
 		// Reset values that are changed by tests.
 		podsReadyTimeout = defaultPodsReadyTimeout
@@ -568,11 +562,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 	)
 
 	ginkgo.JustBeforeEach(func() {
-		fwk = &framework.Framework{
-			CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
-			WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
-		}
-		cfg = fwk.Init()
 		configuration := &config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
 				Enable:         true,
@@ -585,7 +574,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				},
 			},
 		}
-		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup(configuration))
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
 
 		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
@@ -620,7 +609,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, devClusterQ, true)
-		fwk.Teardown()
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		fwk.StopManager(ctx)
 
 		// Reset values that are changed by tests.
 		podsReadyTimeout = defaultPodsReadyTimeout
