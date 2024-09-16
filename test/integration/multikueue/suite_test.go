@@ -96,7 +96,11 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 		APIServerFeatureGates: apiFeatureGates,
 	}
 	c.cfg = c.fwk.Init()
-	c.ctx, c.client = c.fwk.RunManager(c.cfg, setupFnc)
+	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+	// skip the manager setup if setup func is not provided
+	if setupFnc != nil {
+		c.fwk.StartManager(c.ctx, c.cfg, setupFnc)
+	}
 	return c
 }
 
@@ -222,16 +226,15 @@ func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInter
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func multiclusterSetup(gcInterval time.Duration) {
+var _ = ginkgo.BeforeSuite(func() {
 	var managerFeatureGates []string
 	version, err := versionutil.ParseGeneric(os.Getenv("ENVTEST_K8S_VERSION"))
 	if err != nil || !version.LessThan(versionutil.MustParseSemantic("1.30.0")) {
 		managerFeatureGates = []string{"JobManagedBy=true"}
 	}
 
-	managerTestCluster = createCluster(func(ctx context.Context, mgr manager.Manager) {
-		managerAndMultiKueueSetup(ctx, mgr, gcInterval)
-	}, managerFeatureGates...)
+	// pass nil setup since the manager for the manage cluster is different in some specs.
+	managerTestCluster = createCluster(nil, managerFeatureGates...)
 	worker1TestCluster = createCluster(managerSetup)
 	worker2TestCluster = createCluster(managerSetup)
 
@@ -239,10 +242,10 @@ func multiclusterSetup(gcInterval time.Duration) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8sVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-}
+})
 
-func multiclusterTeardown() {
+var _ = ginkgo.AfterSuite(func() {
 	managerTestCluster.fwk.Teardown()
 	worker1TestCluster.fwk.Teardown()
 	worker2TestCluster.fwk.Teardown()
-}
+})

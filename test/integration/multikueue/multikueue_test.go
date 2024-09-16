@@ -17,6 +17,7 @@ limitations under the License.
 package multikueue
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,6 +36,7 @@ import (
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -85,11 +87,13 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	)
 
 	ginkgo.BeforeAll(func() {
-		multiclusterSetup(2 * time.Second)
+		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second)
+		})
 	})
 
 	ginkgo.AfterAll(func() {
-		multiclusterTeardown()
+		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -1421,11 +1425,13 @@ var _ = ginkgo.Describe("Multikueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 	)
 
 	ginkgo.BeforeAll(func() {
-		multiclusterSetup(0)
+		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerAndMultiKueueSetup(ctx, mgr, 0)
+		})
 	})
 
 	ginkgo.AfterAll(func() {
-		multiclusterTeardown()
+		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
