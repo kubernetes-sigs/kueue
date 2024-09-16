@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package jobset
+package jobset_webhook
 
 import (
 	"context"
@@ -27,15 +27,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	"sigs.k8s.io/kueue/pkg/queue"
-	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
@@ -44,16 +38,16 @@ var (
 	k8sClient     client.Client
 	ctx           context.Context
 	fwk           *framework.Framework
-	crdPath       = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	jobsetCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "jobset-operator")
-	webhookPath   = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
+	crdPath       = filepath.Join("..", "..", "..", "..", "..", "..", "config", "components", "crd", "bases")
+	jobsetCrdPath = filepath.Join("..", "..", "..", "..", "..", "..", "dep-crds", "jobset-operator")
+	webhookPath   = filepath.Join("..", "..", "..", "..", "..", "..", "config", "components", "webhook")
 )
 
 func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
-		"JobSet Controller Suite",
+		"JobSet Webhook Suite",
 	)
 }
 
@@ -61,6 +55,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		CRDPath:     crdPath,
 		DepCRDPaths: []string{jobsetCrdPath},
+		WebhookPath: webhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -81,34 +76,6 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = jobset.SetupJobSetWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-}
-
-func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
-	return func(ctx context.Context, mgr manager.Manager) {
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		cCache := cache.New(mgr.GetClient())
-		queues := queue.NewManager(mgr.GetClient(), cCache)
-
-		configuration := &config.Configuration{}
-		mgr.GetScheme().Default(configuration)
-
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
-
-		err = jobset.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = jobset.NewReconciler(mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = jobset.SetupJobSetWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
-		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
