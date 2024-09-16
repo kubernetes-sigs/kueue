@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v1.4.2
 	github.com/google/go-cmp v0.6.0
 	github.com/kubeflow/mpi-operator v0.5.0
-	github.com/kubeflow/training-operator v1.8.0
+	github.com/kubeflow/training-operator v1.8.1
 	github.com/onsi/ginkgo/v2 v2.20.2
 	github.com/onsi/gomega v1.34.2
 	github.com/open-policy-agent/cert-controller v0.11.0
