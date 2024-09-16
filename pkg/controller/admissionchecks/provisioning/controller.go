@@ -302,6 +302,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			}
 
 			if err := c.client.Create(ctx, req); err != nil {
+				c.record.Eventf(wl, corev1.EventTypeWarning, "ProvisioningRequestError", "Error creating ProvisioningRequest: %q", req.Name)
 				return nil, err
 			}
 			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)

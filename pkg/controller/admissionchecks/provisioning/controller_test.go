@@ -17,6 +17,8 @@ limitations under the License.
 package provisioning
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -39,6 +41,25 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+type fakeControllerRuntimeClient struct {
+	client.Client
+	err error
+}
+
+func (c *fakeControllerRuntimeClient) WithError(err error) {
+	c.err = err
+}
+
+func (c *fakeControllerRuntimeClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if c.err != nil {
+		return c.err
+	}
+
+	return c.Client.Create(ctx, obj, opts...)
+}
+
+var errInvalidProvisioningRequest = errors.New("invalid ProvisioningRequest error")
 
 var (
 	wlCmpOptions = []cmp.Option{
@@ -1171,6 +1192,29 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"when invalid provisioning request": {
+			workload: utiltesting.MakeWorkload("wl", TestNamespace).
+				Annotations(map[string]string{
+					"provreq.kueue.x-k8s.io/ValidUntilSeconds": "0",
+					"invalid-provreq-prefix/Foo1":              "Bar1",
+					"another-invalid-provreq-prefix/Foo2":      "Bar2"}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending}).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Obj(),
+			checks:             []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			configs:            []kueue.ProvisioningRequestConfig{{ObjectMeta: metav1.ObjectMeta{Name: "config1"}}},
+			wantReconcileError: errInvalidProvisioningRequest,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeWarning,
+					Reason:    "ProvisioningRequestError",
+					Message:   `Error creating ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -1189,7 +1233,14 @@ func TestReconcile(t *testing.T) {
 				&kueue.ResourceFlavorList{Items: tc.flavors},
 			)
 
-			k8sclient := builder.Build()
+			fakeClient := builder.Build()
+			k8sclient := &fakeControllerRuntimeClient{
+				Client: fakeClient,
+			}
+			if tc.wantReconcileError != nil {
+				k8sclient.WithError(tc.wantReconcileError)
+			}
+
 			recorder := &utiltesting.EventRecorder{}
 			controller, err := NewController(
 				k8sclient,
@@ -1207,7 +1258,7 @@ func TestReconcile(t *testing.T) {
 				},
 			}
 			_, gotReconcileError := controller.Reconcile(ctx, req)
-			if diff := cmp.Diff(tc.wantReconcileError, gotReconcileError); diff != "" {
+			if diff := cmp.Diff(tc.wantReconcileError, gotReconcileError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
 			}
 
