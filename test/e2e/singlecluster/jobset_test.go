@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
+						Image:       util.E2eTestSleepImage,
 						// Give it the time to be observed Active in the live status update step.
 						Args: []string{"1ms"},
 					},

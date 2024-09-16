@@ -20,7 +20,6 @@ set -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$SOURCE_DIR/.."
-export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
 
 # shellcheck source=hack/e2e-common.sh
 source "${SOURCE_DIR}/e2e-common.sh"
@@ -50,7 +49,7 @@ function startup {
 function kind_load {
     if [ "$CREATE_KIND_CLUSTER" == 'true' ]
     then
-        docker pull $E2E_TEST_IMAGE
+        docker pull "$E2E_TEST_IMAGE"
 	cluster_kind_load "$KIND_CLUSTER_NAME"
     fi
     docker pull "registry.k8s.io/jobset/jobset:$JOBSET_VERSION"
