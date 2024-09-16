@@ -158,15 +158,14 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tf := cmdtesting.NewTestClientGetter()
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
 			if len(tc.ns) > 0 {
-				tf.WithNamespace(tc.ns)
+				tcg.WithNamespace(tc.ns)
 			}
 
-			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
 			fc := testingclock.NewFakeClock(testStartTime)
 
-			cmd := NewListCmd(tf, streams, fc)
+			cmd := NewListCmd(tcg, streams, fc)
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

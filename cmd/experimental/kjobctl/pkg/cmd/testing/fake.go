@@ -135,12 +135,12 @@ func (cg *TestClientGetter) DynamicClient() (dynamic.Interface, error) {
 	return cg.dynamicClient, nil
 }
 
-func (f *TestClientGetter) NewResourceBuilder() *resource.Builder {
+func (cg *TestClientGetter) NewResourceBuilder() *resource.Builder {
 	return resource.NewFakeBuilder(
 		func(version schema.GroupVersion) (resource.RESTClient, error) {
-			return f.restClient, nil
+			return cg.restClient, nil
 		},
-		f.ToRESTMapper,
+		cg.ToRESTMapper,
 		func() (restmapper.CategoryExpander, error) {
 			return resource.FakeCategoryExpander, nil
 		},

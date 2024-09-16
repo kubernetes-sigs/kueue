@@ -35,9 +35,9 @@ import (
 type TestClientGetter struct {
 	util.ClientGetter
 
-	KueueClientset     versioned.Interface
-	K8sClientset       k8s.Interface
-	UnstructuredClient resource.RESTClient
+	kueueClientset versioned.Interface
+	k8sClientset   k8s.Interface
+	restClient     resource.RESTClient
 
 	configFlags *genericclioptions.TestConfigFlags
 }
@@ -51,36 +51,51 @@ func NewTestClientGetter() *TestClientGetter {
 		WithNamespace(metav1.NamespaceDefault)
 	return &TestClientGetter{
 		ClientGetter:   util.NewClientGetter(configFlags),
-		KueueClientset: kueuefake.NewSimpleClientset(),
-		K8sClientset:   k8sfake.NewSimpleClientset(),
+		kueueClientset: kueuefake.NewSimpleClientset(),
+		k8sClientset:   k8sfake.NewSimpleClientset(),
 		configFlags:    configFlags,
 	}
 }
 
-func (f *TestClientGetter) WithNamespace(ns string) *TestClientGetter {
-	f.configFlags.WithNamespace(ns)
-	return f
+func (cg *TestClientGetter) WithNamespace(ns string) *TestClientGetter {
+	cg.configFlags.WithNamespace(ns)
+	return cg
 }
 
-func (f *TestClientGetter) WithRESTMapper(mapper meta.RESTMapper) *TestClientGetter {
-	f.configFlags.WithRESTMapper(mapper)
-	return f
+func (cg *TestClientGetter) WithRESTMapper(mapper meta.RESTMapper) *TestClientGetter {
+	cg.configFlags.WithRESTMapper(mapper)
+	return cg
 }
 
-func (f *TestClientGetter) KueueClientSet() (versioned.Interface, error) {
-	return f.KueueClientset, nil
+func (cg *TestClientGetter) WithKueueClientset(clientset versioned.Interface) *TestClientGetter {
+	cg.kueueClientset = clientset
+	return cg
 }
 
-func (f *TestClientGetter) K8sClientSet() (k8s.Interface, error) {
-	return f.K8sClientset, nil
+func (cg *TestClientGetter) KueueClientSet() (versioned.Interface, error) {
+	return cg.kueueClientset, nil
 }
 
-func (f *TestClientGetter) NewResourceBuilder() *resource.Builder {
+func (cg *TestClientGetter) WithK8sClientset(clientset k8s.Interface) *TestClientGetter {
+	cg.k8sClientset = clientset
+	return cg
+}
+
+func (cg *TestClientGetter) K8sClientSet() (k8s.Interface, error) {
+	return cg.k8sClientset, nil
+}
+
+func (cg *TestClientGetter) WithRESTClient(restClient resource.RESTClient) *TestClientGetter {
+	cg.restClient = restClient
+	return cg
+}
+
+func (cg *TestClientGetter) NewResourceBuilder() *resource.Builder {
 	return resource.NewFakeBuilder(
 		func(version schema.GroupVersion) (resource.RESTClient, error) {
-			return f.UnstructuredClient, nil
+			return cg.restClient, nil
 		},
-		f.ToRESTMapper,
+		cg.ToRESTMapper,
 		func() (restmapper.CategoryExpander, error) {
 			return resource.FakeCategoryExpander, nil
 		},

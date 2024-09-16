@@ -45,8 +45,8 @@ func NewClientGetter(clientGetter genericclioptions.RESTClientGetter) ClientGett
 	}
 }
 
-func (f *clientGetterImpl) KueueClientSet() (versioned.Interface, error) {
-	config, err := f.ToRESTConfig()
+func (cg *clientGetterImpl) KueueClientSet() (versioned.Interface, error) {
+	config, err := cg.ToRESTConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -59,8 +59,8 @@ func (f *clientGetterImpl) KueueClientSet() (versioned.Interface, error) {
 	return clientset, nil
 }
 
-func (f *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
-	config, err := f.ToRESTConfig()
+func (cg *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
+	config, err := cg.ToRESTConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +73,6 @@ func (f *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
 	return clientset, nil
 }
 
-func (f *clientGetterImpl) NewResourceBuilder() *resource.Builder {
-	return resource.NewBuilder(f.RESTClientGetter)
+func (cg *clientGetterImpl) NewResourceBuilder() *resource.Builder {
+	return resource.NewBuilder(cg.RESTClientGetter)
 }

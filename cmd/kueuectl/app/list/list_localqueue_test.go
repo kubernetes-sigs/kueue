@@ -202,14 +202,12 @@ lq1    cq1            1                   1                    60m
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tf := cmdtesting.NewTestClientGetter()
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
 			if len(tc.ns) > 0 {
-				tf.WithNamespace(tc.ns)
+				tcg.WithNamespace(tc.ns)
 			}
 
-			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
-
-			cmd := NewLocalQueueCmd(tf, streams, testingclock.NewFakeClock(testStartTime))
+			cmd := NewLocalQueueCmd(tcg, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
