@@ -747,10 +747,6 @@ valid-pod-1   1/1     Running   0          <unknown>
 				return m
 			}()
 
-			tf := kueuecmdtesting.NewTestClientGetter()
-			tf.WithNamespace(metav1.NamespaceDefault)
-			tf.WithRESTMapper(mapper)
-
 			scheme, err := buildTestRuntimeScheme()
 			if err != nil {
 				t.Errorf("Unexpected error\n%s", err)
@@ -758,12 +754,17 @@ valid-pod-1   1/1     Running   0          <unknown>
 
 			codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
 
-			tf.UnstructuredClient, err = mockRESTClient(codec, tc)
+			restClient, err := mockRESTClient(codec, tc)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			cmd := NewPodCmd(tf, streams)
+			tcg := kueuecmdtesting.NewTestClientGetter().
+				WithNamespace(metav1.NamespaceDefault).
+				WithRESTMapper(mapper).
+				WithRESTClient(restClient)
+
+			cmd := NewPodCmd(tcg, streams)
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

@@ -72,12 +72,12 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tf := cmdtesting.NewTestClientGetter()
+			tcg := cmdtesting.NewTestClientGetter()
 			if tc.deployment != nil {
-				tf.K8sClientset = k8sfake.NewSimpleClientset(tc.deployment)
+				tcg.WithK8sClientset(k8sfake.NewSimpleClientset(tc.deployment))
 			}
 
-			cmd := NewVersionCmd(tf, streams)
+			cmd := NewVersionCmd(tcg, streams)
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

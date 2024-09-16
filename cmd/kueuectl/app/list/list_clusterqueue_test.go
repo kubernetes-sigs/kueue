@@ -144,10 +144,9 @@ cq1    cohort1   1                   2                    true     60m
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tf := cmdtesting.NewTestClientGetter()
-			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
 
-			cmd := NewClusterQueueCmd(tf, streams, testingclock.NewFakeClock(testStartTime))
+			cmd := NewClusterQueueCmd(tcg, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

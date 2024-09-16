@@ -878,9 +878,11 @@ wl2               j2         lq2          cq2            PENDING   22           
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tf := cmdtesting.NewTestClientGetter()
+			clientset := fake.NewSimpleClientset(tc.objs...)
+
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 			if len(tc.ns) > 0 {
-				tf.WithNamespace(tc.ns)
+				tcg.WithNamespace(tc.ns)
 			}
 
 			if len(tc.mapperKinds) != 0 {
@@ -888,7 +890,7 @@ wl2               j2         lq2          cq2            PENDING   22           
 				for _, k := range tc.mapperKinds {
 					mapper.Add(k, meta.RESTScopeNamespace)
 				}
-				tf.WithRESTMapper(mapper)
+				tcg.WithRESTMapper(mapper)
 			}
 
 			if len(tc.job) != 0 {
@@ -905,37 +907,27 @@ wl2               j2         lq2          cq2            PENDING   22           
 
 				codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
 
-				tf.UnstructuredClient = &restfake.RESTClient{
+				tcg.WithRESTClient(&restfake.RESTClient{
 					NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
 					Resp: &http.Response{
 						StatusCode: http.StatusOK,
 						Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.job[0])))),
 					},
-				}
+				})
 			}
-
-			clientset := fake.NewSimpleClientset(tc.objs...)
 
 			// `SimpleClientset` not allow to add `PendingWorkloadsSummary` objects,
 			// because of `PendingWorkload` resources not implement `runtime.Object`.
 			// Default `Reaction` handle all verbs and resources, so need to add on
 			// head of chain.
-			clientset.Fake.ReactionChain = append([]kubetesting.Reactor{
-				&kubetesting.SimpleReactor{
-					Verb:     "get",
-					Resource: "clusterqueues",
-					Reaction: func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
-						obj := &v1alpha1.PendingWorkloadsSummary{Items: tc.pendingWorkloads}
-						return true, obj, err
-					},
-				},
-			}, clientset.Fake.ReactionChain...)
-
-			tf.KueueClientset = clientset
-			tf.KueueClientset.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists
+			clientset.PrependReactor("get", "clusterqueues", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+				obj := &v1alpha1.PendingWorkloadsSummary{Items: tc.pendingWorkloads}
+				return true, obj, err
+			})
+			clientset.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists
 
 			fc := testingclock.NewFakeClock(testStartTime)
-			cmd := NewWorkloadCmd(tf, streams, fc)
+			cmd := NewWorkloadCmd(tcg, streams, fc)
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
