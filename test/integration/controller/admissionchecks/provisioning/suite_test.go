@@ -56,6 +56,16 @@ func TestProvisioning(t *testing.T) {
 	)
 }
 
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{CRDPath: crdPath, DepCRDPaths: depCRDPaths, WebhookPath: webhookPath}
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
+
 func managerSetup(opts ...provisioning.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
