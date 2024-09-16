@@ -203,6 +203,160 @@ func TestAvailable(t *testing.T) {
 				"cq3": {{Flavor: "red", Resource: "cpu"}: 40_000},
 			},
 		},
+		"hierarchical cohort": {
+			//               root
+			//              /    \
+			//            left    right
+			//           /           \
+			//        cq1            cq2
+			clusterQueues: []kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq1").
+					Cohort("left").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+					).ClusterQueue,
+				utiltesting.MakeClusterQueue("cq2").
+					Cohort("right").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "", "0").Obj(),
+					).ClusterQueue,
+			},
+			cohorts: []kueuealpha.Cohort{
+				utiltesting.MakeCohort("root").Cohort,
+				utiltesting.MakeCohort("left").
+					Parent("root").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+					).Cohort,
+				utiltesting.MakeCohort("right").
+					Parent("root").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+					).Cohort,
+			},
+			usage: map[string]resources.FlavorResourceQuantities{
+				"cq1": {{Flavor: "red", Resource: "cpu"}: 10_000},
+				"cq2": {{Flavor: "red", Resource: "cpu"}: 5_000},
+			},
+			wantAvailable: map[string]resources.FlavorResourceQuantities{
+				// 30k available - 10k usage.
+				// no capacity/usage from right subtree
+				"cq1": {{Flavor: "red", Resource: "cpu"}: 20_000},
+				// 40k available - 15k usage.
+				"cq2": {{Flavor: "red", Resource: "cpu"}: 25_000},
+			},
+			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+				"cq1": {{Flavor: "red", Resource: "cpu"}: 30_000},
+				"cq2": {{Flavor: "red", Resource: "cpu"}: 40_000},
+			},
+		},
+		"hierarchical cohort respects borrowing limit": {
+			//               root
+			//              5    \
+			//            left    right -- right-cq
+			//           /    5
+			//   left-cq1      left-cq2
+			clusterQueues: []kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("left-cq1").
+					Cohort("left").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+					).ClusterQueue,
+				utiltesting.MakeClusterQueue("left-cq2").
+					Cohort("left").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "5").Obj(),
+					).ClusterQueue,
+				utiltesting.MakeClusterQueue("right-cq").
+					Cohort("right").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+					).ClusterQueue,
+			},
+			cohorts: []kueuealpha.Cohort{
+				utiltesting.MakeCohort("root").Cohort,
+				utiltesting.MakeCohort("left").
+					Parent("root").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "5").Obj(),
+					).Cohort,
+				utiltesting.MakeCohort("right").
+					Parent("root").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+					).Cohort,
+			},
+			wantAvailable: map[string]resources.FlavorResourceQuantities{
+				// 30k in "left" subtree + 5k limit above tree
+				"left-cq1": {{Flavor: "red", Resource: "cpu"}: 35_000},
+				// 10k + 5k lending limit
+				"left-cq2": {{Flavor: "red", Resource: "cpu"}: 15_000},
+				// all 50k in "root" subtree
+				"right-cq": {{Flavor: "red", Resource: "cpu"}: 50_000},
+			},
+			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+				"left-cq1": {{Flavor: "red", Resource: "cpu"}: 35_000},
+				"left-cq2": {{Flavor: "red", Resource: "cpu"}: 15_000},
+				"right-cq": {{Flavor: "red", Resource: "cpu"}: 50_000},
+			},
+		},
+		"hierarchical cohort respects lending limit": {
+			//               root -- root-cq
+			//              5    \
+			//            left    right -- right-cq
+			//           5    \
+			//   left-cq1      left-cq2
+			clusterQueues: []kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("left-cq1").
+					Cohort("left").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10", "", "5").Obj(),
+					).ClusterQueue,
+				utiltesting.MakeClusterQueue("left-cq2").
+					Cohort("left").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+					).ClusterQueue,
+				utiltesting.MakeClusterQueue("right-cq").
+					Cohort("right").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "0").Obj(),
+					).ClusterQueue,
+				utiltesting.MakeClusterQueue("root-cq").
+					Cohort("root").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "0").Obj(),
+					).ClusterQueue,
+			},
+			cohorts: []kueuealpha.Cohort{
+				utiltesting.MakeCohort("root").Cohort,
+				utiltesting.MakeCohort("left").
+					Parent("root").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "0", "", "5").Obj(),
+					).Cohort,
+				utiltesting.MakeCohort("right").
+					Parent("root").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("red").Resource("cpu", "0").Obj(),
+					).Cohort,
+			},
+			wantAvailable: map[string]resources.FlavorResourceQuantities{
+				"left-cq1": {{Flavor: "red", Resource: "cpu"}: 20_000},
+				// only 5k of left-cq1's resources are available,
+				// plus 10k of its own.
+				"left-cq2": {{Flavor: "red", Resource: "cpu"}: 15_000},
+				// 5k lending limit from left to root.
+				"right-cq": {{Flavor: "red", Resource: "cpu"}: 5_000},
+				"root-cq":  {{Flavor: "red", Resource: "cpu"}: 5_000},
+			},
+			wantPotentiallyAvailable: map[string]resources.FlavorResourceQuantities{
+				"left-cq1": {{Flavor: "red", Resource: "cpu"}: 20_000},
+				"left-cq2": {{Flavor: "red", Resource: "cpu"}: 15_000},
+				"right-cq": {{Flavor: "red", Resource: "cpu"}: 5_000},
+				"root-cq":  {{Flavor: "red", Resource: "cpu"}: 5_000},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -215,7 +369,7 @@ func TestAvailable(t *testing.T) {
 				_ = cache.AddClusterQueue(ctx, &cq)
 			}
 			for _, cohort := range tc.cohorts {
-				cache.AddOrUpdateCohort(&cohort)
+				_ = cache.AddOrUpdateCohort(&cohort)
 			}
 
 			snapshot := cache.Snapshot()

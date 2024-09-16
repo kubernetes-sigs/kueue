@@ -798,6 +798,82 @@ func TestSnapshot(t *testing.T) {
 				},
 			},
 		},
+		"cohorts with cycles and their cqs excluded from snapshot": {
+			rfs: []*kueue.ResourceFlavor{
+				utiltesting.MakeResourceFlavor("arm").Obj(),
+			},
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("autocycle").Parent("autocycle").Obj(),
+				utiltesting.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
+				utiltesting.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
+				utiltesting.MakeCohort("nocycle").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq-autocycle").
+					Cohort("autocycle").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					).Obj(),
+				utiltesting.MakeClusterQueue("cq-a").
+					Cohort("cycle-a").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					).Obj(),
+				utiltesting.MakeClusterQueue("cq-b").
+					Cohort("cycle-b").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					).Obj(),
+				utiltesting.MakeClusterQueue("cq-nocycle").
+					Cohort("nocycle").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					).Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
+						"cq-nocycle": {
+							Name:                          "cq-nocycle",
+							AllocatableResourceGeneration: 2,
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors:          []kueue.ResourceFlavorReference{"arm"},
+								},
+							},
+							ResourceNode: ResourceNode{
+								Quotas: map[resources.FlavorResource]ResourceQuota{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 0},
+								},
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
+								},
+							},
+							FlavorFungibility: defaultFlavorFungibility,
+							FairWeight:        oneQuantity,
+							Preemption:        defaultPreemption,
+							NamespaceSelector: labels.Everything(),
+							Status:            active,
+						},
+					},
+					Cohorts: map[string]*CohortSnapshot{
+						"nocycle": {
+							Name: "nocycle",
+							ResourceNode: ResourceNode{
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
+								},
+							},
+						},
+					},
+				},
+				InactiveClusterQueueSets: sets.New("cq-autocycle", "cq-a", "cq-b"),
+				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+					"arm": utiltesting.MakeResourceFlavor("arm").Obj(),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -814,7 +890,7 @@ func TestSnapshot(t *testing.T) {
 				}
 			}
 			for _, cohort := range tc.cohorts {
-				cache.AddOrUpdateCohort(cohort)
+				_ = cache.AddOrUpdateCohort(cohort)
 			}
 			for _, rf := range tc.rfs {
 				cache.AddOrUpdateResourceFlavor(rf)

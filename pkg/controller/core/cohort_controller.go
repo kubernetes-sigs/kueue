@@ -104,7 +104,9 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	log.V(2).Info("Cohort is being created or updated", "resources", cohort.Spec.ResourceGroups)
-	r.cache.AddOrUpdateCohort(&cohort)
+	if err := r.cache.AddOrUpdateCohort(&cohort); err != nil {
+		log.V(2).Error(err, "Error adding or updating cohort in the cache")
+	}
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
 	return ctrl.Result{}, nil
 }

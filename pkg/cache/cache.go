@@ -133,7 +133,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-	if err := cqImpl.updateClusterQueue(cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
+	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
 
@@ -375,7 +375,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	}
 	oldParent := cqImpl.Parent()
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-	if err := cqImpl.updateClusterQueue(cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
+	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
 	for _, qImpl := range cqImpl.localQueues {
@@ -398,12 +398,14 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	metrics.ClearCacheMetrics(cq.Name)
 }
 
-func (c *Cache) AddOrUpdateCohort(apiCohort *kueuealpha.Cohort) {
+func (c *Cache) AddOrUpdateCohort(apiCohort *kueuealpha.Cohort) error {
 	c.Lock()
 	defer c.Unlock()
 	c.hm.AddCohort(apiCohort.Name)
 	cohort := c.hm.Cohorts[apiCohort.Name]
-	cohort.updateCohort(apiCohort)
+	oldParent := cohort.Parent()
+	c.hm.UpdateCohortEdge(apiCohort.Name, apiCohort.Spec.Parent)
+	return cohort.updateCohort(c.hm.CycleChecker, apiCohort, oldParent)
 }
 
 func (c *Cache) DeleteCohort(cohortName string) {

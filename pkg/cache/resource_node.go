@@ -17,10 +17,12 @@ limitations under the License.
 package cache
 
 import (
+	"errors"
 	"maps"
 
 	corev1 "k8s.io/api/core/v1"
 
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
@@ -161,6 +163,21 @@ func updateClusterQueueResourceNode(cq *clusterQueue) {
 	}
 }
 
+// updateCohortTreeResources traverses the Cohort tree from the root
+// to accumulate SubtreeQuota and Usage. It returns an error if the
+// provided Cohort has a cycle.
+func updateCohortTreeResources(cohort *cohort, cycleChecker hierarchy.CycleChecker) error {
+	if cycleChecker.HasCycle(cohort) {
+		return errors.New("cohort has a cycle")
+	}
+	updateCohortResourceNode(cohort.getRootUnsafe())
+	return nil
+}
+
+// updateCohortResourceNode traverses the Cohort tree to accumulate
+// SubtreeQuota and Usage. It should usually be called via
+// updateCohortTree, which starts at the root and includes
+// a cycle check.
 func updateCohortResourceNode(cohort *cohort) {
 	cohort.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.SubtreeQuota))
 	cohort.resourceNode.Usage = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.Usage))
@@ -168,13 +185,21 @@ func updateCohortResourceNode(cohort *cohort) {
 	for fr, quota := range cohort.resourceNode.Quotas {
 		cohort.resourceNode.SubtreeQuota[fr] = quota.Nominal
 	}
+	for _, child := range cohort.ChildCohorts() {
+		updateCohortResourceNode(child)
+		accumulateFromChild(cohort, child)
+	}
 	for _, child := range cohort.ChildCQs() {
 		updateClusterQueueResourceNode(child)
-		for fr, childQuota := range child.resourceNode.SubtreeQuota {
-			cohort.resourceNode.SubtreeQuota[fr] += childQuota - child.resourceNode.guaranteedQuota(fr)
-		}
-		for fr, childUsage := range child.resourceNode.Usage {
-			cohort.resourceNode.Usage[fr] += max(0, childUsage-child.resourceNode.guaranteedQuota(fr))
-		}
+		accumulateFromChild(cohort, child)
+	}
+}
+
+func accumulateFromChild(parent *cohort, child hierarchicalResourceNode) {
+	for fr, childQuota := range child.getResourceNode().SubtreeQuota {
+		parent.resourceNode.SubtreeQuota[fr] += childQuota - child.getResourceNode().guaranteedQuota(fr)
+	}
+	for fr, childUsage := range child.getResourceNode().Usage {
+		parent.resourceNode.Usage[fr] += max(0, childUsage-child.getResourceNode().guaranteedQuota(fr))
 	}
 }

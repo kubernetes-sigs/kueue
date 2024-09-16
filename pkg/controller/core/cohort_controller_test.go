@@ -40,7 +40,7 @@ func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
 	cohort := utiltesting.MakeCohort("cohort").Obj()
-	cache.AddOrUpdateCohort(cohort)
+	_ = cache.AddOrUpdateCohort(cohort)
 	qManager.AddOrUpdateCohort(ctx, cohort)
 	if _, ok := cache.Snapshot().Cohorts["cohort"]; !ok {
 		t.Fatal("expected Cohort in snapshot")
@@ -83,6 +83,49 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 	}
 }
 
+func TestCohortReconcileCycleNoError(t *testing.T) {
+	cohortA := utiltesting.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+	cohortB := utiltesting.MakeCohort("cohort-b").Parent("cohort-a").Obj()
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(cohortA, cohortB).
+		Build()
+	ctx := context.Background()
+	cache := cache.New(cl)
+	qManager := queue.NewManager(cl, cache)
+	reconciler := NewCohortReconciler(cl, cache, qManager)
+
+	// no cycle when creating first cohort
+	if _, err := reconciler.Reconcile(
+		ctx,
+		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortA)},
+	); err != nil {
+		t.Fatal("unexpected error")
+	}
+
+	// cycle added, no error
+	if _, err := reconciler.Reconcile(
+		ctx,
+		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)},
+	); err != nil {
+		t.Fatal("unexpected error when adding cycle", err)
+	}
+
+	// remove cycle, no error
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(cohortB), cohortB); err != nil {
+		t.Fatal("unexpected error")
+	}
+	cohortB.Spec.Parent = "cohort-c"
+	if err := cl.Update(ctx, cohortB); err != nil {
+		t.Fatal("unexpected error updating cohort", err)
+	}
+	if _, err := reconciler.Reconcile(
+		ctx,
+		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)},
+	); err != nil {
+		t.Fatal("unexpected error")
+	}
+}
+
 func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 	ctx := context.Background()
 	funcs := interceptor.Funcs{
@@ -96,7 +139,7 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 	cohort := utiltesting.MakeCohort("cohort").Obj()
-	cache.AddOrUpdateCohort(cohort)
+	_ = cache.AddOrUpdateCohort(cohort)
 	qManager.AddOrUpdateCohort(ctx, cohort)
 	if _, ok := cache.Snapshot().Cohorts["cohort"]; !ok {
 		t.Fatal("expected Cohort in snapshot")
