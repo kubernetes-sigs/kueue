@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package pod
+package jobs
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -27,9 +27,9 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -38,20 +38,14 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 
 	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
-			fwk = &framework.Framework{
-				CRDPath:     crdPath,
-				WebhookPath: webhookPath,
-			}
-			cfg = fwk.Init()
-
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
-				nil,
+			fwk.StartManager(ctx, cfg, managerSetup(
+				pod.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
@@ -81,7 +75,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterAll(func() {
-			fwk.Teardown()
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.When("The queue-name label is set", func() {
@@ -179,20 +173,14 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 
 	ginkgo.When("with manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
-			fwk = &framework.Framework{
-				CRDPath:     crdPath,
-				WebhookPath: webhookPath,
-			}
-			cfg = fwk.Init()
-
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
-				nil,
+			fwk.RunManager(cfg, managerSetup(
+				pod.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
@@ -222,7 +210,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterAll(func() {
-			fwk.Teardown()
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.When("The queue-name label is not set", func() {
