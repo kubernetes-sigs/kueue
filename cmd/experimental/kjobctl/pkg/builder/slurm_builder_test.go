@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"testing"
 	"time"
 
@@ -235,6 +236,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 				CompletionMode(batchv1.IndexedCompletion).
 				Profile("profile").
 				Mode(v1alpha1.SlurmMode).
+				Subdomain("profile-slurm").
 				WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:latest").
 					Command("bash", "/slurm/scripts/init-entrypoint.sh").
 					WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
@@ -258,6 +260,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 					Name: "slurm-scripts",
 					VolumeSource: corev1.VolumeSource{
 						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "profile-slurm"},
 							Items: []corev1.KeyToPath{
 								{Key: "init-entrypoint.sh", Path: "init-entrypoint.sh"},
 								{Key: "entrypoint.sh", Path: "entrypoint.sh"},
@@ -336,6 +339,8 @@ SLURM_NPROCS=1
 SLURM_NNODES=2
 SLURM_SUBMIT_DIR=/slurm/scripts
 SLURM_SUBMIT_HOST=$HOSTNAME
+SLURM_JOB_NODELIST=profile-slurm-0.profile-slurm,profile-slurm-1.profile-slurm
+SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
 SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
@@ -391,9 +396,23 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 `,
 					}).
 					Obj(),
+				wrappers.MakeService("profile-slurm", metav1.NamespaceDefault).
+					Profile("profile").
+					Mode(v1alpha1.SlurmMode).
+					ClusterIP("None").
+					Selector("job-name", "profile-slurm").
+					Obj(),
 			},
 			cmpopts: []cmp.Option{
-				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
+				cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInString", func(val string) string {
+					return regexp.MustCompile("(profile-slurm)(-.{5})").ReplaceAllString(val, "$1")
+				}),
+				cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInMap", func(m map[string]string) map[string]string {
+					for key, val := range m {
+						m[key] = regexp.MustCompile("(profile-slurm)(-.{5})").ReplaceAllString(val, "$1")
+					}
+					return m
+				}),
 			},
 		},
 	}

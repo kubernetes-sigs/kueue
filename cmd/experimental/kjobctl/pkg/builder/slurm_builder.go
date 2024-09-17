@@ -105,6 +105,7 @@ var (
 type slurmBuilder struct {
 	*Builder
 
+	objectName      string
 	scriptContent   string
 	template        *template.Template
 	arrayIndexes    parser.ArrayIndexes
@@ -177,6 +178,8 @@ func (b *slurmBuilder) complete() error {
 		}
 	}
 
+	b.objectName = b.generatePrefixName() + utilrand.String(5)
+
 	return nil
 }
 
@@ -225,19 +228,17 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		return nil, nil, err
 	}
 
+	objectMeta := b.buildObjectMeta(template.Template.ObjectMeta)
+	objectMeta.GenerateName = ""
+	objectMeta.Name = b.objectName
+
 	job := &batchv1.Job{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Job",
-			APIVersion: "batch/v1",
-		},
-		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
+		TypeMeta:   metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"},
+		ObjectMeta: objectMeta,
 		Spec:       template.Template.Spec,
 	}
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
-
-	objectName := b.generatePrefixName() + utilrand.String(5)
-	job.ObjectMeta.GenerateName = ""
-	job.ObjectMeta.Name = objectName
+	job.Spec.Template.Spec.Subdomain = b.objectName
 
 	if len(b.priority) != 0 {
 		job.Labels[kueue.WorkloadPriorityClassLabel] = b.priority
@@ -254,19 +255,25 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	}
 
 	configMap := &corev1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "ConfigMap",
-			APIVersion: "v1",
-		},
-		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
+		TypeMeta:   metav1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
+		ObjectMeta: objectMeta,
 		Data: map[string]string{
 			slurmInitEntrypointFilename: envEntrypointScript,
 			slurmEntrypointFilename:     entrypointScript,
 			slurmScriptFilename:         b.scriptContent,
 		},
 	}
-	configMap.ObjectMeta.GenerateName = ""
-	configMap.ObjectMeta.Name = objectName
+
+	service := &corev1.Service{
+		TypeMeta:   metav1.TypeMeta{Kind: "Service", APIVersion: "v1"},
+		ObjectMeta: objectMeta,
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "None",
+			Selector: map[string]string{
+				"job-name": b.objectName,
+			},
+		},
+	}
 
 	b.buildPodSpecVolumesAndEnv(&job.Spec.Template.Spec)
 	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes,
@@ -439,7 +446,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, resource.DecimalSI)
 	}
 
-	return job, []runtime.Object{configMap}, nil
+	return job, []runtime.Object{configMap, service}, nil
 }
 
 func (b *slurmBuilder) buildIndexesMap() map[int32][]int32 {
@@ -495,6 +502,8 @@ type slurmInitEntrypointScript struct {
 	SlurmNProcs         int32
 	SlurmNNodes         int32
 	SlurmSubmitDir      string
+	SlurmJobNodeList    string
+	SlurmJobFirstNode   string
 }
 
 func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
@@ -526,6 +535,11 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 	}
 	if b.memPerGPU != nil {
 		memPerGPU = b.memPerGPU.String()
+	}
+
+	nodeList := make([]string, nodes)
+	for i := int32(0); i < nodes; i++ {
+		nodeList[i] = fmt.Sprintf("%s-%d.%s", b.objectName, i, b.objectName)
 	}
 
 	scriptValues := slurmInitEntrypointScript{
@@ -563,6 +577,8 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 		SlurmNProcs:         nTasks,
 		SlurmNNodes:         nodes,
 		SlurmSubmitDir:      slurmScriptsPath,
+		SlurmJobNodeList:    strings.Join(nodeList, ","),
+		SlurmJobFirstNode:   nodeList[0],
 	}
 
 	var script bytes.Buffer
