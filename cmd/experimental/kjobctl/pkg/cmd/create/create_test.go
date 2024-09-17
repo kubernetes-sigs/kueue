@@ -728,6 +728,9 @@ func TestCreateCmd(t *testing.T) {
 								Command("sh", "/slurm/scripts/init-entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
+								WithEnvVar(corev1.EnvVar{Name: "POD_IP", ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"},
+								}}).
 								Obj()).
 							WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
 								Command("bash", "/slurm/scripts/entrypoint.sh").
@@ -786,7 +789,8 @@ set -o pipefail
 set -x
 
 # External variables
-# JOB_COMPLETION_INDEX  - completion index of the job.
+# JOB_COMPLETION_INDEX - completion index of the job.
+# POD_IP               - current pod IP
 
 array_indexes="0"
 container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
@@ -838,6 +842,7 @@ SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
 SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
 SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
 SLURM_ARRAY_TASK_ID=$container_index
+SLURM_JOB_FIRST_NODE_IP=${SLURM_JOB_FIRST_NODE_IP:-""}
 EOF
 
 done
@@ -931,6 +936,8 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					"--profile", "profile",
 					"--localqueue", "lq1",
 					"--init-image", "bash:latest",
+					"--first-node-ip",
+					"--first-node-ip-timeout", "29s",
 					"--",
 					"--array", "0-25",
 					"--nodes", "2",
@@ -983,6 +990,9 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 								Command("sh", "/slurm/scripts/init-entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
+								WithEnvVar(corev1.EnvVar{Name: "POD_IP", ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"},
+								}}).
 								Obj()).
 							WithContainer(*wrappers.MakeContainer("c1-0", "bash:4.4").
 								Command("bash", "/slurm/scripts/entrypoint.sh").
@@ -1061,7 +1071,8 @@ set -o pipefail
 set -x
 
 # External variables
-# JOB_COMPLETION_INDEX  - completion index of the job.
+# JOB_COMPLETION_INDEX - completion index of the job.
+# POD_IP               - current pod IP
 
 array_indexes="0,1,2;3,4,5;6,7,8;9,10,11;12,13,14;15,16,17;18,19,20;21,22,23;24,25"
 container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
@@ -1088,6 +1099,29 @@ SBATCH_JOB_NAME=job-name
 SBATCH_PARTITION=lq1
 EOF
 
+  if [[ "$JOB_COMPLETION_INDEX" -eq 0 ]]; then
+    SLURM_JOB_FIRST_NODE_IP=${POD_IP}
+  else
+    timeout=29
+    start_time=$(date +%s)
+    while true; do
+      ip=$(nslookup "profile-slurm-r8njg-0.profile-slurm-r8njg" | grep "Address 1" | awk 'NR==2 {print $3}') || true
+      if [[ -n "$ip" ]]; then
+        SLURM_JOB_FIRST_NODE_IP=$ip
+        break
+      else
+        current_time=$(date +%s)
+        elapsed_time=$((current_time - start_time))
+        if [ "$elapsed_time" -ge "$timeout" ]; then
+          echo "Timeout reached, IP address for the first node (profile-slurm-r8njg-0.profile-slurm-r8njg) not found."
+          break
+        fi
+        echo "IP Address for the first node (profile-slurm-r8njg-0.profile-slurm-r8njg) not found, retrying..."
+        sleep 1
+      fi
+    done
+  fi
+
 	cat << EOF > /slurm/env/$i/slurm.env
 SLURM_ARRAY_JOB_ID=1
 SLURM_ARRAY_TASK_COUNT=26
@@ -1113,6 +1147,7 @@ SLURM_JOB_FIRST_NODE=profile-slurm-fpxnj-0.profile-slurm-fpxnj
 SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* 3 + $i + 1)
 SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* 3 + $i + 1)
 SLURM_ARRAY_TASK_ID=$container_index
+SLURM_JOB_FIRST_NODE_IP=${SLURM_JOB_FIRST_NODE_IP:-""}
 EOF
 
 done

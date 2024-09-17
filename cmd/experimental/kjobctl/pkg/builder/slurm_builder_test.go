@@ -138,31 +138,32 @@ unmask_filename "%s"
 }
 
 type slurmBuilderTestCase struct {
-	beforeTest    func(tc *slurmBuilderTestCase) error
-	afterTest     func(tc *slurmBuilderTestCase) error
-	tempFile      string
-	namespace     string
-	profile       string
-	mode          v1alpha1.ApplicationProfileMode
-	array         string
-	cpusPerTask   *resource.Quantity
-	gpusPerTask   map[string]*resource.Quantity
-	memPerTask    *resource.Quantity
-	memPerCPU     *resource.Quantity
-	memPerGPU     *resource.Quantity
-	nodes         *int32
-	nTasks        *int32
-	output        string
-	err           string
-	input         string
-	jobName       string
-	partition     string
-	initImage     string
-	kjobctlObjs   []runtime.Object
-	wantRootObj   runtime.Object
-	wantChildObjs []runtime.Object
-	wantErr       error
-	cmpopts       []cmp.Option
+	beforeTest       func(tc *slurmBuilderTestCase) error
+	afterTest        func(tc *slurmBuilderTestCase) error
+	tempFile         string
+	namespace        string
+	profile          string
+	mode             v1alpha1.ApplicationProfileMode
+	array            string
+	cpusPerTask      *resource.Quantity
+	gpusPerTask      map[string]*resource.Quantity
+	memPerTask       *resource.Quantity
+	memPerCPU        *resource.Quantity
+	memPerGPU        *resource.Quantity
+	nodes            *int32
+	nTasks           *int32
+	output           string
+	err              string
+	input            string
+	jobName          string
+	partition        string
+	initImage        string
+	firstNodeTimeout time.Duration
+	kjobctlObjs      []runtime.Object
+	wantRootObj      runtime.Object
+	wantChildObjs    []runtime.Object
+	wantErr          error
+	cmpopts          []cmp.Option
 }
 
 func beforeSlurmTest(tc *slurmBuilderTestCase) error {
@@ -241,6 +242,9 @@ func TestSlurmBuilderDo(t *testing.T) {
 					Command("sh", "/slurm/scripts/init-entrypoint.sh").
 					WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 					WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
+					WithEnvVar(corev1.EnvVar{Name: "POD_IP", ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"},
+					}}).
 					Obj()).
 				WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
 					Command("bash", "/slurm/scripts/entrypoint.sh").
@@ -290,7 +294,8 @@ set -o pipefail
 set -x
 
 # External variables
-# JOB_COMPLETION_INDEX  - completion index of the job.
+# JOB_COMPLETION_INDEX - completion index of the job.
+# POD_IP               - current pod IP
 
 array_indexes="1;2;3;4;5"
 container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
@@ -342,6 +347,7 @@ SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
 SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
 SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
 SLURM_ARRAY_TASK_ID=$container_index
+SLURM_JOB_FIRST_NODE_IP=${SLURM_JOB_FIRST_NODE_IP:-""}
 EOF
 
 done
@@ -456,6 +462,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 				WithJobName(tc.jobName).
 				WithPartition(tc.partition).
 				WithInitImage(tc.initImage).
+				WithFirstNodeIPTimeout(tc.firstNodeTimeout).
 				Do(ctx)
 
 			var opts []cmp.Option
