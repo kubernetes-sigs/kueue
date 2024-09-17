@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
 	k8s "k8s.io/client-go/kubernetes"
@@ -65,6 +66,7 @@ func (cg *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
 		return nil, err
 	}
 
+	config.ContentType = runtime.ContentTypeProtobuf
 	clientset, err := k8s.NewForConfig(config)
 	if err != nil {
 		return nil, err
