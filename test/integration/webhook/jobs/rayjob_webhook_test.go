@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package rayjob
+package jobs
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -23,8 +23,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -33,13 +33,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
-			fwk = &framework.Framework{
-				CRDPath:     crdPath,
-				DepCRDPaths: []string{rayCrdPath},
-				WebhookPath: webhookPath,
-			}
-			cfg = fwk.Init()
-			ctx, k8sClient = fwk.RunManager(cfg, managerSetup())
+			fwk.StartManager(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
@@ -54,18 +48,18 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterAll(func() {
-			fwk.Teardown()
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
-			job := testingjob.MakeJob(jobName, ns.Name).Queue("indexed_job").Obj()
+			job := testingjob.MakeJob("rayjob", ns.Name).Queue("indexed_job").Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(apierrors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
 		})
 
 		ginkgo.It("invalid configuration shutdown after job finishes", func() {
-			job := testingjob.MakeJob(jobName, ns.Name).
+			job := testingjob.MakeJob("rayjob", ns.Name).
 				Queue("queue-name").
 				ShutdownAfterJobFinishes(false).
 				Obj()
