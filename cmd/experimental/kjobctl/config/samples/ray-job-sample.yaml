@@ -2,81 +2,18 @@
 apiVersion: kjobctl.x-k8s.io/v1alpha1
 kind: ApplicationProfile
 metadata:
-  name: sample-profile
+  name: ray-job-profile
   namespace: default
 spec:
   supportedModes:
-    - name: Interactive
-      template: sample-pod-template
-      requiredFlags: []
-    - name: Job
-      template: sample-job-template
-      requiredFlags: ["cmd"]
-    - name: Slurm
-      template: sample-slurm-template
-      requiredFlags: []
     - name: RayJob
-      template: sample-ray-job-template
-      requiredFlags: []
-    - name: RayCluster
-      template: sample-ray-cluster-template
-      requiredFlags: []
-  volumeBundles: ["ray-job-volume-bundle", "slurm-volume-bundle"]
----
-apiVersion: v1
-kind: PodTemplate
-metadata:
-  name: sample-pod-template
-  namespace: default
-template:
-  spec:
-    containers:
-      - name: sample-container
-        image: busybox:1.28
-        command: ['/bin/sh']
----
-apiVersion: kjobctl.x-k8s.io/v1alpha1
-kind: JobTemplate
-metadata:
-  name: sample-job-template
-  namespace: default
-template:
-  spec:
-    parallelism: 3
-    completions: 3
-    template:
-      spec:
-        containers:
-          - name: sample-container
-            image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
-            args: [ "30s" ]
-            resources:
-              requests:
-                cpu: "1"
-                memory: "200Mi"
-        restartPolicy: Never
----
-apiVersion: kjobctl.x-k8s.io/v1alpha1
-kind: JobTemplate
-metadata:
-  name: sample-slurm-template
-  namespace: default
-template:
-  spec:
-    parallelism: 3
-    completions: 3
-    completionMode: Indexed
-    template:
-      spec:
-        containers:
-          - name: sample-container
-            image: python:3-slim
-        restartPolicy: OnFailure
+      template: ray-job-template
+  volumeBundles: ["ray-job-volume-bundle"]
 ---
 apiVersion: kjobctl.x-k8s.io/v1alpha1
 kind: RayJobTemplate
 metadata:
-  name: sample-ray-job-template
+  name: ray-job-template
   namespace: default
 template:
   spec:
@@ -164,57 +101,59 @@ template:
                       cpu: "1"
                     requests:
                       cpu: "200m"
-
 ---
 apiVersion: kjobctl.x-k8s.io/v1alpha1
-kind: RayClusterTemplate
+kind: VolumeBundle
 metadata:
-  name: sample-ray-cluster-template
+  name: ray-job-volume-bundle
   namespace: default
-template:
-  spec:
-    rayVersion: '2.9.0' # should match the Ray version in the image of the containers
-    # Ray head pod template
-    headGroupSpec:
-      rayStartParams: { }
-      #pod template
-      template:
-        spec:
-          containers:
-            - name: ray-head
-              image: rayproject/ray:2.9.0
-              resources:
-                limits:
-                  cpu: 1
-                  memory: 2Gi
-                requests:
-                  cpu: 500m
-                  memory: 2Gi
-              ports:
-                - containerPort: 6379
-                  name: gcs-server
-                - containerPort: 8265 # Ray dashboard
-                  name: dashboard
-                - containerPort: 10001
-                  name: client
-    workerGroupSpecs:
-      # the pod replicas in this group typed worker
-      - replicas: 1
-        minReplicas: 1
-        maxReplicas: 5
-        # logical group name, for this called small-group, also can be functional
-        groupName: small-group
-        rayStartParams: { }
-        #pod template
-        template:
-          spec:
-            containers:
-              - name: ray-worker # must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc'
-                image: rayproject/ray:2.9.0
-                resources:
-                  limits:
-                    cpu: 1
-                    memory: 1Gi
-                  requests:
-                    cpu: 500m
-                    memory: 1Gi
+spec:
+  volumes:
+    - name: ray-job-code-sample
+      configMap:
+        name: ray-job-code-sample
+        items:
+          - key: sample_code.py
+            path: sample_code.py
+  containerVolumeMounts:
+    - name: ray-job-code-sample
+      mountPath: /home/ray/samples
+  envVars:
+    - name: ENTRYPOINT_PATH
+      value: /home/ray/samples
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-job-code-sample
+  namespace: default
+data:
+  sample_code.py: |
+    import ray
+    import os
+    import requests
+
+    ray.init()
+
+    @ray.remote
+    class Counter:
+        def __init__(self):
+            # Used to verify runtimeEnv
+            self.name = os.getenv("counter_name")
+            assert self.name == "test_counter"
+            self.counter = 0
+
+        def inc(self):
+            self.counter += 1
+
+        def get_counter(self):
+            return "{} got {}".format(self.name, self.counter)
+
+    counter = Counter.remote()
+
+    for _ in range(5):
+        ray.get(counter.inc.remote())
+        print(ray.get(counter.get_counter.remote()))
+
+    # Verify that the correct runtime env was used for the job.
+    assert requests.__version__ == "2.26.0"
