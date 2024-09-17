@@ -489,12 +489,9 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	if wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
 			assignment := flvAssigner.Assign(log, nextCounts)
-			mode := assignment.RepresentativeMode()
-			if mode == flavorassigner.Fit {
+			if assignment.RepresentativeMode() == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
-			}
-
-			if mode == flavorassigner.Preempt {
+			} else if assignment.RepresentativeMode() == flavorassigner.Preempt {
 				preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
 				if len(preemptionTargets) > 0 {
 					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
