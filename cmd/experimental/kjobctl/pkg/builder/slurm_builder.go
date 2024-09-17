@@ -31,6 +31,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -446,7 +447,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, b.cpusOnNode.Format)
 	}
 
-	envEntrypointScript, err := b.buildInitEntrypointScript()
+	initEntrypointScript, err := b.buildInitEntrypointScript()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -457,13 +458,10 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	}
 
 	configMap := &corev1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "ConfigMap",
-			APIVersion: "v1",
-		},
-		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
+		TypeMeta:   metav1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
+		ObjectMeta: objectMeta,
 		Data: map[string]string{
-			slurmInitEntrypointFilename: envEntrypointScript,
+			slurmInitEntrypointFilename: initEntrypointScript,
 			slurmEntrypointFilename:     entrypointScript,
 			slurmScriptFilename:         b.scriptContent,
 		},
@@ -481,8 +479,35 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 			},
 		},
 	}
+	service.ObjectMeta.GenerateName = ""
+	service.ObjectMeta.Name = b.objectName
 
-	return job, []runtime.Object{configMap, service}, nil
+	role := &rbacv1.Role{
+		TypeMeta:   metav1.TypeMeta{Kind: "Role", APIVersion: "rbac.authorization.k8s.io/v1"},
+		ObjectMeta: metav1.ObjectMeta{Name: b.objectName, Namespace: b.namespace},
+		Rules: []rbacv1.PolicyRule{{
+			Verbs:     []string{"get", "list"},
+			APIGroups: []string{""},
+			Resources: []string{"pods"},
+		}},
+	}
+
+	roleBinding := &rbacv1.RoleBinding{
+		TypeMeta:   metav1.TypeMeta{Kind: "RoleBinding", APIVersion: "rbac.authorization.k8s.io/v1"},
+		ObjectMeta: metav1.ObjectMeta{Name: b.objectName, Namespace: b.namespace},
+		Subjects: []rbacv1.Subject{{
+			Kind:      "ServiceAccount",
+			Name:      "default",
+			Namespace: b.namespace,
+		}},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     b.objectName,
+		},
+	}
+
+	return job, []runtime.Object{configMap, service, role, roleBinding}, nil
 }
 
 func (b *slurmBuilder) buildIndexesMap() map[int32][]int32 {
@@ -504,6 +529,9 @@ func (b *slurmBuilder) buildIndexesMap() map[int32][]int32 {
 }
 
 type slurmInitEntrypointScript struct {
+	JobName   string
+	Namespace string
+
 	ArrayIndexes string
 
 	EnvsPath          string
@@ -540,6 +568,8 @@ type slurmInitEntrypointScript struct {
 	SlurmSubmitDir      string
 	SlurmJobNodeList    string
 	SlurmJobFirstNode   string
+
+	WaitForFirstNodeTimeoutSeconds int32
 }
 
 func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
@@ -579,6 +609,9 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 	}
 
 	scriptValues := slurmInitEntrypointScript{
+		JobName:   b.objectName,
+		Namespace: b.namespace,
+
 		ArrayIndexes: strings.Join(keyValues, " "),
 
 		EnvsPath:          slurmEnvsPath,
@@ -615,6 +648,8 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 		SlurmSubmitDir:      slurmScriptsPath,
 		SlurmJobNodeList:    strings.Join(nodeList, ","),
 		SlurmJobFirstNode:   nodeList[0],
+
+		WaitForFirstNodeTimeoutSeconds: int32(b.waitForFirstNodeTimeout.Seconds()),
 	}
 
 	var script bytes.Buffer

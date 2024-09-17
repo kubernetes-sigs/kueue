@@ -30,6 +30,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -138,31 +139,32 @@ unmask_filename "%s"
 }
 
 type slurmBuilderTestCase struct {
-	beforeTest    func(tc *slurmBuilderTestCase) error
-	afterTest     func(tc *slurmBuilderTestCase) error
-	tempFile      string
-	namespace     string
-	profile       string
-	mode          v1alpha1.ApplicationProfileMode
-	array         string
-	cpusPerTask   *resource.Quantity
-	gpusPerTask   map[string]*resource.Quantity
-	memPerTask    *resource.Quantity
-	memPerCPU     *resource.Quantity
-	memPerGPU     *resource.Quantity
-	nodes         *int32
-	nTasks        *int32
-	output        string
-	err           string
-	input         string
-	jobName       string
-	partition     string
-	initImage     string
-	kjobctlObjs   []runtime.Object
-	wantRootObj   runtime.Object
-	wantChildObjs []runtime.Object
-	wantErr       error
-	cmpopts       []cmp.Option
+	beforeTest              func(tc *slurmBuilderTestCase) error
+	afterTest               func(tc *slurmBuilderTestCase) error
+	tempFile                string
+	namespace               string
+	profile                 string
+	mode                    v1alpha1.ApplicationProfileMode
+	array                   string
+	cpusPerTask             *resource.Quantity
+	gpusPerTask             map[string]*resource.Quantity
+	memPerTask              *resource.Quantity
+	memPerCPU               *resource.Quantity
+	memPerGPU               *resource.Quantity
+	nodes                   *int32
+	nTasks                  *int32
+	output                  string
+	err                     string
+	input                   string
+	jobName                 string
+	partition               string
+	initImage               string
+	waitForFirstNodeTimeout time.Duration
+	kjobctlObjs             []runtime.Object
+	wantRootObj             runtime.Object
+	wantChildObjs           []runtime.Object
+	wantErr                 error
+	cmpopts                 []cmp.Option
 }
 
 func beforeSlurmTest(tc *slurmBuilderTestCase) error {
@@ -319,6 +321,30 @@ SBATCH_JOB_NAME=
 SBATCH_PARTITION=
 EOF
 
+  apk --update add curl jq
+
+  token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+  ca_cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  timeout=0
+  start_time=$(date +%s)
+
+  while true; do
+    ip=$(curl -k --cacert $ca_cert -H "Authorization: Bearer $token" "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/api/v1/namespaces/default/pods?labelSelector=batch.kubernetes.io/job-name=profile-slurm-kbms6,batch.kubernetes.io/job-completion-index=0" | jq -r '.items[0].status.podIP')
+    if [[ -n "$ip" ]]; then
+      SLURM_JOB_FIRST_NODE_IP=$ip
+      break
+    else
+      current_time=$(date +%s)
+      elapsed_time=$((current_time - start_time))
+      if (( elapsed_time >= timeout )); then
+        echo "timeout reached, IP ip for the first node ($SLURM_JOB_FIRST_NODE) not found."
+        break
+      fi
+      echo "IP Address for the first node ($SLURM_JOB_FIRST_NODE) not found, retrying..."
+      sleep 1
+    fi
+  done
+
 	cat << EOF > /slurm/env/$i/slurm.env
 SLURM_ARRAY_JOB_ID=1
 SLURM_ARRAY_TASK_COUNT=5
@@ -344,6 +370,7 @@ SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
 SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
+SLURM_JOB_FIRST_NODE_IP=$SLURM_JOB_FIRST_NODE_IP
 EOF
 
 done
@@ -402,6 +429,17 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					ClusterIP("None").
 					Selector("job-name", "profile-slurm").
 					Obj(),
+				wrappers.MakeRole("profile-slurm", metav1.NamespaceDefault).
+					WithRule(rbacv1.PolicyRule{
+						Verbs:     []string{"get", "list"},
+						APIGroups: []string{""},
+						Resources: []string{"pods"},
+					}).
+					Obj(),
+				wrappers.MakeRoleBinding("profile-slurm", metav1.NamespaceDefault).
+					WithSubject(rbacv1.Subject{Kind: "ServiceAccount", Name: "default", Namespace: "default"}).
+					RoleRef(rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "profile-slurm"}).
+					Obj(),
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInString", func(val string) string {
@@ -458,6 +496,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 				WithJobName(tc.jobName).
 				WithPartition(tc.partition).
 				WithInitImage(tc.initImage).
+				WithWaitForFirstNodeTimeout(tc.waitForFirstNodeTimeout).
 				Do(ctx)
 
 			var opts []cmp.Option
