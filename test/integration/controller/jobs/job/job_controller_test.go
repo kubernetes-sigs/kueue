@@ -406,7 +406,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(k8sClient.Get(ctx, childLookupKey, childJob)).Should(gomega.Succeed())
 				return childJob.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
-
 		})
 	})
 

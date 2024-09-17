@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package job_webhook
+package jobs
 
 import (
 	"context"
@@ -24,11 +24,10 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -41,21 +40,24 @@ var (
 	serverVersionFetcher *kubeversion.ServerVersionFetcher
 	ctx                  context.Context
 	fwk                  *framework.Framework
-	crdPath              = filepath.Join("..", "..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	webhookPath          = filepath.Join("..", "..", "..", "..", "..", "..", "config", "components", "webhook")
+	crdPath              = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
+	webhookPath          = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
+	mpiCrdPath           = filepath.Join("..", "..", "..", "..", "dep-crds", "mpi-operator")
+	jobsetCrdPath        = filepath.Join("..", "..", "..", "..", "dep-crds", "jobset-operator")
 )
 
 func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
-		"Job Webhook Suite",
+		"Jobs Webhook Suite",
 	)
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		CRDPath:     crdPath,
+		DepCRDPaths: []string{jobsetCrdPath, mpiCrdPath},
 		WebhookPath: webhookPath,
 	}
 	cfg = fwk.Init()
@@ -66,19 +68,9 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+func managerSetup(setup func(ctrl.Manager, ...jobframework.Option) error, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler := job.NewReconciler(
-			mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
-			opts...)
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = reconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = job.SetupWebhook(mgr, opts...)
+		err := setup(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		jobframework.EnableIntegration(job.FrameworkName)
 	}

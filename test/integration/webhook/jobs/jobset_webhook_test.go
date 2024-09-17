@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package mpijob_webhook
+package jobs
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -23,29 +23,35 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("MPIJob Webhook", func() {
+var _ = ginkgo.Describe("JobSet Webhook", func() {
 	var ns *corev1.Namespace
 
-	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
+	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+		ginkgo.BeforeAll(func() {
+			fwk.StartManager(ctx, cfg, managerSetup(jobset.SetupJobSetWebhook))
+		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "mpi-",
+					GenerateName: "jobset-",
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
-
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
+		ginkgo.AfterAll(func() {
+			fwk.StopManager(ctx)
+		})
 
 		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
-			job := testingjob.MakeMPIJob("job", ns.Name).Queue("indexed_job").Obj()
+			job := testingjob.MakeJobSet("jobset", ns.Name).Queue("indexed_job").Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(apierrors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)

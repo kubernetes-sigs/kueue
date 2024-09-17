@@ -1,4 +1,4 @@
-package webhook
+package core
 
 import (
 	"github.com/google/go-cmp/cmp/cmpopts"

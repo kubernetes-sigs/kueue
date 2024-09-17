@@ -41,13 +41,12 @@ import (
 )
 
 var (
-	cfg         *rest.Config
-	k8sClient   client.Client
-	ctx         context.Context
-	fwk         *framework.Framework
-	crdPath     = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	mpiCrdPath  = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "mpi-operator")
-	webhookPath = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
+	cfg        *rest.Config
+	k8sClient  client.Client
+	ctx        context.Context
+	fwk        *framework.Framework
+	crdPath    = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
+	mpiCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "mpi-operator")
 )
 
 func TestAPIs(t *testing.T) {

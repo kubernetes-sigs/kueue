@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package webhook
+package core
 
 import (
 	"context"
@@ -46,14 +46,14 @@ var (
 func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 	ginkgo.RunSpecs(t,
-		"Webhook Suite",
+		"Core Webhook Suite",
 	)
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
+		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
+		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.RunManager(cfg, func(ctx context.Context, mgr manager.Manager) {
