@@ -52,6 +52,6 @@ spec:
       tolerations:
         - key: kueue.x-k8s.io/nodegroup
           effect: NoSchedule
-          operator: Exists
-          value: "true"
+          operator: Equal
+          value: "controller"
       terminationGracePeriodSeconds: 10
