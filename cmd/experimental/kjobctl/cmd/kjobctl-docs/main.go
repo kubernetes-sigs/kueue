@@ -24,7 +24,7 @@ import (
 	"github.com/spf13/pflag"
 	cliflag "k8s.io/component-base/cli/flag"
 
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/hack/tools/kjobctl-docs/generators"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/cmd/kjobctl-docs/generators"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd"
 )
 
