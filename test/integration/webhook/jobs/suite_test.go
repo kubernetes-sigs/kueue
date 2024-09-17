@@ -44,6 +44,7 @@ var (
 	webhookPath          = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
 	mpiCrdPath           = filepath.Join("..", "..", "..", "..", "dep-crds", "mpi-operator")
 	jobsetCrdPath        = filepath.Join("..", "..", "..", "..", "dep-crds", "jobset-operator")
+	rayCrdPath           = filepath.Join("..", "..", "..", "..", "dep-crds", "ray-operator")
 )
 
 func TestAPIs(t *testing.T) {
@@ -57,7 +58,7 @@ func TestAPIs(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		CRDPath:     crdPath,
-		DepCRDPaths: []string{jobsetCrdPath, mpiCrdPath},
+		DepCRDPaths: []string{jobsetCrdPath, mpiCrdPath, rayCrdPath},
 		WebhookPath: webhookPath,
 	}
 	cfg = fwk.Init()

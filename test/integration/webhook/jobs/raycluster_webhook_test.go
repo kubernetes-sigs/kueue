@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package raycluster
+package jobs
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -26,12 +26,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
-	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -40,13 +43,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
-			fwk = &framework.Framework{
-				CRDPath:     crdPath,
-				DepCRDPaths: []string{rayCrdPath},
-				WebhookPath: webhookPath,
-			}
-			cfg = fwk.Init()
-			ctx, k8sClient = fwk.RunManager(cfg, managerSetup())
+			fwk.StartManager(ctx, cfg, managerSetup(raycluster.SetupRayClusterWebhook))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
@@ -61,11 +58,11 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterAll(func() {
-			fwk.Teardown()
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
-			job := testingraycluster.MakeCluster(jobName, ns.Name).Queue("indexed_job").Obj()
+			job := testingraycluster.MakeCluster("raycluster", ns.Name).Queue("indexed_job").Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(apierrors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
@@ -74,13 +71,37 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
-			fwk = &framework.Framework{
-				CRDPath:     crdPath,
-				DepCRDPaths: []string{rayCrdPath},
-				WebhookPath: webhookPath,
-			}
-			cfg = fwk.Init()
-			ctx, k8sClient = fwk.RunManager(cfg, managerWithRayClusterAndRayJobControllersSetup(jobframework.WithManageJobsWithoutQueueName(true)))
+			fwk.RunManager(cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+				reconciler := raycluster.NewReconciler(
+					mgr.GetClient(),
+					mgr.GetEventRecorderFor(constants.JobControllerName),
+					opts...)
+				err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = reconciler.SetupWithManager(mgr)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = raycluster.SetupRayClusterWebhook(mgr, opts...)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				reconciler = workloadrayjob.NewReconciler(
+					mgr.GetClient(),
+					mgr.GetEventRecorderFor(constants.JobControllerName),
+					opts...)
+				err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = reconciler.SetupWithManager(mgr)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = workloadrayjob.SetupRayJobWebhook(mgr, opts...)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				jobframework.EnableIntegration(workloadrayjob.FrameworkName)
+
+				failedWebhook, err := webhooks.Setup(mgr)
+				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+				return nil
+			}, jobframework.WithManageJobsWithoutQueueName(true)))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
@@ -95,7 +116,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterAll(func() {
-			fwk.Teardown()
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("Should not suspend a cluster if the parent's workload exist and is admitted", func() {
@@ -139,7 +160,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 
 			ginkgo.By("Creating the child cluster")
-			childCluster := testingraycluster.MakeCluster(jobName, ns.Name).
+			childCluster := testingraycluster.MakeCluster("raycluster", ns.Name).
 				Suspend(false).
 				Obj()
 			gomega.Expect(ctrl.SetControllerReference(parentJob, childCluster, k8sClient.Scheme())).To(gomega.Succeed())

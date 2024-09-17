@@ -37,18 +37,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
-	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 var (
-	cfg         *rest.Config
-	k8sClient   client.Client
-	ctx         context.Context
-	fwk         *framework.Framework
-	crdPath     = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	rayCrdPath  = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "ray-operator")
-	webhookPath = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
+	cfg        *rest.Config
+	k8sClient  client.Client
+	ctx        context.Context
+	fwk        *framework.Framework
+	crdPath    = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
+	rayCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "ray-operator")
 )
 
 func TestAPIs(t *testing.T) {
@@ -58,6 +56,20 @@ func TestAPIs(t *testing.T) {
 		"RayCluster Controller Suite",
 	)
 }
+
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{
+		CRDPath:     crdPath,
+		DepCRDPaths: []string{rayCrdPath},
+	}
+
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
@@ -99,37 +111,5 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	}
-}
-
-func managerWithRayClusterAndRayJobControllersSetup(opts ...jobframework.Option) framework.ManagerSetup {
-	return func(ctx context.Context, mgr manager.Manager) {
-		reconciler := raycluster.NewReconciler(
-			mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
-			opts...)
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = reconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = raycluster.SetupRayClusterWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		reconciler = rayjob.NewReconciler(
-			mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
-			opts...)
-		err = rayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = reconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = rayjob.SetupRayJobWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		jobframework.EnableIntegration(rayjob.FrameworkName)
-
-		failedWebhook, err := webhooks.Setup(mgr)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 	}
 }
