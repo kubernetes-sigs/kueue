@@ -340,5 +340,5 @@ generate-apiref: genref
 generate-kueuectl-docs: kueuectl-docs
 	rm -Rf $(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands/kueuectl*
 	$(PROJECT_DIR)/bin/kueuectl-docs \
-		$(PROJECT_DIR)/hack/internal/tools/kueuectl-docs/templates \
+		$(PROJECT_DIR)/cmd/kueuectl-docs/templates \
 		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands

@@ -149,6 +149,4 @@ dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-oper
 
 .PHONY: kueuectl-docs
 kueuectl-docs:
-	cd $(PROJECT_DIR)/hack/internal/tools && \
-	go mod download && \
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kueuectl-docs ./kueuectl-docs/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kueuectl-docs ./cmd/kueuectl-docs/main.go

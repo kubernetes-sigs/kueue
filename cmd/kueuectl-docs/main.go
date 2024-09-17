@@ -24,8 +24,8 @@ import (
 	"github.com/spf13/pflag"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"sigs.k8s.io/kueue/cmd/kueuectl-docs/generators"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
-	"sigs.k8s.io/kueue/internal/tools/kueuectl-docs/generators"
 )
 
 func main() {

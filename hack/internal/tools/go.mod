@@ -22,8 +22,6 @@ require (
 	sigs.k8s.io/mdtoc v1.4.0
 )
 
-replace sigs.k8s.io/kueue => ../../..
-
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
