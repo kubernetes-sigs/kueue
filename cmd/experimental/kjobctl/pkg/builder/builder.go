@@ -298,12 +298,13 @@ func (b *Builder) complete(ctx context.Context) error {
 		return applicationProfileModeNotConfiguredErr
 	}
 
-	volumeBundlesList, err := b.kjobctlClientset.KjobctlV1alpha1().VolumeBundles(b.profile.Namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return err
+	for _, name := range b.profile.Spec.VolumeBundles {
+		volumeBundle, err := b.kjobctlClientset.KjobctlV1alpha1().VolumeBundles(b.profile.Namespace).Get(ctx, string(name), metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		b.volumeBundles = append(b.volumeBundles, *volumeBundle)
 	}
-
-	b.volumeBundles = volumeBundlesList.Items
 
 	return nil
 }
