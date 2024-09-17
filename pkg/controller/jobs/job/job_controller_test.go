@@ -1941,6 +1941,7 @@ func TestReconciler(t *testing.T) {
 				StartTime(time.Now()).
 				NodeSelector("provisioning", "spot").
 				Active(10).
+				PodLabel("testingKey", "testingVal").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1954,6 +1955,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
 				Active(10).
+				PodLabel("testingKey", "testingVal").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
