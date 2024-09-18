@@ -77,10 +77,10 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	o := NewWorkloadOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "workload NAME [--cascade STRATEGY] [--dry-run STRATEGY]",
+		Use:                   "workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run STRATEGY]",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"wl"},
-		Short:                 "Delete the given Workload and corresponding to it Job",
+		Short:                 "Delete the given Workload and its corresponding Job",
 		Example:               wlExample,
 		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, ptr.To(true)),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -95,7 +95,7 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 		},
 	}
 
-	cmd.Flags().BoolVarP(&o.Confirmed, "yes", "y", false, "Confirm the deletion of the workload.")
+	cmd.Flags().BoolVarP(&o.Confirmed, "yes", "y", false, "Confirm the deletion of the workload and its corresponding Job.")
 	cmd.Flags().BoolVar(&o.DeleteAll, "all", false, "Delete all resources, in the namespace of the specified resource types.")
 
 	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)

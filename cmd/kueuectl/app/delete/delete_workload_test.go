@@ -55,11 +55,11 @@ func TestWorkloadCmd(t *testing.T) {
 		wantOutErr    string
 		wantErr       string
 	}{
-		"shouldn't delete a workload because no arguments": {
+		"no arguments": {
 			args:    []string{},
 			wantErr: "requires at least 1 arg(s), only received 0",
 		},
-		"shouldn't delete a workload because not confirmed": {
+		"shouldn't delete a workload and its corresponding job without confirmation": {
 			args: []string{"wl1"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -92,7 +92,7 @@ func TestWorkloadCmd(t *testing.T) {
 Do you want to proceed (y/n)? Deletion is canceled
 `,
 		},
-		"should delete a workload without confirmation because no associated job": {
+		"should delete just a workload without confirmation because there is no associated job requiring it": {
 			args: []string{"wl2"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -151,7 +151,7 @@ Do you want to proceed (y/n)? Deletion is canceled
 			},
 			wantOutErr: "workloads.kueue.x-k8s.io \"wl3\" not found\n",
 		},
-		"should delete a workload and its corresponding job": {
+		"should delete a workload and its corresponding job with confirmation": {
 			args:  []string{"wl1"},
 			input: "y\n",
 			workloads: []runtime.Object{
@@ -205,7 +205,7 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 			},
 			wantOut: "workload.kueue.x-k8s.io/wl1 deleted\n",
 		},
-		"should delete all workloads and the jobs corresponding to them": {
+		"should delete all workloads and their corresponding jobs": {
 			args: []string{"--all", "--yes"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -232,7 +232,7 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 			// We do not know in which order the result will be displayed.
 			ignoreOut: true,
 		},
-		"should delete all workloads and the jobs corresponding to them in all namespaces": {
+		"should delete all workloads and their corresponding jobs in all namespaces": {
 			args: []string{"--all", "-y", "-A"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -256,7 +256,7 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 			// We do not know in which order the result will be displayed.
 			ignoreOut: true,
 		},
-		"shouldn't delete a workload with dry-run=client flag": {
+		"shouldn't delete a workload and its corresponding job with client dry-run flag": {
 			args: []string{"wl1", "--dry-run", "client"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -286,7 +286,7 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 			},
 			wantOut: "workload.kueue.x-k8s.io/wl1 deleted (client dry run)\n",
 		},
-		"shouldn't delete a workload with dry-run=server flag": {
+		"shouldn't delete a workload and its corresponding job with server dry-run flag": {
 			args: []string{"wl1", "--dry-run", "server"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),

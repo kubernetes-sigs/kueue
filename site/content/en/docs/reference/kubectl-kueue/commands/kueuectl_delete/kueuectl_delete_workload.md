@@ -13,10 +13,10 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Delete the given Workload and corresponding to it Job
+Delete the given Workload and its corresponding Job
 
 ```
-kueuectl delete workload NAME [--cascade STRATEGY] [--dry-run STRATEGY]
+kueuectl delete workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run STRATEGY]
 ```
 
 
@@ -124,7 +124,7 @@ kueuectl delete workload NAME [--cascade STRATEGY] [--dry-run STRATEGY]
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Confirm the deletion of the workload.</p>
+            <p>Confirm the deletion of the workload and its corresponding Job.</p>
         </td>
     </tr>
     </tbody>
