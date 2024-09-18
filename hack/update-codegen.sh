@@ -37,8 +37,8 @@ kube::codegen::gen_helpers \
 # Generating OpenAPI for Kueue API extensions
 kube::codegen::gen_openapi \
   --boilerplate "${KUEUE_ROOT}/hack/boilerplate.go.txt" \
-  --output-dir "${KUEUE_ROOT}/apis/visibility/v1alpha1/openapi" \
-  --output-pkg "${KUEUE_PKG}/apis/visibility/v1alpha1/openapi" \
+  --output-dir "${KUEUE_ROOT}/apis/visibility/openapi" \
+  --output-pkg "${KUEUE_PKG}/apis/visibility/openapi" \
   --update-report \
   "${KUEUE_ROOT}/apis/visibility"
 
