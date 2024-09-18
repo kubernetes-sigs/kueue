@@ -730,7 +730,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.It("Should run a TFJob on worker if admitted", func() {
+	ginkgo.It("Should run a TFJob on worker if admitted", framework.RedundantSpec, func() {
 		tfJob := testingtfjob.MakeTFJob("tfjob1", managerNs.Name).
 			Queue(managerLq.Name).
 			TFReplicaSpecs(
@@ -823,7 +823,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.It("Should run a PaddleJob on worker if admitted", func() {
+	ginkgo.It("Should run a PaddleJob on worker if admitted", framework.RedundantSpec, func() {
 		paddleJob := testingpaddlejob.MakePaddleJob("paddlejob1", managerNs.Name).
 			Queue(managerLq.Name).
 			PaddleReplicaSpecs(
@@ -981,7 +981,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.It("Should run a XGBoostJob on worker if admitted", func() {
+	ginkgo.It("Should run a XGBoostJob on worker if admitted", framework.RedundantSpec, func() {
 		xgBoostJob := testingxgboostjob.MakeXGBoostJob("xgboostjob1", managerNs.Name).
 			Queue(managerLq.Name).
 			XGBReplicaSpecs(
