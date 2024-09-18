@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -164,7 +165,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 	})
 
-	ginkgo.It("Should update status when workloads are created", func() {
+	ginkgo.It("Should update status when workloads are created", framework.SlowSpec, func() {
 		ginkgo.By("Creating resourceFlavors")
 		for _, rf := range resourceFlavors {
 			gomega.Expect(k8sClient.Create(ctx, &rf)).To(gomega.Succeed())
