@@ -1,14 +1,10 @@
----
-title: {{.Title}}
-content_type: tool-reference
-auto_generated: true
-no_list: {{.NoList}}
----
-
 {{ html `<!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/hack/internal/tools/kueuectl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->`}}
+
+# {{.Title}}
+
 
 ## Synopsis
 

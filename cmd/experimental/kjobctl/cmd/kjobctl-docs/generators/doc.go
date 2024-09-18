@@ -327,9 +327,9 @@ func getLinks(cmd *cobra.Command, linkHandler func(string) string, indexFile boo
 		cname := name + " " + child.Name()
 		path := strings.ReplaceAll(cname, " ", "_")
 		if indexFile {
-			path = path + ".md"
+			path += ".md"
 		} else {
-			path = path + "/_index.md"
+			path += "/_index.md"
 		}
 
 		link := Link{
