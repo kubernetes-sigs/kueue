@@ -8,15 +8,14 @@ namespace: kueue-system
 # field above.
 namePrefix: kueue-
 
-# Labels to add to all resources and selectors.
-commonLabels:
-  control-plane: controller-manager
-
 labels:
-  - pairs:    
+  - pairs:
       app.kubernetes.io/name: kueue
       app.kubernetes.io/component: controller
     includeTemplates: true
+  - pairs:
+      control-plane: controller-manager
+    includeSelectors: true
 
 resources:
 - ../components/crd
