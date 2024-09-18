@@ -267,13 +267,14 @@ We plan on adding sanity e2e tests, and RBAC e2e tests. The e2e RBAC tests shoul
 First iteration (0.9):
 - Release the API in beta and guarantee backwards compatibility,
 - Merge the visibility-api.yaml into the main manifests.yaml,
-- Consider introducing FlowScheme and PriorityLevelConfiguration to allow admins to easily tune API priorities.
+- Create separate manifests for both FlowSchema and PriorityLevelConfiguration in versions v1 and v1beta3.
 
 Second iteration (0.10):
+- Merge the FlowSchema and PriorityLevelConfiguration v1 manifests into the installation manifests once the latest Kubernetes version (1.28) no longer supports v1,
 - Drop the alpha API version.
 
 #### GA
-- Reconsider introducing a throttling mechanism,
+- Reconsider introducing a throttling mechanism.
 
 ## Implementation History
 
