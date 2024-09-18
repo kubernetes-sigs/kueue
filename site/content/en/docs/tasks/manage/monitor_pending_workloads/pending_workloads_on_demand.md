@@ -36,7 +36,7 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 
 ## Monitor pending workloads on demand
 
-{{< feature-state state="stable" for_version="v0.6" >}}
+{{< feature-state state="alpha" for_version="v0.6" >}}
 
 To install a simple setup of ClusterQueue
 
