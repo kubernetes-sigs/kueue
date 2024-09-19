@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,39 +14,49 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package pytorchjob
+package jobframework_test
 
 import (
 	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	"k8s.io/apimachinery/pkg/runtime"
 
-	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 )
 
-func TestDefault(t *testing.T) {
+func toMPIJob(o runtime.Object) jobframework.GenericJob {
+	return (*mpijob.MPIJob)(o.(*kubeflow.MPIJob))
+}
+
+func TestBaseWebhookDefault(t *testing.T) {
 	testcases := map[string]struct {
-		job                        *kftraining.PyTorchJob
+		job                        *kubeflow.MPIJob
 		manageJobsWithoutQueueName bool
-		want                       *kftraining.PyTorchJob
+		want                       *kubeflow.MPIJob
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
-			job:  testingutil.MakePyTorchJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			want: testingutil.MakePyTorchJob("job", "default").Queue("queue").Obj(),
+			job:  testingutil.MakeMPIJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			want: testingutil.MakeMPIJob("job", "default").Queue("queue").Obj(),
 		},
 		"update the suspend field 'manageJobsWithoutQueueName=true'": {
-			job:                        testingutil.MakePyTorchJob("job", "default").Suspend(false).Obj(),
+			job:                        testingutil.MakeMPIJob("job", "default").Suspend(false).Obj(),
 			manageJobsWithoutQueueName: true,
-			want:                       testingutil.MakePyTorchJob("job", "default").Obj(),
+			want:                       testingutil.MakeMPIJob("job", "default").Obj(),
 		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			w := &PyTorchJobWebhook{manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName}
+			w := &jobframework.BaseWebhook{
+				ManageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
+				FromObject:                 toMPIJob,
+			}
 			if err := w.Default(context.Background(), tc.job); err != nil {
-				t.Errorf("set defaults to a kubeflow.org/pytorchjob by a Defaulter")
+				t.Errorf("set defaults to a kubeflow/mpijob by a Defaulter")
 			}
 			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)

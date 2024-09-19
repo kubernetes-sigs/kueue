@@ -39,7 +39,12 @@ var (
 	gvk = kubeflow.SchemeGroupVersionKind
 
 	FrameworkName = "kubeflow.org/mpijob"
+
+	SetupMPIJobWebhook = jobframework.DefaultWebhookFactory(NewJob(), fromObject)
 )
+
+// +kubebuilder:webhook:path=/mutate-kubeflow-org-v2beta1-mpijob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create,versions=v2beta1,name=mmpijob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kubeflow-org-v2beta1-mpijob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create;update,versions=v2beta1,name=vmpijob.kb.io,admissionReviewVersions=v1
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
@@ -63,6 +68,10 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
+func NewJob() jobframework.GenericJob {
+	return &MPIJob{}
+}
+
 var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &MPIJob{} })
 
 func isMPIJob(owner *metav1.OwnerReference) bool {
@@ -78,7 +87,7 @@ func (j *MPIJob) Object() client.Object {
 	return (*kubeflow.MPIJob)(j)
 }
 
-func fromObject(o runtime.Object) *MPIJob {
+func fromObject(o runtime.Object) jobframework.GenericJob {
 	return (*MPIJob)(o.(*kubeflow.MPIJob))
 }
 
