@@ -36,7 +36,17 @@ import (
 var (
 	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.TFJobKind)
 	FrameworkName = "kubeflow.org/tfjob"
+
+	SetupTFJobWebhook = jobframework.DefaultWebhookFactory(
+		NewJob(),
+		func(o runtime.Object) jobframework.GenericJob {
+			return fromObject(o)
+		},
+	)
 )
+
+// +kubebuilder:webhook:path=/mutate-kubeflow-org-v1-tfjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=tfjobs,verbs=create,versions=v1,name=mtfjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kubeflow-org-v1-tfjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=tfjobs,verbs=create;update,versions=v1,name=vtfjob.kb.io,admissionReviewVersions=v1
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{

@@ -36,7 +36,17 @@ import (
 var (
 	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind)
 	FrameworkName = "kubeflow.org/pytorchjob"
+
+	SetupPyTorchJobWebhook = jobframework.DefaultWebhookFactory(
+		NewJob(),
+		func(o runtime.Object) jobframework.GenericJob {
+			return fromObject(o)
+		},
+	)
 )
+
+// +kubebuilder:webhook:path=/mutate-kubeflow-org-v1-pytorchjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=pytorchjobs,verbs=create,versions=v1,name=mpytorchjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kubeflow-org-v1-pytorchjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=pytorchjobs,verbs=create;update,versions=v1,name=vpytorchjob.kb.io,admissionReviewVersions=v1
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
