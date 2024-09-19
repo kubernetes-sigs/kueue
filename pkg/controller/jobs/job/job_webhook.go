@@ -28,13 +28,13 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -61,16 +61,17 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		queues:                     options.Queues,
 		cache:                      options.Cache,
 	}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&batchv1.Job{}).
-		WithDefaulter(wh).
+	obj := &batchv1.Job{}
+	return webhook.ManagedBy(mgr).
+		For(obj).
+		WithMutationHandler(webhook.WithDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-batch-v1-job,mutating=true,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=create,versions=v1,name=mjob.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &JobWebhook{}
+var _ admission.CustomDefaulter = &JobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
@@ -109,7 +110,7 @@ func canDefaultManagedBy(jobSpecManagedBy *string) bool {
 
 // +kubebuilder:webhook:path=/validate-batch-v1-job,mutating=false,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=create;update,versions=v1,name=vjob.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &JobWebhook{}
+var _ admission.CustomValidator = &JobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {

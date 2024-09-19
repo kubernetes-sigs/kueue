@@ -24,11 +24,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-type webhook struct {
+type noopWebhook struct {
 }
 
 func setupNoopWebhook(mgr ctrl.Manager, apiType runtime.Object) error {
-	wh := &webhook{}
+	wh := &noopWebhook{}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(apiType).
 		WithDefaulter(wh).
@@ -37,21 +37,21 @@ func setupNoopWebhook(mgr ctrl.Manager, apiType runtime.Object) error {
 }
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *webhook) Default(context.Context, runtime.Object) error {
+func (w *noopWebhook) Default(context.Context, runtime.Object) error {
 	return nil
 }
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *webhook) ValidateCreate(context.Context, runtime.Object) (admission.Warnings, error) {
+func (w *noopWebhook) ValidateCreate(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *webhook) ValidateUpdate(context.Context, runtime.Object, runtime.Object) (admission.Warnings, error) {
+func (w *noopWebhook) ValidateUpdate(context.Context, runtime.Object, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *webhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+func (w *noopWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
