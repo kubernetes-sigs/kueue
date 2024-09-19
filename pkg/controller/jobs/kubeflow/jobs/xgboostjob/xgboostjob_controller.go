@@ -36,7 +36,17 @@ import (
 var (
 	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.XGBoostJobKind)
 	FrameworkName = "kubeflow.org/xgboostjob"
+
+	SetupXGBoostJobWebhook = jobframework.DefaultWebhookFactory(
+		NewJob(),
+		func(o runtime.Object) jobframework.GenericJob {
+			return fromObject(o)
+		},
+	)
 )
+
+// +kubebuilder:webhook:path=/mutate-kubeflow-org-v1-xgboostjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=xgboostjobs,verbs=create,versions=v1,name=mxgboostjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kubeflow-org-v1-xgboostjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=xgboostjobs,verbs=create;update,versions=v1,name=vxgboostjob.kb.io,admissionReviewVersions=v1
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
