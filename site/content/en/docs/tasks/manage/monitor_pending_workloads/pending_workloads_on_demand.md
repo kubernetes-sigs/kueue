@@ -260,7 +260,7 @@ You can pass optional query parameters:
 To view only 1 pending workloads use, starting from position 1 in LocalQueue run:
 
 ```shell
-kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1alpha1/localqueues/user-queue/pendingworkloads?limit=1&offset=1"
+kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1alpha1/namespaces/default/localqueues/user-queue/pendingworkloads?limit=1&offset=1"
 
 ```
 You should get results similar to 
