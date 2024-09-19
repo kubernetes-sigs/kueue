@@ -16,6 +16,7 @@ require (
 	github.com/ray-project/kuberay/ray-operator v1.2.1
 	github.com/spf13/cobra v1.8.1
 	go.uber.org/zap v1.27.0
+	gomodules.xyz/jsonpatch/v2 v2.4.0
 	k8s.io/api v0.30.2
 	k8s.io/apimachinery v0.30.2
 	k8s.io/apiserver v0.29.6
@@ -121,7 +122,6 @@ require (
 	golang.org/x/text v0.16.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.22.0 // indirect
-	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto v0.0.0-20240528184218-531527333157 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240528184218-531527333157 // indirect

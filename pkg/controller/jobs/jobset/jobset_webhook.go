@@ -23,7 +23,6 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -31,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
@@ -49,16 +49,17 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		queues:                     options.Queues,
 		cache:                      options.Cache,
 	}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&jobsetapi.JobSet{}).
-		WithDefaulter(wh).
+	obj := &jobsetapi.JobSet{}
+	return webhook.ManagedBy(mgr).
+		For(obj).
+		WithMutationHandler(webhook.WithDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-jobset-x-k8s-io-v1alpha2-jobset,mutating=true,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create,versions=v1alpha2,name=mjobset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &JobSetWebhook{}
+var _ admission.CustomDefaulter = &JobSetWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
@@ -97,7 +98,7 @@ func canDefaultManagedBy(jobSetSpecManagedBy *string) bool {
 
 // +kubebuilder:webhook:path=/validate-jobset-x-k8s-io-v1alpha2-jobset,mutating=false,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create;update,versions=v1alpha2,name=vjobset.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &JobSetWebhook{}
+var _ admission.CustomValidator = &JobSetWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
