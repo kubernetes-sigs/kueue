@@ -35,3 +35,15 @@ func newCohort(name string) *cohort {
 func (c *cohort) GetName() string {
 	return c.Name
 }
+
+// CCParent satisfies the CycleCheckable interface.
+func (c *cohort) CCParent() hierarchy.CycleCheckable {
+	return c.Parent()
+}
+
+func (c *cohort) getRootUnsafe() *cohort {
+	if !c.HasParent() {
+		return c
+	}
+	return c.Parent().getRootUnsafe()
+}

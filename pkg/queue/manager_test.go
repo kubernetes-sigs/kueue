@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -192,6 +193,44 @@ func TestUpdateClusterQueue(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
 		t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
+	}
+}
+
+func TestRequeueWorkloadsCohortCycle(t *testing.T) {
+	cohorts := []*kueuealpha.Cohort{
+		utiltesting.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+		utiltesting.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
+		utiltesting.MakeCohort("cohort-c").Parent("cohort-a").Obj(),
+	}
+	cq := utiltesting.MakeClusterQueue("cq1").Cohort("cohort-a").Obj()
+	lq := utiltesting.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj()
+	wl := utiltesting.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(time.Now()).Obj()
+	// Setup.
+	ctx := context.Background()
+	cl := utiltesting.NewFakeClient(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace}},
+	)
+	manager := NewManager(cl, nil)
+	for _, cohort := range cohorts {
+		manager.AddOrUpdateCohort(ctx, cohort)
+	}
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding queue %s: %v", lq.Name, err)
+	}
+	if err := cl.Create(ctx, wl); err != nil {
+		t.Fatalf("Failed adding workload to client: %v", err)
+	}
+	// This test will pass with the removal of this line.
+	// Update once we find a solution to #3066.
+	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
+
+	// This method is where we do a cycle check. We call it to ensure
+	// it behaves properly when a cycle exists
+	if manager.requeueWorkloadsCohort(ctx, manager.hm.Cohorts["cohort-a"]) {
+		t.Fatal("Expected moveWorkloadsCohort to return false")
 	}
 }
 

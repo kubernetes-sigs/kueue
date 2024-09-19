@@ -1498,6 +1498,50 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 		})
+		ginkgo.It("Long distance resource allows workload to be scheduled", func() {
+			cq = testing.MakeClusterQueue("cq").
+				Cohort("left").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			queue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+			ginkgo.By("cohorts created")
+			cohortRight := testing.MakeCohort("left").Parent("root").Obj()
+			cohortLeft := testing.MakeCohort("right").Parent("root").Obj()
+			gomega.Expect(k8sClient.Create(ctx, cohortLeft)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, cohortRight)).Should(gomega.Succeed())
+
+			//         root
+			//        /    \
+			//      left    right
+			//     /
+			//    cq
+			ginkgo.By("workload not admitted")
+			wl = testing.MakeWorkload("wl", ns.Name).Queue(queue.Name).
+				Request(corev1.ResourceCPU, "10").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
+
+			//         root
+			//        /    \
+			//      left    right
+			//     /           \
+			//    cq            bank
+			ginkgo.By("cohort with resources created and workload admitted")
+			cohortBank := testing.MakeCohort("bank").Parent("right").
+				ResourceGroup(
+					testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").FlavorQuotas,
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cohortBank)).Should(gomega.Succeed())
+			expectAdmission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
+		})
 	})
 
 	ginkgo.When("Using cohorts for sharing with LendingLimit", func() {
