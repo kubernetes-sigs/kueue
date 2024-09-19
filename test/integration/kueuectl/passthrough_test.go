@@ -37,6 +37,14 @@ func makePassThroughWorkload(ns string) client.Object {
 	return testing.MakeWorkload("pass-through-wl", ns).Obj()
 }
 
+func makePassThroughLocalQueue(ns string) client.Object {
+	return testing.MakeLocalQueue("pass-through-lq", ns).Obj()
+}
+
+func makePassThroughClusterQueue(_ string) client.Object {
+	return testing.MakeClusterQueue("pass-through-cq").Obj()
+}
+
 func makePassThroughResourceFlavor(_ string) client.Object {
 	return testing.MakeResourceFlavor("pass-through-resource-flavor").NodeLabel("type", "small").Obj()
 }
@@ -120,6 +128,10 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 		},
 		ginkgo.Entry("Workload", "workload", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'"),
 		ginkgo.Entry("Workload(short)", "wl", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'"),
+		ginkgo.Entry("LocalQueue", "localqueue", makePassThroughLocalQueue, "{.spec.stopPolicy}", "'None'", `{"spec":{"stopPolicy":"Hold"}}`, "'Hold'"),
+		ginkgo.Entry("LocalQueue(short)", "lq", makePassThroughLocalQueue, "{.spec.stopPolicy}", "'None'", `{"spec":{"stopPolicy":"Hold"}}`, "'Hold'"),
+		ginkgo.Entry("ClusterQueue", "clusterqueue", makePassThroughClusterQueue, "{.spec.stopPolicy}", "'None'", `{"spec":{"stopPolicy":"Hold"}}`, "'Hold'"),
+		ginkgo.Entry("ClusterQueue(short)", "cq", makePassThroughClusterQueue, "{.spec.stopPolicy}", "'None'", `{"spec":{"stopPolicy":"Hold"}}`, "'Hold'"),
 		ginkgo.Entry("ResourceFlavor", "resourceflavor", makePassThroughResourceFlavor, "{.spec.nodeLabels.type}", "'small'", `{"spec":{"nodeLabels":{"type":"large"}}}`, "'large'"),
 		ginkgo.Entry("ResourceFlavor(short)", "rf", makePassThroughResourceFlavor, "{.spec.nodeLabels.type}", "'small'", `{"spec":{"nodeLabels":{"type":"large"}}}`, "'large'"),
 	)
