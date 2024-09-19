@@ -1,4 +1,4 @@
 resources:
-- apiservice.yaml
+- apiservice_v1alpha1.yaml
 - role_binding.yaml
 - service.yaml

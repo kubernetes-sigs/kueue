@@ -1,6 +1,6 @@
 ---
 title: "Pending Workloads on-demand"
-date: 2023-12-05
+date: 2024-09-19
 weight: 3
 description: >
   Monitor pending Workloads with the on-demand visibility API
@@ -25,14 +25,6 @@ Make sure the following conditions are met:
 ### Enable the VisibilityOnDemand feature gate
 
 VisibilityOnDemand is an `Alpha` feature disabled by default. To use the visibility API  change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`.
-
-### Install the visibility API
-
-To install the visibility API, run the following command
-
-```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-api.yaml
-```
 
 ## Monitor pending workloads on demand
 
