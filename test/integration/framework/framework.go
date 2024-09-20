@@ -179,7 +179,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 }
 
 func (f *Framework) StopManager(ctx context.Context) {
-	ginkgo.By("stoping the manager", func() {
+	ginkgo.By("stopping the manager", func() {
 		if f.managerCancel == nil {
 			return
 		}
