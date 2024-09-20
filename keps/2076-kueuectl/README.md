@@ -349,9 +349,11 @@ The pass-through delete workload command doesn't actually delete the Workload bu
 instead requeues it. This can confuse users, as the Workload remains listed even 
 after they attempt to delete it, due to its recreation.
 
-This command will delete the Workload and its corresponding Job(s). If the Workload 
-owns any Jobs, the command will prompt for deletion approval, displaying the Jobs 
-that will be deleted along with the Workload.
+This command will delete the corresponding Workload Job(s), and then the Workload
+will be asynchronously deleted using Kueue. If the Workload has associated Jobs,
+the command will prompt for deletion approval and display the Jobs that will be
+affected. If there are no associated Jobs, the command will proceed to delete
+the Workload directly.
 
 Format:
 ```
@@ -360,7 +362,8 @@ kueuectl delete workload name
 
 Flags:
 ```
--y, --yes             Confirm the deletion of the Workload and its corresponding Job.
+-n, --namespace       The namespace from which to delete the Workload and its corresponding Job. 
+-y, --yes             Automatic yes to the prompt for deleting the Workload.
     --all             Delete all Workloads, in the specified namespace.
     --all-namespaces  Using with --all flag. Delete all Workloads, in all namespaces.
 ```
@@ -368,13 +371,13 @@ Flags:
 Approval Output:
 ```
 This operation will also delete:
-  - jobs.batch/name associated with the name workload
+  - jobs.batch/name associated with the namespace/name workload
 Do you want to proceed (y/n)?
 ```
 
 Deletion Process Output:
 ```
-workload.kueue.x-k8s.io/name deleted
+jobs.batch/name deleted
 ```
 
 ### Test Plan
