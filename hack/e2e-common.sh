@@ -19,6 +19,8 @@ export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
 
+export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+
 export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml"
 export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
 export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
@@ -75,7 +77,11 @@ function cluster_kind_load_image {
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context "kind-${1}"
-    kubectl apply --server-side -k test/e2e/config
+    if [ "${KIND_VERSION%.*}" = "1.28" ]; then
+        kubectl apply --server-side -k test/e2e/config/1_28
+    else
+        kubectl apply --server-side -k test/e2e/config/default
+    fi
 }
 
 #$1 - cluster name

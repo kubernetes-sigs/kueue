@@ -16,6 +16,7 @@ description: >
   - [Uninstall](#uninstall-1)
 - [Build and install from source](#build-and-install-from-source)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator-1)
+  - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Uninstall](#uninstall-2)
 - [Install via Helm](#install-via-helm)
 - [Change the feature gates configuration](#change-the-feature-gates-configuration)
@@ -73,6 +74,10 @@ We can follow `https://prometheus-operator.dev/docs/prologue/quick-start/` to in
 ```shell
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/prometheus.yaml
 ```
+
+### Add API Priority and Fairness configuration for the visibility API
+
+See [Configure API Priority and Fairness](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness) for more details.
 
 ### Uninstall
 

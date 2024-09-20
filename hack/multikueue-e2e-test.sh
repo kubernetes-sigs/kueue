@@ -51,8 +51,7 @@ function startup {
         if [ ! -d "$ARTIFACTS" ]; then
             mkdir -p "$ARTIFACTS"
         fi
-	
-        KIND_VERSION=${E2E_KIND_VERSION/"kindest/node:v"/}
+
         MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind-${KIND_VERSION}.yaml"
         if [ !  -f "$MANAGER_KIND_CONFIG" ]; then
             MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml"

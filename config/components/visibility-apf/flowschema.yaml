@@ -1,0 +1,29 @@
+apiVersion: flowcontrol.apiserver.k8s.io/v1
+kind: FlowSchema
+metadata:
+  name: visibility
+  namespace: system
+spec:
+  distinguisherMethod:
+    type: ByUser
+  matchingPrecedence: 9000
+  priorityLevelConfiguration:
+    name: kueue-visibility
+  rules:
+    - resourceRules:
+        - apiGroups:
+            - 'visibility.kueue.x-k8s.io'
+          clusterScope: true
+          namespaces:
+            - '*'
+          resources:
+            - '*'
+          verbs:
+            - '*'
+      subjects:
+        - group:
+            name: system:unauthenticated
+          kind: Group
+        - group:
+            name: system:authenticated
+          kind: Group

@@ -265,6 +265,8 @@ artifacts: kustomize yq helm ## Generate release artifacts.
 	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
 	$(KUSTOMIZE) build config/alpha-enabled -o artifacts/manifests-alpha-enabled.yaml
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
+	$(KUSTOMIZE) build config/visibility-apf/default -o artifacts/visibility-apf.yaml
+	$(KUSTOMIZE) build config/visibility-apf/1_28 -o artifacts/visibility-apf-1-28.yaml
 	@$(call clean-manifests)
 	# Update the image tag and policy
 	$(YQ)  e  '.controllerManager.manager.image.repository = "$(IMAGE_REPO)" | .controllerManager.manager.image.tag = "$(GIT_TAG)" | .controllerManager.manager.image.pullPolicy = "IfNotPresent"' -i charts/kueue/values.yaml
