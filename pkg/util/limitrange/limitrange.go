@@ -22,6 +22,7 @@ import (
 	resourcehelpers "k8s.io/component-helpers/resource"
 
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
+
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -146,18 +147,18 @@ func calculatePodClaims(ps *corev1.PodSpec) corev1.ResourceList {
 	// We want to track the number of claims for the pod.
 	for i := range ps.Containers {
 		for _, val := range containers[i].Resources.Claims {
-			totalClaims[val.Name] = totalClaims[val.Name] + 1
+			totalClaims[val.Name]++
 		}
 	}
 	for i := range initContainers {
 		for _, val := range initContainers[i].Resources.Claims {
-			totalClaims[val.Name] = totalClaims[val.Name] + 1
+			totalClaims[val.Name]++
 		}
 	}
 	for i := range initContainers {
 		if isSidecarContainer(initContainers[i]) {
 			for _, val := range initContainers[i].Resources.Claims {
-				totalClaims[val.Name] = totalClaims[val.Name] + 1
+				totalClaims[val.Name]++
 			}
 		}
 	}
@@ -165,13 +166,12 @@ func calculatePodClaims(ps *corev1.PodSpec) corev1.ResourceList {
 		_, ok := totalClaims[val.Name]
 		if ok {
 			keyName := ""
-			if ptr.Deref(val.ResourceClaimName, "") != "" {
+			switch {
+			case ptr.Deref(val.ResourceClaimName, "") != "":
 				keyName = *val.ResourceClaimName
-			} else if ptr.Deref(val.ResourceClaimTemplateName, "") != "" {
+			case ptr.Deref(val.ResourceClaimTemplateName, "") != "":
 				keyName = *val.ResourceClaimTemplateName
-			} else {
-				// TODO: figure out what to do in this case
-				// DRA API says this is not allowed
+			default:
 				return totalResourceClaimTemplate
 			}
 			countOfClaims, ok := totalResourceClaimTemplate[corev1.ResourceName(keyName)]
