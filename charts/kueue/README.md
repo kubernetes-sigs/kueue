@@ -48,6 +48,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | `fullnameOverride`                                     | override the resource name                             | ``                                          |
 | `enablePrometheus`                                     | enable Prometheus                                      | `false`                                     |
 | `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
+| `enableVisibilityAPF`                                  | enable APF for the visibility API                      | `false`                                     |
 | `controllerManager.kubeRbacProxy.image`                | controllerManager.kubeRbacProxy's image                | `gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0` |
 | `controllerManager.manager.image`                      | controllerManager.manager's image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue` |
 | `controllerManager.manager.tag`                        | controllerManager.manager's tag                        | `main`                                      |
