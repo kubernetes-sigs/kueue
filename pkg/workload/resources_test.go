@@ -21,7 +21,7 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	dra "k8s.io/api/resource/v1alpha3"
 	"k8s.io/apimachinery/pkg/api/resource"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -497,7 +497,7 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 			enableDRAGate: false,
 			resourceClaimTemplate: []dra.ResourceClaimTemplate{
 				{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Name:      "single-gpu",
 						Namespace: "",
 					},
@@ -548,7 +548,7 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 			enableDRAGate: true,
 			resourceClaimTemplate: []dra.ResourceClaimTemplate{
 				{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Name:      "single-gpu",
 						Namespace: "",
 					},
