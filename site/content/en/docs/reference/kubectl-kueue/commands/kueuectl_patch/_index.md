@@ -216,8 +216,8 @@ Update fields of a resource
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
-* [kueuectl patch clusterqueue](kueuectl_patch_clusterqueue/)	 - Pass-through &#34;{patch Update fields of a resource []}  {clusterqueue  [cq]}&#34; to kubectl
-* [kueuectl patch localqueue](kueuectl_patch_localqueue/)	 - Pass-through &#34;{patch Update fields of a resource []}  {localqueue  [lq]}&#34; to kubectl
-* [kueuectl patch resourceflavor](kueuectl_patch_resourceflavor/)	 - Pass-through &#34;{patch Update fields of a resource []}  {resourceflavor  [rf]}&#34; to kubectl
-* [kueuectl patch workload](kueuectl_patch_workload/)	 - Pass-through &#34;{patch Update fields of a resource []}  {workload  [wl]}&#34; to kubectl
+* [kueuectl patch clusterqueue](kueuectl_patch_clusterqueue/)	 - Pass-through &#34;patch clusterqueue&#34; to kubectl
+* [kueuectl patch localqueue](kueuectl_patch_localqueue/)	 - Pass-through &#34;patch localqueue&#34; to kubectl
+* [kueuectl patch resourceflavor](kueuectl_patch_resourceflavor/)	 - Pass-through &#34;patch resourceflavor&#34; to kubectl
+* [kueuectl patch workload](kueuectl_patch_workload/)	 - Pass-through &#34;patch workload&#34; to kubectl
 

@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;{delete Delete a resource []}  {clusterqueue  [cq]}&#34; to kubectl
+Pass-through &#34;delete clusterqueue&#34; to kubectl
 
 ```
 kueuectl delete clusterqueue [flags]

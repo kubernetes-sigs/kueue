@@ -216,8 +216,8 @@ Display a resource
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
-* [kueuectl get clusterqueue](kueuectl_get_clusterqueue/)	 - Pass-through &#34;{get Display a resource []}  {clusterqueue  [cq]}&#34; to kubectl
-* [kueuectl get localqueue](kueuectl_get_localqueue/)	 - Pass-through &#34;{get Display a resource []}  {localqueue  [lq]}&#34; to kubectl
-* [kueuectl get resourceflavor](kueuectl_get_resourceflavor/)	 - Pass-through &#34;{get Display a resource []}  {resourceflavor  [rf]}&#34; to kubectl
-* [kueuectl get workload](kueuectl_get_workload/)	 - Pass-through &#34;{get Display a resource []}  {workload  [wl]}&#34; to kubectl
+* [kueuectl get clusterqueue](kueuectl_get_clusterqueue/)	 - Pass-through &#34;get clusterqueue&#34; to kubectl
+* [kueuectl get localqueue](kueuectl_get_localqueue/)	 - Pass-through &#34;get localqueue&#34; to kubectl
+* [kueuectl get resourceflavor](kueuectl_get_resourceflavor/)	 - Pass-through &#34;get resourceflavor&#34; to kubectl
+* [kueuectl get workload](kueuectl_get_workload/)	 - Pass-through &#34;get workload&#34; to kubectl
 

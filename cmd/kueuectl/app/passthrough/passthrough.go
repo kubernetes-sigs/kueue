@@ -76,7 +76,7 @@ func newSubcommand(command passThroughCommand, ptType passThroughType) *cobra.Co
 	cmd := &cobra.Command{
 		Use:                ptType.name,
 		Aliases:            ptType.aliases,
-		Short:              fmt.Sprintf("Pass-through \"%s  %s\" to kubectl", command, ptType),
+		Short:              fmt.Sprintf("Pass-through \"%s %s\" to kubectl", command.name, ptType.name),
 		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
