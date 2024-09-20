@@ -26,6 +26,8 @@ metadata:
     app: job
     kueue.x-k8s.io/queue-name: user-queue
 spec:
+  parallelism: 2
+  completions: 2
   template:
     spec:
       restartPolicy: Never
@@ -39,8 +41,8 @@ spec:
           - name: gpu
           requests:
             cpu: 1
-            memory: "200Mi"
+            memory: "100Mi"
       resourceClaims:
       - name: gpu
-        resourceClaimTemplateName: gpu.example.com
+        resourceClaimTemplateName: single-gpu
 

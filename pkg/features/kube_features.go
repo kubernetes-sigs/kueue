@@ -101,6 +101,13 @@ const (
 	// Enable more than one workload sharing flavors to preempt within a Cohort,
 	// as long as the preemption targets don't overlap.
 	MultiplePreemptions featuregate.Feature = "MultiplePreemptions"
+
+	// owner: @kannon92
+	// kep: 2941
+	// this should follow graduation process for strucuted parameters
+	// alpha: v0.9
+	// Enable the usage of DRA for Kueue
+	DynamicResourceStructuredParameters featuregate.Feature = "DynamicResourceStructuredParameters"
 )
 
 func init() {
@@ -124,6 +131,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	LendingLimit:                    {Default: true, PreRelease: featuregate.Beta},
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
 	MultiplePreemptions:             {Default: true, PreRelease: featuregate.Beta},
+	DynamicResourceStructuredParameters: {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

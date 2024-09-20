@@ -22,7 +22,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/field"
+	"k8s.io/utils/ptr"
 
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -131,6 +133,61 @@ func calculateSidecarContainersResources(initContainers []corev1.Container) core
 		}
 	}
 	return total
+}
+
+// TotalResourceClaimsFromPodSpec will calculate the number of requests
+// for ResourceClaimTemplates from a single pod spec.
+// We will increment all requests for PodResourceClaims.
+func TotalResourceClaimsFromPodSpec(ps *corev1.PodSpec) corev1.ResourceList {
+	return calculatePodClaims(ps)
+}
+
+func calculatePodClaims(ps *corev1.PodSpec) corev1.ResourceList {
+	totalClaims := make(map[string]int64)
+	totalResourceClaimTemplate := corev1.ResourceList{}
+	containers := ps.Containers
+	initContainers := ps.InitContainers
+	// We want to track the number of claims for the pod.
+	for i := range ps.Containers {
+		for _, val := range containers[i].Resources.Claims {
+			totalClaims[val.Name] = totalClaims[val.Name] + 1
+		}
+	}
+	for i := range initContainers {
+		for _, val := range initContainers[i].Resources.Claims {
+			totalClaims[val.Name] = totalClaims[val.Name] + 1
+		}
+	}
+	for i := range initContainers {
+		if isSidecarContainer(initContainers[i]) {
+			for _, val := range initContainers[i].Resources.Claims {
+				totalClaims[val.Name] = totalClaims[val.Name] + 1
+			}
+		}
+	}
+	for _, val := range ps.ResourceClaims {
+		_, ok := totalClaims[val.Name]
+		if ok {
+			keyName := ""
+			if ptr.Deref(val.ResourceClaimName, "") != "" {
+				keyName = *val.ResourceClaimName
+			} else if ptr.Deref(val.ResourceClaimTemplateName, "") != "" {
+				keyName = *val.ResourceClaimTemplateName
+			} else {
+				// TODO: figure out what to do in this case
+				// DRA API says this is not allowed
+				return totalResourceClaimTemplate
+			}
+			countOfClaims, ok := totalResourceClaimTemplate[corev1.ResourceName(keyName)]
+			if ok {
+				count := countOfClaims.Value() + totalClaims[val.Name]
+				totalResourceClaimTemplate[corev1.ResourceName(keyName)] = *k8sresource.NewQuantity(count, k8sresource.DecimalSI)
+			} else {
+				totalResourceClaimTemplate[corev1.ResourceName(keyName)] = *k8sresource.NewQuantity(totalClaims[val.Name], k8sresource.DecimalSI)
+			}
+		}
+	}
+	return totalResourceClaimTemplate
 }
 
 func isSidecarContainer(container corev1.Container) bool {

@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/field"
+	"k8s.io/utils/ptr"
 
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -495,6 +496,48 @@ func TestValidatePodSpec(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			result := tc.summary.ValidatePodSpec(podSpec, field.NewPath("testPodSet"))
+			if diff := cmp.Diff(tc.want, result); diff != "" {
+				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestTotalResourceClaimsFromPodSpec(t *testing.T) {
+	cases := map[string]struct {
+		podSpec *corev1.PodSpec
+		want    corev1.ResourceList
+	}{
+		"pod without init containers. resource claims shared": {
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithClaimReq([]corev1.ResourceClaim{{Name: "test"}}).
+						Obj(),
+					*testingutil.MakeContainer().
+						WithClaimReq([]corev1.ResourceClaim{{Name: "test1"}}).
+						Obj(),
+				},
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:                      "test",
+						ResourceClaimTemplateName: ptr.To("single-gpu"),
+					},
+					{
+						Name:                      "test1",
+						ResourceClaimTemplateName: ptr.To("single-gpu"),
+					},
+				},
+			},
+			want: corev1.ResourceList{
+				"single-gpu": resource.MustParse("2"),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := TotalResourceClaimsFromPodSpec(tc.podSpec)
 			if diff := cmp.Diff(tc.want, result); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}
