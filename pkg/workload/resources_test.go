@@ -726,7 +726,7 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 			enableDRAGate: false,
 			resourceClaimTemplate: []dra.ResourceClaimTemplate{
 				{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Name:      "single-gpu",
 						Namespace: "",
 					},
@@ -777,7 +777,7 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 			enableDRAGate: true,
 			resourceClaimTemplate: []dra.ResourceClaimTemplate{
 				{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Name:      "single-gpu",
 						Namespace: "",
 					},
