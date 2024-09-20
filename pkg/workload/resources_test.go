@@ -26,9 +26,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -715,67 +718,108 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 	cases := map[string]struct {
 		wl                    *kueue.Workload
-		resourceClaimTemplate dra.ResourceClaimTemplate
+		enableDRAGate         bool
+		resourceClaimTemplate []dra.ResourceClaimTemplate
 		wantWl                *kueue.Workload
 	}{
-		"single device class request": {
+		"dra feature gate off; ignore devices": {
+			enableDRAGate: false,
+			resourceClaimTemplate: []dra.ResourceClaimTemplate{
+				{
+					ObjectMeta: v1.ObjectMeta{
+						Name:      "single-gpu",
+						Namespace: "",
+					},
+					Spec: dra.ResourceClaimTemplateSpec{
+						Spec: dra.ResourceClaimSpec{
+							Devices: dra.DeviceClaim{
+								Requests: []dra.DeviceRequest{{
+									Name:            "single-gpu",
+									DeviceClassName: "gpu.example.com",
+								}},
+							},
+						},
+					},
+				},
+			},
 			wl: utiltesting.MakeWorkload("foo", "").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
-						InitContainers(corev1.Container{}).
-						Obj(),
-					*utiltesting.MakePodSet("b", 1).
-						InitContainers(corev1.Container{}).
-						Limit(corev1.ResourceCPU, "6").
-						Obj(),
-					*utiltesting.MakePodSet("c", 1).
-						InitContainers(corev1.Container{}).
+						Limit(corev1.ResourceCPU, "2").
 						Request(corev1.ResourceCPU, "1").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
 						Obj(),
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
-						Limit(corev1.ResourceCPU, "4").
-						Request(corev1.ResourceCPU, "3").
-						InitContainers(corev1.Container{
-							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
-								},
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
-								},
-							},
-						}).
-						Obj(),
-					*utiltesting.MakePodSet("b", 1).
-						Limit(corev1.ResourceCPU, "6").
-						Request(corev1.ResourceCPU, "3").
-						InitContainers(corev1.Container{
-							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
-								},
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
-								},
-							},
-						}).
-						Obj(),
-					*utiltesting.MakePodSet("c", 1).
-						Limit(corev1.ResourceCPU, "4").
+						Limit(corev1.ResourceCPU, "2").
 						Request(corev1.ResourceCPU, "1").
-						InitContainers(corev1.Container{
-							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
-								},
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
-								},
+						Claim(corev1.ResourceClaim{
+							Name: "gpu",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"single device class request in a container": {
+			enableDRAGate: true,
+			resourceClaimTemplate: []dra.ResourceClaimTemplate{
+				{
+					ObjectMeta: v1.ObjectMeta{
+						Name:      "single-gpu",
+						Namespace: "",
+					},
+					Spec: dra.ResourceClaimTemplateSpec{
+						Spec: dra.ResourceClaimSpec{
+							Devices: dra.DeviceClaim{
+								Requests: []dra.DeviceRequest{{
+									Name:            "single-gpu",
+									DeviceClassName: "gpu.example.com",
+								}},
 							},
+						},
+					},
+				},
+			},
+			wl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "1").
+						Request("gpu.example.com", "1").
+						Claim(corev1.ResourceClaim{
+							Name: "gpu",
+						}).
+						ResourceClaim(corev1.PodResourceClaim{
+							Name:                      "gpu",
+							ResourceClaimTemplateName: ptr.To("single-gpu"),
 						}).
 						Obj(),
 				).
@@ -785,11 +829,11 @@ func TestAddDeviceClassesToContainerRequests(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(
-				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
-				&corev1.LimitRangeList{Items: tc.limitranges},
-			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerType, indexer.IndexLimitRangeHasContainerType).
+				&dra.ResourceClaimTemplateList{Items: tc.resourceClaimTemplate},
+			).
 				Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
+			features.SetFeatureGateDuringTest(t, features.DynamicResourceStructuredParameters, tc.enableDRAGate)
 			AddDeviceClassesToContainerRequests(ctx, cl, tc.wl)
 			if diff := cmp.Diff(tc.wl, tc.wantWl); diff != "" {
 				t.Errorf("Unexpected resources after adjusting (-want,+got): %s", diff)

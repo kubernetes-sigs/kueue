@@ -469,6 +469,22 @@ func (p *PodSetWrapper) Limit(r corev1.ResourceName, q string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) Claim(claim corev1.ResourceClaim) *PodSetWrapper {
+	if p.Template.Spec.Containers[0].Resources.Claims == nil {
+		p.Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{}
+	}
+	p.Template.Spec.Containers[0].Resources.Claims = append(p.Template.Spec.Containers[0].Resources.Claims, claim)
+	return p
+}
+
+func (p *PodSetWrapper) ResourceClaim(resourceClaim corev1.PodResourceClaim) *PodSetWrapper {
+	if p.Template.Spec.ResourceClaims == nil {
+		p.Template.Spec.ResourceClaims = []corev1.PodResourceClaim{}
+	}
+	p.Template.Spec.ResourceClaims = append(p.Template.Spec.ResourceClaims, resourceClaim)
+	return p
+}
+
 func (p *PodSetWrapper) Image(image string) *PodSetWrapper {
 	p.Template.Spec.Containers[0].Image = image
 	return p
