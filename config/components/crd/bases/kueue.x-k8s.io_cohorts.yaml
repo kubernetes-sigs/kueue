@@ -17,7 +17,10 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Cohort is the Schema for the cohorts API
+        description: |-
+          Cohort is the Schema for the cohorts API. Using Hierarchical
+          Cohorts (any Cohort which has a parent) with Fair Sharing
+          results in undefined behavior in 0.9
         properties:
           apiVersion:
             description: |-
