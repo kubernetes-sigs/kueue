@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;{patch Update fields of a resource []}  {clusterqueue  [cq]}&#34; to kubectl
+Pass-through &#34;patch clusterqueue&#34; to kubectl
 
 ```
 kueuectl patch clusterqueue [flags]

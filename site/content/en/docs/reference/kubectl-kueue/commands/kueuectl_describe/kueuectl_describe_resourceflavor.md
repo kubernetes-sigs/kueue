@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;{describe Show details of a resource []}  {resourceflavor  [rf]}&#34; to kubectl
+Pass-through &#34;describe resourceflavor&#34; to kubectl
 
 ```
 kueuectl describe resourceflavor [flags]

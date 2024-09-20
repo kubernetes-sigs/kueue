@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;{get Display a resource []}  {workload  [wl]}&#34; to kubectl
+Pass-through &#34;get workload&#34; to kubectl
 
 ```
 kueuectl get workload [flags]

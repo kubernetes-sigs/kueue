@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;{edit Edit a resource on the server []}  {workload  [wl]}&#34; to kubectl
+Pass-through &#34;edit workload&#34; to kubectl
 
 ```
 kueuectl edit workload [flags]

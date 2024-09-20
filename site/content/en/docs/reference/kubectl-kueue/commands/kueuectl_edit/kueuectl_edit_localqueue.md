@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;{edit Edit a resource on the server []}  {localqueue  [lq]}&#34; to kubectl
+Pass-through &#34;edit localqueue&#34; to kubectl
 
 ```
 kueuectl edit localqueue [flags]
