@@ -81,7 +81,9 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 
 
 
-<p>Cohort is the Schema for the cohorts API</p>
+<p>Cohort is the Schema for the cohorts API. Using Hierarchical
+Cohorts (any Cohort which has a parent) with Fair Sharing
+results in undefined behavior in 0.9</p>
 
 
 <table class="table">
