@@ -1,0 +1,42 @@
+# One pod, one container
+# Asking for 2 distinct GPUs
+
+---
+apiVersion: resource.k8s.io/v1alpha3
+kind: ResourceClaimTemplate
+metadata:
+  namespace: gpu-test2
+  name: multiple-gpus
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpus
+        deviceClassName: gpu.example.com
+        allocationMode: ExactCount
+        count: 2
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  namespace: gpu-test2
+  name: job0
+  labels:
+    app: job
+    kueue.x-k8s.io/queue-name: user-queue-gpu-test2
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: ctr0
+        image: ubuntu:22.04
+        command: ["bash", "-c"]
+        args: ["export; sleep 9999"]
+        resources:
+          claims:
+          - name: gpus
+      resourceClaims:
+      - name: gpus
+        resourceClaimTemplateName: multiple-gpus
