@@ -99,6 +99,13 @@ const (
 	// Enable more than one workload sharing flavors to preempt within a Cohort,
 	// as long as the preemption targets don't overlap.
 	MultiplePreemptions featuregate.Feature = "MultiplePreemptions"
+
+	// owner: @kannon92
+	// kep: TODO
+	// this should follow graduation process for strucuted parameters
+	// dra KEP
+	// alpha: v0.9
+	DynamicResourceStructuredParameters featuregate.Feature = "DynamicResourceStructuredParameters"
 )
 
 func init() {
@@ -112,16 +119,17 @@ func init() {
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	PartialAdmission:                {Default: true, PreRelease: featuregate.Beta},
-	QueueVisibility:                 {Default: false, PreRelease: featuregate.Alpha},
-	FlavorFungibility:               {Default: true, PreRelease: featuregate.Beta},
-	ProvisioningACC:                 {Default: true, PreRelease: featuregate.Beta},
-	VisibilityOnDemand:              {Default: false, PreRelease: featuregate.Alpha},
-	PrioritySortingWithinCohort:     {Default: true, PreRelease: featuregate.Beta},
-	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
-	LendingLimit:                    {Default: true, PreRelease: featuregate.Beta},
-	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
-	MultiplePreemptions:             {Default: true, PreRelease: featuregate.Beta},
+	PartialAdmission:                    {Default: true, PreRelease: featuregate.Beta},
+	QueueVisibility:                     {Default: false, PreRelease: featuregate.Alpha},
+	FlavorFungibility:                   {Default: true, PreRelease: featuregate.Beta},
+	ProvisioningACC:                     {Default: true, PreRelease: featuregate.Beta},
+	VisibilityOnDemand:                  {Default: false, PreRelease: featuregate.Alpha},
+	PrioritySortingWithinCohort:         {Default: true, PreRelease: featuregate.Beta},
+	MultiKueue:                          {Default: false, PreRelease: featuregate.Alpha},
+	LendingLimit:                        {Default: true, PreRelease: featuregate.Beta},
+	MultiKueueBatchJobWithManagedBy:     {Default: false, PreRelease: featuregate.Alpha},
+	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.Beta},
+	DynamicResourceStructuredParameters: {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

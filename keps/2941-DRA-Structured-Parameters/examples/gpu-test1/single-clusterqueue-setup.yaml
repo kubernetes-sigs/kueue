@@ -20,7 +20,6 @@ spec:
         nominalQuota: "200Mi"
       - name: "gpu.example.com"
         nominalQuota: 2
-        kind: "DeviceClass"
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue

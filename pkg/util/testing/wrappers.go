@@ -1203,6 +1203,12 @@ func (c *ContainerWrapper) WithResourceReq(resourceName corev1.ResourceName, qua
 	return c
 }
 
+// WithResourceClaim appends a claim request to the container
+func (c *ContainerWrapper) WithClaimReq(claims []corev1.ResourceClaim) *ContainerWrapper {
+	c.Container.Resources.Claims = claims
+	return c
+}
+
 // AsSidecar makes the container a sidecar when used as an Init Container.
 func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
 	c.Container.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
