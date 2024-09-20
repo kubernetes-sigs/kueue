@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	dra "k8s.io/api/resource/v1alpha3"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -626,6 +627,74 @@ func TestValidateLimitRange(t *testing.T) {
 					limitrange.RequestsMustNotBeAboveLimitRangeMaxMessage,
 				),
 			},
+func TestAddDeviceClassesToContainerRequests(t *testing.T) {
+	cases := map[string]struct {
+		wl                    *kueue.Workload
+		resourceClaimTemplate dra.ResourceClaimTemplate
+		wantWl                *kueue.Workload
+	}{
+		"single device class request": {
+			wl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						InitContainers(corev1.Container{}).
+						Obj(),
+					*utiltesting.MakePodSet("b", 1).
+						InitContainers(corev1.Container{}).
+						Limit(corev1.ResourceCPU, "6").
+						Obj(),
+					*utiltesting.MakePodSet("c", 1).
+						InitContainers(corev1.Container{}).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "4").
+						Request(corev1.ResourceCPU, "3").
+						InitContainers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
+								},
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
+								},
+							},
+						}).
+						Obj(),
+					*utiltesting.MakePodSet("b", 1).
+						Limit(corev1.ResourceCPU, "6").
+						Request(corev1.ResourceCPU, "3").
+						InitContainers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
+								},
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
+								},
+							},
+						}).
+						Obj(),
+					*utiltesting.MakePodSet("c", 1).
+						Limit(corev1.ResourceCPU, "4").
+						Request(corev1.ResourceCPU, "1").
+						InitContainers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
+								},
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
+								},
+							},
+						}).
+						Obj(),
+				).
+				Obj(),
 		},
 	}
 	for name, tc := range cases {
@@ -638,6 +707,92 @@ func TestValidateLimitRange(t *testing.T) {
 			got := ValidateLimitRange(ctx, cliBuilder.Build(), &Info{Obj: tc.workload})
 			if diff := cmp.Diff(tc.wantError, got); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAddDeviceClassesToContainerRequests(t *testing.T) {
+	cases := map[string]struct {
+		wl                    *kueue.Workload
+		resourceClaimTemplate dra.ResourceClaimTemplate
+		wantWl                *kueue.Workload
+	}{
+		"single device class request": {
+			wl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						InitContainers(corev1.Container{}).
+						Obj(),
+					*utiltesting.MakePodSet("b", 1).
+						InitContainers(corev1.Container{}).
+						Limit(corev1.ResourceCPU, "6").
+						Obj(),
+					*utiltesting.MakePodSet("c", 1).
+						InitContainers(corev1.Container{}).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltesting.MakeWorkload("foo", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Limit(corev1.ResourceCPU, "4").
+						Request(corev1.ResourceCPU, "3").
+						InitContainers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
+								},
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
+								},
+							},
+						}).
+						Obj(),
+					*utiltesting.MakePodSet("b", 1).
+						Limit(corev1.ResourceCPU, "6").
+						Request(corev1.ResourceCPU, "3").
+						InitContainers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
+								},
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
+								},
+							},
+						}).
+						Obj(),
+					*utiltesting.MakePodSet("c", 1).
+						Limit(corev1.ResourceCPU, "4").
+						Request(corev1.ResourceCPU, "1").
+						InitContainers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
+								},
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: *resource.NewQuantity(3, resource.DecimalSI),
+								},
+							},
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewClientBuilder().WithLists(
+				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
+				&corev1.LimitRangeList{Items: tc.limitranges},
+			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerType, indexer.IndexLimitRangeHasContainerType).
+				Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			AddDeviceClassesToContainerRequests(ctx, cl, tc.wl)
+			if diff := cmp.Diff(tc.wl, tc.wantWl); diff != "" {
+				t.Errorf("Unexpected resources after adjusting (-want,+got): %s", diff)
 			}
 		})
 	}

@@ -157,6 +157,12 @@ const (
 	//
 	// Enable hierarchical cohorts
 	HierarchicalCohorts featuregate.Feature = "HierarchicalCohorts"
+	// Enable hierarchical cohorts controller
+	HierarchialCohorts featuregate.Feature = "HierarchialCohorts"
+
+	// owner: @alaypatel07
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/2941
+	DynamicResourceStructuredParameters featuregate.Feature = "DynamicResourceStructuredParameters"
 )
 
 func init() {
@@ -242,6 +248,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	HierarchicalCohorts: {
 		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
+	},
+	DynamicResourceStructuredParameters: {
+		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
