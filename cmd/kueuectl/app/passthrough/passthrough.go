@@ -25,37 +25,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type passThroughCommand struct {
+	name  string
+	short string
+}
+
 type passThroughType struct {
 	name    string
-	short   string
 	aliases []string
 }
 
 var (
-	passThroughCommands = []passThroughType{
-		{
-			name:  "get",
-			short: "Display a resource",
-		},
-		{
-			name:  "delete",
-			short: "Delete a resource",
-		},
-		{
-			name:  "edit",
-			short: "Edit a resource on the server",
-		},
-		{
-			name:  "describe",
-			short: "Show details of a resource",
-		},
-		{
-			name:  "patch",
-			short: "Update fields of a resource",
-		},
+	passThroughCommands = []passThroughCommand{
+		{name: "get", short: "Display a resource"},
+		{name: "delete", short: "Delete a resource"},
+		{name: "edit", short: "Edit a resource on the server"},
+		{name: "describe", short: "Show details of a resource"},
+		{name: "patch", short: "Update fields of a resource"},
 	}
 
-	passThroughSubcommands = []passThroughType{
+	passThroughTypes = []passThroughType{
 		{name: "workload", aliases: []string{"wl"}},
 		{name: "clusterqueue", aliases: []string{"cq"}},
 		{name: "localqueue", aliases: []string{"lq"}},
@@ -66,28 +55,28 @@ var (
 func NewCommands() []*cobra.Command {
 	commands := make([]*cobra.Command, len(passThroughCommands))
 	for i, ptCmd := range passThroughCommands {
-		commands[i] = newCommand(ptCmd, passThroughSubcommands)
+		commands[i] = newCommand(ptCmd, passThroughTypes)
 	}
 	return commands
 }
 
-func newCommand(command passThroughType, subcommands []passThroughType) *cobra.Command {
+func newCommand(command passThroughCommand, ptTypes []passThroughType) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   fmt.Sprintf("%s [command]", command.name),
 		Short: command.short,
 	}
-	for _, subcommand := range subcommands {
+	for _, subcommand := range ptTypes {
 		cmd.AddCommand(newSubcommand(command, subcommand))
 	}
 
 	return cmd
 }
 
-func newSubcommand(command passThroughType, subcommand passThroughType) *cobra.Command {
+func newSubcommand(command passThroughCommand, ptType passThroughType) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:                subcommand.name,
-		Aliases:            subcommand.aliases,
-		Short:              fmt.Sprintf("Pass-through \"%s  %s\" to kubectl", command, subcommand),
+		Use:                ptType.name,
+		Aliases:            ptType.aliases,
+		Short:              fmt.Sprintf("Pass-through \"%s  %s\" to kubectl", command, ptType),
 		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
