@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Delete the corresponding Workload Job(s), and then the Workload will be asynchronously deleted using Kueue. If the Workload has associated Jobs, the command will prompt for deletion approval and display the Jobs that will be affected. If there are no associated Jobs, the command will proceed to delete the Workload directly.
+If the Workload has associated Jobs, the command will prompt for deletion approval of the affected Jobs, and delete them. The Workload will then be asynchronously deleted by the garbage collector. If there are no associated Jobs, the command will directly delete the Workload.
 
 ```
 kueuectl delete workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run STRATEGY]
