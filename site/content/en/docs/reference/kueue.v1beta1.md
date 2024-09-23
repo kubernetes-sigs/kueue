@@ -922,7 +922,10 @@ current state.</p>
 </td>
 <td>
    <p>PendingWorkloadsStatus contains the information exposed about the current
-status of the pending workloads in the cluster queue.</p>
+status of the pending workloads in the cluster queue.
+Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
+(https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
+instead.</p>
 </td>
 </tr>
 <tr><td><code>fairSharing</code><br/>

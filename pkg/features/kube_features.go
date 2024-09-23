@@ -39,6 +39,7 @@ const (
 	// owner: @stuton
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/168-pending-workloads-visibility
 	// alpha: v0.5
+	// Deprecated: v0.9
 	//
 	// Enables queue visibility.
 	QueueVisibility featuregate.Feature = "QueueVisibility"
