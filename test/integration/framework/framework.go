@@ -31,8 +31,9 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
-	"k8s.io/client-go/kubernetes/scheme"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -59,6 +60,7 @@ type Framework struct {
 	APIServerFeatureGates []string
 	testEnv               *envtest.Environment
 	cancel                context.CancelFunc
+	scheme                *runtime.Scheme
 
 	managerCancel context.CancelFunc
 	managerDone   <-chan struct{}
@@ -92,35 +94,37 @@ func (f *Framework) Init() *rest.Config {
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 		gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 	})
+	f.scheme = runtime.NewScheme()
+	gomega.ExpectWithOffset(1, clientgoscheme.AddToScheme(f.scheme)).NotTo(gomega.HaveOccurred())
 	return cfg
 }
 
 func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.Client) {
-	err := config.AddToScheme(scheme.Scheme)
+	err := config.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = kueue.AddToScheme(scheme.Scheme)
+	err = kueue.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = kueuealpha.AddToScheme(scheme.Scheme)
+	err = kueuealpha.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = kfmpi.AddToScheme(scheme.Scheme)
+	err = kfmpi.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = rayv1.AddToScheme(scheme.Scheme)
+	err = rayv1.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = jobsetapi.AddToScheme(scheme.Scheme)
+	err = jobsetapi.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = kftraining.AddToScheme(scheme.Scheme)
+	err = kftraining.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = autoscaling.AddToScheme(scheme.Scheme)
+	err = autoscaling.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	k8sClient, err := client.New(cfg, client.Options{Scheme: f.scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
 
@@ -134,7 +138,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 	ginkgo.By("starting the manager", func() {
 		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
 		mgrOpts := manager.Options{
-			Scheme: scheme.Scheme,
+			Scheme: f.scheme,
 			Metrics: metricsserver.Options{
 				BindAddress: "0", // disable metrics to avoid conflicts between packages.
 			},
