@@ -194,7 +194,6 @@ div.feature-state-notice {
       font-size: 0.95em;
       font-weight: bold;
       color: #000;
-      background-color: #daeaf9;
     }
 
     code {
@@ -205,4 +204,12 @@ div.feature-state-notice {
 
     margin-right: 2em;
     max-width: 80%;
+
+    &.feature-deprecated {
+      > .feature-state-name::before {
+        color: #ed6a5a;
+      }
+
+      background-color: #fbe1de;
+    }
   }
