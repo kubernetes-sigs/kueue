@@ -1264,6 +1264,46 @@ func TestSchedule(t *testing.T) {
 				"eng-beta": {"eng-beta/new"},
 			},
 		},
+		"partial admission single variable pod set, preempt with partial admission": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Priority(4).
+					PodSets(*utiltesting.MakePodSet("one", 30).
+						SetMinimumCount(10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("old", "eng-beta").
+					Priority(-4).
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta", "one").Assignment("example.com/gpu", "model-a", "10").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-beta/old": {
+					ClusterQueue: "eng-beta",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								"example.com/gpu": "model-a",
+							},
+							ResourceUsage: corev1.ResourceList{
+								"example.com/gpu": resource.MustParse("10"),
+							},
+							Count: ptr.To[int32](10),
+						},
+					},
+				},
+			},
+			wantPreempted: sets.New("eng-beta/old"),
+			wantLeft: map[string][]string{
+				"eng-beta": {"eng-beta/new"},
+			},
+		},
 		"partial admission multiple variable pod sets": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "sales").
