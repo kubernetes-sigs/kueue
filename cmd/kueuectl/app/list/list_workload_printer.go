@@ -31,7 +31,7 @@ import (
 	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -39,14 +39,14 @@ const crdTypeMaxLength = 20
 
 type listWorkloadResources struct {
 	localQueues      map[string]*v1beta1.LocalQueue
-	pendingWorkloads map[string]*v1alpha1.PendingWorkload
+	pendingWorkloads map[string]*visibility.PendingWorkload
 	apiResourceLists map[string]*metav1.APIResourceList
 }
 
 func newListWorkloadResources() *listWorkloadResources {
 	return &listWorkloadResources{
 		localQueues:      make(map[string]*v1beta1.LocalQueue),
-		pendingWorkloads: make(map[string]*v1alpha1.PendingWorkload),
+		pendingWorkloads: make(map[string]*visibility.PendingWorkload),
 		apiResourceLists: make(map[string]*metav1.APIResourceList),
 	}
 }

@@ -1,16 +1,18 @@
-// Copyright 2023 The Kubernetes Authors.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 
 package visibility
 
@@ -22,7 +24,8 @@ import (
 	"strings"
 
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
-	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	visibilityv1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/visibility/api"
 
@@ -58,7 +61,7 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager
 	}
 
 	if err := api.Install(visibilityServer, kueueMgr); err != nil {
-		setupLog.Error(err, "Unable to install visibility.kueue.x-k8s.io/v1alpha1 API")
+		setupLog.Error(err, "Unable to install visibility.kueue.x-k8s.io API")
 		os.Exit(1)
 	}
 
@@ -69,7 +72,10 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *queue.Manager
 }
 
 func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig) error {
-	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(v1alpha1.SchemeGroupVersion))
+	o := genericoptions.NewRecommendedOptions("", api.Codecs.LegacyCodec(
+		visibilityv1alpha1.SchemeGroupVersion,
+		visibilityv1beta1.SchemeGroupVersion,
+	))
 	o.Etcd = nil
 	o.SecureServing.BindPort = 8082
 	// The directory where TLS certs will be created
