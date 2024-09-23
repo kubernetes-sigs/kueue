@@ -345,9 +345,10 @@ so that the users won't have to remember to switch the command to kubectl.
 ### Delete Workload
 
 Motivation:
-The pass-through delete workload command doesn't actually delete the Workload but 
-instead requeues it. This can confuse users, as the Workload remains listed even 
-after they attempt to delete it, due to its recreation.
+The pass-through delete workload command deletes the Workload API object, which 
+is later recreated leading to its job to be re-queued. This can confuse users, 
+as the recreated Workload has the same name giving the impression that the 
+`delete workload` command did not succeed.
 
 This command will delete the corresponding Workload Job(s), and then the Workload
 will be asynchronously deleted using Kueue. If the Workload has associated Jobs,
