@@ -25,6 +25,7 @@
   - [Stop Workload](#stop-workload)
   - [Resume Workload](#resume-workload)
   - [Pass-through](#pass-through)
+  - [Delete Workload](#delete-workload)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -339,7 +340,46 @@ so that the users won't have to remember to switch the command to kubectl.
 * `describe workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
 * `edit workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
 * `patch workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
-* `delete workload|wl|clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+* `delete clusterqueue|cq|localqueue|lq|resourceflavor|rf`
+
+### Delete Workload
+
+Motivation:
+The pass-through delete workload command deletes the Workload API object, which 
+is later recreated leading to its job to be re-queued. This can confuse users, 
+as the recreated Workload has the same name giving the impression that the 
+`delete workload` command did not succeed.
+
+This command will delete the corresponding Workload Job(s), and then the Workload
+will be asynchronously deleted using Kueue. If the Workload has associated Jobs,
+the command will prompt for deletion approval and display the Jobs that will be
+affected. If there are no associated Jobs, the command will proceed to delete
+the Workload directly.
+
+Format:
+```
+kueuectl delete workload name
+```
+
+Flags:
+```
+-n, --namespace       The namespace from which to delete the Workload and its corresponding Job. 
+-y, --yes             Automatic yes to the prompt for deleting the Workload.
+    --all             Delete all Workloads, in the specified namespace.
+    --all-namespaces  Using with --all flag. Delete all Workloads, in all namespaces.
+```
+
+Approval Output:
+```
+This operation will also delete:
+  - jobs.batch/name associated with the namespace/name workload
+Do you want to proceed (y/n)?
+```
+
+Deletion Process Output:
+```
+jobs.batch/name deleted
+```
 
 ### Test Plan
 
