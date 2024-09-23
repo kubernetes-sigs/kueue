@@ -316,12 +316,15 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			Requests: resources.NewRequests(psa.ResourceUsage),
 		}
 
-		if count := currentCounts[psa.Name]; count != setRes.Count {
+		// If countAfterReclaim is lower then the admission count indicates that
+		// additional pods are marked as reclaimable, and the consumption should be scaled down.
+		if countAfterReclaim := currentCounts[psa.Name]; countAfterReclaim < setRes.Count {
 			scaleDown(setRes.Requests, int64(setRes.Count))
-			scaleUp(setRes.Requests, int64(count))
-			setRes.Count = count
+			scaleUp(setRes.Requests, int64(countAfterReclaim))
+			setRes.Count = countAfterReclaim
 		}
-
+		// Otherwise if countAfterReclaim is higher it means that the podSet was partially admitted
+		// and the count should be preserved.
 		res = append(res, setRes)
 	}
 	return res
