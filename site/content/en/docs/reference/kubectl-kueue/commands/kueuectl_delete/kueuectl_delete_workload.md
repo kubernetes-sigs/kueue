@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Delete the given Workload and its corresponding Job
+Delete the corresponding Workload Job(s), and then the Workload will be asynchronously deleted using Kueue. If the Workload has associated Jobs, the command will prompt for deletion approval and display the Jobs that will be affected. If there are no associated Jobs, the command will proceed to delete the Workload directly.
 
 ```
 kueuectl delete workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run STRATEGY]
@@ -43,7 +43,7 @@ kueuectl delete workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run ST
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Delete all resources, in the namespace of the specified resource types.</p>
+            <p>Delete all Workloads, in the specified namespace.</p>
         </td>
     </tr>
     <tr>
@@ -53,15 +53,6 @@ kueuectl delete workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run ST
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--allow-missing-template-keys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: true</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, ignore any errors in templates when a field or map key is missing in the template. Only applies to golang and jsonpath output formats.</p>
         </td>
     </tr>
     <tr>
@@ -92,39 +83,12 @@ kueuectl delete workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run ST
         </td>
     </tr>
     <tr>
-        <td colspan="2">-o, --output string</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file).</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--show-managed-fields</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--template string</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Template string or path to template file to use when -o=go-template, -o=go-template-file. The template format is golang templates [http://golang.org/pkg/text/template/#pkg-overview].</p>
-        </td>
-    </tr>
-    <tr>
         <td colspan="2">-y, --yes</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Confirm the deletion of the workload and its corresponding Job.</p>
+            <p>Automatic yes to the prompt for deleting the Workload.</p>
         </td>
     </tr>
     </tbody>

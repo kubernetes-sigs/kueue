@@ -219,5 +219,5 @@ Delete a resource
 * [kueuectl delete clusterqueue](kueuectl_delete_clusterqueue/)	 - Pass-through &#34;delete clusterqueue&#34; to kubectl
 * [kueuectl delete localqueue](kueuectl_delete_localqueue/)	 - Pass-through &#34;delete localqueue&#34; to kubectl
 * [kueuectl delete resourceflavor](kueuectl_delete_resourceflavor/)	 - Pass-through &#34;delete resourceflavor&#34; to kubectl
-* [kueuectl delete workload](kueuectl_delete_workload/)	 - Delete the given Workload and corresponding to it Job
+* [kueuectl delete workload](kueuectl_delete_workload/)	 - Delete the given Workload and its corresponding Job
 

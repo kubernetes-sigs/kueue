@@ -18,9 +18,12 @@ package delete
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 const (
@@ -49,5 +52,16 @@ func getCascadingStrategy(cmd *cobra.Command) (metav1.DeletionPropagation, error
 		return metav1.DeletePropagationBackground, nil
 	default:
 		return metav1.DeletePropagationBackground, fmt.Errorf(`invalid cascade value (%v). Must be "background", "foreground", or "orphan"`, cascadingFlag)
+	}
+}
+
+func printWithDryRunStrategy(out io.Writer, name string, dryRunStrategy util.DryRunStrategy) {
+	switch dryRunStrategy {
+	case util.DryRunClient:
+		fmt.Fprintf(out, "%s deleted (client dry run)\n", name)
+	case util.DryRunServer:
+		fmt.Fprintf(out, "%s deleted (server dry run)\n", name)
+	default:
+		fmt.Fprintf(out, "%s deleted\n", name)
 	}
 }

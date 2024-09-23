@@ -81,7 +81,7 @@ func TestWorkloadCmd(t *testing.T) {
 				},
 			},
 			wantOut: `This operation will also delete:
-  - jobs.batch/j1 associated with the wl1 workload
+  - jobs.batch/j1 associated with the default/wl1 workload
 Do you want to proceed (y/n)? Deletion is canceled
 `,
 		},
@@ -118,7 +118,7 @@ Do you want to proceed (y/n)? Deletion is canceled
 			args:       []string{"wl2"},
 			wantOutErr: "workloads.kueue.x-k8s.io \"wl2\" not found\n",
 		},
-		"should delete a workload and its corresponding job with confirmation": {
+		"should delete jobs corresponding to the workload with confirmation": {
 			args:  []string{"wl1"},
 			input: "y\n",
 			workloads: []runtime.Object{
@@ -131,6 +131,7 @@ Do you want to proceed (y/n)? Deletion is canceled
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
+				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 				*testingworkload.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
@@ -143,11 +144,11 @@ Do you want to proceed (y/n)? Deletion is canceled
 				},
 			},
 			wantOut: `This operation will also delete:
-  - jobs.batch/j1 associated with the wl1 workload
-Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
+  - jobs.batch/j1 associated with the default/wl1 workload
+Do you want to proceed (y/n)? jobs.batch/j1 deleted
 `,
 		},
-		"should delete a workload and its corresponding job with yes flag": {
+		"should delete jobs corresponding to the workload with yes flag": {
 			args: []string{"wl1", "--yes"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -159,6 +160,7 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
+				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 				*testingworkload.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
@@ -170,9 +172,9 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 					},
 				},
 			},
-			wantOut: "workload.kueue.x-k8s.io/wl1 deleted\n",
+			wantOut: "jobs.batch/j1 deleted\n",
 		},
-		"should delete all workloads and their corresponding jobs": {
+		"should delete all jobs corresponding to the workloads and any workloads without corresponding jobs in default namespace": {
 			args: []string{"--all", "--yes"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -185,6 +187,7 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []v1beta1.Workload{
+				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
 				*testingworkload.MakeWorkload("wl3", "test").Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
@@ -199,7 +202,7 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 			// We do not know in which order the result will be displayed.
 			ignoreOut: true,
 		},
-		"should delete all workloads and their corresponding jobs in all namespaces": {
+		"should delete all jobs corresponding to the workloads and any workloads without corresponding jobs in all namespaces": {
 			args: []string{"--all", "-y", "-A"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -211,6 +214,9 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j2", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
+			wantWorkloads: []v1beta1.Workload{
+				*testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+			},
 			wantJobList: &bactchv1.JobList{
 				TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 				Items: []bactchv1.Job{
@@ -223,7 +229,7 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 			// We do not know in which order the result will be displayed.
 			ignoreOut: true,
 		},
-		"shouldn't delete a workload and its corresponding job with client dry-run flag": {
+		"shouldn't delete the jobs corresponding to the workloads jobs when using client dry-run flag": {
 			args: []string{"wl1", "--dry-run", "client"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -244,9 +250,9 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 					},
 				},
 			},
-			wantOut: "workload.kueue.x-k8s.io/wl1 deleted (client dry run)\n",
+			wantOut: "jobs.batch/j1 deleted (client dry run)\n",
 		},
-		"shouldn't delete a workload and its corresponding job with server dry-run flag": {
+		"shouldn't delete the jobs corresponding to the workloads jobs when using server dry-run flag": {
 			args: []string{"wl1", "--dry-run", "server"},
 			workloads: []runtime.Object{
 				testingworkload.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
@@ -267,7 +273,7 @@ Do you want to proceed (y/n)? workload.kueue.x-k8s.io/wl1 deleted
 					},
 				},
 			},
-			wantOut: "workload.kueue.x-k8s.io/wl1 deleted (server dry run)\n",
+			wantOut: "jobs.batch/j1 deleted (server dry run)\n",
 		},
 	}
 	for name, tc := range testCases {

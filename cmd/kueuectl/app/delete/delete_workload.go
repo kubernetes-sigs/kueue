@@ -30,6 +30,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -40,9 +41,18 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	wlExample = `  # Delete the Workload
-  kueuectl delete workload my-workload`
+var (
+	wlExample = templates.Examples(`  
+		# Delete the Workload
+  		kueuectl delete workload my-workload
+`)
+	wlLong = templates.LongDesc(`
+		Delete the corresponding Workload Job(s), and then the Workload will be 
+		asynchronously deleted using Kueue. If the Workload has associated Jobs, 
+		the command will prompt for deletion approval and display the Jobs that will be
+		affected. If there are no associated Jobs, the command will proceed to delete
+		the Workload directly.
+`)
 )
 
 type WorkloadOptions struct {
@@ -81,6 +91,7 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"wl"},
 		Short:                 "Delete the given Workload and its corresponding Job",
+		Long:                  wlLong,
 		Example:               wlExample,
 		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, ptr.To(true)),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -95,14 +106,12 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 		},
 	}
 
-	cmd.Flags().BoolVarP(&o.Confirmed, "yes", "y", false, "Confirm the deletion of the workload and its corresponding Job.")
-	cmd.Flags().BoolVar(&o.DeleteAll, "all", false, "Delete all resources, in the namespace of the specified resource types.")
+	cmd.Flags().BoolVarP(&o.Confirmed, "yes", "y", false, "Automatic yes to the prompt for deleting the Workload.")
+	cmd.Flags().BoolVar(&o.DeleteAll, "all", false, "Delete all Workloads, in the specified namespace.")
 
 	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addCascadingFlag(cmd)
 	util.AddDryRunFlag(cmd)
-
-	o.PrintFlags.AddFlags(cmd)
 
 	return cmd
 }
@@ -315,7 +324,7 @@ func (o *WorkloadOptions) generateConfirmationMessage(workloadResources map[*v1b
 		}
 
 		if len(names) > 0 {
-			associatedResource := fmt.Sprintf("  - %s associated with the %s workload\n", strings.Join(names, ", "), wl.Name)
+			associatedResource := fmt.Sprintf("  - %s associated with the %s/%s workload\n", strings.Join(names, ", "), wl.Namespace, wl.Name)
 			associatedResources = append(associatedResources, associatedResource)
 		}
 	}
@@ -342,29 +351,34 @@ func (o *WorkloadOptions) confirmation(message string) bool {
 
 func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResources map[*v1beta1.Workload][]GroupVersionResourceName) error {
 	for wl, nrs := range workloadNameResources {
-		if o.DryRunStrategy != util.DryRunClient {
-			deleteOptions := metav1.DeleteOptions{
-				PropagationPolicy: ptr.To(o.CascadeStrategy),
-			}
+		deleteOptions := metav1.DeleteOptions{
+			PropagationPolicy: ptr.To(o.CascadeStrategy),
+		}
 
-			if o.DryRunStrategy == util.DryRunServer {
-				deleteOptions.DryRun = []string{metav1.DryRunAll}
-			}
+		if o.DryRunStrategy == util.DryRunServer {
+			deleteOptions.DryRun = []string{metav1.DryRunAll}
+		}
 
-			for _, nr := range nrs {
+		for _, nr := range nrs {
+			if o.DryRunStrategy != util.DryRunClient {
 				if err := o.DynamicClient.Resource(nr.GroupVersionResource).Namespace(wl.Namespace).
 					Delete(ctx, nr.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
 					return err
 				}
 			}
-
-			if err := o.Client.Workloads(wl.Namespace).Delete(ctx, wl.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
-				return err
-			}
+			printWithDryRunStrategy(o.Out, nr.String(), o.DryRunStrategy)
 		}
 
-		if err := o.PrintObj(wl, o.Out); err != nil {
-			return err
+		// Remove workload only if we don't have corresponding Job(s).
+		if len(nrs) == 0 {
+			if o.DryRunStrategy != util.DryRunClient {
+				if err := o.Client.Workloads(wl.Namespace).Delete(ctx, wl.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
+					return err
+				}
+			}
+			if err := o.PrintObj(wl, o.Out); err != nil {
+				return err
+			}
 		}
 	}
 
