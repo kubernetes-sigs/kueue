@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;delete  {resourceflavor [rf]}&#34; to kubectl
+Pass-through &#34;delete resourceflavor&#34; to kubectl
 
 ```
 kueuectl delete resourceflavor [flags]
@@ -219,5 +219,5 @@ kueuectl delete resourceflavor [flags]
 
 ## See Also
 
-* [kueuectl delete](../)	 - Pass-through &#34;delete&#34; to kubectl
+* [kueuectl delete](../)	 - Delete a resource
 

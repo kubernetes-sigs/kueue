@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;describe&#34; to kubectl
+Show details of a resource
 
 
 ## Options
@@ -216,8 +216,8 @@ Pass-through &#34;describe&#34; to kubectl
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
-* [kueuectl describe clusterqueue](kueuectl_describe_clusterqueue/)	 - Pass-through &#34;describe  {clusterqueue [cq]}&#34; to kubectl
-* [kueuectl describe localqueue](kueuectl_describe_localqueue/)	 - Pass-through &#34;describe  {localqueue [lq]}&#34; to kubectl
-* [kueuectl describe resourceflavor](kueuectl_describe_resourceflavor/)	 - Pass-through &#34;describe  {resourceflavor [rf]}&#34; to kubectl
-* [kueuectl describe workload](kueuectl_describe_workload/)	 - Pass-through &#34;describe  {workload [wl]}&#34; to kubectl
+* [kueuectl describe clusterqueue](kueuectl_describe_clusterqueue/)	 - Pass-through &#34;describe clusterqueue&#34; to kubectl
+* [kueuectl describe localqueue](kueuectl_describe_localqueue/)	 - Pass-through &#34;describe localqueue&#34; to kubectl
+* [kueuectl describe resourceflavor](kueuectl_describe_resourceflavor/)	 - Pass-through &#34;describe resourceflavor&#34; to kubectl
+* [kueuectl describe workload](kueuectl_describe_workload/)	 - Pass-through &#34;describe workload&#34; to kubectl
 

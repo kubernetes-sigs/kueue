@@ -13,7 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Pass-through &#34;get  {resourceflavor [rf]}&#34; to kubectl
+Pass-through &#34;get resourceflavor&#34; to kubectl
 
 ```
 kueuectl get resourceflavor [flags]
@@ -219,5 +219,5 @@ kueuectl get resourceflavor [flags]
 
 ## See Also
 
-* [kueuectl get](../)	 - Pass-through &#34;get&#34; to kubectl
+* [kueuectl get](../)	 - Display a resource
 
