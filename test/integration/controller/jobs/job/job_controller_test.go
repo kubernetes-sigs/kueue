@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -1678,6 +1679,23 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			gomega.Expect(wl.Spec.PodSets[0].MinCount).ToNot(gomega.BeNil())
 			gomega.Expect(*wl.Spec.PodSets[0].MinCount).To(gomega.BeEquivalentTo(1))
+		})
+
+		ginkgo.By("checking the clusterqueue usage", func() {
+			updateCq := &kueue.ClusterQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), updateCq)).Should(gomega.Succeed())
+				g.Expect(updateCq.Status.FlavorsUsage).To(gomega.ContainElement(kueue.FlavorUsage{
+					Name: "on-demand",
+					Resources: []kueue.ResourceUsage{
+						{
+							Name:     corev1.ResourceCPU,
+							Total:    resource.MustParse("4"),
+							Borrowed: resource.MustParse("0"),
+						},
+					},
+				}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("delete the localQueue to prevent readmission", func() {
