@@ -24,6 +24,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -66,8 +67,12 @@ type Framework struct {
 	managerDone   <-chan struct{}
 }
 
-func (f *Framework) Init() *rest.Config {
+var setupLogger = sync.OnceFunc(func() {
 	ctrl.SetLogger(util.NewTestingLogger(ginkgo.GinkgoWriter, -3))
+})
+
+func (f *Framework) Init() *rest.Config {
+	setupLogger()
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
