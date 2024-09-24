@@ -16,7 +16,7 @@ The file is auto-generated from the Go source code of the component using the
 If the Workload has associated Jobs, the command will prompt for deletion approval of the affected Jobs, and delete them. The Workload will then be asynchronously deleted by the garbage collector. If there are no associated Jobs, the command will directly delete the Workload.
 
 ```
-kueuectl delete workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run STRATEGY]
+kueuectl delete workload NAME [--yes] [--all] [--dry-run STRATEGY]
 ```
 
 
@@ -53,15 +53,6 @@ kueuectl delete workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run ST
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.</p>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="2">--cascade string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;background&#34;</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Must be &#34;background&#34;, &#34;orphan&#34;, or &#34;foreground&#34;. Defaults to background.</p>
         </td>
     </tr>
     <tr>

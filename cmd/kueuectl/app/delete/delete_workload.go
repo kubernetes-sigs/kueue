@@ -63,8 +63,7 @@ type WorkloadOptions struct {
 	Confirmed     bool
 	DeleteAll     bool
 
-	CascadeStrategy metav1.DeletionPropagation
-	DryRunStrategy  util.DryRunStrategy
+	DryRunStrategy util.DryRunStrategy
 
 	Client        kueuev1beta1.KueueV1beta1Interface
 	DynamicClient dynamic.Interface
@@ -86,7 +85,7 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	o := NewWorkloadOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "workload NAME [--yes] [--all] [--cascade STRATEGY] [--dry-run STRATEGY]",
+		Use:                   "workload NAME [--yes] [--all] [--dry-run STRATEGY]",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"wl"},
 		Short:                 "Delete the given Workload and its corresponding Job",
@@ -109,7 +108,6 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 	cmd.Flags().BoolVar(&o.DeleteAll, "all", false, "Delete all Workloads, in the specified namespace.")
 
 	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
-	addCascadingFlag(cmd)
 	util.AddDryRunFlag(cmd)
 
 	return cmd
@@ -144,11 +142,6 @@ func (o *WorkloadOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Co
 	}
 
 	err = util.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.DryRunStrategy)
-	if err != nil {
-		return err
-	}
-
-	o.CascadeStrategy, err = getCascadingStrategy(cmd)
 	if err != nil {
 		return err
 	}
@@ -350,9 +343,7 @@ func (o *WorkloadOptions) confirmation(message string) bool {
 
 func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResources map[*v1beta1.Workload][]GroupVersionResourceName) error {
 	for wl, nrs := range workloadNameResources {
-		deleteOptions := metav1.DeleteOptions{
-			PropagationPolicy: ptr.To(o.CascadeStrategy),
-		}
+		deleteOptions := metav1.DeleteOptions{}
 
 		if o.DryRunStrategy == util.DryRunServer {
 			deleteOptions.DryRun = []string{metav1.DryRunAll}

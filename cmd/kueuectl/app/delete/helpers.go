@@ -20,40 +20,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/spf13/cobra"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
-
-const (
-	cascadingFlagName = "cascade"
-)
-
-func addCascadingFlag(cmd *cobra.Command) {
-	cmd.PersistentFlags().String(
-		cascadingFlagName,
-		"background",
-		`Must be "background", "orphan", or "foreground". Defaults to background.`,
-	)
-}
-
-func getCascadingStrategy(cmd *cobra.Command) (metav1.DeletionPropagation, error) {
-	cascadingFlag, err := cmd.Flags().GetString(cascadingFlagName)
-	if err != nil {
-		return metav1.DeletePropagationBackground, err
-	}
-	switch cascadingFlag {
-	case "orphan":
-		return metav1.DeletePropagationOrphan, nil
-	case "foreground":
-		return metav1.DeletePropagationForeground, nil
-	case "background":
-		return metav1.DeletePropagationBackground, nil
-	default:
-		return metav1.DeletePropagationBackground, fmt.Errorf(`invalid cascade value (%v). Must be "background", "foreground", or "orphan"`, cascadingFlag)
-	}
-}
 
 func printWithDryRunStrategy(out io.Writer, name string, dryRunStrategy util.DryRunStrategy) {
 	switch dryRunStrategy {
