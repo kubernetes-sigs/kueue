@@ -42,7 +42,7 @@ func (b *jobBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 			Kind:       "Job",
 			APIVersion: "batch/v1",
 		},
-		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
 		Spec:       template.Template.Spec,
 	}
 

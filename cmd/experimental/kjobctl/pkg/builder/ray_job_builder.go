@@ -46,7 +46,7 @@ func (b *rayJobBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 			Kind:       "RayJob",
 			APIVersion: "ray.io/v1",
 		},
-		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
 		Spec:       template.Template.Spec,
 	}
 
