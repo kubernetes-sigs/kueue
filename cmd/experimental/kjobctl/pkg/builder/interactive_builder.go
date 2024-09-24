@@ -41,7 +41,7 @@ func (b *interactiveBuilder) build(ctx context.Context) ([]runtime.Object, error
 			Kind:       "Pod",
 			APIVersion: "v1",
 		},
-		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
 		Spec:       template.Template.Spec,
 	}
 

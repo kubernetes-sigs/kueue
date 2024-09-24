@@ -184,7 +184,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 			Kind:       "Job",
 			APIVersion: "batch/v1",
 		},
-		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
 		Spec:       template.Template.Spec,
 	}
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
@@ -198,7 +198,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 			Kind:       "ConfigMap",
 			APIVersion: "v1",
 		},
-		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
 		Data: map[string]string{
 			slurmEntrypointFilename: b.buildEntrypointScript(),
 			slurmScriptFilename:     b.scriptContent,
