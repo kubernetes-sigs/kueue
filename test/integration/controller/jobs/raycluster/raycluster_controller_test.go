@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -88,6 +89,9 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 		priorityClass := testing.MakePriorityClass(priorityClassName).
 			PriorityValue(priorityValue).Obj()
 		gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
+		defer func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
+		}()
 
 		job := testingraycluster.MakeCluster(jobName, ns.Name).
 			Suspend(false).
@@ -156,6 +160,10 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 		gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 		spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
+		defer func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		}()
 		clusterQueue := testing.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
@@ -646,6 +654,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		onDemandFlavor *kueue.ResourceFlavor
 		clusterQueue   *kueue.ClusterQueue
 		localQueue     *kueue.LocalQueue
+		priorityClass  *schedulingv1.PriorityClass
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -674,7 +683,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 
 		ginkgo.By("creating priority")
-		priorityClass := testing.MakePriorityClass(priorityClassName).
+		priorityClass = testing.MakePriorityClass(priorityClassName).
 			PriorityValue(priorityValue).Obj()
 		gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
 	})
@@ -682,6 +691,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 	})
 
 	ginkgo.It("Should preempt lower priority RayClusters when resource insufficient", func() {
