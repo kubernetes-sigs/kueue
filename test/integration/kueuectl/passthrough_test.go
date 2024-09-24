@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 	})
 
 	ginkgo.DescribeTable("Pass-through commands",
-		func(oType string, makeObject func(ns string) client.Object, getPath string, expectGet string, patch string, expectGetAfterPatch string) {
+		func(oType string, makeObject func(ns string) client.Object, getPath string, expectGet string, patch string, expectGetAfterPatch string, deleteArgs ...string) {
 			obj := makeObject(ns.Name)
 			gomega.Expect(k8sClient.Create(ctx, obj)).To(gomega.Succeed())
 			key := client.ObjectKeyFromObject(obj)
@@ -116,6 +116,7 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 
 			ginkgo.By("Delete the object", func() {
 				args := append([]string{"delete"}, identityArgs...)
+				args = append(args, deleteArgs...)
 				cmd := exec.Command(kueuectlPath, args...)
 				setupEnv(cmd, kassetsPath, kubeconfigPath)
 				out, err := cmd.CombinedOutput()
@@ -126,8 +127,8 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 				}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 			})
 		},
-		ginkgo.Entry("Workload", "workload", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'"),
-		ginkgo.Entry("Workload(short)", "wl", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'"),
+		ginkgo.Entry("Workload", "workload", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'", "--yes"),
+		ginkgo.Entry("Workload(short)", "wl", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'", "--yes"),
 		ginkgo.Entry("LocalQueue", "localqueue", makePassThroughLocalQueue, "{.spec.stopPolicy}", "'None'", `{"spec":{"stopPolicy":"Hold"}}`, "'Hold'"),
 		ginkgo.Entry("LocalQueue(short)", "lq", makePassThroughLocalQueue, "{.spec.stopPolicy}", "'None'", `{"spec":{"stopPolicy":"Hold"}}`, "'Hold'"),
 		ginkgo.Entry("ClusterQueue", "clusterqueue", makePassThroughClusterQueue, "{.spec.stopPolicy}", "'None'", `{"spec":{"stopPolicy":"Hold"}}`, "'Hold'"),

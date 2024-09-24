@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/restmapper"
@@ -38,6 +39,7 @@ type TestClientGetter struct {
 	kueueClientset versioned.Interface
 	k8sClientset   k8s.Interface
 	restClient     resource.RESTClient
+	dynamicClient  dynamic.Interface
 
 	configFlags *genericclioptions.TestConfigFlags
 }
@@ -88,6 +90,15 @@ func (cg *TestClientGetter) K8sClientSet() (k8s.Interface, error) {
 func (cg *TestClientGetter) WithRESTClient(restClient resource.RESTClient) *TestClientGetter {
 	cg.restClient = restClient
 	return cg
+}
+
+func (cg *TestClientGetter) WithDynamicClient(dynamicClient dynamic.Interface) *TestClientGetter {
+	cg.dynamicClient = dynamicClient
+	return cg
+}
+
+func (cg *TestClientGetter) DynamicClient() (dynamic.Interface, error) {
+	return cg.dynamicClient, nil
 }
 
 func (cg *TestClientGetter) NewResourceBuilder() *resource.Builder {

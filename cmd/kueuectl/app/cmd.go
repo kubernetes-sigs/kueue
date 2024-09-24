@@ -79,7 +79,7 @@ func NewKueuectlCmd(o KueuectlOptions) *cobra.Command {
 	cmd.AddCommand(resume.NewResumeCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(stop.NewStopCmd(clientGetter, o.IOStreams))
 	cmd.AddCommand(list.NewListCmd(clientGetter, o.IOStreams, o.Clock))
-	cmd.AddCommand(passthrough.NewCommands()...)
+	cmd.AddCommand(passthrough.NewCommands(clientGetter, o.IOStreams)...)
 	cmd.AddCommand(version.NewVersionCmd(clientGetter, o.IOStreams))
 
 	return cmd

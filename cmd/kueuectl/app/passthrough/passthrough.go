@@ -23,6 +23,10 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
+
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/delete"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 type passThroughCommand struct {
@@ -52,21 +56,30 @@ var (
 	}
 )
 
-func NewCommands() []*cobra.Command {
+func NewCommands(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) []*cobra.Command {
 	commands := make([]*cobra.Command, len(passThroughCommands))
 	for i, ptCmd := range passThroughCommands {
-		commands[i] = newCommand(ptCmd, passThroughTypes)
+		commands[i] = newCommand(clientGetter, streams, ptCmd, passThroughTypes)
 	}
 	return commands
 }
 
-func newCommand(command passThroughCommand, ptTypes []passThroughType) *cobra.Command {
+func newCommand(
+	clientGetter util.ClientGetter,
+	streams genericiooptions.IOStreams,
+	command passThroughCommand,
+	ptTypes []passThroughType,
+) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   fmt.Sprintf("%s [command]", command.name),
 		Short: command.short,
 	}
-	for _, subcommand := range ptTypes {
-		cmd.AddCommand(newSubcommand(command, subcommand))
+	for _, ptType := range ptTypes {
+		if command.name == "delete" && ptType.name == "workload" {
+			cmd.AddCommand(delete.NewWorkloadCmd(clientGetter, streams))
+		} else {
+			cmd.AddCommand(newSubcommand(command, ptType))
+		}
 	}
 
 	return cmd
