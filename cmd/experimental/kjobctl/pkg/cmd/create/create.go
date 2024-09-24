@@ -607,7 +607,12 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 
 	for i := range objs {
 		if o.DryRunStrategy != util.DryRunClient {
-			objs[i], err = o.createObject(ctx, clientGetter, objs[i])
+			var owner runtime.Object
+			if i > 0 {
+				owner = objs[0]
+			}
+
+			objs[i], err = o.createObject(ctx, clientGetter, objs[i], owner)
 			if err != nil {
 				return err
 			}
@@ -627,7 +632,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 	return nil
 }
 
-func (o *CreateOptions) createObject(ctx context.Context, clientGetter util.ClientGetter, obj runtime.Object) (runtime.Object, error) {
+func (o *CreateOptions) createObject(ctx context.Context, clientGetter util.ClientGetter, obj runtime.Object, owner runtime.Object) (runtime.Object, error) {
 	options := metav1.CreateOptions{}
 	if o.DryRunStrategy == util.DryRunServer {
 		options.DryRun = []string{metav1.DryRunAll}
@@ -650,20 +655,34 @@ func (o *CreateOptions) createObject(ctx context.Context, clientGetter util.Clie
 	}
 	gvr := mapping.Resource
 
-	unstructured := &unstructured.Unstructured{}
-	unstructured.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	unstructuredObj := &unstructured.Unstructured{}
+	unstructuredObj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 	if err != nil {
 		return nil, err
 	}
 
-	unstructured, err = dynamicClient.Resource(gvr).Namespace(o.Namespace).Create(ctx, unstructured, options)
+	if owner != nil {
+		unstructuredOwner := &unstructured.Unstructured{}
+		unstructuredOwner.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(owner)
+		if err != nil {
+			return nil, err
+		}
+		unstructuredObj.SetOwnerReferences(append(unstructuredOwner.GetOwnerReferences(), metav1.OwnerReference{
+			APIVersion: unstructuredOwner.GetAPIVersion(),
+			Kind:       unstructuredOwner.GetKind(),
+			Name:       unstructuredOwner.GetName(),
+			UID:        unstructuredOwner.GetUID(),
+		}))
+	}
+
+	unstructuredObj, err = dynamicClient.Resource(gvr).Namespace(o.Namespace).Create(ctx, unstructuredObj, options)
 	if err != nil {
 		return nil, err
 	}
 
 	createdObj := obj.DeepCopyObject()
 
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured.UnstructuredContent(), createdObj)
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), createdObj)
 	if err != nil {
 		return nil, err
 	}

@@ -46,6 +46,12 @@ func (w *ConfigMapWrapper) Obj() *corev1.ConfigMap {
 	return &w.ConfigMap
 }
 
+// WithOwnerReference adds the owner reference.
+func (w *ConfigMapWrapper) WithOwnerReference(ref metav1.OwnerReference) *ConfigMapWrapper {
+	w.OwnerReferences = append(w.OwnerReferences, ref)
+	return w
+}
+
 // Profile sets the profile label.
 func (w *ConfigMapWrapper) Profile(v string) *ConfigMapWrapper {
 	return w.Label(constants.ProfileLabel, v)
