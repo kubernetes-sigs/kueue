@@ -151,6 +151,8 @@ func TestUpdateClusterQueue(t *testing.T) {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
 		}
+		// Increase the popCycle to ensure that the workload will be added as inadmissible.
+		manager.getClusterQueue(cq.Name).popCycle++
 	}
 	for _, q := range queues {
 		if err := manager.AddLocalQueue(ctx, q); err != nil {
@@ -163,6 +165,20 @@ func TestUpdateClusterQueue(t *testing.T) {
 			t.Fatalf("Failed adding workload to client: %v", err)
 		}
 		manager.RequeueWorkload(ctx, workload.NewInfo(w), RequeueReasonGeneric)
+	}
+
+	// Verify that all workloads are marked as inadmissible after creation.
+	inadmissibleWorkloads := manager.DumpInadmissible()
+	wantInadmissibleWorkloads := map[string][]string{
+		"cq1": {"default/a"},
+		"cq2": {"default/b"},
+	}
+	if diff := cmp.Diff(wantInadmissibleWorkloads, inadmissibleWorkloads); diff != "" {
+		t.Errorf("Unexpected set of inadmissible workloads (-want +got):\n%s", diff)
+	}
+	activeWorkloads := manager.Dump()
+	if diff := cmp.Diff(map[string][]string(nil), activeWorkloads); diff != "" {
+		t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
 	}
 
 	// Put cq2 in the same cohort as cq1.
@@ -185,8 +201,12 @@ func TestUpdateClusterQueue(t *testing.T) {
 		t.Errorf("Unexpected ClusterQueues in cohorts (-want,+got):\n%s", diff)
 	}
 
-	// Verify all workloads are active after the update.
-	activeWorkloads := manager.Dump()
+	// Verify that all workloads are active after the update.
+	inadmissibleWorkloads = manager.DumpInadmissible()
+	if diff := cmp.Diff(map[string][]string(nil), inadmissibleWorkloads); diff != "" {
+		t.Errorf("Unexpected set of inadmissible workloads (-want +got):\n%s", diff)
+	}
+	activeWorkloads = manager.Dump()
 	wantActiveWorkloads := map[string][]string{
 		"cq1": {"default/a"},
 		"cq2": {"default/b"},
