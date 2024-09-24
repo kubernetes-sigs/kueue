@@ -153,7 +153,10 @@ integrations (including K8S job).</p>
 </td>
 <td>
    <p>QueueVisibility is configuration to expose the information about the top
-pending workloads.</p>
+pending workloads.
+Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
+(https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
+instead.</p>
 </td>
 </tr>
 <tr><td><code>multiKueue</code> <B>[Required]</B><br/>
