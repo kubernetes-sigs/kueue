@@ -175,8 +175,8 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 
 func (j *RayJob) Finished() (message string, success, finished bool) {
 	message = j.Status.Message
-	success = j.Status.JobStatus != rayv1.JobStatusFailed
-	finished = j.Status.JobStatus == rayv1.JobStatusFailed || j.Status.JobStatus == rayv1.JobStatusSucceeded
+	success = j.Status.JobStatus == rayv1.JobStatusSucceeded
+	finished = j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete
 	return message, success, finished
 }
 
