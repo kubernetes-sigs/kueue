@@ -306,7 +306,7 @@ In this section, we will discuss the advantages and disadvantages of queuing Wor
 
 ### What are the Stages for Argo Workflows?
 
-We start by disscussing what are the stages in argo workflows for example.
+We start by discussing what are the stages in argo workflows for example.
 Argo workflow is composed of multiple templates, each template can be a step 
 definition, a DAG defninition or a leaf template, which will lead to the 
 container invocation.
