@@ -19,7 +19,7 @@ Resume the resource
 ## Examples
 
 ```
-  # Resume the workload 
+  # Resume the workload
   kueuectl resume workload my-workload
 ```
 

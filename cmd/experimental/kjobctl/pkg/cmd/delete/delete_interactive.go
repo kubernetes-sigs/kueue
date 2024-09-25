@@ -27,6 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/client-go/kubernetes/scheme"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,9 +36,11 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
-const (
-	interactiveExample = `  # Delete interactive shell 
-  kjobctl delete interactive my-application-profile-interactive-k2wzd`
+var (
+	interactiveExample = templates.Examples(`
+		# Delete interactive shell 
+  		kjobctl delete interactive my-application-profile-interactive-k2wzd
+	`)
 )
 
 type InteractiveOptions struct {

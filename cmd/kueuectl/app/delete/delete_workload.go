@@ -45,13 +45,13 @@ var (
 	wlExample = templates.Examples(`  
 		# Delete the Workload
   		kueuectl delete workload my-workload
-`)
+	`)
 	wlLong = templates.LongDesc(`
 		If the Workload has associated Jobs, the command will prompt for deletion approval
 		of the affected Jobs, and delete them. The Workload will then be asynchronously
 		deleted by the garbage collector. If there are no associated Jobs, the command will
 		directly delete the Workload.
-`)
+	`)
 )
 
 type WorkloadOptions struct {

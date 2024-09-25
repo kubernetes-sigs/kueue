@@ -27,6 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,9 +36,11 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
-const (
-	rayClusterExample = `  # Delete RayCluster 
-  kjobctl delete raycluster my-application-profile-raycluster-k2wzd`
+var (
+	rayClusterExample = templates.Examples(`
+		# Delete RayCluster 
+  		kjobctl delete raycluster my-application-profile-raycluster-k2wzd
+	`)
 )
 
 type RayClusterOptions struct {

@@ -40,6 +40,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/cmd/attach"
 	"k8s.io/kubectl/pkg/cmd/exec"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 
@@ -51,46 +52,6 @@ import (
 )
 
 const (
-	createJobExample = `  # Create job 
-  kjobctl create job \
-	--profile my-application-profile \
-	--cmd "sleep 5" \
-	--parallelism 4 \
-	--completions 4 \
-	--request cpu=500m,memory=4Gi \
-	--localqueue my-local-queue-name`
-	createInteractiveExample = `  # Create interactive 
-  kjobctl create interactive \
-	--profile my-application-profile  \
-	--pod-running-timeout 30s \
-	--rm`
-	createRayJobLong = `Create a rayjob.
-
-KubeRay operator is required for RayJob.
-How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.`
-	createRayJobExample = `  # Create rayjob 
-  kjobctl create rayjob \
-	--profile my-application-profile \
-	--cmd "python /home/ray/samples/sample_code.py" \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \
-	--max-replicas small-group=5 \
-	--localqueue my-local-queue-name`
-	createRayClusterLong = `Create a raycluster.
-
-KubeRay operator is required for RayCluster.
-How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.`
-	createRayClusterExample = `  # Create raycluster 
-  kjobctl create raycluster \
-	--profile my-application-profile \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \
-	--max-replicas small-group=5 \
-	--localqueue my-local-queue-name`
-	createSlurmExample = `  # Create slurm 
-  kjobctl create slurm --profile my-application-profile -- \
-	--array 0-5 --nodes 3 --ntasks 1 ./script.sh`
-
 	profileFlagName           = "profile"
 	podRunningTimeoutFlagName = "pod-running-timeout"
 	removeFlagName            = "rm"
@@ -118,6 +79,62 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	inputFlagName       = string(v1alpha1.InputFlag)
 	jobNameFlagName     = string(v1alpha1.JobNameFlag)
 	partitionFlagName   = string(v1alpha1.PartitionFlag)
+)
+
+var (
+	createJobExample = templates.Examples(`
+		# Create job 
+  		kjobctl create job \
+		--profile my-application-profile \
+		--cmd "sleep 5" \
+		--parallelism 4 \
+		--completions 4 \
+		--request cpu=500m,memory=4Gi \
+		--localqueue my-local-queue-name
+	`)
+	createInteractiveExample = templates.Examples(`
+		# Create interactive 
+	  	kjobctl create interactive \
+		--profile my-application-profile  \
+		--pod-running-timeout 30s \
+		--rm
+	`)
+	createRayJobLong = templates.LongDesc(`
+		Create a rayjob.
+
+		KubeRay operator is required for RayJob.
+		How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
+	`)
+	createRayJobExample = templates.Examples(`
+		# Create rayjob 
+  		kjobctl create rayjob \
+		--profile my-application-profile \
+		--cmd "python /home/ray/samples/sample_code.py" \
+		--replicas small-group=1 \
+		--min-replicas small-group=1 \
+		--max-replicas small-group=5 \
+		--localqueue my-local-queue-name
+	`)
+	createRayClusterLong = templates.LongDesc(`
+		Create a raycluster.
+
+		KubeRay operator is required for RayCluster.
+		How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
+	`)
+	createRayClusterExample = templates.Examples(`
+		# Create raycluster 
+  		kjobctl create raycluster \
+		--profile my-application-profile \
+		--replicas small-group=1 \
+		--min-replicas small-group=1 \
+		--max-replicas small-group=5 \
+		--localqueue my-local-queue-name
+	`)
+	createSlurmExample = templates.Examples(`
+		# Create slurm 
+		kjobctl create slurm --profile my-application-profile -- \
+		--array 0-5 --nodes 3 --ntasks 1 ./script.sh
+	`)
 )
 
 var (

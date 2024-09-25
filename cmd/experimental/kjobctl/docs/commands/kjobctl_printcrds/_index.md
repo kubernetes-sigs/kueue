@@ -19,12 +19,11 @@ kjobctl printcrds [flags]
 ## Examples
 
 ```
-  # Install or update the kjobctl CRDs 
+  # Install or update the kjobctl CRDs
   kjobctl printcrds | kubectl apply --server-side -f -
-
+  
   # Remove the kjobctl CRDs
   kjobctl printcrds | kubectl delete --ignore-not-found=true -f -
-  
 ```
 
 

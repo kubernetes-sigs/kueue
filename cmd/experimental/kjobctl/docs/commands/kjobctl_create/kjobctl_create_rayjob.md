@@ -11,8 +11,7 @@ The file is auto-generated from the Go source code of the component using the
 
 Create a rayjob.
 
-KubeRay operator is required for RayJob.
-How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
+ KubeRay operator is required for RayJob. How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
 
 ```
 kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--cmd COMMAND] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
@@ -22,14 +21,14 @@ kjobctl create rayjob --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUE
 ## Examples
 
 ```
-  # Create rayjob 
+  # Create rayjob
   kjobctl create rayjob \
-	--profile my-application-profile \
-	--cmd "python /home/ray/samples/sample_code.py" \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \
-	--max-replicas small-group=5 \
-	--localqueue my-local-queue-name
+  --profile my-application-profile \
+  --cmd "python /home/ray/samples/sample_code.py" \
+  --replicas small-group=1 \
+  --min-replicas small-group=1 \
+  --max-replicas small-group=5 \
+  --localqueue my-local-queue-name
 ```
 
 

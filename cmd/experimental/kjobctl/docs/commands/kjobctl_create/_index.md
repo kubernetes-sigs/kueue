@@ -15,41 +15,41 @@ Create a task
 ## Examples
 
 ```
-  # Create job 
+  # Create job
   kjobctl create job \
-	--profile my-application-profile \
-	--cmd "sleep 5" \
-	--parallelism 4 \
-	--completions 4 \
-	--request cpu=500m,memory=4Gi \
-	--localqueue my-local-queue-name
+  --profile my-application-profile \
+  --cmd "sleep 5" \
+  --parallelism 4 \
+  --completions 4 \
+  --request cpu=500m,memory=4Gi \
+  --localqueue my-local-queue-name
 
-  # Create interactive 
+  # Create interactive
   kjobctl create interactive \
-	--profile my-application-profile  \
-	--pod-running-timeout 30s \
-	--rm
+  --profile my-application-profile  \
+  --pod-running-timeout 30s \
+  --rm
 
-  # Create rayjob 
+  # Create rayjob
   kjobctl create rayjob \
-	--profile my-application-profile \
-	--cmd "python /home/ray/samples/sample_code.py" \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \
-	--max-replicas small-group=5 \
-	--localqueue my-local-queue-name
+  --profile my-application-profile \
+  --cmd "python /home/ray/samples/sample_code.py" \
+  --replicas small-group=1 \
+  --min-replicas small-group=1 \
+  --max-replicas small-group=5 \
+  --localqueue my-local-queue-name
 
-  # Create raycluster 
+  # Create raycluster
   kjobctl create raycluster \
-	--profile my-application-profile \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \
-	--max-replicas small-group=5 \
-	--localqueue my-local-queue-name
+  --profile my-application-profile \
+  --replicas small-group=1 \
+  --min-replicas small-group=1 \
+  --max-replicas small-group=5 \
+  --localqueue my-local-queue-name
 
-  # Create slurm 
+  # Create slurm
   kjobctl create slurm --profile my-application-profile -- \
-	--array 0-5 --nodes 3 --ntasks 1 ./script.sh
+  --array 0-5 --nodes 3 --ntasks 1 ./script.sh
 ```
 
 

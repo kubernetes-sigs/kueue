@@ -19,9 +19,9 @@ kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEU
 ## Examples
 
 ```
-  # Create slurm 
+  # Create slurm
   kjobctl create slurm --profile my-application-profile -- \
-	--array 0-5 --nodes 3 --ntasks 1 ./script.sh
+  --array 0-5 --nodes 3 --ntasks 1 ./script.sh
 ```
 
 

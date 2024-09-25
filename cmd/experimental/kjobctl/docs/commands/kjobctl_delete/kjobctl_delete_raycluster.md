@@ -19,7 +19,7 @@ kjobctl delete raycluster NAME [--cascade STRATEGY] [--dry-run STRATEGY]
 ## Examples
 
 ```
-  # Delete RayCluster 
+  # Delete RayCluster
   kjobctl delete raycluster my-application-profile-raycluster-k2wzd
 ```
 

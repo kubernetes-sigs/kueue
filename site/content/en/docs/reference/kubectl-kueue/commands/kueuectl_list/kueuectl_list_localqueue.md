@@ -13,9 +13,7 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-Lists LocalQueues that match the given criteria: point to a specific CQ, 
-being active/inactive, belonging to the specified namespace, matching 
-the label selector or the field selector.
+Lists LocalQueues that match the given criteria: point to a specific CQ, being active/inactive, belonging to the specified namespace, matching the label selector or the field selector.
 
 ```
 kueuectl list localqueue [-–clusterqueue CLUSTER_QUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]

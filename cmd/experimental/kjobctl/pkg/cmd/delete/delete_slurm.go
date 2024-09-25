@@ -27,6 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,9 +37,11 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
-const (
-	slurmExample = `  # Delete Slurm 
-  kjobctl delete slurm my-application-profile-slurm-k2wzd`
+var (
+	slurmExample = templates.Examples(`  
+		# Delete Slurm 
+  		kjobctl delete slurm my-application-profile-slurm-k2wzd
+	`)
 )
 
 type SlurmOptions struct {

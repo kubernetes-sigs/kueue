@@ -21,16 +21,22 @@ import (
 
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/kubectl/pkg/util/templates"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 )
 
+var (
+	deleteExample = templates.Examples(
+		fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s", interactiveExample, jobExample, rayJobExample, rayClusterExample),
+	)
+)
+
 func NewDeleteCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delete",
-		Short: "Delete resources",
-		Example: fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s",
-			interactiveExample, jobExample, rayJobExample, rayClusterExample),
+		Use:     "delete",
+		Short:   "Delete resources",
+		Example: deleteExample,
 	}
 
 	cmd.AddCommand(NewInteractiveCmd(clientGetter, streams))

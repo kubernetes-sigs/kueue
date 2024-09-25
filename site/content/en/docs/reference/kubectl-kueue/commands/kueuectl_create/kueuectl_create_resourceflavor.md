@@ -23,20 +23,20 @@ kueuectl create resourceflavor NAME [--node-labels KEY=VALUE] [--node-taints KEY
 ## Examples
 
 ```
-  # Create a resource flavor 
+  # Create a resource flavor
   kueuectl create resourceflavor my-resource-flavor
-
+  
   # Create a resource flavor with labels
   kueuectl create resourceflavor my-resource-flavor \
-	--node-labels beta.kubernetes.io/arch=arm64,beta.kubernetes.io/os=linux
-
-# Create a resource flavor with node taints
+  --node-labels beta.kubernetes.io/arch=arm64,beta.kubernetes.io/os=linux
+  
+  # Create a resource flavor with node taints
   kueuectl create resourceflavor my-resource-flavor \
-	--node-taints key1=value:NoSchedule,key2:NoExecute
-
-# Create a resource flavor with tolerations
+  --node-taints key1=value:NoSchedule,key2:NoExecute
+  
+  # Create a resource flavor with tolerations
   kueuectl create resourceflavor my-resource-flavor \
-	--tolerations key1=value:NoSchedule,key2:NoExecute,key3=value,key4,:PreferNoSchedule
+  --tolerations key1=value:NoSchedule,key2:NoExecute,key3=value,key4,:PreferNoSchedule
 ```
 
 

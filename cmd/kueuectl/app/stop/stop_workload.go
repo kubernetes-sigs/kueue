@@ -34,9 +34,9 @@ if it is already admitted it will be put back to queue just as if it
 was preempted (using .spec.active field).
 `)
 	wlExample = templates.Examples(`
-	# Stop the workload 
-	kueuectl stop workload my-workload
-`)
+		# Stop the workload 
+		kueuectl stop workload my-workload
+	`)
 )
 
 func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {

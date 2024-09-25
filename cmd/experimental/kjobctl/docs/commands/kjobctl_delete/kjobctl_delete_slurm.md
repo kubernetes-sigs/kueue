@@ -19,7 +19,7 @@ kjobctl delete slurm NAME [--cascade STRATEGY] [--dry-run STRATEGY]
 ## Examples
 
 ```
-  # Delete Slurm 
+  # Delete Slurm
   kjobctl delete slurm my-application-profile-slurm-k2wzd
 ```
 
