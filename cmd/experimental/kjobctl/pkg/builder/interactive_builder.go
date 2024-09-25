@@ -30,10 +30,10 @@ type interactiveBuilder struct {
 
 var _ builder = (*interactiveBuilder)(nil)
 
-func (b *interactiveBuilder) build(ctx context.Context) ([]runtime.Object, error) {
+func (b *interactiveBuilder) build(ctx context.Context) (runtime.Object, []runtime.Object, error) {
 	template, err := b.k8sClientset.CoreV1().PodTemplates(b.profile.Namespace).Get(ctx, string(b.mode.Template), metav1.GetOptions{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	pod := &corev1.Pod{
@@ -52,7 +52,7 @@ func (b *interactiveBuilder) build(ctx context.Context) ([]runtime.Object, error
 		pod.Spec.Containers[0].Stdin = true
 	}
 
-	return []runtime.Object{pod}, nil
+	return pod, nil, nil
 }
 
 func newInteractiveBuilder(b *Builder) *interactiveBuilder {

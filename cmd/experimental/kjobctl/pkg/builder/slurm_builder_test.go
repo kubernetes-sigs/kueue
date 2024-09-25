@@ -157,7 +157,7 @@ type slurmBuilderTestCase struct {
 	jobName     string
 	partition   string
 	kjobctlObjs []runtime.Object
-	wantObj     []runtime.Object
+	wantObjs    []runtime.Object
 	wantErr     error
 	cmpopts     []cmp.Option
 }
@@ -226,7 +226,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.SlurmMode, "slurm-job-template").Obj()).
 					Obj(),
 			},
-			wantObj: []runtime.Object{
+			wantObjs: []runtime.Object{
 				wrappers.MakeJob("", metav1.NamespaceDefault).
 					Parallelism(2).
 					Completions(5).
@@ -379,7 +379,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...))
 
-			gotObjs, gotErr := NewBuilder(tcg, testStartTime).
+			rootObj, childObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
@@ -411,7 +411,13 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 
 			defaultCmpOpts := []cmp.Option{cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")}
 			opts = append(defaultCmpOpts, tc.cmpopts...)
-			if diff := cmp.Diff(tc.wantObj, gotObjs, opts...); diff != "" {
+
+			var gotObjs []runtime.Object
+			if rootObj != nil {
+				gotObjs = append(gotObjs, rootObj)
+			}
+			gotObjs = append(gotObjs, childObjs...)
+			if diff := cmp.Diff(tc.wantObjs, gotObjs, opts...); diff != "" {
 				t.Errorf("Objects after build (-want,+got):\n%s", diff)
 			}
 		})

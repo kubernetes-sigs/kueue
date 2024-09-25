@@ -43,7 +43,7 @@ func TestBuilder(t *testing.T) {
 		profile     string
 		mode        v1alpha1.ApplicationProfileMode
 		kjobctlObjs []runtime.Object
-		wantObj     []runtime.Object
+		wantObjs    []runtime.Object
 		wantErr     error
 	}{
 		"shouldn't build job because no namespace specified": {
@@ -415,7 +415,7 @@ func TestBuilder(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantObj: []runtime.Object{
+			wantObjs: []runtime.Object{
 				wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-job-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
@@ -432,7 +432,7 @@ func TestBuilder(t *testing.T) {
 
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(fake.NewSimpleClientset(tc.kjobctlObjs...))
-			gotObjs, gotErr := NewBuilder(tcg, testStartTime).
+			rootObj, childObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
@@ -448,7 +448,12 @@ func TestBuilder(t *testing.T) {
 				return
 			}
 
-			if diff := cmp.Diff(tc.wantObj, gotObjs); diff != "" {
+			var gotObjs []runtime.Object
+			if rootObj != nil {
+				gotObjs = append(gotObjs, rootObj)
+			}
+			gotObjs = append(gotObjs, childObjs...)
+			if diff := cmp.Diff(tc.wantObjs, gotObjs, opts...); diff != "" {
 				t.Errorf("Objects after build (-want,+got):\n%s", diff)
 			}
 		})

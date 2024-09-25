@@ -121,7 +121,7 @@ func TestRayClusterBuilder(t *testing.T) {
 		requests    corev1.ResourceList
 		localQueue  string
 		kjobctlObjs []runtime.Object
-		wantObj     []runtime.Object
+		wantObjs    []runtime.Object
 		wantErr     error
 	}{
 		"shouldn't build ray cluster because template not found": {
@@ -145,7 +145,7 @@ func TestRayClusterBuilder(t *testing.T) {
 					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayClusterMode, Template: "ray-cluster-template"}).
 					Obj(),
 			},
-			wantObj: []runtime.Object{
+			wantObjs: []runtime.Object{
 				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-raycluster-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
@@ -193,7 +193,7 @@ func TestRayClusterBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObj: []runtime.Object{
+			wantObjs: []runtime.Object{
 				wrappers.MakeRayCluster("", metav1.NamespaceDefault).GenerateName("profile-raycluster-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
@@ -237,7 +237,7 @@ func TestRayClusterBuilder(t *testing.T) {
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...))
 
-			gotObjs, gotErr := NewBuilder(tcg, testStartTime).
+			rootObj, childObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
@@ -258,7 +258,12 @@ func TestRayClusterBuilder(t *testing.T) {
 				return
 			}
 
-			if diff := cmp.Diff(tc.wantObj, gotObjs); diff != "" {
+			var gotObjs []runtime.Object
+			if rootObj != nil {
+				gotObjs = append(gotObjs, rootObj)
+			}
+			gotObjs = append(gotObjs, childObjs...)
+			if diff := cmp.Diff(tc.wantObjs, gotObjs, opts...); diff != "" {
 				t.Errorf("Objects after build (-want,+got):\n%s", diff)
 			}
 		})

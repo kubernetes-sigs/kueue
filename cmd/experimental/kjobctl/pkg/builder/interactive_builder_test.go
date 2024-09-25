@@ -84,7 +84,7 @@ func TestInteractiveBuilder(t *testing.T) {
 		localQueue  string
 		k8sObjs     []runtime.Object
 		kjobctlObjs []runtime.Object
-		wantObj     []runtime.Object
+		wantObjs    []runtime.Object
 		wantErr     error
 	}{
 		"shouldn't build pod because template not found": {
@@ -108,7 +108,7 @@ func TestInteractiveBuilder(t *testing.T) {
 					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.InteractiveMode, Template: "pod-template"}).
 					Obj(),
 			},
-			wantObj: []runtime.Object{wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-interactive-").
+			wantObjs: []runtime.Object{wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-interactive-").
 				Annotation("foo", "baz").
 				Label("foo", "bar").
 				Profile("profile").
@@ -150,7 +150,7 @@ func TestInteractiveBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObj: []runtime.Object{
+			wantObjs: []runtime.Object{
 				wrappers.MakePod("", metav1.NamespaceDefault).GenerateName("profile-interactive-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
@@ -189,7 +189,7 @@ func TestInteractiveBuilder(t *testing.T) {
 				WithKjobctlClientset(kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...)).
 				WithK8sClientset(k8sfake.NewSimpleClientset(tc.k8sObjs...))
 
-			gotObjs, gotErr := NewBuilder(tcg, testStartTime).
+			rootObj, childObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
@@ -208,7 +208,12 @@ func TestInteractiveBuilder(t *testing.T) {
 				return
 			}
 
-			if diff := cmp.Diff(tc.wantObj, gotObjs); diff != "" {
+			var gotObjs []runtime.Object
+			if rootObj != nil {
+				gotObjs = append(gotObjs, rootObj)
+			}
+			gotObjs = append(gotObjs, childObjs...)
+			if diff := cmp.Diff(tc.wantObjs, gotObjs, opts...); diff != "" {
 				t.Errorf("Objects after build (-want,+got):\n%s", diff)
 			}
 		})

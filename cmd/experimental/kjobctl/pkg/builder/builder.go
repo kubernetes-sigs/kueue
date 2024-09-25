@@ -71,7 +71,7 @@ var (
 )
 
 type builder interface {
-	build(ctx context.Context) ([]runtime.Object, error)
+	build(ctx context.Context) (rootObj runtime.Object, childObjs []runtime.Object, err error)
 }
 
 type Builder struct {
@@ -401,9 +401,9 @@ func (b *Builder) validateFlags() error {
 	return nil
 }
 
-func (b *Builder) Do(ctx context.Context) ([]runtime.Object, error) {
+func (b *Builder) Do(ctx context.Context) (runtime.Object, []runtime.Object, error) {
 	if err := b.validateGeneral(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var bImpl builder
@@ -422,15 +422,15 @@ func (b *Builder) Do(ctx context.Context) ([]runtime.Object, error) {
 	}
 
 	if bImpl == nil {
-		return nil, invalidApplicationProfileModeErr
+		return nil, nil, invalidApplicationProfileModeErr
 	}
 
 	if err := b.complete(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := b.validateFlags(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return bImpl.build(ctx)

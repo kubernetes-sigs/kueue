@@ -122,7 +122,7 @@ func TestRayJobBuilder(t *testing.T) {
 		localQueue  string
 		rayCluster  string
 		kjobctlObjs []runtime.Object
-		wantObj     []runtime.Object
+		wantObjs    []runtime.Object
 		wantErr     error
 	}{
 		"shouldn't build ray job because template not found": {
@@ -146,7 +146,7 @@ func TestRayJobBuilder(t *testing.T) {
 					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayJobMode, Template: "ray-job-template"}).
 					Obj(),
 			},
-			wantObj: []runtime.Object{
+			wantObjs: []runtime.Object{
 				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
@@ -194,7 +194,7 @@ func TestRayJobBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObj: []runtime.Object{
+			wantObjs: []runtime.Object{
 				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
@@ -251,7 +251,7 @@ func TestRayJobBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObj: []runtime.Object{
+			wantObjs: []runtime.Object{
 				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
 					Annotation("foo", "baz").
 					Label("foo", "bar").
@@ -271,7 +271,7 @@ func TestRayJobBuilder(t *testing.T) {
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...))
 
-			gotObjs, gotErr := NewBuilder(tcg, testStartTime).
+			rootObj, childObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
@@ -293,7 +293,12 @@ func TestRayJobBuilder(t *testing.T) {
 				return
 			}
 
-			if diff := cmp.Diff(tc.wantObj, gotObjs); diff != "" {
+			var gotObjs []runtime.Object
+			if rootObj != nil {
+				gotObjs = append(gotObjs, rootObj)
+			}
+			gotObjs = append(gotObjs, childObjs...)
+			if diff := cmp.Diff(tc.wantObjs, gotObjs, opts...); diff != "" {
 				t.Errorf("Objects after build (-want,+got):\n%s", diff)
 			}
 		})

@@ -572,7 +572,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 }
 
 func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter, runTime time.Time) error {
-	objs, err := builder.NewBuilder(clientGetter, runTime).
+	rootObj, childObjs, err := builder.NewBuilder(clientGetter, runTime).
 		WithNamespace(o.Namespace).
 		WithProfileName(o.ProfileName).
 		WithModeName(o.ModeName).
@@ -605,27 +605,34 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		return err
 	}
 
-	for i := range objs {
-		if o.DryRunStrategy != util.DryRunClient {
-			var owner runtime.Object
-			if i > 0 {
-				owner = objs[0]
-			}
+	if o.DryRunStrategy != util.DryRunClient {
+		rootObj, err = o.createObject(ctx, clientGetter, rootObj, nil)
+		if err != nil {
+			return err
+		}
+	}
 
-			objs[i], err = o.createObject(ctx, clientGetter, objs[i], owner)
+	err = o.PrintObj(rootObj, o.Out)
+	if err != nil {
+		return err
+	}
+
+	for i := range childObjs {
+		if o.DryRunStrategy != util.DryRunClient {
+			childObjs[i], err = o.createObject(ctx, clientGetter, childObjs[i], rootObj)
 			if err != nil {
 				return err
 			}
 		}
 
-		err = o.PrintObj(objs[i], o.Out)
+		err = o.PrintObj(childObjs[i], o.Out)
 		if err != nil {
 			return err
 		}
 	}
 
 	if o.DryRunStrategy == util.DryRunNone && o.ModeName == v1alpha1.InteractiveMode {
-		pod := objs[0].(*corev1.Pod)
+		pod := rootObj.(*corev1.Pod)
 		return o.RunInteractivePod(ctx, clientGetter, pod.Name)
 	}
 
