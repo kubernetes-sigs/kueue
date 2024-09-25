@@ -81,7 +81,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		podSelector:                podOpts.PodSelector,
 	}
 	obj := &corev1.Pod{}
-	return webhook.ManagedBy(mgr).
+	return webhook.WebhookManagedBy(mgr).
 		For(obj).
 		WithMutationHandler(webhook.WithDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).

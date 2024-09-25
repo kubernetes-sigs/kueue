@@ -45,7 +45,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	obj := &appsv1.Deployment{}
-	return webhook.ManagedBy(mgr).
+	return webhook.WebhookManagedBy(mgr).
 		For(obj).
 		WithMutationHandler(webhook.WithDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).

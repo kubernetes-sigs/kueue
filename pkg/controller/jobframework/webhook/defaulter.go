@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// WithDefaulter creates a new Handler for a CustomDefaulter interface that drops remove operations.
+// WithDefaulter creates a new Handler for a CustomDefaulter interface that **drops** remove operations.
 func WithDefaulter(scheme *runtime.Scheme, obj runtime.Object, defaulter admission.CustomDefaulter) admission.Handler {
 	return &defaulterForType{
 		Handler: admission.WithCustomDefaulter(scheme, obj, defaulter).Handler,
@@ -36,7 +36,7 @@ type defaulterForType struct {
 	admission.Handler
 }
 
-// Handle handles admission requests, dropping remove operations from patches produced by controller-runtime.
+// Handle handles admission requests, **dropping** remove operations from patches produced by controller-runtime.
 // The controller-runtime handler works by creating a jsondiff from the raw object and the marshalled
 // version of the object modified by the defaulter. This generates "remove" operations for fields
 // that are not present in the go types, which can occur when Kueue libraries are behind the latest
