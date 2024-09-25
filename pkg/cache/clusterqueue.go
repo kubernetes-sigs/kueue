@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -244,45 +245,45 @@ func (c *clusterQueue) updateQueueStatus() {
 func (c *clusterQueue) inactiveReason() (string, string) {
 	switch c.Status {
 	case terminating:
-		return "Terminating", "Can't admit new workloads; clusterQueue is terminating"
+		return kueue.ClusterQueueActiveReasonTerminating, "Can't admit new workloads; clusterQueue is terminating"
 	case pending:
 		reasons := make([]string, 0, 3)
 		messages := make([]string, 0, 3)
 		if c.isStopped {
-			reasons = append(reasons, "Stopped")
-			messages = append(messages, "Is stopped.")
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonStopped)
+			messages = append(messages, "is stopped")
 		}
 		if len(c.missingFlavors) > 0 {
-			reasons = append(reasons, "FlavorNotFound")
-			messages = append(messages, fmt.Sprintf("References missing ResourceFlavor %v.", c.missingFlavors))
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorNotFound)
+			messages = append(messages, fmt.Sprintf("references missing ResourceFlavor(s): %v", c.missingFlavors))
 		}
 		if len(c.missingAdmissionChecks) > 0 {
-			reasons = append(reasons, "AdmissionCheckNotFound")
-			messages = append(messages, fmt.Sprintf("References missing AdmissionChecks %v.", c.missingAdmissionChecks))
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonAdmissionCheckNotFound)
+			messages = append(messages, fmt.Sprintf("references missing AdmissionCheck(s): %v", c.missingAdmissionChecks))
 		}
 		if len(c.inactiveAdmissionChecks) > 0 {
-			reasons = append(reasons, "AdmissionCheckInactive")
-			messages = append(messages, fmt.Sprintf("References inactive AdmissionChecks %v.", c.inactiveAdmissionChecks))
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonAdmissionCheckInactive)
+			messages = append(messages, fmt.Sprintf("references inactive AdmissionCheck(s): %v", c.inactiveAdmissionChecks))
 		}
 		if len(c.multipleSingleInstanceControllersChecks) > 0 {
-			reasons = append(reasons, "MultipleSingleInstanceControllerAdmissionChecks")
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
 			for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
-				messages = append(messages, fmt.Sprintf("Only one AdmissionChecks of %v can be reference for controller %q.", c.multipleSingleInstanceControllersChecks[controller], controller))
+				messages = append(messages, fmt.Sprintf("only one AdmissionChecks of %v can be reference for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
 			}
 		}
 
 		if len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
-			reasons = append(reasons, "FlavorIndependentAdmissionCheckAppliedPerFlavor")
-			messages = append(messages, fmt.Sprintf("AdmissionChecks %v cannot be set at flavor level.", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor)
+			messages = append(messages, fmt.Sprintf("AdmissionCheck(s): %v cannot be set at flavor level", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
 		}
 
 		if len(reasons) == 0 {
-			return "Unknown", "Can't admit new workloads."
+			return kueue.ClusterQueueActiveReasonUnknown, "Can't admit new workloads."
 		}
 
-		return reasons[0], strings.Join([]string{"Can't admit new workloads:", strings.Join(messages, " ")}, " ")
+		return reasons[0], api.TruncateConditionMessage(strings.Join([]string{"Can't admit new workloads: ", strings.Join(messages, ", "), "."}, ""))
 	}
-	return "Ready", "Can admit new workloads"
+	return kueue.ClusterQueueActiveReasonReady, "Can admit new workloads"
 }
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.

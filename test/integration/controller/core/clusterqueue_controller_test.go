@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "FlavorNotFound",
-						Message: "Can't admit new workloads: References missing ResourceFlavor [on-demand spot model-a model-b].",
+						Message: "Can't admit new workloads: references missing ResourceFlavor(s): [on-demand spot model-a model-b].",
 					},
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
@@ -384,7 +384,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "FlavorNotFound",
-						Message: "Can't admit new workloads: References missing ResourceFlavor [on-demand spot model-a model-b].",
+						Message: "Can't admit new workloads: references missing ResourceFlavor(s): [on-demand spot model-a model-b].",
 					},
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
@@ -410,7 +410,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "FlavorNotFound",
-						Message: "Can't admit new workloads: References missing ResourceFlavor [on-demand spot model-a model-b].",
+						Message: "Can't admit new workloads: references missing ResourceFlavor(s): [on-demand spot model-a model-b].",
 					},
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
@@ -652,7 +652,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads: References missing ResourceFlavor [arch-a arch-b].",
+					Message: "Can't admit new workloads: references missing ResourceFlavor(s): [arch-a arch-b].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -668,7 +668,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads: References missing ResourceFlavor [arch-b].",
+					Message: "Can't admit new workloads: references missing ResourceFlavor(s): [arch-b].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -707,7 +707,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "AdmissionCheckNotFound",
-					Message: "Can't admit new workloads: References missing AdmissionChecks [check1 check2].",
+					Message: "Can't admit new workloads: references missing AdmissionCheck(s): [check1 check2].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -724,7 +724,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "AdmissionCheckNotFound",
-					Message: "Can't admit new workloads: References missing AdmissionChecks [check2].",
+					Message: "Can't admit new workloads: references missing AdmissionCheck(s): [check2].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -740,7 +740,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "AdmissionCheckInactive",
-					Message: "Can't admit new workloads: References inactive AdmissionChecks [check2].",
+					Message: "Can't admit new workloads: references inactive AdmissionCheck(s): [check2].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 

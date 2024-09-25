@@ -3280,7 +3280,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "FlavorNotFound",
-			wantMessage:      "Can't admit new workloads: References missing ResourceFlavor [flavor1].",
+			wantMessage:      "Can't admit new workloads: references missing ResourceFlavor(s): [flavor1].",
 		},
 		"check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3288,7 +3288,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "AdmissionCheckNotFound",
-			wantMessage:      "Can't admit new workloads: References missing AdmissionChecks [check1].",
+			wantMessage:      "Can't admit new workloads: references missing AdmissionCheck(s): [check1].",
 		},
 		"check inactive": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3297,14 +3297,14 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "AdmissionCheckInactive",
-			wantMessage:      "Can't admit new workloads: References inactive AdmissionChecks [check1].",
+			wantMessage:      "Can't admit new workloads: references inactive AdmissionCheck(s): [check1].",
 		},
 		"flavor and check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "FlavorNotFound",
-			wantMessage:      "Can't admit new workloads: References missing ResourceFlavor [flavor1]. References missing AdmissionChecks [check1].",
+			wantMessage:      "Can't admit new workloads: references missing ResourceFlavor(s): [flavor1], references missing AdmissionCheck(s): [check1].",
 		},
 		"terminating": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3332,7 +3332,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "Stopped",
-			wantMessage:      "Can't admit new workloads: Is stopped.",
+			wantMessage:      "Can't admit new workloads: is stopped.",
 		},
 	}
 
