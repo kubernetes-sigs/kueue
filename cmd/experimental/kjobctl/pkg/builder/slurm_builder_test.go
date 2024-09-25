@@ -233,29 +233,43 @@ func TestSlurmBuilderDo(t *testing.T) {
 				CompletionMode(batchv1.IndexedCompletion).
 				Profile("profile").
 				Mode(v1alpha1.SlurmMode).
+				WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:5-alpine3.20").
+					Command("bash", "/slurm/scripts/init-entrypoint.sh").
+					WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
+					WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
+					Obj()).
 				WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
-					Command("bash", "/slurm/entrypoint.sh").
-					WithVolumeMount(corev1.VolumeMount{MountPath: "/slurm"}).
+					Command("bash", "/slurm/scripts/entrypoint.sh").
+					WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
+					WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
+					WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+					WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+					WithEnvVar(corev1.EnvVar{
+						Name:  constants.EnvVarTaskID,
+						Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+					}).
+					WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+					WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+					WithEnvVar(corev1.EnvVar{Name: "JOB_CONTAINER_INDEX", Value: "0"}).
 					Obj()).
 				WithVolume(corev1.Volume{
+					Name: "slurm-scripts",
 					VolumeSource: corev1.VolumeSource{
 						ConfigMap: &corev1.ConfigMapVolumeSource{
 							Items: []corev1.KeyToPath{
+								{Key: "init-entrypoint.sh", Path: "init-entrypoint.sh"},
 								{Key: "entrypoint.sh", Path: "entrypoint.sh"},
 								{Key: "script", Path: "script", Mode: ptr.To[int32](0755)},
 							},
 						},
 					},
 				}).
-				WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
-				WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
-				WithEnvVar(corev1.EnvVar{
-					Name:  constants.EnvVarTaskID,
-					Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+				WithVolume(corev1.Volume{
+					Name: "slurm-env",
+					VolumeSource: corev1.VolumeSource{
+						EmptyDir: &corev1.EmptyDirVolumeSource{},
+					},
 				}).
-				WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
-				WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
-				WithEnvVar(corev1.EnvVar{Name: "JOB_CONTAINER_INDEX", Value: "0"}).
 				Obj(),
 			wantChildObjs: []runtime.Object{
 				wrappers.MakeConfigMap("", metav1.NamespaceDefault).
@@ -263,7 +277,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 					Mode(v1alpha1.SlurmMode).
 					Data(map[string]string{
 						"script": "#!/bin/bash\nsleep 300'",
-						"entrypoint.sh": `#!/usr/bin/bash
+						"init-entrypoint.sh": `#!/usr/local/bin/bash
 
 set -o errexit
 set -o nounset
@@ -271,19 +285,23 @@ set -o pipefail
 
 # External variables
 # JOB_COMPLETION_INDEX  - completion index of the job.
-# JOB_CONTAINER_INDEX   - container index in the container template.
 
-# ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
-declare -A array_indexes=(["0"]="1" ["1"]="2" ["2"]="3" ["3"]="4" ["4"]="5") 	# Requires bash v4+
+for i in {0..1}
+do
+	# ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
+	declare -A array_indexes=(["0"]="1" ["1"]="2" ["2"]="3" ["3"]="4" ["4"]="5") 	# Requires bash v4+
+	
+	container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
+	container_indexes=(${container_indexes//,/ })
+	
+	if [[ ! -v container_indexes[$i] ]];
+	then
+		break
+	fi
 
-container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
-container_indexes=(${container_indexes//,/ })
-
-if [[ ! -v container_indexes[${JOB_CONTAINER_INDEX}] ]];
-then
-	exit 0
-fi
-
+	mkdir -p /slurm/env/$i
+	
+	cat << EOF > /slurm/env/$i/sbatch.env 
 SBATCH_ARRAY_INX=1-5%2
 SBATCH_GPUS_PER_TASK=
 SBATCH_MEM_PER_CPU=
@@ -293,30 +311,51 @@ SBATCH_ERROR=
 SBATCH_INPUT=
 SBATCH_JOB_NAME=
 SBATCH_PARTITION=
+EOF
+	
+	cat << EOF > /slurm/env/$i/slurm.env
+SLURM_ARRAY_JOB_ID=1	
+SLURM_ARRAY_TASK_COUNT=5
+SLURM_ARRAY_TASK_MAX=5
+SLURM_ARRAY_TASK_MIN=1
+SLURM_TASKS_PER_NODE=1
+SLURM_CPUS_PER_TASK=
+SLURM_CPUS_ON_NODE=
+SLURM_JOB_CPUS_PER_NODE=
+SLURM_CPUS_PER_GPU=
+SLURM_MEM_PER_CPU=
+SLURM_MEM_PER_GPU=
+SLURM_MEM_PER_NODE=
+SLURM_GPUS=0
+SLURM_NTASKS=1
+SLURM_NTASKS_PER_NODE=1
+SLURM_NPROCS=1
+SLURM_NNODES=2
+SLURM_SUBMIT_DIR=/slurm/scripts
+SLURM_SUBMIT_HOST=$HOSTNAME
+SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
+SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
+SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
+EOF
 
-export SLURM_ARRAY_JOB_ID=1       		# Job array’s master job ID number.
-export SLURM_ARRAY_TASK_COUNT=5  		# Total number of tasks in a job array.
-export SLURM_ARRAY_TASK_MAX=5    		# Job array’s maximum ID (index) number.
-export SLURM_ARRAY_TASK_MIN=1    		# Job array’s minimum ID (index) number.
-export SLURM_TASKS_PER_NODE=1    		# Number of tasks to be initiated on each node.
-export SLURM_CPUS_PER_TASK=       		# Number of CPUs per task.
-export SLURM_CPUS_ON_NODE=        		# Number of CPUs on the allocated node (actually pod).
-export SLURM_JOB_CPUS_PER_NODE=   		# Count of processors available to the job on this node.
-export SLURM_CPUS_PER_GPU=        		# Number of CPUs requested per allocated GPU.
-export SLURM_MEM_PER_CPU=         	# Memory per CPU. Same as --mem-per-cpu .
-export SLURM_MEM_PER_GPU=         	# Memory per GPU.
-export SLURM_MEM_PER_NODE=        	# Memory per node. Same as --mem.
-export SLURM_GPUS=0                	# Number of GPUs requested (in total).
-export SLURM_NTASKS=1              	# Same as -n, –ntasks. The number of tasks.
-export SLURM_NTASKS_PER_NODE=1  		# Number of tasks requested per node.
-export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
-export SLURM_NNODES=2            		# Total number of nodes (actually pods) in the job’s resource allocation.
-export SLURM_SUBMIT_DIR=/slurm        		# The path of the job submission directory.
-export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.
+done
+`,
+						"entrypoint.sh": `#!/usr/local/bin/bash
 
-export SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * SLURM_TASKS_PER_NODE + JOB_CONTAINER_INDEX + SLURM_ARRAY_JOB_ID ))   # The Job ID.
-export SLURM_JOBID=$SLURM_JOB_ID                                                                                    # Deprecated. Same as $SLURM_JOB_ID
-export SLURM_ARRAY_TASK_ID=${container_indexes[${JOB_CONTAINER_INDEX}]}												# Task ID.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# External variables
+# JOB_CONTAINER_INDEX 	- container index in the container template.
+
+if [ ! -d "/slurm/env/$JOB_CONTAINER_INDEX" ]; then
+	exit 0
+fi
+
+source /slurm/env/$JOB_CONTAINER_INDEX/sbatch.env
+
+export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 
 unmask_filename () {
   replaced="$1"
@@ -345,15 +384,13 @@ input_file=$(unmask_filename "$SBATCH_INPUT")
 output_file=$(unmask_filename "$SBATCH_OUTPUT")
 error_path=$(unmask_filename "$SBATCH_ERROR")
 
-/slurm/script
+/slurm/scripts/script
 `,
 					}).
 					Obj(),
 			},
 			cmpopts: []cmp.Option{
-				cmpopts.IgnoreFields(corev1.Volume{}, "Name"),
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
-				cmpopts.IgnoreFields(corev1.VolumeMount{}, "Name"),
 			},
 		},
 	}
@@ -434,40 +471,40 @@ func TestSlurmBuilderBuildEntrypointCommand(t *testing.T) {
 		wantEntrypointCommand string
 	}{
 		"should build entrypoint command": {
-			wantEntrypointCommand: "/slurm/script",
+			wantEntrypointCommand: "/slurm/scripts/script",
 		},
 		"should build entrypoint command with output": {
 			output:                "/home/test/stdout.out",
-			wantEntrypointCommand: "/slurm/script 1>$output_file",
+			wantEntrypointCommand: "/slurm/scripts/script 1>$output_file",
 		},
 		"should build entrypoint command with error": {
 			error:                 "/home/test/stderr.out",
-			wantEntrypointCommand: "/slurm/script 2>$error_file",
+			wantEntrypointCommand: "/slurm/scripts/script 2>$error_file",
 		},
 		"should build entrypoint command with output and error": {
 			output:                "/home/test/stdout.out",
 			error:                 "/home/test/stderr.out",
-			wantEntrypointCommand: "/slurm/script 1>$output_file 2>$error_file",
+			wantEntrypointCommand: "/slurm/scripts/script 1>$output_file 2>$error_file",
 		},
 		"should build entrypoint command with input": {
 			input:                 "/home/test/script.sh",
-			wantEntrypointCommand: "/slurm/script <$input_file",
+			wantEntrypointCommand: "/slurm/scripts/script <$input_file",
 		},
 		"should build entrypoint command with input and output": {
 			input:                 "/home/test/script.sh",
 			output:                "/home/test/stdout.out",
-			wantEntrypointCommand: "/slurm/script <$input_file 1>$output_file",
+			wantEntrypointCommand: "/slurm/scripts/script <$input_file 1>$output_file",
 		},
 		"should build entrypoint command with input and error": {
 			input:                 "/home/test/script.sh",
 			error:                 "/home/test/stderr.out",
-			wantEntrypointCommand: "/slurm/script <$input_file 2>$error_file",
+			wantEntrypointCommand: "/slurm/scripts/script <$input_file 2>$error_file",
 		},
 		"should build entrypoint command with input, output and error": {
 			input:                 "/home/test/script.sh",
 			output:                "/home/test/stdout.out",
 			error:                 "/home/test/stderr.out",
-			wantEntrypointCommand: "/slurm/script <$input_file 1>$output_file 2>$error_file",
+			wantEntrypointCommand: "/slurm/scripts/script <$input_file 1>$output_file 2>$error_file",
 		},
 	}
 	for name, tc := range testCases {
