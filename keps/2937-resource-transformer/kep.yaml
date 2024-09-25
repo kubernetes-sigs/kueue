@@ -5,9 +5,11 @@ authors:
 status: implementable
 creation-date: 2024-09-06
 reviewers:
-  - mimowo
+  - "@alculquicondor"
+  - "@mimowo"
+  - "@tenzen-y"
 approvers:
-  - mimowo
+  - "@mimowo"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: beta
