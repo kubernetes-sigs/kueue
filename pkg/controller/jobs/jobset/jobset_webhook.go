@@ -50,7 +50,7 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		cache:                      options.Cache,
 	}
 	obj := &jobsetapi.JobSet{}
-	return webhook.ManagedBy(mgr).
+	return webhook.WebhookManagedBy(mgr).
 		For(obj).
 		WithMutationHandler(webhook.WithDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).

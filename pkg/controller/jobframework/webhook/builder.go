@@ -34,58 +34,69 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/conversion"
 )
 
-// This code is copied from https://github.com/kubernetes-sigs/controller-runtime
-// with some modifications to get full control of the construction of patches.
+// This code is copied from https://github.com/kubernetes-sigs/controller-runtime/blob/896f6ded750155f9ecfdf4d8e10a26fc3fb78384/pkg/builder/webhook.go
+// with one modification to get full control of the construction of patches:
+// replacing CustomDefaulter with an admission.Handler.
+// TODO(#3137): remove this file
 
-// Builder builds a Webhook.
-type Builder struct {
+// WebhookBuilder builds a Webhook.
+type WebhookBuilder struct {
 	apiType         runtime.Object
 	mutationHandler admission.Handler
 	customValidator admission.CustomValidator
 	gvk             schema.GroupVersionKind
 	mgr             manager.Manager
 	config          *rest.Config
-	recoverPanic    bool
+	recoverPanic    *bool
 	logConstructor  func(base logr.Logger, req *admission.Request) logr.Logger
+	err             error
 }
 
-// ManagedBy returns a new webhook builder.
-func ManagedBy(m manager.Manager) *Builder {
-	return &Builder{mgr: m}
+// WebhookManagedBy returns a new webhook builder.
+func WebhookManagedBy(m manager.Manager) *WebhookBuilder {
+	return &WebhookBuilder{mgr: m}
 }
+
+// TODO(droot): update the GoDoc for conversion.
 
 // For takes a runtime.Object which should be a CR.
-func (blder *Builder) For(apiType runtime.Object) *Builder {
+// If the given object implements the admission.Defaulter interface, a MutatingWebhook will be wired for this type.
+// If the given object implements the admission.Validator interface, a ValidatingWebhook will be wired for this type.
+func (blder *WebhookBuilder) For(apiType runtime.Object) *WebhookBuilder {
+	if blder.apiType != nil {
+		blder.err = errors.New("For(...) should only be called once, could not assign multiple objects for webhook registration")
+	}
 	blder.apiType = apiType
 	return blder
 }
 
-// WithMutationHandler takes an admission.Handler inteface, a MutationgWebhook will be wired for this type.
-func (blder *Builder) WithMutationHandler(handler admission.Handler) *Builder {
-	blder.mutationHandler = handler
+// WithDefaulter takes an admission.CustomDefaulter interface, a MutatingWebhook will be wired for this type.
+func (blder *WebhookBuilder) WithMutationHandler(h admission.Handler) *WebhookBuilder {
+	blder.mutationHandler = h
 	return blder
 }
 
 // WithValidator takes a admission.CustomValidator interface, a ValidatingWebhook will be wired for this type.
-func (blder *Builder) WithValidator(validator admission.CustomValidator) *Builder {
+func (blder *WebhookBuilder) WithValidator(validator admission.CustomValidator) *WebhookBuilder {
 	blder.customValidator = validator
 	return blder
 }
 
 // WithLogConstructor overrides the webhook's LogConstructor.
-func (blder *Builder) WithLogConstructor(logConstructor func(base logr.Logger, req *admission.Request) logr.Logger) *Builder {
+func (blder *WebhookBuilder) WithLogConstructor(logConstructor func(base logr.Logger, req *admission.Request) logr.Logger) *WebhookBuilder {
 	blder.logConstructor = logConstructor
 	return blder
 }
 
 // RecoverPanic indicates whether panics caused by the webhook should be recovered.
-func (blder *Builder) RecoverPanic() *Builder {
-	blder.recoverPanic = true
+// Defaults to true.
+func (blder *WebhookBuilder) RecoverPanic(recoverPanic bool) *WebhookBuilder {
+	blder.recoverPanic = &recoverPanic
 	return blder
 }
 
 // Complete builds the webhook.
-func (blder *Builder) Complete() error {
+func (blder *WebhookBuilder) Complete() error {
 	// Set the Config
 	blder.loadRestConfig()
 
@@ -96,13 +107,13 @@ func (blder *Builder) Complete() error {
 	return blder.registerWebhooks()
 }
 
-func (blder *Builder) loadRestConfig() {
+func (blder *WebhookBuilder) loadRestConfig() {
 	if blder.config == nil {
 		blder.config = blder.mgr.GetConfig()
 	}
 }
 
-func (blder *Builder) setLogConstructor() {
+func (blder *WebhookBuilder) setLogConstructor() {
 	if blder.logConstructor == nil {
 		blder.logConstructor = func(base logr.Logger, req *admission.Request) logr.Logger {
 			log := base.WithValues(
@@ -122,7 +133,7 @@ func (blder *Builder) setLogConstructor() {
 	}
 }
 
-func (blder *Builder) registerWebhooks() error {
+func (blder *WebhookBuilder) registerWebhooks() error {
 	typ, err := blder.getType()
 	if err != nil {
 		return err
@@ -141,11 +152,11 @@ func (blder *Builder) registerWebhooks() error {
 	if err != nil {
 		return err
 	}
-	return nil
+	return blder.err
 }
 
 // registerDefaultingWebhook registers a defaulting webhook if necessary.
-func (blder *Builder) registerDefaultingWebhook() {
+func (blder *WebhookBuilder) registerDefaultingWebhook() {
 	mwh := blder.getDefaultingWebhook()
 	if mwh != nil {
 		mwh.LogConstructor = blder.logConstructor
@@ -154,7 +165,8 @@ func (blder *Builder) registerDefaultingWebhook() {
 		// Checking if the path is already registered.
 		// If so, just skip it.
 		if !blder.isAlreadyHandled(path) {
-			blder.mgr.GetLogger().Info("Registering a mutating webhook",
+			log := blder.mgr.GetLogger()
+			log.Info("Registering a mutating webhook",
 				"GVK", blder.gvk,
 				"path", path)
 			blder.mgr.GetWebhookServer().Register(path, mwh)
@@ -162,18 +174,21 @@ func (blder *Builder) registerDefaultingWebhook() {
 	}
 }
 
-func (blder *Builder) getDefaultingWebhook() *admission.Webhook {
+func (blder *WebhookBuilder) getDefaultingWebhook() *admission.Webhook {
 	if handler := blder.mutationHandler; handler != nil {
-		return (&admission.Webhook{Handler: handler}).WithRecoverPanic(blder.recoverPanic)
+		w := &admission.Webhook{
+			Handler: handler,
+		}
+		if blder.recoverPanic != nil {
+			w = w.WithRecoverPanic(*blder.recoverPanic)
+		}
+		return w
 	}
-	blder.mgr.GetLogger().Info(
-		"skip registering a mutating webhook, WithMutationHandler wasn't called",
-		"GVK", blder.gvk)
 	return nil
 }
 
 // registerValidatingWebhook registers a validating webhook if necessary.
-func (blder *Builder) registerValidatingWebhook() {
+func (blder *WebhookBuilder) registerValidatingWebhook() {
 	vwh := blder.getValidatingWebhook()
 	if vwh != nil {
 		vwh.LogConstructor = blder.logConstructor
@@ -182,7 +197,8 @@ func (blder *Builder) registerValidatingWebhook() {
 		// Checking if the path is already registered.
 		// If so, just skip it.
 		if !blder.isAlreadyHandled(path) {
-			blder.mgr.GetLogger().Info("Registering a validating webhook",
+			log := blder.mgr.GetLogger()
+			log.Info("Registering a validating webhook",
 				"GVK", blder.gvk,
 				"path", path)
 			blder.mgr.GetWebhookServer().Register(path, vwh)
@@ -190,17 +206,18 @@ func (blder *Builder) registerValidatingWebhook() {
 	}
 }
 
-func (blder *Builder) getValidatingWebhook() *admission.Webhook {
+func (blder *WebhookBuilder) getValidatingWebhook() *admission.Webhook {
 	if validator := blder.customValidator; validator != nil {
-		return admission.WithCustomValidator(blder.mgr.GetScheme(), blder.apiType, validator).WithRecoverPanic(blder.recoverPanic)
+		w := admission.WithCustomValidator(blder.mgr.GetScheme(), blder.apiType, validator)
+		if blder.recoverPanic != nil {
+			w = w.WithRecoverPanic(*blder.recoverPanic)
+		}
+		return w
 	}
-	blder.mgr.GetLogger().Info(
-		"skip registering a validating webhook, WithValidator wasn't called",
-		"GVK", blder.gvk)
 	return nil
 }
 
-func (blder *Builder) registerConversionWebhook() error {
+func (blder *WebhookBuilder) registerConversionWebhook() error {
 	log := blder.mgr.GetLogger()
 	ok, err := conversion.IsConvertible(blder.mgr.GetScheme(), blder.apiType)
 	if err != nil {
@@ -217,14 +234,14 @@ func (blder *Builder) registerConversionWebhook() error {
 	return nil
 }
 
-func (blder *Builder) getType() (runtime.Object, error) {
+func (blder *WebhookBuilder) getType() (runtime.Object, error) {
 	if blder.apiType != nil {
 		return blder.apiType, nil
 	}
 	return nil, errors.New("For() must be called with a valid object")
 }
 
-func (blder *Builder) isAlreadyHandled(path string) bool {
+func (blder *WebhookBuilder) isAlreadyHandled(path string) bool {
 	if blder.mgr.GetWebhookServer().WebhookMux() == nil {
 		return false
 	}

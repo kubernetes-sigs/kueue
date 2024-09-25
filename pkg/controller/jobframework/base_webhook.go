@@ -41,7 +41,7 @@ func DefaultWebhookFactory(job GenericJob, fromObject func(runtime.Object) Gener
 			ManageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 			FromObject:                 fromObject,
 		}
-		return webhook.ManagedBy(mgr).
+		return webhook.WebhookManagedBy(mgr).
 			For(job.Object()).
 			WithMutationHandler(webhook.WithDefaulter(mgr.GetScheme(), job.Object(), wh)).
 			WithValidator(wh).

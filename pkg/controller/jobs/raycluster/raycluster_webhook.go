@@ -44,7 +44,7 @@ func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	obj := &rayv1.RayCluster{}
-	return webhook.ManagedBy(mgr).
+	return webhook.WebhookManagedBy(mgr).
 		For(obj).
 		WithMutationHandler(webhook.WithDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
