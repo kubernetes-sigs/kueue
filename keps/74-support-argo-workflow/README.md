@@ -76,7 +76,7 @@ and resource utilization.
 
 I am a Argo Workflow user. Templates are the basic unit to build the workflows.
 Every templates can be a leaf template, step definition or DAG definition.
-Example of a worflow looks like:
+Example of a workflow looks like:
 
 ```
 # kubectl create -f - << EOF
