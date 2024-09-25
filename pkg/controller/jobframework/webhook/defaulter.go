@@ -25,14 +25,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// WithDefaulter creates a new Handler for a CustomDefaulter interface that **drops** remove operations.
-func WithDefaulter(scheme *runtime.Scheme, obj runtime.Object, defaulter admission.CustomDefaulter) admission.Handler {
-	return &defaulterForType{
+// WithLosslessDefaulter creates a new Handler for a CustomDefaulter interface that **drops** remove operations,
+// which are typically the result of new API fields not present in Kueue libraries.
+func WithLosslessDefaulter(scheme *runtime.Scheme, obj runtime.Object, defaulter admission.CustomDefaulter) admission.Handler {
+	return &losslessDefaulter{
 		Handler: admission.WithCustomDefaulter(scheme, obj, defaulter).Handler,
 	}
 }
 
-type defaulterForType struct {
+type losslessDefaulter struct {
 	admission.Handler
 }
 
@@ -42,7 +43,7 @@ type defaulterForType struct {
 // that are not present in the go types, which can occur when Kueue libraries are behind the latest
 // released CRDs.
 // Dropping the "remove" operations is safe because Kueue's job mutators never remove fields.
-func (h *defaulterForType) Handle(ctx context.Context, req admission.Request) admission.Response {
+func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) admission.Response {
 	response := h.Handler.Handle(ctx, req)
 	if response.Allowed {
 		var patches []jsonpatch.Operation

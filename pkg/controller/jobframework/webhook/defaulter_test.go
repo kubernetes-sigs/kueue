@@ -62,7 +62,7 @@ func (*TestCustomDefaulter) Default(ctx context.Context, obj runtime.Object) err
 	return nil
 }
 
-func TestDefaulter(t *testing.T) {
+func TestLossLessDefaulter(t *testing.T) {
 	sch := runtime.NewScheme()
 	builder := scheme.Builder{GroupVersion: testResourceGVK.GroupVersion()}
 	builder.Register(&TestResource{})
@@ -70,12 +70,14 @@ func TestDefaulter(t *testing.T) {
 		t.Fatalf("Couldn't add types to scheme: %v", err)
 	}
 
-	handler := WithDefaulter(sch, &TestResource{}, &TestCustomDefaulter{})
+	handler := WithLosslessDefaulter(sch, &TestResource{}, &TestCustomDefaulter{})
 
 	req := admission.Request{
 		AdmissionRequest: admissionv1.AdmissionRequest{
 			Kind: metav1.GroupVersionKind(testResourceGVK),
 			Object: runtime.RawExtension{
+				// This raw object has a field not defined in the go type.
+				// controller-runtime CustomDefaulter would have added a remove operation for it.
 				Raw: []byte(`{"baz": "qux"}`),
 			},
 		},
