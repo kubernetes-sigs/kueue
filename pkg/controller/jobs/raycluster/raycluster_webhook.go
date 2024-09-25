@@ -46,7 +46,7 @@ func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 	obj := &rayv1.RayCluster{}
 	return webhook.WebhookManagedBy(mgr).
 		For(obj).
-		WithMutationHandler(webhook.WithDefaulter(mgr.GetScheme(), obj, wh)).
+		WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }
