@@ -125,16 +125,12 @@ spec:
                     - 100s
 ```
 
-{{% alert title="Note" color="primary" %}}
-The same `jobset-sample.yaml` file from [single cluster environment](#single-cluster-environment) can be used in a [MultiKueue environment](#multikueue-environment).
-In that setup, the `spec.managedBy` field will be set to `kueue.x-k8s.io/multikueue`
-automatically, if not specified, as long as  the `kueue.x-k8s.io/queue-name` annotation
-is specified and the corresponding Cluster Queue uses the Multi Kueue admission check.
-{{% /alert %}}
-
 You can run this JobSet with the following commands:
 
 ```sh
 # To monitor the queue and admission of the jobs, you can run this example multiple times:
 kubectl create -f jobset-sample.yaml
 ```
+
+## Multikueue
+Check [the Multikueue](docs/tasks/run/multikueue) for details on running Jobsets in MultiKueue environment.
