@@ -192,7 +192,7 @@ DAG definition is similar to the step definition.
 
 #### Story 4
 
-I amd a Tekton user. Pipelines are used to define the workflows. Pipelines contains multiple Tasks. These tasks are executed in parallel unless you set the runAfter field or finally field.Tasks contains multiple Steps. To add Steps to a Task you define a steps field (required) containing a list of desired Steps. The order in which the Steps appear in this list is the order in which they will execute. PipelineRun is the execution instance of a pipeline and TaskRun is the execution instance of a task.
+I am a Tekton user. Pipelines are used to define the workflows. Pipelines contains multiple Tasks. These tasks are executed in parallel unless you set the runAfter field or finally field. Tasks contains multiple Steps. To add Steps to a Task you define a steps field (required) containing a list of desired Steps. The order in which the Steps appear in this list is the order in which they will execute. PipelineRun is the execution instance of a pipeline and TaskRun is the execution instance of a task.
 
 Apart from taskRef and taskSpec, pipelineRef and pipelineSpec allows you to specify a pipeline in pipelineTask. This allows you to generate a child pipelineRun which is inherited by the parent pipelineRun.
 
