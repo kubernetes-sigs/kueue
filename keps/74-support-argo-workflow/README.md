@@ -48,7 +48,7 @@ Workflows lacks native support within Kueue.
 
 - Enable support for Generic Workflows within Kueue, allowing users to simply add a label 
 `kueue.x-k8s.io/queue-name` to their workflows and submit them initially in a suspended state.
-- Should be easily extended to support verious workflow managers.
+- Should be easily extended to support various workflow managers.
 
 ### Non-Goals
 
