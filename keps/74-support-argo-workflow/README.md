@@ -12,6 +12,7 @@
     - [Story 3](#story-3)
     - [Story 4](#story-4)
 - [Design Details](#design-details)
+  - [What are the Stages for Argo Workflows?](#what-are-the-stages-for-argo-workflows)
   - [Workflow as An Unit](#workflow-as-an-unit)
     - [How to suspend the whole workflow](#how-to-suspend-the-whole-workflow)
     - [Drawback and Limitations](#drawback-and-limitations)
