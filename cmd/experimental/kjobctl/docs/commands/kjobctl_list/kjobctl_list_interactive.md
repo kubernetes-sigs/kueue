@@ -21,7 +21,7 @@ kjobctl list interactive [--profile PROFILE_NAME] [--localqueue LOCALQUEUE_NAME]
 ```
   # List Interactive
   kjobctl list interactive
-
+  
   # List Interactive with profile filter
   kjobctl list interactive --profile my-profile
 ```

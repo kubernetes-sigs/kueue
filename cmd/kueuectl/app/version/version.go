@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	k8s "k8s.io/client-go/kubernetes"
+	"k8s.io/kubectl/pkg/util/templates"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
@@ -36,9 +37,11 @@ const (
 	kueueContainerName         = "manager"
 )
 
-const (
-	versionExample = `  # Prints the client version and the kueue controller manager image, if installed
-  kueuectl version`
+var (
+	versionExample = templates.Examples(`
+		# Prints the client version and the kueue controller manager image, if installed
+  		kueuectl version
+	`)
 )
 
 // VersionOptions is a struct to support version command

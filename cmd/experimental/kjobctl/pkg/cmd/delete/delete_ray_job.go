@@ -27,6 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,9 +36,11 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
-const (
-	rayJobExample = `  # Delete RayJob 
-  kjobctl delete rayjob my-application-profile-rayjob-k2wzd`
+var (
+	rayJobExample = templates.Examples(`
+		# Delete RayJob 
+  		kjobctl delete rayjob my-application-profile-rayjob-k2wzd
+	`)
 )
 
 type RayJobOptions struct {

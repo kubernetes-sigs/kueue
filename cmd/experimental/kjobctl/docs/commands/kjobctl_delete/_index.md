@@ -15,16 +15,16 @@ Delete resources
 ## Examples
 
 ```
-  # Delete interactive shell 
+  # Delete interactive shell
   kjobctl delete interactive my-application-profile-interactive-k2wzd
-
-  # Delete Job 
+  
+  # Delete Job
   kjobctl delete job my-application-profile-job-k2wzd
-
-  # Delete RayJob 
+  
+  # Delete RayJob
   kjobctl delete rayjob my-application-profile-rayjob-k2wzd
-
-  # Delete RayCluster 
+  
+  # Delete RayCluster
   kjobctl delete raycluster my-application-profile-raycluster-k2wzd
 ```
 

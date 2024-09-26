@@ -34,24 +34,27 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/kubectl/pkg/util/templates"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
-const (
-	jobExample = `  # Describe a task with job mode
-  kjobctl describe job sample-job
+var (
+	jobExample = templates.Examples(`
+		# Describe a task with job mode
+  		kjobctl describe job sample-job
 
-  # Describe a task with job mode
-  kjobctl describe job/sample-job
-  
-  # Describe all tasks with job mode
-  kjobctl describe job
-  
-  # Describe tasks by label name=myLabel
-  kjobctl describe job -l name=myLabel`
+		# Describe a task with job mode
+		kjobctl describe job/sample-job
+			  
+		# Describe all tasks with job mode
+		kjobctl describe job
+			  
+		# Describe tasks by label name=myLabel
+		kjobctl describe job -l name=myLabel
+	`)
 )
 
 const (

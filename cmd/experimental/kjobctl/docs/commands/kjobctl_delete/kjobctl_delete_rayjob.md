@@ -19,7 +19,7 @@ kjobctl delete rayjob NAME [--cascade STRATEGY] [--dry-run STRATEGY]
 ## Examples
 
 ```
-  # Delete RayJob 
+  # Delete RayJob
   kjobctl delete rayjob my-application-profile-rayjob-k2wzd
 ```
 

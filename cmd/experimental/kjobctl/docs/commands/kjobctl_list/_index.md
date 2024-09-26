@@ -15,7 +15,7 @@ Display resources
 ## Examples
 
 ```
-  # List Job 
+  # List Job
   kjobctl list job
 ```
 

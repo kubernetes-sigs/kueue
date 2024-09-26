@@ -31,6 +31,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -44,10 +45,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const (
-	wlLong    = `Lists Workloads that match the provided criteria.`
-	wlExample = `  # List Workload 
-  kueuectl list workload`
+var (
+	wlLong    = templates.LongDesc(`Lists Workloads that match the provided criteria.`)
+	wlExample = templates.Examples(`
+		# List Workload 
+  		kueuectl list workload
+	`)
 )
 
 const (

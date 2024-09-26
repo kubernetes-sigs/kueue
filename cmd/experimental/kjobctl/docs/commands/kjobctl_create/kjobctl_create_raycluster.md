@@ -11,8 +11,7 @@ The file is auto-generated from the Go source code of the component using the
 
 Create a raycluster.
 
-KubeRay operator is required for RayCluster.
-How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
+ KubeRay operator is required for RayCluster. How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
 
 ```
 kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
@@ -22,13 +21,13 @@ kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL
 ## Examples
 
 ```
-  # Create raycluster 
+  # Create raycluster
   kjobctl create raycluster \
-	--profile my-application-profile \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \
-	--max-replicas small-group=5 \
-	--localqueue my-local-queue-name
+  --profile my-application-profile \
+  --replicas small-group=1 \
+  --min-replicas small-group=1 \
+  --max-replicas small-group=5 \
+  --localqueue my-local-queue-name
 ```
 
 

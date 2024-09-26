@@ -27,6 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/client-go/kubernetes/scheme"
 	batchv1 "k8s.io/client-go/kubernetes/typed/batch/v1"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
@@ -36,12 +37,14 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-const (
-	jobExample = `  # List Job
-  kjobctl list job
+var (
+	jobExample = templates.Examples(`
+		# List Job
+ 	 	kjobctl list job
   
-  # List Job with profile filter
-  kjobctl list job --profile my-profile`
+  		# List Job with profile filter
+  		kjobctl list job --profile my-profile
+	`)
 )
 
 type JobOptions struct {

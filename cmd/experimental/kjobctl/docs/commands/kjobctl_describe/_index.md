@@ -21,7 +21,7 @@ kjobctl describe MODE NAME
 ```
   # Describe a task with job mode
   kjobctl describe job sample-job
-
+  
   # Describe a task with job mode
   kjobctl describe job/sample-job
   

@@ -39,9 +39,9 @@ import (
 var (
 	cqLong    = templates.LongDesc(`Puts the given ClusterQueue on hold.`)
 	cqExample = templates.Examples(`
-	# Stop the clusterqueue
-  	kueuectl stop clusterqueue my-clusterqueue
-`)
+		# Stop the clusterqueue
+		kueuectl stop clusterqueue my-clusterqueue
+	`)
 )
 
 type ClusterQueueOptions struct {

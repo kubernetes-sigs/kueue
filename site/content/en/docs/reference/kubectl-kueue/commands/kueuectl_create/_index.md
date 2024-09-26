@@ -19,7 +19,7 @@ Create a resource
 ## Examples
 
 ```
-  # Create local queue 
+  # Create local queue
   kueuectl create localqueue my-local-queue -c my-cluster-queue
 ```
 

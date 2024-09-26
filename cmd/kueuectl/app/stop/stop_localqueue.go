@@ -39,9 +39,9 @@ import (
 var (
 	lqLong    = templates.LongDesc(`Puts the given LocalQueue on hold.`)
 	lqExample = templates.Examples(`
-	# Stop the localqueue
-	kueuectl stop localqueue my-localqueue
-`)
+		# Stop the localqueue
+		kueuectl stop localqueue my-localqueue
+	`)
 )
 
 type LocalQueueOptions struct {

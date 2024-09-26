@@ -19,7 +19,7 @@ kjobctl delete interactive NAME [--cascade STRATEGY] [--dry-run STRATEGY]
 ## Examples
 
 ```
-  # Delete interactive shell 
+  # Delete interactive shell
   kjobctl delete interactive my-application-profile-interactive-k2wzd
 ```
 

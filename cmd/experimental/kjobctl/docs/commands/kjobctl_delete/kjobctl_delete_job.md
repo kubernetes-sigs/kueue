@@ -19,7 +19,7 @@ kjobctl delete job NAME [--cascade STRATEGY] [--dry-run STRATEGY]
 ## Examples
 
 ```
-  # Delete Job 
+  # Delete Job
   kjobctl delete job my-application-profile-job-k2wzd
 ```
 

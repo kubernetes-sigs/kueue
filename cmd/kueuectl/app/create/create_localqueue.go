@@ -25,6 +25,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -33,13 +34,15 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	lqLong    = `Create a local queue with the given name in the specified namespace.`
-	lqExample = `  # Create a local queue 
-  kueuectl create localqueue my-local-queue -c my-cluster-queue
+var (
+	lqLong    = templates.LongDesc(`Create a local queue with the given name in the specified namespace.`)
+	lqExample = templates.Examples(`
+		# Create a local queue
+  		kueuectl create localqueue my-local-queue -c my-cluster-queue
   
-  # Create a local queue with unknown cluster queue
-  kueuectl create localqueue my-local-queue -c my-cluster-queue -i`
+  		# Create a local queue with unknown cluster queue
+  		kueuectl create localqueue my-local-queue -c my-cluster-queue -i
+	`)
 )
 
 type LocalQueueOptions struct {

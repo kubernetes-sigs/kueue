@@ -34,6 +34,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	kubectlget "k8s.io/kubectl/pkg/cmd/get"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
@@ -43,18 +44,22 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
-const (
-	podLong = `Lists all pods that matches the given criteria: should be part of the specified Job kind, 
-belonging to the specified namespace, matching the label selector or the field selector.
+var (
+	podLong = templates.LongDesc(`
+		Lists all pods that matches the given criteria: should be part 
+		of the specified Job kind, belonging to the specified namespace, 
+		matching the label selector or the field selector.)
 
-The --for=pod/pod-name option allows to find pods from the same pod group as the specified pod, including that pod itself. 
-`
-	podExample = `
-  # List Pods for the Job
-  kueuectl list pods --for job/job-name
+		The --for=pod/pod-name option allows to find pods from the same 
+		pod group as the specified pod, including that pod itself. 
+	`)
+	podExample = templates.Examples(`
+		# List Pods for the Job
+  		kueuectl list pods --for job/job-name
 
-  # List Pods for the Pod group
-  kueuectl list pods --for pod/pod-name`
+  		# List Pods for the Pod group
+  		kueuectl list pods --for pod/pod-name
+	`)
 )
 
 type PodOptions struct {

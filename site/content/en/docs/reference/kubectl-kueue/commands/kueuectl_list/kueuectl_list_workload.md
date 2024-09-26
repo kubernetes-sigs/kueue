@@ -23,7 +23,7 @@ kueuectl list workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_Q
 ## Examples
 
 ```
-  # List Workload 
+  # List Workload
   kueuectl list workload
 ```
 
