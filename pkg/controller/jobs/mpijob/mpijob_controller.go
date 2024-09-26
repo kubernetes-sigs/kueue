@@ -28,10 +28,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
@@ -75,10 +82,56 @@ func NewJob() jobframework.GenericJob {
 	return &MPIJob{}
 }
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob, func(b *builder.Builder, c client.Client) *builder.Builder {
+	return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
+})
 
 func isMPIJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, kfmpi.SchemeGroupVersion.Group)
+}
+
+type parentWorkloadHandler struct {
+	client client.Client
+}
+
+func (h *parentWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueReconcileJobsWaitingForPrebuiltWorkload(ctx, e.Object, q)
+}
+
+func (h *parentWorkloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *parentWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *parentWorkloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *parentWorkloadHandler) queueReconcileJobsWaitingForPrebuiltWorkload(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	w, ok := object.(*kueue.Workload)
+	if !ok || len(w.OwnerReferences) > 0 {
+		return
+	}
+
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(w))
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(5).Info("Queueing reconcile for prebuilt workload waiting mpijobs")
+
+	var waitingJobs kfmpi.MPIJobList
+	if err := h.client.List(ctx, &waitingJobs, client.InNamespace(w.Namespace), client.MatchingFields{constants.PrebuiltWorkloadIndexName: w.Name}); err != nil {
+		log.Error(err, "Unable to list waiting mpijobs")
+		return
+	}
+
+	for _, waitingJob := range waitingJobs.Items {
+		log.V(5).Info("Queueing reconcile for waiting mpijob", "mpijob", klog.KObj(&waitingJob))
+		q.Add(reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      waitingJob.Name,
+				Namespace: w.Namespace,
+			},
+		})
+	}
 }
 
 type MPIJob kfmpi.MPIJob
@@ -202,6 +255,10 @@ func (j *MPIJob) PodsReady() bool {
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
+	if err := jobframework.SetupPrebuiltWorkloadIndex(ctx, indexer, &kfmpi.MPIJob{}); err != nil {
+		return err
+	}
+
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
