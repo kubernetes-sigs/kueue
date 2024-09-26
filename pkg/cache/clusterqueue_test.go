@@ -650,7 +650,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "MultipleSingleInstanceControllerAdmissionChecks",
-			wantMessage: `Can't admit new workloads: only one AdmissionChecks of [check2 check3] can be reference for controller "controller2".`,
+			wantMessage: `Can't admit new workloads: only one AdmissionCheck of [check2 check3] can be referenced for controller "controller2".`,
 		},
 		{
 			name:     "Active clusterQueue with an AC strategy updated with duplicate single instance AC Controller",
@@ -674,7 +674,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "MultipleSingleInstanceControllerAdmissionChecks",
-			wantMessage: `Can't admit new workloads: only one AdmissionChecks of [check2 check3] can be reference for controller "controller2".`,
+			wantMessage: `Can't admit new workloads: only one AdmissionCheck of [check2 check3] can be referenced for controller "controller2".`,
 		},
 		{
 			name:     "Active clusterQueue with a FlavorIndependent AC applied per ResourceFlavor",

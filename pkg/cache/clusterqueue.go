@@ -268,7 +268,7 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		if len(c.multipleSingleInstanceControllersChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
 			for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
-				messages = append(messages, fmt.Sprintf("only one AdmissionChecks of %v can be reference for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
+				messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
 			}
 		}
 
