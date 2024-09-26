@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -67,6 +68,25 @@ func CheckLatestEvent(ctx context.Context, k8sClient client.Client,
 	}
 
 	return false, fmt.Errorf("mismatch with the latest event: got r:%v t:%v n:%v, reg %v", item.Reason, item.Type, item.Note, item.Regarding)
+}
+
+// CheckEventRecordedFor checks if an event identified by eventReason, eventType, eventNote
+// was recorded for the object indentified by ref.
+func CheckEventRecordedFor(ctx context.Context, k8sClient client.Client,
+	eventReason string, eventType string, eventMessage string,
+	ref types.NamespacedName) (bool, error) {
+	events := &corev1.EventList{}
+	if err := k8sClient.List(ctx, events, client.InNamespace(ref.Namespace)); err != nil {
+		return false, err
+	}
+
+	for i := range events.Items {
+		item := &events.Items[i]
+		if item.InvolvedObject.Name == ref.Name && item.Reason == eventReason && item.Type == eventType && item.Message == eventMessage {
+			return true, nil
+		}
+	}
+	return false, fmt.Errorf("event not found fater checking %d events", len(events.Items))
 }
 
 // HasEventAppeared returns if an event has been emitted

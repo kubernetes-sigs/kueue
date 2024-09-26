@@ -140,7 +140,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		return !createdJob.IsSuspended()
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 	gomega.Eventually(func() bool {
-		ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
+		ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
 		return ok
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 	for _, psr := range podSetsResources {
@@ -167,7 +167,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 			len(createdJob.KFJobControl.ReplicaSpecs()[ReplicaTypeWorker].Template.Spec.NodeSelector) == 0
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 	gomega.Eventually(func() bool {
-		ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()))
+		ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
 		return ok
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
