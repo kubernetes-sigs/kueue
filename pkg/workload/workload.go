@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
@@ -256,21 +257,15 @@ func QueueKey(w *kueue.Workload) string {
 }
 
 func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
-	ret := make(map[string]int32, len(wl.Status.ReclaimablePods))
-	for i := range wl.Status.ReclaimablePods {
-		reclaimInfo := &wl.Status.ReclaimablePods[i]
-		ret[reclaimInfo.Name] = reclaimInfo.Count
-	}
-	return ret
+	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (string, int32) {
+		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
+	})
 }
 
 func podSetsCounts(wl *kueue.Workload) map[string]int32 {
-	ret := make(map[string]int32, len(wl.Spec.PodSets))
-	for i := range wl.Spec.PodSets {
-		ps := &wl.Spec.PodSets[i]
-		ret[ps.Name] = ps.Count
-	}
-	return ret
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (string, int32) {
+		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
+	})
 }
 
 func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
@@ -570,18 +565,9 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	if len(a) != len(b) {
 		return false
 	}
-
-	mb := make(map[string]int32, len(b))
-	for i := range b {
-		mb[b[i].Name] = b[i].Count
-	}
-
-	for i := range a {
-		if bCount, found := mb[a[i].Name]; !found || bCount != a[i].Count {
-			return false
-		}
-	}
-	return true
+	ma := utilslices.ToMap(a, func(i int) (string, int32) { return a[i].Name, a[i].Count })
+	mb := utilslices.ToMap(b, func(i int) (string, int32) { return b[i].Name, b[i].Count })
+	return maps.Equal(ma, mb)
 }
 
 // IsAdmitted returns true if the workload is admitted.
@@ -675,9 +661,5 @@ func References(wls []*Info) []klog.ObjectRef {
 	if len(wls) == 0 {
 		return nil
 	}
-	keys := make([]klog.ObjectRef, len(wls))
-	for i, wl := range wls {
-		keys[i] = klog.KObj(wl.Obj)
-	}
-	return keys
+	return utilslices.Map(wls, func(pi **Info) klog.ObjectRef { return klog.KObj((*pi).Obj) })
 }
