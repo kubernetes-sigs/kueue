@@ -69,6 +69,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.FairSharingApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FairSharingStatus"):
 		return &kueuev1beta1.FairSharingStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("Flavor"):
+		return &kueuev1beta1.FlavorApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorFungibility"):
 		return &kueuev1beta1.FlavorFungibilityApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorQuotas"):

@@ -85,7 +85,7 @@ type Flavor struct {
   // +listType=set
   // +kubebuilder:validation:MaxItems=16
   // +optional
-  Resources []string `json:"resources,omitempty"`
+  Resources []corev1.ResourceName `json:"resources,omitempty"`
 
   // nodeLabels are labels that associate the ResourceFlavor with Nodes that
   // have the same labels.
