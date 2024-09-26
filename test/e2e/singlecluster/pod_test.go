@@ -255,8 +255,8 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					var p corev1.Pod
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
 					g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(testing.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				expectPodFinalized(ctx, k8sClient, client.ObjectKeyFromObject(group[0]))
 			})
 
 			ginkgo.By("Excess pod is deleted", func() {
@@ -562,6 +562,20 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 	})
 })
+
+func expectPodFinalized(ctx context.Context, k8sClient client.Client, pKey client.ObjectKey) {
+	gomega.EventuallyWithOffset(1, func() error {
+		var p corev1.Pod
+		err := k8sClient.Get(ctx, pKey, &p)
+		if client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		if err != nil || len(p.Finalizers) == 0 {
+			return nil
+		}
+		return fmt.Errorf("pod %s is not finalized yet", pKey)
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
 
 func expectWorkloadFinalized(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
 	gomega.EventuallyWithOffset(1, func() error {
