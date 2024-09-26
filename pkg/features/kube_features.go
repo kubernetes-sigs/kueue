@@ -125,6 +125,13 @@ const (
 	// Summarize the resource requests of non-admitted Workloads in Workload.Status.resourceRequest
 	// to improve observability
 	WorkloadResourceRequestsSummary featuregate.Feature = "WorkloadResourceRequestsSummary"
+
+	// owner: @mbobrovskyi
+	// beta: v0.9
+	//
+	// Enable the Flavors status field in the LocalQueue, allowing users to view
+	// all currently available ResourceFlavors for the LocalQueue.
+	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
 )
 
 func init() {
@@ -151,6 +158,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	TopologyAwareScheduling:             {Default: false, PreRelease: featuregate.Alpha},
 	ConfigurableResourceTransformations: {Default: false, PreRelease: featuregate.Alpha},
 	WorkloadResourceRequestsSummary:     {Default: false, PreRelease: featuregate.Alpha},
+	ExposeFlavorsInLocalQueue:           {Default: true, PreRelease: featuregate.Beta},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
