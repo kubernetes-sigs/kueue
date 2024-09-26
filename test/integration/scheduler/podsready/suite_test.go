@@ -18,6 +18,7 @@ package podsready
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -52,6 +53,19 @@ func TestSchedulerWithWaitForPodsReady(t *testing.T) {
 		"Scheduler with WaitForPodsReady Suite",
 	)
 }
+
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{
+		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
+		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
+	}
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
 
 func managerAndSchedulerSetup(configuration *config.Configuration) framework.ManagerSetup {
 	if configuration == nil {

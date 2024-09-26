@@ -36,18 +36,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
-	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 var (
-	cfg                  *rest.Config
-	k8sClient            client.Client
-	serverVersionFetcher *kubeversion.ServerVersionFetcher
-	ctx                  context.Context
-	fwk                  *framework.Framework
-	crdPath              = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	webhookPath          = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
+	crdPath   = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
 )
 
 func TestAPIs(t *testing.T) {
@@ -57,6 +54,18 @@ func TestAPIs(t *testing.T) {
 		"Job Controller Suite",
 	)
 }
+
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{
+		CRDPath: crdPath,
+	}
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {

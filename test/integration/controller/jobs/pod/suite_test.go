@@ -60,6 +60,19 @@ func TestAPIs(t *testing.T) {
 	)
 }
 
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{
+		CRDPath:     crdPath,
+		WebhookPath: webhookPath,
+	}
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
+
 func managerSetup(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
 	if configuration == nil {
 		configuration = &config.Configuration{}

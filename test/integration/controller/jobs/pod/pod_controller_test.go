@@ -43,7 +43,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -67,12 +66,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			).Obj()
 
 		ginkgo.BeforeAll(func() {
-			fwk = &framework.Framework{
-				CRDPath:     crdPath,
-				WebhookPath: webhookPath,
-			}
-			cfg = fwk.Init()
-			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+			fwk.StartManager(ctx, cfg, managerSetup(
 				nil,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
@@ -96,7 +90,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		ginkgo.AfterAll(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.Teardown()
+			fwk.StopManager(ctx)
 		})
 
 		var (
@@ -1385,13 +1379,8 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			CRDPath:     crdPath,
-			WebhookPath: webhookPath,
-		}
-		cfg = fwk.Init()
 		configuration := configapi.Configuration{Resources: &configapi.Resources{ExcludeResourcePrefixes: []string{"networking.example.com/"}}}
-		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup(
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&configuration,
 			jobframework.WithManageJobsWithoutQueueName(false),
 			jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
@@ -1419,7 +1408,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 	ginkgo.AfterAll(func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -1637,11 +1626,6 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			CRDPath:     crdPath,
-			WebhookPath: webhookPath,
-		}
-		cfg = fwk.Init()
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			Enable:  true,
 			Timeout: &metav1.Duration{Duration: util.TinyTimeout},
@@ -1651,7 +1635,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 				BackoffBaseSeconds: ptr.To[int32](1),
 			},
 		}
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+		fwk.StartManager(ctx, cfg, managerSetup(
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
 				PodSelector: &metav1.LabelSelector{},
@@ -1668,7 +1652,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 		))
 	})
 	ginkgo.AfterAll(func() {
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
