@@ -213,9 +213,13 @@ func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInter
 			Name: "kueue-system",
 		},
 	}
-	gomega.Expect(client.IgnoreAlreadyExists(mgr.GetClient().Create(ctx, managersConfigNamespace))).To(gomega.Succeed())
+	err := mgr.GetAPIReader().Get(ctx, client.ObjectKeyFromObject(managersConfigNamespace), managersConfigNamespace)
+	gomega.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
+	if err != nil {
+		gomega.Expect(client.IgnoreAlreadyExists(mgr.GetClient().Create(ctx, managersConfigNamespace))).To(gomega.Succeed())
+	}
 
-	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+	err = multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
