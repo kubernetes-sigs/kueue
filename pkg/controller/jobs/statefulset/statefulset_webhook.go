@@ -80,9 +80,10 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 	ss.Spec.Template.Labels[pod.GroupNameLabel] = podGroupName
 	if ss.Spec.Template.Annotations == nil {
-		ss.Spec.Template.Annotations = make(map[string]string, 1)
+		ss.Spec.Template.Annotations = make(map[string]string, 2)
 	}
 	ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(podGroupReplicas)
+	ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
 
 	return nil
 }
