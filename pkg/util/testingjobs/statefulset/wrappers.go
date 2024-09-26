@@ -132,3 +132,13 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupNameLabel(
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupTotalCountAnnotation(replicas int32) *StatefulSetWrapper {
 	return ss.PodTemplateSpecAnnotation(pod.GroupTotalCountAnnotation, fmt.Sprint(replicas))
 }
+
+func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation(enabled bool) *StatefulSetWrapper {
+	return ss.PodTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, fmt.Sprint(enabled))
+}
+
+func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.Containers[0].Image = image
+	ss.Spec.Template.Spec.Containers[0].Args = args
+	return ss
+}

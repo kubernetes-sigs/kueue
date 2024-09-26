@@ -46,6 +46,7 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateSpecPodGroupNameLabel("", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
+				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
 				Obj(),
 		},
 		"statefulset without replicas": {
@@ -58,6 +59,7 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecPodGroupNameLabel("", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecQueue("test-queue").
+				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
 				Obj(),
 		},
 	}
