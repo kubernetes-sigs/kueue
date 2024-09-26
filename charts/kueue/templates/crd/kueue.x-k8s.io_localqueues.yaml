@@ -106,6 +106,24 @@ spec:
                   admitted to a ClusterQueue and that haven't finished yet.
                 format: int32
                 type: integer
+              availableFlavors:
+                description: |-
+                  availableFlavors lists all currently available ResourceFlavors
+                  in specified ClusterQueue.
+                items:
+                  properties:
+                    name:
+                      description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               conditions:
                 description: |-
                   Conditions hold the latest available observations of the LocalQueue

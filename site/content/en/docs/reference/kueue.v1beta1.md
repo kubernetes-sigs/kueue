@@ -497,6 +497,30 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 </tbody>
 </table>
 
+## `AvailableFlavor`     {#kueue-x-k8s-io-v1beta1-AvailableFlavor}
+    
+
+**Appears in:**
+
+- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
+</td>
+<td>
+   <p>name of the flavor.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `BorrowWithinCohort`     {#kueue-x-k8s-io-v1beta1-BorrowWithinCohort}
     
 
@@ -1289,6 +1313,14 @@ workloads assigned to this LocalQueue.</p>
 workloads assigned to this LocalQueue.</p>
 </td>
 </tr>
+<tr><td><code>availableFlavors</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-AvailableFlavor"><code>[]AvailableFlavor</code></a>
+</td>
+<td>
+   <p>availableFlavors lists all currently available ResourceFlavors
+in specified ClusterQueue.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1612,6 +1644,8 @@ this time would be reset to null.</p>
 **Appears in:**
 
 - [AdmissionCheckStrategyRule](#kueue-x-k8s-io-v1beta1-AdmissionCheckStrategyRule)
+
+- [AvailableFlavor](#kueue-x-k8s-io-v1beta1-AvailableFlavor)
 
 - [FlavorQuotas](#kueue-x-k8s-io-v1beta1-FlavorQuotas)
 

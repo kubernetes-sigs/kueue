@@ -91,31 +91,62 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	})
 
 	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", func() {
-		gomega.Eventually(func() []metav1.Condition {
+		gomega.Eventually(func() kueue.LocalQueueStatus {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
-			return updatedQueue.Status.Conditions
-		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
-			{
-				Type:    kueue.LocalQueueActive,
-				Status:  metav1.ConditionFalse,
-				Reason:  "ClusterQueueDoesNotExist",
-				Message: "Can't submit new workloads to clusterQueue",
+			return updatedQueue.Status
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:    kueue.LocalQueueActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "ClusterQueueDoesNotExist",
+					Message: "Can't submit new workloads to clusterQueue",
+				},
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
+		emptyUsage := []kueue.LocalQueueFlavorUsage{
+			{
+				Name: flavorModelC,
+				Resources: []kueue.LocalQueueResourceUsage{
+					{
+						Name:  resourceGPU,
+						Total: resource.MustParse("0"),
+					},
+				},
+			},
+			{
+				Name: flavorModelD,
+				Resources: []kueue.LocalQueueResourceUsage{
+					{
+						Name:  resourceGPU,
+						Total: resource.MustParse("0"),
+					},
+				},
+			},
+		}
+
 		ginkgo.By("Creating a clusterQueue")
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-		gomega.Eventually(func() []metav1.Condition {
+		gomega.Eventually(func() kueue.LocalQueueStatus {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
-			return updatedQueue.Status.Conditions
-		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
-			{
-				Type:    kueue.LocalQueueActive,
-				Status:  metav1.ConditionFalse,
-				Reason:  "ClusterQueueIsInactive",
-				Message: "Can't submit new workloads to clusterQueue",
+			return updatedQueue.Status
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:    kueue.LocalQueueActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "ClusterQueueIsInactive",
+					Message: "Can't submit new workloads to clusterQueue",
+				},
+			},
+			FlavorsReservation: emptyUsage,
+			FlavorUsage:        emptyUsage,
+			AvailableFlavors: []kueue.AvailableFlavor{
+				{Name: flavorModelC},
+				{Name: flavorModelD},
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -135,31 +166,41 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				Message: "Can admit new workloads",
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
-		gomega.Eventually(func() []metav1.Condition {
+		gomega.Eventually(func() kueue.LocalQueueStatus {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
-			return updatedQueue.Status.Conditions
-		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
-			{
-				Type:    kueue.LocalQueueActive,
-				Status:  metav1.ConditionTrue,
-				Reason:  "Ready",
-				Message: "Can submit new workloads to clusterQueue",
+			return updatedQueue.Status
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:    kueue.LocalQueueActive,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Ready",
+					Message: "Can submit new workloads to clusterQueue",
+				},
+			},
+			FlavorsReservation: emptyUsage,
+			FlavorUsage:        emptyUsage,
+			AvailableFlavors: []kueue.AvailableFlavor{
+				{Name: flavorModelC},
+				{Name: flavorModelD},
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 		ginkgo.By("Deleting a clusterQueue")
 		gomega.Expect(k8sClient.Delete(ctx, clusterQueue)).To(gomega.Succeed())
-		gomega.Eventually(func() []metav1.Condition {
+		gomega.Eventually(func() kueue.LocalQueueStatus {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
-			return updatedQueue.Status.Conditions
-		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
-			{
-				Type:    kueue.LocalQueueActive,
-				Status:  metav1.ConditionFalse,
-				Reason:  "ClusterQueueDoesNotExist",
-				Message: "Can't submit new workloads to clusterQueue",
+			return updatedQueue.Status
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:    kueue.LocalQueueActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "ClusterQueueDoesNotExist",
+					Message: "Can't submit new workloads to clusterQueue",
+				},
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 	})
@@ -239,6 +280,10 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
+			AvailableFlavors: []kueue.AvailableFlavor{
+				{Name: flavorModelC},
+				{Name: flavorModelD},
+			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 		ginkgo.By("Setting the workloads quota reservation")
@@ -289,6 +334,10 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: fullUsage,
 			FlavorUsage:        emptyUsage,
+			AvailableFlavors: []kueue.AvailableFlavor{
+				{Name: flavorModelC},
+				{Name: flavorModelD},
+			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 		ginkgo.By("Setting the workloads admission checks")
@@ -314,6 +363,10 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: fullUsage,
 			FlavorUsage:        fullUsage,
+			AvailableFlavors: []kueue.AvailableFlavor{
+				{Name: flavorModelC},
+				{Name: flavorModelD},
+			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 		ginkgo.By("Finishing workloads")
@@ -333,6 +386,10 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
+			AvailableFlavors: []kueue.AvailableFlavor{
+				{Name: flavorModelC},
+				{Name: flavorModelD},
+			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 	})
 })

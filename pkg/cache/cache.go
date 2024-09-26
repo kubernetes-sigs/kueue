@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -668,6 +669,7 @@ type LocalQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.LocalQueueFlavorUsage
 	AdmittedWorkloads  int
+	AvailableFlavors   []kueue.AvailableFlavor
 }
 
 func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {
@@ -683,11 +685,21 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		return nil, errQNotFound
 	}
 
+	availableFlavors := make(map[kueue.ResourceFlavorReference]kueue.AvailableFlavor)
+	for _, rg := range cqImpl.ResourceGroups {
+		for _, fl := range rg.Flavors {
+			availableFlavors[fl] = kueue.AvailableFlavor{
+				Name: fl,
+			}
+		}
+	}
+
 	return &LocalQueueUsageStats{
 		ReservedResources:  filterLocalQueueUsage(qImpl.usage, cqImpl.ResourceGroups),
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
+		AvailableFlavors:   maps.Values(availableFlavors),
 	}, nil
 }
 

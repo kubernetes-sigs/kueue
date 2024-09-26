@@ -30,6 +30,7 @@ type LocalQueueStatusApplyConfiguration struct {
 	Conditions         []v1.ConditionApplyConfiguration          `json:"conditions,omitempty"`
 	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsReservation,omitempty"`
 	FlavorUsage        []LocalQueueFlavorUsageApplyConfiguration `json:"flavorUsage,omitempty"`
+	AvailableFlavors   []AvailableFlavorApplyConfiguration       `json:"availableFlavors,omitempty"`
 }
 
 // LocalQueueStatusApplyConfiguration constructs a declarative configuration of the LocalQueueStatus type for use with
@@ -97,6 +98,19 @@ func (b *LocalQueueStatusApplyConfiguration) WithFlavorUsage(values ...*LocalQue
 			panic("nil value passed to WithFlavorUsage")
 		}
 		b.FlavorUsage = append(b.FlavorUsage, *values[i])
+	}
+	return b
+}
+
+// WithAvailableFlavors adds the given value to the AvailableFlavors field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the AvailableFlavors field.
+func (b *LocalQueueStatusApplyConfiguration) WithAvailableFlavors(values ...*AvailableFlavorApplyConfiguration) *LocalQueueStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithAvailableFlavors")
+		}
+		b.AvailableFlavors = append(b.AvailableFlavors, *values[i])
 	}
 	return b
 }

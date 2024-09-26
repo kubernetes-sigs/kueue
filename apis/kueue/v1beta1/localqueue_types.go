@@ -48,6 +48,11 @@ type LocalQueueSpec struct {
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ClusterQueueReference string
 
+type AvailableFlavor struct {
+	// name of the flavor.
+	Name ResourceFlavorReference `json:"name"`
+}
+
 // LocalQueueStatus defines the observed state of LocalQueue
 type LocalQueueStatus struct {
 	// PendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
@@ -88,6 +93,13 @@ type LocalQueueStatus struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
 	FlavorUsage []LocalQueueFlavorUsage `json:"flavorUsage"`
+
+	// availableFlavors lists all currently available ResourceFlavors
+	// in specified ClusterQueue.
+	//
+	// +listType=map
+	// +listMapKey=name
+	AvailableFlavors []AvailableFlavor `json:"availableFlavors,omitempty"`
 }
 
 const (
