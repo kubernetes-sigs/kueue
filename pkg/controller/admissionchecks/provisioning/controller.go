@@ -237,7 +237,8 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		if !c.reqIsNeeded(wl, prc) {
 			continue
 		}
-		if ac := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName); ac != nil && ac.State == kueue.CheckStateReady {
+		ac := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName)
+		if ac != nil && ac.State == kueue.CheckStateReady {
 			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
 			continue
 		}
@@ -302,6 +303,9 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			}
 
 			if err := c.client.Create(ctx, req); err != nil {
+				ac.Message = fmt.Sprintf("Error creating ProvisioningRequest: %q", requestName)
+				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac)
+
 				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", "Error creating ProvisioningRequest: %q", req.Name)
 				return nil, err
 			}
