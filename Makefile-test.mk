@@ -33,7 +33,7 @@ ENVTEST_K8S_VERSION ?= 1.31
 # Number of processes to use during integration tests to run specs within a
 # suite in parallel. Suites still run sequentially. User may set this value to 1
 # to run without parallelism.
-INTEGRATION_NPROCS ?= 4
+INTEGRATION_NPROCS := 2
 # Folder where the integration tests are located.
 INTEGRATION_TARGET ?= ./test/integration/...
 # Verbosity level for apiserver logging.
