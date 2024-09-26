@@ -137,29 +137,30 @@ unmask_filename "%s"
 }
 
 type slurmBuilderTestCase struct {
-	beforeTest  func(tc *slurmBuilderTestCase) error
-	afterTest   func(tc *slurmBuilderTestCase) error
-	tempFile    string
-	namespace   string
-	profile     string
-	mode        v1alpha1.ApplicationProfileMode
-	array       string
-	cpusPerTask *resource.Quantity
-	gpusPerTask map[string]*resource.Quantity
-	memPerTask  *resource.Quantity
-	memPerCPU   *resource.Quantity
-	memPerGPU   *resource.Quantity
-	nodes       *int32
-	nTasks      *int32
-	output      string
-	err         string
-	input       string
-	jobName     string
-	partition   string
-	kjobctlObjs []runtime.Object
-	wantObjs    []runtime.Object
-	wantErr     error
-	cmpopts     []cmp.Option
+	beforeTest    func(tc *slurmBuilderTestCase) error
+	afterTest     func(tc *slurmBuilderTestCase) error
+	tempFile      string
+	namespace     string
+	profile       string
+	mode          v1alpha1.ApplicationProfileMode
+	array         string
+	cpusPerTask   *resource.Quantity
+	gpusPerTask   map[string]*resource.Quantity
+	memPerTask    *resource.Quantity
+	memPerCPU     *resource.Quantity
+	memPerGPU     *resource.Quantity
+	nodes         *int32
+	nTasks        *int32
+	output        string
+	err           string
+	input         string
+	jobName       string
+	partition     string
+	kjobctlObjs   []runtime.Object
+	wantRootObj   runtime.Object
+	wantChildObjs []runtime.Object
+	wantErr       error
+	cmpopts       []cmp.Option
 }
 
 func beforeSlurmTest(tc *slurmBuilderTestCase) error {
@@ -226,37 +227,37 @@ func TestSlurmBuilderDo(t *testing.T) {
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.SlurmMode, "slurm-job-template").Obj()).
 					Obj(),
 			},
-			wantObjs: []runtime.Object{
-				wrappers.MakeJob("", metav1.NamespaceDefault).
-					Parallelism(2).
-					Completions(5).
-					CompletionMode(batchv1.IndexedCompletion).
-					Profile("profile").
-					Mode(v1alpha1.SlurmMode).
-					WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
-						Command("bash", "/slurm/entrypoint.sh").
-						WithVolumeMount(corev1.VolumeMount{MountPath: "/slurm"}).
-						Obj()).
-					WithVolume(corev1.Volume{
-						VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								Items: []corev1.KeyToPath{
-									{Key: "entrypoint.sh", Path: "entrypoint.sh"},
-									{Key: "script", Path: "script", Mode: ptr.To[int32](0755)},
-								},
+			wantRootObj: wrappers.MakeJob("", metav1.NamespaceDefault).
+				Parallelism(2).
+				Completions(5).
+				CompletionMode(batchv1.IndexedCompletion).
+				Profile("profile").
+				Mode(v1alpha1.SlurmMode).
+				WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
+					Command("bash", "/slurm/entrypoint.sh").
+					WithVolumeMount(corev1.VolumeMount{MountPath: "/slurm"}).
+					Obj()).
+				WithVolume(corev1.Volume{
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							Items: []corev1.KeyToPath{
+								{Key: "entrypoint.sh", Path: "entrypoint.sh"},
+								{Key: "script", Path: "script", Mode: ptr.To[int32](0755)},
 							},
 						},
-					}).
-					WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
-					WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
-					WithEnvVar(corev1.EnvVar{
-						Name:  constants.EnvVarTaskID,
-						Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
-					}).
-					WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
-					WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
-					WithEnvVar(corev1.EnvVar{Name: "JOB_CONTAINER_INDEX", Value: "0"}).
-					Obj(),
+					},
+				}).
+				WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+				WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+				WithEnvVar(corev1.EnvVar{
+					Name:  constants.EnvVarTaskID,
+					Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+				}).
+				WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+				WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+				WithEnvVar(corev1.EnvVar{Name: "JOB_CONTAINER_INDEX", Value: "0"}).
+				Obj(),
+			wantChildObjs: []runtime.Object{
 				wrappers.MakeConfigMap("", metav1.NamespaceDefault).
 					Profile("profile").
 					Mode(v1alpha1.SlurmMode).
@@ -379,7 +380,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...))
 
-			rootObj, childObjs, gotErr := NewBuilder(tcg, testStartTime).
+			gotRootObj, gotChildObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
@@ -412,13 +413,12 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 			defaultCmpOpts := []cmp.Option{cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")}
 			opts = append(defaultCmpOpts, tc.cmpopts...)
 
-			var gotObjs []runtime.Object
-			if rootObj != nil {
-				gotObjs = append(gotObjs, rootObj)
+			if diff := cmp.Diff(tc.wantRootObj, gotRootObj, opts...); diff != "" {
+				t.Errorf("Root object after build (-want,+got):\n%s", diff)
 			}
-			gotObjs = append(gotObjs, childObjs...)
-			if diff := cmp.Diff(tc.wantObjs, gotObjs, opts...); diff != "" {
-				t.Errorf("Objects after build (-want,+got):\n%s", diff)
+
+			if diff := cmp.Diff(tc.wantChildObjs, gotChildObjs, opts...); diff != "" {
+				t.Errorf("Child objects after build (-want,+got):\n%s", diff)
 			}
 		})
 	}

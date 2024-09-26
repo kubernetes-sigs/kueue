@@ -122,7 +122,7 @@ func TestRayJobBuilder(t *testing.T) {
 		localQueue  string
 		rayCluster  string
 		kjobctlObjs []runtime.Object
-		wantObjs    []runtime.Object
+		wantRootObj runtime.Object
 		wantErr     error
 	}{
 		"shouldn't build ray job because template not found": {
@@ -146,30 +146,28 @@ func TestRayJobBuilder(t *testing.T) {
 					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.RayJobMode, Template: "ray-job-template"}).
 					Obj(),
 			},
-			wantObjs: []runtime.Object{
-				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
-					Annotation("foo", "baz").
-					Label("foo", "bar").
-					Profile("profile").
-					Mode(v1alpha1.RayJobMode).
-					Spec(
-						testRayJobTemplateWrapper.Clone().
-							WithRayClusterSpec(
-								wrappers.FromRayClusterSpec(*testRayJobTemplateWrapper.Clone().Template.Spec.RayClusterSpec).
-									WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
-									WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
-									WithEnvVar(corev1.EnvVar{
-										Name:  constants.EnvVarTaskID,
-										Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
-									}).
-									WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
-									WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
-									Obj(),
-							).
-							Template.Spec,
-					).
-					Obj(),
-			},
+			wantRootObj: wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
+				Profile("profile").
+				Mode(v1alpha1.RayJobMode).
+				Spec(
+					testRayJobTemplateWrapper.Clone().
+						WithRayClusterSpec(
+							wrappers.FromRayClusterSpec(*testRayJobTemplateWrapper.Clone().Template.Spec.RayClusterSpec).
+								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+								WithEnvVar(corev1.EnvVar{
+									Name:  constants.EnvVarTaskID,
+									Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+								}).
+								WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+								WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+								Obj(),
+						).
+						Template.Spec,
+				).
+				Obj(),
 		},
 		"should build ray job with replacements": {
 			namespace:   metav1.NamespaceDefault,
@@ -194,41 +192,39 @@ func TestRayJobBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObjs: []runtime.Object{
-				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
-					Annotation("foo", "baz").
-					Label("foo", "bar").
-					Profile("profile").
-					Mode(v1alpha1.RayJobMode).
-					Label(kueueconstants.QueueLabel, "lq1").
-					Spec(
-						testRayJobTemplateWrapper.Clone().
-							Entrypoint("sleep").
-							WithRayClusterSpec(
-								wrappers.FromRayClusterSpec(*testRayJobTemplateWrapper.Clone().Template.Spec.RayClusterSpec).
-									Replicas("g1", 10).
-									Replicas("g2", 20).
-									MinReplicas("g1", 10).
-									MinReplicas("g2", 20).
-									MaxReplicas("g1", 15).
-									MaxReplicas("g2", 25).
-									WithVolume("v3", "config3").
-									WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
-									WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
-									WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
-									WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
-									WithEnvVar(corev1.EnvVar{
-										Name:  constants.EnvVarTaskID,
-										Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
-									}).
-									WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
-									WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
-									Obj(),
-							).
-							Obj().Template.Spec,
-					).
-					Obj(),
-			},
+			wantRootObj: wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
+				Profile("profile").
+				Mode(v1alpha1.RayJobMode).
+				Label(kueueconstants.QueueLabel, "lq1").
+				Spec(
+					testRayJobTemplateWrapper.Clone().
+						Entrypoint("sleep").
+						WithRayClusterSpec(
+							wrappers.FromRayClusterSpec(*testRayJobTemplateWrapper.Clone().Template.Spec.RayClusterSpec).
+								Replicas("g1", 10).
+								Replicas("g2", 20).
+								MinReplicas("g1", 10).
+								MinReplicas("g2", 20).
+								MaxReplicas("g1", 15).
+								MaxReplicas("g2", 25).
+								WithVolume("v3", "config3").
+								WithVolumeMount(corev1.VolumeMount{Name: "vm3", MountPath: "/etc/config3"}).
+								WithEnvVar(corev1.EnvVar{Name: "e3", Value: "value3"}).
+								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarNameUserID, Value: userID}).
+								WithEnvVar(corev1.EnvVar{Name: constants.EnvVarTaskName, Value: "default_profile"}).
+								WithEnvVar(corev1.EnvVar{
+									Name:  constants.EnvVarTaskID,
+									Value: fmt.Sprintf("%s_%s_default_profile", userID, testStartTime.Format(time.RFC3339)),
+								}).
+								WithEnvVar(corev1.EnvVar{Name: "PROFILE", Value: "default_profile"}).
+								WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
+								Obj(),
+						).
+						Obj().Template.Spec,
+				).
+				Obj(),
 		},
 		"should build ray job with raycluster replacement": {
 			namespace:  metav1.NamespaceDefault,
@@ -251,16 +247,14 @@ func TestRayJobBuilder(t *testing.T) {
 					Obj(),
 				wrappers.MakeVolumeBundle("vb2", metav1.NamespaceDefault).Obj(),
 			},
-			wantObjs: []runtime.Object{
-				wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
-					Annotation("foo", "baz").
-					Label("foo", "bar").
-					Profile("profile").
-					Mode(v1alpha1.RayJobMode).
-					WithRayClusterLabelSelector("rc1").
-					Entrypoint("python /home/ray/samples/sample_code.py").
-					Obj(),
-			},
+			wantRootObj: wrappers.MakeRayJob("", metav1.NamespaceDefault).GenerateName("profile-rayjob-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
+				Profile("profile").
+				Mode(v1alpha1.RayJobMode).
+				WithRayClusterLabelSelector("rc1").
+				Entrypoint("python /home/ray/samples/sample_code.py").
+				Obj(),
 		},
 	}
 	for name, tc := range testCases {
@@ -271,7 +265,7 @@ func TestRayJobBuilder(t *testing.T) {
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...))
 
-			rootObj, childObjs, gotErr := NewBuilder(tcg, testStartTime).
+			gotRootObj, gotChildObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
@@ -293,13 +287,12 @@ func TestRayJobBuilder(t *testing.T) {
 				return
 			}
 
-			var gotObjs []runtime.Object
-			if rootObj != nil {
-				gotObjs = append(gotObjs, rootObj)
+			if diff := cmp.Diff(tc.wantRootObj, gotRootObj, opts...); diff != "" {
+				t.Errorf("Root object after build (-want,+got):\n%s", diff)
 			}
-			gotObjs = append(gotObjs, childObjs...)
-			if diff := cmp.Diff(tc.wantObjs, gotObjs, opts...); diff != "" {
-				t.Errorf("Objects after build (-want,+got):\n%s", diff)
+
+			if diff := cmp.Diff([]runtime.Object(nil), gotChildObjs, opts...); diff != "" {
+				t.Errorf("Child objects after build (-want,+got):\n%s", diff)
 			}
 		})
 	}
