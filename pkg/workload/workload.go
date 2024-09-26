@@ -101,7 +101,7 @@ func WithExcludedResourcePrefixes(n []string) InfoOption {
 // WithResourceMappings sets the resource mappings
 func WithResourceMappings(transforms []config.ResourceTransformation) InfoOption {
 	return func(o *InfoOptions) {
-		o.resourceTransformations = slices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
+		o.resourceTransformations = utilslices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
 	}
 }
 
@@ -197,10 +197,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w, options.resourceTransformations)
-	}
-	if len(options.excludedResourcePrefixes) > 0 {
-		dropExcludedResources(info.TotalRequests, options.excludedResourcePrefixes)
+		info.TotalRequests = totalRequestsFromPodSets(w, &options)
 	}
 	return info
 }
@@ -229,21 +226,21 @@ func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
 	return total
 }
 
-func dropExcludedResources(resources []PodSetResources, excludedPrefixes []string) {
-	for _, resource := range resources {
-		for requestKey := range resource.Requests {
-			exclude := false
-			for _, excludedPrefix := range excludedPrefixes {
-				if strings.HasPrefix(string(requestKey), excludedPrefix) {
-					exclude = true
-					break
-				}
-			}
-			if exclude {
-				delete(resource.Requests, requestKey)
+func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string) corev1.ResourceList {
+	res := corev1.ResourceList{}
+	for inputName, inputQuantity := range input {
+		exclude := false
+		for _, excludedPrefix := range excludedPrefixes {
+			if strings.HasPrefix(string(inputName), excludedPrefix) {
+				exclude = true
+				break
 			}
 		}
+		if !exclude {
+			res[inputName] = inputQuantity
+		}
 	}
+	return res
 }
 
 func applyResourceMappings(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
@@ -319,7 +316,7 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload, transforms map[corev1.ResourceName]*config.ResourceTransformation) []PodSetResources {
+func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
@@ -332,7 +329,8 @@ func totalRequestsFromPodSets(wl *kueue.Workload, transforms map[corev1.Resource
 			Count: count,
 		}
 		specRequests := limitrange.TotalRequests(&ps.Template.Spec)
-		effectiveRequests := applyResourceMappings(specRequests, transforms)
+		filteredRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
+		effectiveRequests := applyResourceMappings(filteredRequests, info.resourceTransformations)
 		setRes.Requests = resources.NewRequests(effectiveRequests)
 		scaleUp(setRes.Requests, int64(count))
 		res = append(res, setRes)
@@ -537,6 +535,32 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
+// PropagateResouceRequests synchronizes w.Status.ResourceRequests to
+// with info.TotalRequests and returns true if w was updated
+func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
+	if len(w.Status.ResourceRequests) == len(info.TotalRequests) {
+		match := true
+		for idx := range w.Status.ResourceRequests {
+			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
+				!maps.Equal(w.Status.ResourceRequests[idx].ResourceRequest, info.TotalRequests[idx].Requests.ToResourceList()) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return false
+		}
+	}
+
+	res := make([]kueue.PodSetRequest, len(info.TotalRequests))
+	for idx := range info.TotalRequests {
+		res[idx].Name = info.TotalRequests[idx].Name
+		res[idx].ResourceRequest = info.TotalRequests[idx].Requests.ToResourceList()
+	}
+	w.Status.ResourceRequests = res
+	return true
+}
+
 // AdmissionStatusPatch creates a new object based on the input workload that contains
 // the admission and related conditions. The object can be used in Server-Side-Apply.
 // If strict is true, resourceVersion will be part of the patch.
@@ -544,6 +568,9 @@ func AdmissionStatusPatch(w *kueue.Workload, strict bool) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
+	for _, rr := range w.Status.ResourceRequests {
+		wlCopy.Status.ResourceRequests = append(wlCopy.Status.ResourceRequests, *rr.DeepCopy())
+	}
 	for _, conditionName := range admissionManagedConditions {
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())

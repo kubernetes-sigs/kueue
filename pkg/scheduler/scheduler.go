@@ -685,7 +685,9 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 
 	if e.status == notNominated || e.status == skipped {
 		patch := workload.AdmissionStatusPatch(e.Obj, true)
-		if workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg) {
+		change1 := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg)
+		change2 := workload.PropagateResourceRequests(patch, &e.Info)
+		if change1 || change2 {
 			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, patch); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
