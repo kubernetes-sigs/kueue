@@ -714,6 +714,10 @@ func TestCreateCmd(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "ConfigMapList", APIVersion: "v1"},
 					Items: []corev1.ConfigMap{
 						*wrappers.MakeConfigMap("", metav1.NamespaceDefault).
+							WithOwnerReference(metav1.OwnerReference{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+							}).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
 							Data(map[string]string{
@@ -811,6 +815,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 				cmpopts.IgnoreFields(corev1.Volume{}, "Name"),
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
 				cmpopts.IgnoreFields(corev1.VolumeMount{}, "Name"),
+				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -895,6 +900,10 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					TypeMeta: metav1.TypeMeta{Kind: "ConfigMapList", APIVersion: "v1"},
 					Items: []corev1.ConfigMap{
 						*wrappers.MakeConfigMap("", metav1.NamespaceDefault).
+							WithOwnerReference(metav1.OwnerReference{
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+							}).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
 							LocalQueue("lq1").
@@ -993,6 +1002,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 				cmpopts.IgnoreFields(corev1.Volume{}, "Name"),
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
 				cmpopts.IgnoreFields(corev1.VolumeMount{}, "Name"),
+				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},

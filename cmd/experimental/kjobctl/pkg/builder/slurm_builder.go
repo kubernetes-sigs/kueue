@@ -164,19 +164,19 @@ func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
 	return nil
 }
 
-func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
+func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Object, error) {
 	if err := b.validateGeneral(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := b.complete(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	template, err := b.kjobctlClientset.KjobctlV1alpha1().JobTemplates(b.profile.Namespace).
 		Get(ctx, string(b.mode.Template), metav1.GetOptions{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	job := &batchv1.Job{
@@ -232,7 +232,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 
 	gpusPerTask, err := resource.ParseQuantity("0")
 	if err != nil {
-		return nil, errors.New("error initializing gpus counter")
+		return nil, nil, errors.New("error initializing gpus counter")
 	}
 	for _, number := range b.gpusPerTask {
 		gpusPerTask.Add(*number)
@@ -334,7 +334,7 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, resource.DecimalSI)
 	}
 
-	return []runtime.Object{job, configMap}, nil
+	return job, []runtime.Object{configMap}, nil
 }
 
 func (b *slurmBuilder) buildIndexesMap() map[int32][]int32 {
