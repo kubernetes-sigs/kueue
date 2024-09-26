@@ -56,6 +56,7 @@ const (
 	podRunningTimeoutFlagName = "pod-running-timeout"
 	removeFlagName            = "rm"
 	ignoreUnknownFlagName     = "ignore-unknown-flags"
+	initImageFlagName         = "init-image"
 
 	commandFlagName     = string(v1alpha1.CmdFlag)
 	parallelismFlagName = string(v1alpha1.ParallelismFlag)
@@ -155,6 +156,7 @@ type CreateOptions struct {
 	ProfileName          string
 	ModeName             v1alpha1.ApplicationProfileMode
 	Script               string
+	InitImage            string
 	PodRunningTimeout    time.Duration
 	RemoveInteractivePod bool
 
@@ -335,6 +337,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 
 			subcmd.Flags().BoolVar(&o.IgnoreUnknown, ignoreUnknownFlagName, false,
 				"Ignore all the unsupported flags in the bash script.")
+			subcmd.Flags().StringVar(&o.InitImage, initImageFlagName, "",
+				"The image used for the init container.")
 
 			o.SlurmFlagSet = pflag.NewFlagSet("slurm", pflag.ExitOnError)
 			o.SlurmFlagSet.StringVarP(&o.Array, arrayFlagName, "a", "",
@@ -599,6 +603,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithInput(o.Input).
 		WithJobName(o.JobName).
 		WithPartition(o.Partition).
+		WithInitImage(o.InitImage).
 		WithIgnoreUnknown(o.IgnoreUnknown).
 		Do(ctx)
 	if err != nil {

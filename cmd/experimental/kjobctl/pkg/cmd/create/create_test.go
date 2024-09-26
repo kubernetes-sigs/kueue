@@ -864,6 +864,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					"slurm",
 					"--profile", "profile",
 					"--localqueue", "lq1",
+					"--init-image", "bash:latest",
 					"--",
 					"--array", "0-25",
 					"--nodes", "2",
@@ -899,7 +900,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
 							LocalQueue("lq1").
-							WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:5-alpine3.20").
+							WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:latest").
 								Command("bash", "/slurm/scripts/init-entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).

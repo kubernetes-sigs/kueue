@@ -71,6 +71,15 @@ kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEU
         </td>
     </tr>
     <tr>
+        <td colspan="2">--init-image string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>The image used for the init container.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">--localqueue string</td>
     </tr>
     <tr>

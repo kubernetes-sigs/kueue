@@ -52,7 +52,7 @@ const (
 	slurmSbatchEnvFilename = "sbatch.env"
 	slurmSlurmEnvFilename  = "slurm.env"
 
-	slurmInitImage = "bash:5-alpine3.20"
+	slurmDefaultInitImage = "bash:5-alpine3.20"
 
 	//# \\ - Do not process any of the replacement symbols.
 	//# %% - The character "%".
@@ -147,6 +147,10 @@ func (b *slurmBuilder) complete() error {
 		if b.arrayIndexes.Parallelism != nil {
 			b.nodes = b.arrayIndexes.Parallelism
 		}
+	}
+
+	if b.initImage == "" {
+		b.initImage = slurmDefaultInitImage
 	}
 
 	return nil
@@ -262,7 +266,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 
 	job.Spec.Template.Spec.InitContainers = append(job.Spec.Template.Spec.InitContainers, corev1.Container{
 		Name:    "slurm-init-env",
-		Image:   slurmInitImage,
+		Image:   b.initImage,
 		Command: []string{"bash", slurmInitEntrypointFilenamePath},
 		VolumeMounts: []corev1.VolumeMount{
 			{

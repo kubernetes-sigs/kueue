@@ -106,6 +106,7 @@ type Builder struct {
 	nTasks        *int32
 	output        string
 	partition     string
+	initImage     string
 	ignoreUnknown bool
 
 	profile       *v1alpha1.ApplicationProfile
@@ -246,6 +247,11 @@ func (b *Builder) WithOutput(output string) *Builder {
 
 func (b *Builder) WithPartition(partition string) *Builder {
 	b.partition = partition
+	return b
+}
+
+func (b *Builder) WithInitImage(initImage string) *Builder {
+	b.initImage = initImage
 	return b
 }
 
