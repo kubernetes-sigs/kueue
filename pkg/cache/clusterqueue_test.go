@@ -502,6 +502,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		admissionChecks map[string]AdmissionCheck
 		wantStatus      metrics.ClusterQueueStatus
 		wantReason      string
+		wantMessage     string
 	}{
 		{
 			name:     "Pending clusterQueue updated valid AC list",
@@ -521,8 +522,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller3",
 				},
 			},
-			wantStatus: active,
-			wantReason: "Ready",
+			wantStatus:  active,
+			wantReason:  "Ready",
+			wantMessage: "Can admit new workloads",
 		},
 		{
 			name:     "Pending clusterQueue with an AC strategy updated valid AC list",
@@ -542,8 +544,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller3",
 				},
 			},
-			wantStatus: active,
-			wantReason: "Ready",
+			wantStatus:  active,
+			wantReason:  "Ready",
+			wantMessage: "Can admit new workloads",
 		},
 		{
 			name:     "Active clusterQueue updated with not found AC",
@@ -559,8 +562,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller2",
 				},
 			},
-			wantStatus: pending,
-			wantReason: "CheckNotFoundOrInactive",
+			wantStatus:  pending,
+			wantReason:  "AdmissionCheckNotFound",
+			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): [check3].",
 		},
 		{
 			name:     "Active clusterQueue with an AC strategy updated with not found AC",
@@ -576,8 +580,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller2",
 				},
 			},
-			wantStatus: pending,
-			wantReason: "CheckNotFoundOrInactive",
+			wantStatus:  pending,
+			wantReason:  "AdmissionCheckNotFound",
+			wantMessage: "Can't admit new workloads: references missing AdmissionCheck(s): [check3].",
 		},
 		{
 			name:     "Active clusterQueue updated with inactive AC",
@@ -597,8 +602,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller3",
 				},
 			},
-			wantStatus: pending,
-			wantReason: "CheckNotFoundOrInactive",
+			wantStatus:  pending,
+			wantReason:  "AdmissionCheckInactive",
+			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): [check3].",
 		},
 		{
 			name:     "Active clusterQueue with an AC strategy updated with inactive AC",
@@ -618,8 +624,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller3",
 				},
 			},
-			wantStatus: pending,
-			wantReason: "CheckNotFoundOrInactive",
+			wantStatus:  pending,
+			wantReason:  "AdmissionCheckInactive",
+			wantMessage: "Can't admit new workloads: references inactive AdmissionCheck(s): [check3].",
 		},
 		{
 			name:     "Active clusterQueue updated with duplicate single instance AC Controller",
@@ -641,8 +648,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					SingleInstanceInClusterQueue: true,
 				},
 			},
-			wantStatus: pending,
-			wantReason: "MultipleSingleInstanceControllerChecks",
+			wantStatus:  pending,
+			wantReason:  "MultipleSingleInstanceControllerAdmissionChecks",
+			wantMessage: `Can't admit new workloads: only one AdmissionCheck of [check2 check3] can be referenced for controller "controller2".`,
 		},
 		{
 			name:     "Active clusterQueue with an AC strategy updated with duplicate single instance AC Controller",
@@ -664,8 +672,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					SingleInstanceInClusterQueue: true,
 				},
 			},
-			wantStatus: pending,
-			wantReason: "MultipleSingleInstanceControllerChecks",
+			wantStatus:  pending,
+			wantReason:  "MultipleSingleInstanceControllerAdmissionChecks",
+			wantMessage: `Can't admit new workloads: only one AdmissionCheck of [check2 check3] can be referenced for controller "controller2".`,
 		},
 		{
 			name:     "Active clusterQueue with a FlavorIndependent AC applied per ResourceFlavor",
@@ -678,8 +687,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					FlavorIndependent: true,
 				},
 			},
-			wantStatus: pending,
-			wantReason: "FlavorIndependentAdmissionCheckAppliedPerFlavor",
+			wantStatus:  pending,
+			wantReason:  "FlavorIndependentAdmissionCheckAppliedPerFlavor",
+			wantMessage: "Can't admit new workloads: AdmissionCheck(s): [check1] cannot be set at flavor level.",
 		},
 		{
 			name:     "Terminating clusterQueue updated with valid AC list",
@@ -699,8 +709,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller3",
 				},
 			},
-			wantStatus: terminating,
-			wantReason: "Terminating",
+			wantStatus:  terminating,
+			wantReason:  "Terminating",
+			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
 		{
 			name:     "Terminating clusterQueue with an AC strategy updated with valid AC list",
@@ -720,8 +731,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller3",
 				},
 			},
-			wantStatus: terminating,
-			wantReason: "Terminating",
+			wantStatus:  terminating,
+			wantReason:  "Terminating",
+			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
 		{
 			name:     "Terminating clusterQueue updated with not found AC",
@@ -737,8 +749,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller2",
 				},
 			},
-			wantStatus: terminating,
-			wantReason: "Terminating",
+			wantStatus:  terminating,
+			wantReason:  "Terminating",
+			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
 		{
 			name:     "Terminating clusterQueue with an AC strategy updated with not found AC",
@@ -754,8 +767,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					Controller: "controller2",
 				},
 			},
-			wantStatus: terminating,
-			wantReason: "Terminating",
+			wantStatus:  terminating,
+			wantReason:  "Terminating",
+			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
 		},
 	}
 
@@ -771,13 +785,15 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 
 			// Align the admission check related internals to the desired Status.
 			if tc.cqStatus == active {
-				cq.hasMultipleSingleInstanceControllersChecks = false
-				cq.hasMissingOrInactiveAdmissionChecks = false
-				cq.hasFlavorIndependentAdmissionCheckAppliedPerFlavor = false
+				cq.multipleSingleInstanceControllersChecks = nil
+				cq.missingAdmissionChecks = nil
+				cq.inactiveAdmissionChecks = nil
+				cq.flavorIndependentAdmissionCheckAppliedPerFlavor = nil
 			} else {
-				cq.hasMultipleSingleInstanceControllersChecks = true
-				cq.hasMissingOrInactiveAdmissionChecks = true
-				cq.hasFlavorIndependentAdmissionCheckAppliedPerFlavor = true
+				cq.multipleSingleInstanceControllersChecks = map[string][]string{"c1": {"ac1", "ac2"}}
+				cq.missingAdmissionChecks = []string{"missing-ac"}
+				cq.inactiveAdmissionChecks = []string{"inactive-ac"}
+				cq.flavorIndependentAdmissionCheckAppliedPerFlavor = []string{"not-on-flavor"}
 			}
 			cq.updateWithAdmissionChecks(tc.admissionChecks)
 
@@ -785,9 +801,12 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 				t.Errorf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
 			}
 
-			gotReason, _ := cq.inactiveReason()
+			gotReason, gotMessage := cq.inactiveReason()
 			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
 				t.Errorf("Unexpected inactiveReason (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantMessage, gotMessage); diff != "" {
+				t.Errorf("Unexpected inactiveMessage (-want,+got):\n%s", diff)
 			}
 		})
 	}

@@ -3354,15 +3354,15 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "FlavorNotFound",
-			wantMessage:      "Can't admit new workloads: FlavorNotFound",
+			wantMessage:      "Can't admit new workloads: references missing ResourceFlavor(s): [flavor1].",
 		},
 		"check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			resourceFlavors:  []*kueue.ResourceFlavor{baseFlavor},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
-			wantReason:       "CheckNotFoundOrInactive",
-			wantMessage:      "Can't admit new workloads: CheckNotFoundOrInactive",
+			wantReason:       "AdmissionCheckNotFound",
+			wantMessage:      "Can't admit new workloads: references missing AdmissionCheck(s): [check1].",
 		},
 		"check inactive": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3370,15 +3370,15 @@ func TestClusterQueueReadiness(t *testing.T) {
 			admissionChecks:  []*kueue.AdmissionCheck{utiltesting.MakeAdmissionCheck("check1").Obj()},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
-			wantReason:       "CheckNotFoundOrInactive",
-			wantMessage:      "Can't admit new workloads: CheckNotFoundOrInactive",
+			wantReason:       "AdmissionCheckInactive",
+			wantMessage:      "Can't admit new workloads: references inactive AdmissionCheck(s): [check1].",
 		},
 		"flavor and check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "FlavorNotFound",
-			wantMessage:      "Can't admit new workloads: FlavorNotFound, CheckNotFoundOrInactive",
+			wantMessage:      "Can't admit new workloads: references missing ResourceFlavor(s): [flavor1], references missing AdmissionCheck(s): [check1].",
 		},
 		"terminating": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3406,7 +3406,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "Stopped",
-			wantMessage:      "Can't admit new workloads: Stopped",
+			wantMessage:      "Can't admit new workloads: is stopped.",
 		},
 	}
 

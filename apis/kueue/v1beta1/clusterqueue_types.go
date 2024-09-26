@@ -22,6 +22,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ClusterQueue Active condition reasons.
+const (
+	ClusterQueueActiveReasonTerminating                                     = "Terminating"
+	ClusterQueueActiveReasonStopped                                         = "Stopped"
+	ClusterQueueActiveReasonFlavorNotFound                                  = "FlavorNotFound"
+	ClusterQueueActiveReasonAdmissionCheckNotFound                          = "AdmissionCheckNotFound"
+	ClusterQueueActiveReasonAdmissionCheckInactive                          = "AdmissionCheckInactive"
+	ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks = "MultipleSingleInstanceControllerAdmissionChecks"
+	ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor = "FlavorIndependentAdmissionCheckAppliedPerFlavor"
+	ClusterQueueActiveReasonUnknown                                         = "Unknown"
+	ClusterQueueActiveReasonReady                                           = "Ready"
+)
+
 // ClusterQueueSpec defines the desired state of ClusterQueue
 // +kubebuilder:validation:XValidation:rule="!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
 type ClusterQueueSpec struct {
