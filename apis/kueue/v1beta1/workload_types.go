@@ -294,6 +294,13 @@ type WorkloadStatus struct {
 	// +patchMergeKey=name
 	// +kubebuilder:validation:MaxItems=8
 	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+
+	// resourceRequests lists the resources requested by the Workload for admission
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
+	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
 }
 
 type RequeueState struct {
@@ -380,6 +387,21 @@ type ReclaimablePod struct {
 	// count is the number of pods for which the requested resources are no longer needed.
 	// +kubebuilder:validation:Minimum=0
 	Count int32 `json:"count"`
+}
+
+type PodSetRequest struct {
+	// Name is the name of the podSet. It should match one of the names in .spec.podSets.
+	// +kubebuilder:default=main
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern="^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+	Name string `json:"name"`
+
+	// resourceRequest is the total resources all the pods in the podset need to run.
+	//
+	// Beside what is provided in podSet's specs, this calculation takes into account
+	// the LimitRange defaults and RuntimeClass overheads at the moment of admission
+	// and the application of all applicable ResourceMapping.
+	ResourceRequest corev1.ResourceList `json:"resourceRequest,omitempty"`
 }
 
 const (
