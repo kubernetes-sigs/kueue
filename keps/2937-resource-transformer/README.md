@@ -69,7 +69,7 @@ configured transformations functions changes after its resource requests are com
 
 ## Proposal
 
-* Add a configuration mechanism that enables a cluster admin to specify a `ResourceMapping`.
+* Add a configuration mechanism that enables a cluster admin to specify a `ResourceTransformation`.
 * Extend `workload.NewInfo` to apply the resource mapping when computing the resources
 needed to admit the workload immediately after it applies `dropExcludedResources`.
 * Extend the `Status` field of Workload to make the transformed resources directly observable.
@@ -78,7 +78,7 @@ needed to admit the workload immediately after it applies `dropExcludedResources
 
 In the user stories below, we use a 4-tuple (InputResourceName, OutputResourceName, OutputQuantity, Replace/Retain)
 to express a resource transformation operation. In the actual implementation, this transformation would
-be encoded as an entry in a `ResourceMapping` which would be created by a cluster admin.
+be encoded as an entry in a `ResourceTransformation` which would be created by a cluster admin.
 
 #### Story 1
 
@@ -261,7 +261,7 @@ For example:
         lendingLimit: 0
 ```
 
-With the single global `ResourceMapping` proposed in this KEP, this use case may
+With the single global `ResourceTransformation` proposed in this KEP, this use case may
 be of limited applicability.  It would benefit from finer-grained
 [alternatives](#alternatives) that would for example `cpu` allocated from
 the `spot` flavor to cost fewer credits than when allocated from the `on-demand` flavor.
@@ -280,7 +280,7 @@ of the effective resources requested by a Workload.
 ### Specifying the Transformation
 
 In this KEP we propose to support a global set of resource transformations that would
-be applied to all Workloads.  A `ResourceMapping` instance would be added to Kueue's
+be applied to all Workloads.  A `ResourceTransformation` instance would be added to Kueue's
 `Configuration` API as part of the existing `Resources` struct.
 More [flexible alternatives](#alternatives) were considered, but left as possible
 future extensions.
@@ -294,21 +294,21 @@ type Resources struct {
 	// Transformations defines how to transform PodSpec resources into Workload resource requests.
 	// +listType=map
 	// +listMapKey=input
-	Transformations []ResourceMapping `json:"transformations,omitempty"`
+	Transformations []ResourceTransformation `json:"transformations,omitempty"`
 }
 
-type ResourceMappingStrategy string
+type ResourceTransformationStrategy string
 
-const Retain ResourceMappingStrategy = "Retain"
-const Replace ResourceMappingStrategy = "Replace"
+const Retain ResourceTransformationStrategy = "Retain"
+const Replace ResourceTransformationStrategy = "Replace"
 
-type ResourceMapping struct {
+type ResourceTransformation struct {
 	// Name of the input resource
 	Input corev1.ResourceName `json:"input"`
 
 	// Whether the input resource should be replaced or retained
 	// +kubebuilder:default="Retain"
-	Strategy ResourceMappingStrategy `json:"strategy"`
+	Strategy ResourceTransformationStrategy `json:"strategy"`
 
 	// Output resources and quantities per unit of input resource
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
@@ -543,7 +543,7 @@ None
 
 Unit tests of the helper function invoked from `workload.NewInfo` will be added.
 
-Unit tests of loading the `ResourceMapping` from a `Configuration` will be added.
+Unit tests of loading the `ResourceTransformation` from a `Configuration` will be added.
 
 #### Integration tests
 
@@ -573,22 +573,22 @@ resource requests are observable to end users and cluster admins.
 
 ## Alternatives
 
-A monolithic `ResourceMapping` that is only read during operator startup
+A monolithic `ResourceTransformation` that is only read during operator startup
 and cannot be selectively applied to Workloads may be overly limiting.
-More flexible options could be supported by promoting `ResourceMapping`
+More flexible options could be supported by promoting `ResourceTransformation`
 to a top-level cluster-scoped API object.  A cluster admin could
-then define multiple `ResourceMapping` instances and refer to them by name
+then define multiple `ResourceTransformation` instances and refer to them by name
 in fields of other objects.
 
 One advantage (and complexity) shared by all these alternatives is that
 they enable resource mappings to be changed without requiring a restart of
 the Kueue manager.  This comes at the implementation complexity of watching
-for changes to `ResourceMapping` instances and propagating them appropriately.
+for changes to `ResourceTransformation` instances and propagating them appropriately.
 
 In all of these options, we would add either a `resourceMappingName` (`string`)
 or a `resourceMappingNames` (`[]string`) field to an existing
 API object.  In the later case, the named mappings would be combined
-to construct a composite `ResourceMapping` which would be stored as a new field in
+to construct a composite `ResourceTransformation` which would be stored as a new field in
 the `Status` field of the API object.  If the merging process detects an inconsistent mapping
 (for example the named mappings specify both `Retain` and `Replace` for the
 same `input`), then an error would be reported via the `Conditions` of the API object's `Status`.
@@ -606,7 +606,7 @@ This implementation looks significantly harder, as it would mean structural chan
 in how flavor assignment is done.  In particular, we do not know the effective resource
 request until we apply the transformation, but flavor assignment is done on a resource-by-resource
 outer loop based on which ResourceGroup covers the requested resource.  Therefore it is not
-clear where or how a ResourceFlavor scoped `ResourceMapping` would be applied.
+clear where or how a ResourceFlavor scoped `ResourceTransformation` would be applied.
 
 ### Workload Scoped
 
