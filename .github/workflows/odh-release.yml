@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Tag to be used for release, i.e.: v0.0.1'
+        description: 'Tag to be used for release, i.e.: v0.0.1-odh-1'
         required: true
   push:
     tags:
