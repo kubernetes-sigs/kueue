@@ -37,7 +37,7 @@ var (
 	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.MXJobKind)
 	FrameworkName = "kubeflow.org/mxjob"
 
-	SetupMXJobWebhook = jobframework.DefaultWebhookFactory(
+	SetupMXJobWebhook = jobframework.BaseWebhookFactory(
 		NewJob(),
 		func(o runtime.Object) jobframework.GenericJob {
 			return fromObject(o)
