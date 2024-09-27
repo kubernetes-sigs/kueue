@@ -208,13 +208,6 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 func managerAndMultiKueueSetup(ctx context.Context, mgr manager.Manager, gcInterval time.Duration) {
 	managerSetup(ctx, mgr)
 
-	managersConfigNamespace = &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "kueue-system",
-		},
-	}
-	gomega.Expect(mgr.GetClient().Create(ctx, managersConfigNamespace)).To(gomega.Succeed())
-
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -242,6 +235,13 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8sVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	managersConfigNamespace = &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kueue-system",
+		},
+	}
+	gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managersConfigNamespace)).To(gomega.Succeed())
 })
 
 var _ = ginkgo.AfterSuite(func() {
