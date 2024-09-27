@@ -26,11 +26,11 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 )
 
 type Webhook struct {
@@ -44,16 +44,17 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		client:                     mgr.GetClient(),
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&appsv1.Deployment{}).
-		WithDefaulter(wh).
+	obj := &appsv1.Deployment{}
+	return webhook.WebhookManagedBy(mgr).
+		For(obj).
+		WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-apps-v1-deployment,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create,versions=v1,name=mdeployment.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &Webhook{}
+var _ admission.CustomDefaulter = &Webhook{}
 
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	d := fromObject(obj)
@@ -73,7 +74,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 
 // +kubebuilder:webhook:path=/validate-apps-v1-deployment,mutating=false,failurePolicy=fail,sideEffects=None,groups="apps",resources=deployments,verbs=create;update,versions=v1,name=vdeployment.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &Webhook{}
+var _ admission.CustomValidator = &Webhook{}
 
 func (wh *Webhook) ValidateCreate(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil

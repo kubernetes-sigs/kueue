@@ -31,12 +31,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 )
 
 const (
@@ -80,9 +80,10 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		namespaceSelector:          podOpts.NamespaceSelector,
 		podSelector:                podOpts.PodSelector,
 	}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&corev1.Pod{}).
-		WithDefaulter(wh).
+	obj := &corev1.Pod{}
+	return webhook.WebhookManagedBy(mgr).
+		For(obj).
+		WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }
@@ -102,7 +103,7 @@ func getPodOptions(integrationOpts map[string]any) (*configapi.PodIntegrationOpt
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
-var _ webhook.CustomDefaulter = &PodWebhook{}
+var _ admission.CustomDefaulter = &PodWebhook{}
 
 func containersShape(containers []corev1.Container) (result []map[string]interface{}) {
 	for _, c := range containers {
@@ -196,7 +197,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 // +kubebuilder:webhook:path=/validate--v1-pod,mutating=false,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=vpod.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &PodWebhook{}
+var _ admission.CustomValidator = &PodWebhook{}
 
 func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	var warnings admission.Warnings
