@@ -190,7 +190,7 @@ func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
 func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 	var allErrs field.ErrorList
 	if _, found := oldJob.Annotations[JobMinParallelismAnnotation]; found {
-		if !oldJob.IsSuspended() && ptr.Deref(oldJob.Spec.Parallelism, 1) != ptr.Deref(newJob.Spec.Parallelism, 1) {
+		if !ptr.Deref(oldJob.Spec.Suspend, false) && ptr.Deref(oldJob.Spec.Parallelism, 1) != ptr.Deref(newJob.Spec.Parallelism, 1) {
 			allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"))
 		}
 	}
