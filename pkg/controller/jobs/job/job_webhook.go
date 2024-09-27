@@ -123,6 +123,7 @@ func (w *JobWebhook) validateCreate(job *Job) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
+	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
 	return allErrs
 }
 
@@ -136,6 +137,11 @@ func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
 		}
 	}
+	return allErrs
+}
+
+func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
+	var allErrs field.ErrorList
 	if strVal, found := job.Annotations[JobCompletionsEqualParallelismAnnotation]; found {
 		enabled, err := strconv.ParseBool(strVal)
 		if err != nil {
@@ -169,7 +175,12 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 }
 
 func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
-	allErrs := w.validateCreate(newJob)
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob)...)
+	if newJob.Annotations[JobMinParallelismAnnotation] != oldJob.Annotations[JobMinParallelismAnnotation] {
+		allErrs = append(allErrs, w.validatePartialAdmissionCreate(newJob)...)
+	}
+	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	return allErrs

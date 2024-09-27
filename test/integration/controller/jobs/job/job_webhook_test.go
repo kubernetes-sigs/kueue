@@ -186,5 +186,44 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			createdJob.Spec.Suspend = ptr.To(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})
+
+		ginkgo.It("should allow unsuspending a partially admissible job with its minimum parallelism", func() {
+			job := testingjob.MakeJob("job-with-queue-name", ns.Name).Queue("queue").
+				Parallelism(6).
+				Completions(6).
+				SetAnnotation(job.JobMinParallelismAnnotation, "4").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+			createdJob := &batchv1.Job{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+
+			createdJob.Spec.Parallelism = ptr.To[int32](4)
+			createdJob.Spec.Suspend = ptr.To(false)
+			gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should allow unsuspending a partially admissible job with a parallelism lower then minimum", func() {
+			// This can happen if the job:
+			// 1. Is admitted
+			// 2. Makes progress and increments the reclaimable counts
+			// 3. Is evicted
+			// 4. Is re-admitted (the parallelism being less then min due to reclaim)
+			job := testingjob.MakeJob("job-with-queue-name", ns.Name).Queue("queue").
+				Parallelism(6).
+				Completions(6).
+				SetAnnotation(job.JobMinParallelismAnnotation, "4").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+			createdJob := &batchv1.Job{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+
+			createdJob.Spec.Parallelism = ptr.To[int32](3)
+			createdJob.Spec.Suspend = ptr.To(false)
+			gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+		})
 	})
 })
