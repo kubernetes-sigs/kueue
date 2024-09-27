@@ -37,7 +37,7 @@ var (
 	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.XGBoostJobKind)
 	FrameworkName = "kubeflow.org/xgboostjob"
 
-	SetupXGBoostJobWebhook = jobframework.DefaultWebhookFactory(
+	SetupXGBoostJobWebhook = jobframework.BaseWebhookFactory(
 		NewJob(),
 		func(o runtime.Object) jobframework.GenericJob {
 			return fromObject(o)

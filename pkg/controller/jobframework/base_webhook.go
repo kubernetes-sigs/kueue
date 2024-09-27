@@ -34,7 +34,7 @@ type BaseWebhook struct {
 	FromObject                 func(runtime.Object) GenericJob
 }
 
-func DefaultWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJob) func(ctrl.Manager, ...Option) error {
+func BaseWebhookFactory(job GenericJob, fromObject func(runtime.Object) GenericJob) func(ctrl.Manager, ...Option) error {
 	return func(mgr ctrl.Manager, opts ...Option) error {
 		options := ProcessOptions(opts...)
 		wh := &BaseWebhook{

@@ -41,7 +41,7 @@ var (
 
 	FrameworkName = "kubeflow.org/mpijob"
 
-	SetupMPIJobWebhook = jobframework.DefaultWebhookFactory(NewJob(), fromObject)
+	SetupMPIJobWebhook = jobframework.BaseWebhookFactory(NewJob(), fromObject)
 )
 
 // +kubebuilder:webhook:path=/mutate-kubeflow-org-v2beta1-mpijob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create,versions=v2beta1,name=mmpijob.kb.io,admissionReviewVersions=v1

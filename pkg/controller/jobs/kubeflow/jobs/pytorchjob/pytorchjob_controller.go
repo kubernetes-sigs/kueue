@@ -37,7 +37,7 @@ var (
 	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind)
 	FrameworkName = "kubeflow.org/pytorchjob"
 
-	SetupPyTorchJobWebhook = jobframework.DefaultWebhookFactory(
+	SetupPyTorchJobWebhook = jobframework.BaseWebhookFactory(
 		NewJob(),
 		func(o runtime.Object) jobframework.GenericJob {
 			return fromObject(o)
