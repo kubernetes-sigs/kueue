@@ -39,8 +39,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 func TestLoad(t *testing.T) {

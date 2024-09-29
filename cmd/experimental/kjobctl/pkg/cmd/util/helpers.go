@@ -17,9 +17,8 @@ limitations under the License.
 package util
 
 import (
-	"k8s.io/klog/v2"
-
 	"github.com/spf13/cobra"
+	"k8s.io/klog/v2"
 )
 
 func AddFieldSelectorFlagVar(cmd *cobra.Command, p *string) {
