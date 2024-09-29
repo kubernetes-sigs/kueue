@@ -524,9 +524,11 @@ Status:
     Status:                False
     Type:                  QuotaReserved
   ResourceRequests:
-    Cpu:                                1
-    example.com/accelerator-memory:     20G
-    Memory:                             97656250Ki
+    Name: main
+    Resource Request:
+      Cpu:                             1
+      example.com/accelerator-memory:  20G
+      Memory:                          97656250Ki
 ```
 
 ### Test Plan
