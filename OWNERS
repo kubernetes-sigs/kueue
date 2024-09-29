@@ -1,23 +1,22 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
 approvers:
-- anishasthana
 - astefanutti
-- jbusche
 - kpostoffice
-- maxusmusti
 - sutaakar
-- tedhtchang
 
 reviewers:
-- anishasthana
 - astefanutti
 - ChristianZaccaria
 - dimakis
 - Fiona-Waters
-- jbusche
 - kpostoffice
-- maxusmusti
 - MichaelClifford
 - sutaakar
-- tedhtchang
+
+emeritus_approvers:
+
+- anishasthana # 2024-09-29
+- jbusche # 2024-09-29
+- maxusmusti # 2024-09-29
+- tedhtchang # 2024-09-29
