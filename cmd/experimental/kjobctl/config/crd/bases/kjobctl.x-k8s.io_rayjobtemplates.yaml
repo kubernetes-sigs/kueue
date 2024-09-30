@@ -25614,8 +25614,6 @@ spec:
                       It's only working when ShutdownAfterJobFinishes set to true.
                     format: int32
                     type: integer
-                required:
-                - entrypoint
                 type: object
             required:
             - spec

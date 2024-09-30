@@ -59,6 +59,12 @@ issues:
       - staticcheck
       # TODO(#768): Drop when incrementing the API version.
       text: "SA1019: constants.QueueAnnotation is deprecated"
+    - linters:
+        - staticcheck
+      text: "SA1019: j.RayCluster.Status.State is deprecated: the State field is replaced by the Conditions field."
+    - linters:
+        - staticcheck
+      text: "SA1019: rayCluster.Status.State is deprecated: the State field is replaced by the Conditions field."
   # Show all issues from a linter
   max-issues-per-linter: 0
   # Show all issues with the same text
