@@ -2,6 +2,9 @@
 
 <!-- toc -->
 - [Summary](#summary)
+- [Backgroud](#backgroud)
+  - [Argo Workflows](#argo-workflows)
+  - [Tekton](#tekton)
 - [Motivation](#motivation)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
@@ -10,7 +13,6 @@
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
-    - [Story 4](#story-4)
 - [Design Details](#design-details)
   - [What are the Stages for Argo Workflows?](#what-are-the-stages-for-argo-workflows)
   - [Workflow as An Unit](#workflow-as-an-unit)
@@ -18,7 +20,7 @@
     - [Drawback and Limitations](#drawback-and-limitations)
     - [Advantages](#advantages)
   - [Stage as An Unit](#stage-as-an-unit)
-    - [Workflow Framework in Kueue](#workflow-framework-in-kueue)
+    - [SegmentableJob](#segmentablejob)
     - [How to suspend by stages](#how-to-suspend-by-stages)
     - [Advantages](#advantages-1)
     - [Drawback and Limitations](#drawback-and-limitations-1)
@@ -36,46 +38,14 @@
 
 This KEP outlines the proposal to integrate Generic Workflows within Kueue, discussing the advantages 
 and disadvantages of queuing workflows at varying granularity levels, alongside detailing 
-the integration methodologies. Workflow managers like Argo Workflow and Tekton can follow the convention 
+the integration methodologies. Workflow managers like Argo Workflows and Tekton can follow the convention 
 to queue the workflows.
 
-## Motivation
+## Backgroud
 
-Workflows are pivotal components in domains like Scientific Computing and Simulations, where 
-administrators often enforce resource usage quotas for different users or departments. Currently, 
-Workflows lacks native support within Kueue.
+### Argo Workflows
 
-### Goals
-
-- Enable support for Generic Workflows within Kueue, allowing users to simply add a label 
-`kueue.x-k8s.io/queue-name` to their workflows and submit them initially in a suspended state.
-- Should be easily extended to support various workflow managers.
-
-### Non-Goals
-
-- KEP should not only work for Argo Workflow.
-- Support resource reuse across multiple stages (potentially discussed in another KEP). 
-
-## Proposal
-
-### User Stories
-
-#### Story 1
-
-As a machine learning engineer, I need to preprocess data before executing a training job. My 
-workflow includes two steps: data preprocessing (which doesn't require a GPU) followed by a 
-PyTorchJob. I desire that the data preprocessing stage proceeds independently of GPU quota 
-availability.
-
-#### Story 2
-
-As an ML engineer, my workflow consists of several GPU-dependent stages with uniform resource 
-requirements. I aim to recycle resources allocated to earlier workflow stages to boost efficiency 
-and resource utilization.
-
-#### Story 3
-
-I am a Argo Workflow user. Templates are the basic unit to build the workflows.
+I am a Argo Workflows user. Templates are the basic unit to build the workflows.
 Every templates can be a leaf template, step definition or DAG definition.
 Example of a workflow looks like:
 
@@ -191,7 +161,7 @@ The template `loop-example-depth-1` contains a step definition `loop-example-dep
 
 DAG definition is similar to the step definition.
 
-#### Story 4
+### Tekton
 
 I am a Tekton user. Pipelines are used to define the workflows. Pipelines contains multiple Tasks. These tasks are executed in parallel unless you set the runAfter field or finally field. Tasks contains multiple Steps. To add Steps to a Task you define a steps field (required) containing a list of desired Steps. The order in which the Steps appear in this list is the order in which they will execute. PipelineRun is the execution instance of a pipeline and TaskRun is the execution instance of a task.
 
@@ -296,6 +266,47 @@ spec:
   - name: RESULT_STRING_LENGTH
     value: "3000"
 ```
+
+## Motivation
+
+Workflows are pivotal components in domains like Scientific Computing and Simulations, where 
+administrators often enforce resource usage quotas for different users or departments. Currently, 
+Workflows lacks native support within Kueue.
+
+### Goals
+
+- Enable support for Generic Workflows within Kueue, allowing users to simply add a label 
+`kueue.x-k8s.io/queue-name` to their workflows and submit them initially in a suspended state.
+- Should be easily extended to support various workflow managers.
+
+### Non-Goals
+
+- Support resource reuse across multiple stages (potentially discussed in another KEP). 
+
+## Proposal
+
+### User Stories
+
+#### Story 1
+
+A typical workflow for building images involves two main steps: cloning a git repository and 
+constructing the container, both of which share the same local disk space. The git clone operation 
+has minimal resource requirements, whereas the container construction process demands more 
+substantial resources. It is essential that the Pod tasked with the git clone is scheduled onto 
+a node capable of also running the Pod responsible for the container build, which can be achieved
+with the help of Kueue.
+
+#### Story 2
+
+As a SaaS provider, users will submit a pipeline description and pay for the resource consumption.
+We want to limit the maximum number of concurrently running pipelines to ensure they complete
+before the deadlines. Kueue can help to limit the number of concurrently running pipelines.
+
+#### Story 3
+
+As an ML engineer, my workflow consists of several GPU-dependent stages with uniform resource 
+requirements. I aim to reuse resources allocated to earlier workflow stages to boost efficiency 
+and resource utilization.
 
 ## Design Details
 
@@ -406,7 +417,7 @@ follow the same api to queue their workflows.
 
 ### Stage as An Unit
 
-#### SegmentableJob (Not sure the name)
+#### SegmentableJob
 
 When we regard stage as an unit, multiple workloads will be created for one workflow. So the current
 job types are not suitable for this case. We will create a new kind of job interface called SegmentableJob.
