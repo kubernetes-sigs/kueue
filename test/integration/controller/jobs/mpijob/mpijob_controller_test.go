@@ -183,7 +183,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			return !*createdJob.Spec.RunPolicy.Suspend
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
+			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
 			return ok
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec.NodeSelector).Should(gomega.HaveLen(1))
@@ -210,7 +210,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				len(createdJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec.NodeSelector) == 0
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()))
+			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			return ok
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 

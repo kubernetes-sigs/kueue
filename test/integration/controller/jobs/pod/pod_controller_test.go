@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 				gomega.Eventually(func(g gomega.Gomega) bool {
-					ok, err := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
+					ok, err := testing.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					return ok
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
