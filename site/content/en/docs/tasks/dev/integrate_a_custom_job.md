@@ -93,22 +93,13 @@ Here are completed external integrations you can learn from:
 Add your framework's GroupVersionKind to `.integrations.externalFrameworks` in [controller_manager_config.yaml](
 https://kueue.sigs.k8s.io/docs/installation/#install-a-custom-configured-released-version).
 
-### RBAC Augmentation
-
-Kueue will need permission to get, list, and watch instances of your CRD.
-
-If you are building a custom Kueue deployment, simply add a `kubebuilder:rbac` annotation to a source code file
-(for example in [integrationmanager.go](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/integrationmanager.go)) and regenerate the manifests.
-
-If you are deploying a Kueue release, modify either
-[charts/kueue/templates/rbac/role.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/templates/rbac/role.yaml)
-or [config/components/rbac/role.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/components/rbac/role.yaml)
-to add the needed permissions.
-
 ### Job Framework
 
 Add a dependency on Kueue to your `go.mod`, import the `jobframework` and use it as described above to
-create your controller and webhook implementations. In the `main` function of your controller, instantiate the controller-runtime manager
+create your controller and webhook implementations. Note that in addition to adding RBAC Authorization for
+your CRD as described above, you also need to add RBAC Authorizations for the Kueue CRDs that will be
+accessed by the instantiation of the `jobframework` in your controller.
+In the `main` function of your controller, instantiate the controller-runtime manager
 and register your webhook, indexer, and controller.
 
 For a concrete example, consult these pieces of the AppWrapper controller:
