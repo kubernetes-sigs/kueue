@@ -661,5 +661,9 @@ func References(wls []*Info) []klog.ObjectRef {
 	if len(wls) == 0 {
 		return nil
 	}
-	return utilslices.Map(wls, func(pi **Info) klog.ObjectRef { return klog.KObj((*pi).Obj) })
+	keys := make([]klog.ObjectRef, len(wls))
+	for i, wl := range wls {
+		keys[i] = klog.KObj(wl.Obj)
+	}
+	return keys
 }
