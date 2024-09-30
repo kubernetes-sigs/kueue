@@ -538,11 +538,11 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 // PropagateResouceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests and returns true if w was updated
 func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
-	if len(w.Status.ResourceRequests) == len(info.TotalRequests) {
+	if len(w.Status.DesiredResources) == len(info.TotalRequests) {
 		match := true
-		for idx := range w.Status.ResourceRequests {
-			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
-				!maps.Equal(w.Status.ResourceRequests[idx].ResourceRequest, info.TotalRequests[idx].Requests.ToResourceList()) {
+		for idx := range w.Status.DesiredResources {
+			if w.Status.DesiredResources[idx].Name != info.TotalRequests[idx].Name ||
+				!maps.Equal(w.Status.DesiredResources[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
 				match = false
 				break
 			}
@@ -555,9 +555,9 @@ func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 	res := make([]kueue.PodSetRequest, len(info.TotalRequests))
 	for idx := range info.TotalRequests {
 		res[idx].Name = info.TotalRequests[idx].Name
-		res[idx].ResourceRequest = info.TotalRequests[idx].Requests.ToResourceList()
+		res[idx].Resources = info.TotalRequests[idx].Requests.ToResourceList()
 	}
-	w.Status.ResourceRequests = res
+	w.Status.DesiredResources = res
 	return true
 }
 
@@ -568,8 +568,8 @@ func AdmissionStatusPatch(w *kueue.Workload, strict bool) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
-	for _, rr := range w.Status.ResourceRequests {
-		wlCopy.Status.ResourceRequests = append(wlCopy.Status.ResourceRequests, *rr.DeepCopy())
+	for _, rr := range w.Status.DesiredResources {
+		wlCopy.Status.DesiredResources = append(wlCopy.Status.DesiredResources, *rr.DeepCopy())
 	}
 	for _, conditionName := range admissionManagedConditions {
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {

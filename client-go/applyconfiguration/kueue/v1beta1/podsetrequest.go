@@ -24,8 +24,8 @@ import (
 // PodSetRequestApplyConfiguration represents a declarative configuration of the PodSetRequest type for use
 // with apply.
 type PodSetRequestApplyConfiguration struct {
-	Name            *string          `json:"name,omitempty"`
-	ResourceRequest *v1.ResourceList `json:"resourceRequest,omitempty"`
+	Name      *string          `json:"name,omitempty"`
+	Resources *v1.ResourceList `json:"resources,omitempty"`
 }
 
 // PodSetRequestApplyConfiguration constructs a declarative configuration of the PodSetRequest type for use with
@@ -42,10 +42,10 @@ func (b *PodSetRequestApplyConfiguration) WithName(value string) *PodSetRequestA
 	return b
 }
 
-// WithResourceRequest sets the ResourceRequest field in the declarative configuration to the given value
+// WithResources sets the Resources field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ResourceRequest field is set to the value of the last call.
-func (b *PodSetRequestApplyConfiguration) WithResourceRequest(value v1.ResourceList) *PodSetRequestApplyConfiguration {
-	b.ResourceRequest = &value
+// If called multiple times, the Resources field is set to the value of the last call.
+func (b *PodSetRequestApplyConfiguration) WithResources(value v1.ResourceList) *PodSetRequestApplyConfiguration {
+	b.Resources = &value
 	return b
 }

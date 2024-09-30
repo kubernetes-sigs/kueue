@@ -523,9 +523,9 @@ Status:
     Reason:                Pending
     Status:                False
     Type:                  QuotaReserved
-  ResourceRequests:
+  Desired Resources:
     Name: main
-    Resource Request:
+    Resources:
       Cpu:                             1
       example.com/accelerator-memory:  20G
       Memory:                          97656250Ki
