@@ -10,8 +10,9 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -374,10 +375,10 @@ func CalculateAvailableReplicas(pods corev1.PodList) int32 {
 
 func CalculateDesiredResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 	desiredResourcesList := []corev1.ResourceList{{}}
-	headPodResource := calculatePodResource(cluster.Spec.HeadGroupSpec.Template.Spec)
+	headPodResource := CalculatePodResource(cluster.Spec.HeadGroupSpec.Template.Spec)
 	desiredResourcesList = append(desiredResourcesList, headPodResource)
 	for _, nodeGroup := range cluster.Spec.WorkerGroupSpecs {
-		podResource := calculatePodResource(nodeGroup.Template.Spec)
+		podResource := CalculatePodResource(nodeGroup.Template.Spec)
 		for i := int32(0); i < *nodeGroup.Replicas; i++ {
 			desiredResourcesList = append(desiredResourcesList, podResource)
 		}
@@ -387,10 +388,10 @@ func CalculateDesiredResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 
 func CalculateMinResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 	minResourcesList := []corev1.ResourceList{{}}
-	headPodResource := calculatePodResource(cluster.Spec.HeadGroupSpec.Template.Spec)
+	headPodResource := CalculatePodResource(cluster.Spec.HeadGroupSpec.Template.Spec)
 	minResourcesList = append(minResourcesList, headPodResource)
 	for _, nodeGroup := range cluster.Spec.WorkerGroupSpecs {
-		podResource := calculatePodResource(nodeGroup.Template.Spec)
+		podResource := CalculatePodResource(nodeGroup.Template.Spec)
 		for i := int32(0); i < *nodeGroup.MinReplicas; i++ {
 			minResourcesList = append(minResourcesList, podResource)
 		}
@@ -398,9 +399,9 @@ func CalculateMinResources(cluster *rayv1.RayCluster) corev1.ResourceList {
 	return sumResourceList(minResourcesList)
 }
 
-// calculatePodResource returns the total resources of a pod.
+// CalculatePodResource returns the total resources of a pod.
 // Request values take precedence over limit values.
-func calculatePodResource(podSpec corev1.PodSpec) corev1.ResourceList {
+func CalculatePodResource(podSpec corev1.PodSpec) corev1.ResourceList {
 	podResource := corev1.ResourceList{}
 	for _, container := range podSpec.Containers {
 		containerResource := container.Resources.Requests
@@ -422,6 +423,14 @@ func calculatePodResource(podSpec corev1.PodSpec) corev1.ResourceList {
 		}
 	}
 	return podResource
+}
+
+func ConvertResourceListToMapString(resourceList corev1.ResourceList) map[string]resource.Quantity {
+	result := make(map[string]resource.Quantity)
+	for key, value := range resourceList {
+		result[string(key)] = value
+	}
+	return result
 }
 
 func sumResourceList(list []corev1.ResourceList) corev1.ResourceList {
@@ -500,14 +509,6 @@ func CompareJsonStruct(objA interface{}, objB interface{}) bool {
 		return false
 	}
 	return reflect.DeepEqual(v1, v2)
-}
-
-func ConvertUnixTimeToMetav1Time(unixTime uint64) *metav1.Time {
-	// The Ray jobInfo returns the start_time, which is a unix timestamp in milliseconds.
-	// https://docs.ray.io/en/latest/cluster/jobs-package-ref.html#jobinfo
-	t := time.Unix(int64(unixTime)/1000, int64(unixTime)%1000*1000000)
-	kt := metav1.NewTime(t)
-	return &kt
 }
 
 // Json-serializes obj and returns its hash string

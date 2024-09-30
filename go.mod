@@ -13,7 +13,7 @@ require (
 	github.com/open-policy-agent/cert-controller v0.11.0
 	github.com/prometheus/client_golang v1.20.4
 	github.com/prometheus/client_model v0.6.1
-	github.com/ray-project/kuberay/ray-operator v1.2.1
+	github.com/ray-project/kuberay/ray-operator v1.2.2
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.5
 	go.uber.org/zap v1.27.0

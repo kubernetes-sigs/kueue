@@ -26,14 +26,16 @@ const (
 	HashWithoutReplicasAndWorkersToDeleteKey = "ray.io/hash-without-replicas-and-workers-to-delete"
 	NumWorkerGroupsKey                       = "ray.io/num-worker-groups"
 	KubeRayVersion                           = "ray.io/kuberay-version"
+	RayJobSubmissionIdLabelKey               = "ray.io/ray-job-submission-id"
 
 	// In KubeRay, the Ray container must be the first application container in a head or worker Pod.
 	RayContainerIndex = 0
 
 	// Batch scheduling labels
 	// TODO(tgaddair): consider making these part of the CRD
-	RaySchedulerName     = "ray.io/scheduler-name"
-	RayPriorityClassName = "ray.io/priority-class-name"
+	RaySchedulerName                = "ray.io/scheduler-name"
+	RayPriorityClassName            = "ray.io/priority-class-name"
+	RayClusterGangSchedulingEnabled = "ray.io/gang-scheduling-enabled"
 
 	// Ray GCS FT related annotations
 	RayFTEnabledAnnotationKey         = "ray.io/ft-enabled"
@@ -150,17 +152,21 @@ const (
 	// Ray FT default readiness probe values
 	DefaultReadinessProbeInitialDelaySeconds = 10
 	DefaultReadinessProbeTimeoutSeconds      = 2
-	DefaultReadinessProbePeriodSeconds       = 5
-	DefaultReadinessProbeSuccessThreshold    = 1
-	DefaultReadinessProbeFailureThreshold    = 10
-	ServeReadinessProbeFailureThreshold      = 1
+	// Probe timeout for Head pod needs to be longer as it queries two endpoints (api/local_raylet_healthz & api/gcs_healthz)
+	DefaultHeadReadinessProbeTimeoutSeconds = 5
+	DefaultReadinessProbePeriodSeconds      = 5
+	DefaultReadinessProbeSuccessThreshold   = 1
+	DefaultReadinessProbeFailureThreshold   = 10
+	ServeReadinessProbeFailureThreshold     = 1
 
 	// Ray FT default liveness probe values
 	DefaultLivenessProbeInitialDelaySeconds = 30
 	DefaultLivenessProbeTimeoutSeconds      = 2
-	DefaultLivenessProbePeriodSeconds       = 5
-	DefaultLivenessProbeSuccessThreshold    = 1
-	DefaultLivenessProbeFailureThreshold    = 120
+	// Probe timeout for Head pod needs to be longer as it queries two endpoints (api/local_raylet_healthz & api/gcs_healthz)
+	DefaultHeadLivenessProbeTimeoutSeconds = 5
+	DefaultLivenessProbePeriodSeconds      = 5
+	DefaultLivenessProbeSuccessThreshold   = 1
+	DefaultLivenessProbeFailureThreshold   = 120
 
 	// Ray health check related configurations
 	// Note: Since the Raylet process and the dashboard agent process are fate-sharing,
@@ -182,7 +188,7 @@ const (
 	// The version is included in the RAY_USAGE_STATS_EXTRA_TAGS environment variable
 	// as well as the user-agent. This constant is updated before release.
 	// TODO: Update KUBERAY_VERSION to be a build-time variable.
-	KUBERAY_VERSION = "v1.2.1"
+	KUBERAY_VERSION = "v1.2.2"
 )
 
 type ServiceType string
@@ -222,3 +228,63 @@ func RayClusterReplicaFailureReason(err error) string {
 	}
 	return ""
 }
+
+// Currently, KubeRay fires events when failures occur during the creation or deletion of resources.
+type K8sEventType string
+
+const (
+	// Head Pod event list
+	CreatedHeadPod        K8sEventType = "CreatedHeadPod"
+	FailedToCreateHeadPod K8sEventType = "FailedToCreateHeadPod"
+	DeletedHeadPod        K8sEventType = "DeletedHeadPod"
+	FailedToDeleteHeadPod K8sEventType = "FailedToDeleteHeadPod"
+
+	// Worker Pod event list
+	CreatedWorkerPod        K8sEventType = "CreatedWorkerPod"
+	FailedToCreateWorkerPod K8sEventType = "FailedToCreateWorkerPod"
+	DeletedWorkerPod        K8sEventType = "DeletedWorkerPod"
+	FailedToDeleteWorkerPod K8sEventType = "FailedToDeleteWorkerPod"
+
+	// Redis Cleanup Job event list
+	CreatedRedisCleanupJob        K8sEventType = "CreatedRedisCleanupJob"
+	FailedToCreateRedisCleanupJob K8sEventType = "FailedToCreateRedisCleanupJob"
+
+	// RayJob event list
+	CreatedRayJobSubmitter        K8sEventType = "CreatedRayJobSubmitter"
+	DeletedRayJobSubmitter        K8sEventType = "DeletedRayJobSubmitter"
+	FailedToCreateRayJobSubmitter K8sEventType = "FailedToCreateRayJobSubmitter"
+	FailedToDeleteRayJobSubmitter K8sEventType = "FailedToDeleteRayJobSubmitter"
+	CreatedRayCluster             K8sEventType = "CreatedRayCluster"
+	DeletedRayCluster             K8sEventType = "DeletedRayCluster"
+	FailedToCreateRayCluster      K8sEventType = "FailedToCreateRayCluster"
+	FailedToDeleteRayCluster      K8sEventType = "FailedToDeleteRayCluster"
+
+	// Generic Pod event list
+	DeletedPod        K8sEventType = "DeletedPod"
+	FailedToDeletePod K8sEventType = "FailedToDeletePod"
+
+	// Ingress event list
+	CreatedIngress        K8sEventType = "CreatedIngress"
+	FailedToCreateIngress K8sEventType = "FailedToCreateIngress"
+
+	// Route event list
+	CreatedRoute        K8sEventType = "CreatedRoute"
+	FailedToCreateRoute K8sEventType = "FailedToCreateRoute"
+
+	// Service event list
+	CreatedService        K8sEventType = "CreatedService"
+	FailedToCreateService K8sEventType = "FailedToCreateService"
+
+	// ServiceAccount event list
+	CreatedServiceAccount            K8sEventType = "CreatedServiceAccount"
+	FailedToCreateServiceAccount     K8sEventType = "FailedToCreateServiceAccount"
+	AutoscalerServiceAccountNotFound K8sEventType = "AutoscalerServiceAccountNotFound"
+
+	// Role event list
+	CreatedRole        K8sEventType = "CreatedRole"
+	FailedToCreateRole K8sEventType = "FailedToCreateRole"
+
+	// RoleBinding list
+	CreatedRoleBinding        K8sEventType = "CreatedRoleBinding"
+	FailedToCreateRoleBinding K8sEventType = "FailedToCreateRoleBinding"
+)
