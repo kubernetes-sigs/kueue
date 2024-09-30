@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
-// GenericJob if the interface which needs to be implemented by all jobs
+// GenericJob is the interface which needs to be implemented by all jobs
 // managed by the kueue's jobframework.
 type GenericJob interface {
 	// Object returns the job instance.
