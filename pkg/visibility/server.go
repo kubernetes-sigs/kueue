@@ -23,19 +23,20 @@ import (
 	"os"
 	"strings"
 
+	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
+	genericapiserver "k8s.io/apiserver/pkg/server"
+	genericoptions "k8s.io/apiserver/pkg/server/options"
+	utilversion "k8s.io/apiserver/pkg/util/version"
+	"k8s.io/client-go/pkg/version"
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
 	visibilityv1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/visibility/api"
 
-	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
-	genericapiserver "k8s.io/apiserver/pkg/server"
-	genericoptions "k8s.io/apiserver/pkg/server/options"
-	utilversion "k8s.io/apiserver/pkg/util/version"
-	"k8s.io/client-go/pkg/version"
 	_ "k8s.io/component-base/metrics/prometheus/restclient" // for client-go metrics registration
-	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var (

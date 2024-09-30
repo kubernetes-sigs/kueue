@@ -31,9 +31,6 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
-
-	kueuecmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
-
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -45,8 +42,9 @@ import (
 	"k8s.io/cli-runtime/pkg/resource"
 	restfake "k8s.io/client-go/rest/fake"
 	"k8s.io/utils/strings/slices"
-
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+
+	kueuecmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 )
 
 type podTestCase struct {

@@ -29,9 +29,9 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type listJobPrinter struct {

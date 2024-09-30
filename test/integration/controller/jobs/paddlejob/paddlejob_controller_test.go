@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
-
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingpaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
 	kftesting "sigs.k8s.io/kueue/test/integration/controller/jobs/kubeflow"

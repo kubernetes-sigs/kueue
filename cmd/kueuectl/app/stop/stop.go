@@ -18,7 +18,6 @@ package stop
 
 import (
 	"github.com/spf13/cobra"
-
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/kubectl/pkg/util/templates"
 

@@ -41,11 +41,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 )
 
 func TestPodsReady(t *testing.T) {

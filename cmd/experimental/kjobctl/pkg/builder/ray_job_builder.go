@@ -24,7 +24,6 @@ import (
 	rayutil "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
