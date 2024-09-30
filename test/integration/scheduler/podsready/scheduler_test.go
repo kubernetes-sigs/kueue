@@ -97,12 +97,20 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodClusterQ)).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), prodClusterQ)).Should(gomega.Succeed())
+			g.Expect(apimeta.IsStatusConditionTrue(prodClusterQ.Status.Conditions, kueue.ClusterQueueActive)).To(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		devClusterQ = testing.MakeClusterQueue("dev-cq").
 			Cohort("all").
 			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(devClusterQ), devClusterQ)).Should(gomega.Succeed())
+			g.Expect(apimeta.IsStatusConditionTrue(devClusterQ.Status.Conditions, kueue.ClusterQueueActive)).To(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		prodQueue = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
