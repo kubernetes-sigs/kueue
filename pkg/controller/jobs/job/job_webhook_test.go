@@ -400,6 +400,36 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		{
+			name: "can update the kueue.x-k8s.io/job-min-parallelism  annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				Obj(),
+			wantErr: nil,
+		},
+		{
+			name: "validates kueue.x-k8s.io/job-min-parallelism annotation value (bad format)",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "NaN").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
+			},
+		},
 	}
 
 	for _, tc := range testcases {
