@@ -288,20 +288,20 @@ set -o pipefail
 
 for i in {0..1}
 do
-	# ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
+  # ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
 	declare -A array_indexes=(["0"]="1" ["1"]="2" ["2"]="3" ["3"]="4" ["4"]="5") 	# Requires bash v4+
-	
+
 	container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
 	container_indexes=(${container_indexes//,/ })
-	
+
 	if [[ ! -v container_indexes[$i] ]];
 	then
 		break
 	fi
 
 	mkdir -p /slurm/env/$i
-	
-	cat << EOF > /slurm/env/$i/sbatch.env 
+
+	cat << EOF > /slurm/env/$i/sbatch.env
 SBATCH_ARRAY_INX=1-5%2
 SBATCH_GPUS_PER_TASK=
 SBATCH_MEM_PER_CPU=
@@ -312,9 +312,9 @@ SBATCH_INPUT=
 SBATCH_JOB_NAME=
 SBATCH_PARTITION=
 EOF
-	
+
 	cat << EOF > /slurm/env/$i/slurm.env
-SLURM_ARRAY_JOB_ID=1	
+SLURM_ARRAY_JOB_ID=1
 SLURM_ARRAY_TASK_COUNT=5
 SLURM_ARRAY_TASK_MAX=5
 SLURM_ARRAY_TASK_MIN=1

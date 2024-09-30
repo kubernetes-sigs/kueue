@@ -18,6 +18,7 @@ package builder
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"fmt"
 	"os"
@@ -39,6 +40,9 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
+
+//go:embed templates/*
+var templates embed.FS
 
 var (
 	noNamespaceSpecifiedErr                = errors.New("no namespace specified")
