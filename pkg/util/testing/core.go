@@ -18,11 +18,9 @@ package testing
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	eventsv1 "k8s.io/api/events/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,28 +44,6 @@ func SingleContainerForRequest(request map[corev1.ResourceName]string) []corev1.
 			},
 		},
 	}
-}
-
-// CheckLatestEvent will return true if the latest event is as you want.
-func CheckLatestEvent(ctx context.Context, k8sClient client.Client,
-	eventReason string,
-	eventType string, eventNote string) (bool, error) {
-	events := &eventsv1.EventList{}
-	if err := k8sClient.List(ctx, events, &client.ListOptions{}); err != nil {
-		return false, err
-	}
-
-	length := len(events.Items)
-	if length == 0 {
-		return false, errors.New("no events currently exist")
-	}
-
-	item := events.Items[length-1]
-	if item.Reason == eventReason && item.Type == eventType && item.Note == eventNote {
-		return true, nil
-	}
-
-	return false, fmt.Errorf("mismatch with the latest event: got r:%v t:%v n:%v, reg %v", item.Reason, item.Type, item.Note, item.Regarding)
 }
 
 // CheckEventRecordedFor checks if an event identified by eventReason, eventType, eventNote
