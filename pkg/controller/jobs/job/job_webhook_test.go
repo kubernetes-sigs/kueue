@@ -314,6 +314,7 @@ func TestValidateUpdate(t *testing.T) {
 				Parallelism(4).
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "3").
+				SetAnnotation(StoppingAnnotation, "true").
 				Obj(),
 			newJob: testingutil.MakeJob("job", "default").
 				Parallelism(5).
