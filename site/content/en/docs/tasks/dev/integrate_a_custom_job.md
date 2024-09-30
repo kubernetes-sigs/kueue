@@ -85,31 +85,48 @@ Update the [Makefile](https://github.com/kubernetes-sigs/kueue/blob/main/Makefil
 
 ## Building an External Integration
 
+Building an external integration is similar to building a built-in integration, except that
+you will instantiate Kueue's `jobframework` for your CRD in a separate executable.  The only
+change you will make to the primary Kueue manager is a deployment-time configuration change
+to enable it to recognize that your CRD is being managed by a Kueue-compatible manager.
+
 Here are completed external integrations you can learn from:
    - [AppWrapper](https://github.com/project-codeflare/appwrapper)
 
 ### Registration
 
-Add your framework's GroupVersionKind to `.integrations.externalFrameworks` in [controller_manager_config.yaml](
+Configure Kueue by adding your framework's GroupVersionKind to `.integrations.externalFrameworks` in [controller_manager_config.yaml](
 https://kueue.sigs.k8s.io/docs/installation/#install-a-custom-configured-released-version).
-
-### RBAC Augmentation
-
-Kueue will need permission to get, list, and watch instances of your CRD.
-
-If you are building a custom Kueue deployment, simply add a `kubebuilder:rbac` annotation to a source code file
-(for example in [integrationmanager.go](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/integrationmanager.go)) and regenerate the manifests.
-
-If you are deploying a Kueue release, modify either
-[charts/kueue/templates/rbac/role.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/templates/rbac/role.yaml)
-or [config/components/rbac/role.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/components/rbac/role.yaml)
-to add the needed permissions.
 
 ### Job Framework
 
-Add a dependency on Kueue to your `go.mod`, import the `jobframework` and use it as described above to
-create your controller and webhook implementations. In the `main` function of your controller, instantiate the controller-runtime manager
-and register your webhook, indexer, and controller.
+Make the following changes to an existing controller-runtime based manager for your CRD.
+
+Add a dependency on Kueue to your `go.mod` so you can import `jobframework` as a go library.
+
+In a new `mycrd_workload_controller.go` file, implement the `GenericJob` interface, and other optional [interfaces defined by the framework](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/interface.go).
+
+Extend the existing webhook for your CRD to invoke Kueue's webhook helper methods:
+   - Your defaulter should invoke `jobframework.ApplyDefaultForSuspend` in [defaults.go](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/defaults.go)
+   - Your validator should invoke `jobframework.ValidateJobOnCreate` and `jobframework.ValidateJobOnUpdate` in [validation.go](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/validation.go)
+
+Extend your manager's startup procedure to do the following:
+   - Using the `jobframework.NewGenericReconcilerFactory` method, create an instance of Kueue's JobReconicler
+     for your CRD and register it with the controller-runtime manager.
+   - Invoke `jobframework.SetupWorkloadOwnerIndex` to create an indexer for Workloads owned by your CRD.
+
+Extend your existing RBAC Authorizations to include the privileges needed by
+Kueue's JobReconciler:
+```go
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
+
+```
 
 For a concrete example, consult these pieces of the AppWrapper controller:
    - [workload_controller.go](https://github.com/project-codeflare/appwrapper/blob/main/internal/controller/workload/workload_controller.go)
