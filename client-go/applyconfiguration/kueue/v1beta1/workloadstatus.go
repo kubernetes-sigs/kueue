@@ -29,7 +29,7 @@ type WorkloadStatusApplyConfiguration struct {
 	Conditions       []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
 	ReclaimablePods  []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
 	AdmissionChecks  []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
-	ResourceRequests []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
+	DesiredResources []PodSetRequestApplyConfiguration       `json:"desiredResources,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -93,15 +93,15 @@ func (b *WorkloadStatusApplyConfiguration) WithAdmissionChecks(values ...*Admiss
 	return b
 }
 
-// WithResourceRequests adds the given value to the ResourceRequests field in the declarative configuration
+// WithDesiredResources adds the given value to the DesiredResources field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the ResourceRequests field.
-func (b *WorkloadStatusApplyConfiguration) WithResourceRequests(values ...*PodSetRequestApplyConfiguration) *WorkloadStatusApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the DesiredResources field.
+func (b *WorkloadStatusApplyConfiguration) WithDesiredResources(values ...*PodSetRequestApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
-			panic("nil value passed to WithResourceRequests")
+			panic("nil value passed to WithDesiredResources")
 		}
-		b.ResourceRequests = append(b.ResourceRequests, *values[i])
+		b.DesiredResources = append(b.DesiredResources, *values[i])
 	}
 	return b
 }

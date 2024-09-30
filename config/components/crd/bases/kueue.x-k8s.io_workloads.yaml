@@ -8587,6 +8587,43 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              desiredResources:
+                description: |-
+                  desiredResources provides a detailed view of the resources that were
+                  requested by a non-admitted workload when it was considered for admission.
+                  If admission is non-null, desiredResouces will be empty because
+                  admission.resourceUsgae contains the detailed information.
+                items:
+                  properties:
+                    name:
+                      default: main
+                      description: Name is the name of the podSet. It should match
+                        one of the names in .spec.podSets.
+                      maxLength: 63
+                      pattern: ^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    resources:
+                      additionalProperties:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      description: |-
+                        resources is the total resources all the pods in the podset need to run.
+
+                        Beside what is provided in podSet's specs, this value also takes into account
+                        the LimitRange defaults and RuntimeClass overheads at the moment of consideration
+                        and the application of resource.excludeResourcePrefixes and resource.transformations.
+                      type: object
+                  required:
+                  - name
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               reclaimablePods:
                 description: |-
                   reclaimablePods keeps track of the number pods within a podset for which
@@ -8632,40 +8669,6 @@ spec:
                     format: date-time
                     type: string
                 type: object
-              resourceRequests:
-                description: resourceRequests lists the resources requested by the
-                  Workload for admission
-                items:
-                  properties:
-                    name:
-                      default: main
-                      description: Name is the name of the podSet. It should match
-                        one of the names in .spec.podSets.
-                      maxLength: 63
-                      pattern: ^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                      type: string
-                    resourceRequest:
-                      additionalProperties:
-                        anyOf:
-                        - type: integer
-                        - type: string
-                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                        x-kubernetes-int-or-string: true
-                      description: |-
-                        resourceRequest is the total resources all the pods in the podset need to run.
-
-                        Beside what is provided in podSet's specs, this calculation takes into account
-                        the LimitRange defaults and RuntimeClass overheads at the moment of admission
-                        and the application of all applicable ResourceMapping.
-                      type: object
-                  required:
-                  - name
-                  type: object
-                maxItems: 8
-                type: array
-                x-kubernetes-list-map-keys:
-                - name
-                x-kubernetes-list-type: map
             type: object
         type: object
         x-kubernetes-validations:

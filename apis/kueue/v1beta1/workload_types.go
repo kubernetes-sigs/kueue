@@ -295,12 +295,16 @@ type WorkloadStatus struct {
 	// +kubebuilder:validation:MaxItems=8
 	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 
-	// resourceRequests lists the resources requested by the Workload for admission
+	// desiredResources provides a detailed view of the resources that were
+	// requested by a non-admitted workload when it was considered for admission.
+	// If admission is non-null, desiredResouces will be empty because
+	// admission.resourceUsgae contains the detailed information.
+	//
 	// +optional
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=8
-	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
+	DesiredResources []PodSetRequest `json:"desiredResources,omitempty"`
 }
 
 type RequeueState struct {
@@ -396,12 +400,12 @@ type PodSetRequest struct {
 	// +kubebuilder:validation:Pattern="^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
 	Name string `json:"name"`
 
-	// resourceRequest is the total resources all the pods in the podset need to run.
+	// resources is the total resources all the pods in the podset need to run.
 	//
-	// Beside what is provided in podSet's specs, this calculation takes into account
-	// the LimitRange defaults and RuntimeClass overheads at the moment of admission
-	// and the application of all applicable ResourceMapping.
-	ResourceRequest corev1.ResourceList `json:"resourceRequest,omitempty"`
+	// Beside what is provided in podSet's specs, this value also takes into account
+	// the LimitRange defaults and RuntimeClass overheads at the moment of consideration
+	// and the application of resource.excludeResourcePrefixes and resource.transformations.
+	Resources corev1.ResourceList `json:"resources,omitempty"`
 }
 
 const (
