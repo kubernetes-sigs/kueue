@@ -62,7 +62,8 @@ func CheckEventRecordedFor(ctx context.Context, k8sClient client.Client,
 			return true, nil
 		}
 	}
-	return false, fmt.Errorf("event not found fater checking %d events", len(events.Items))
+	return false, fmt.Errorf("event not found after checking %d events, eventReason: %s , eventType: %s, eventMessage: %s, namespace: %s ",
+		len(events.Items), eventReason, eventType, eventMessage, ref.Namespace)
 }
 
 // HasEventAppeared returns if an event has been emitted
