@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+	kueue "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
@@ -115,10 +116,19 @@ type slurmBuilder struct {
 
 var _ builder = (*slurmBuilder)(nil)
 
-func (b *slurmBuilder) validateGeneral() error {
+func (b *slurmBuilder) validateGeneral(ctx context.Context) error {
 	if len(b.script) == 0 {
 		return noScriptSpecifiedErr
 	}
+
+	// check that priority class exists
+	if len(b.priority) != 0 && !b.skipPriorityValidation {
+		_, err := b.kueueClientset.KueueV1beta1().WorkloadPriorityClasses().Get(ctx, b.priority, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -192,7 +202,7 @@ func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
 }
 
 func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Object, error) {
-	if err := b.validateGeneral(); err != nil {
+	if err := b.validateGeneral(ctx); err != nil {
 		return nil, nil, err
 	}
 
@@ -219,6 +229,10 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	objectName := b.generatePrefixName() + utilrand.String(5)
 	job.ObjectMeta.GenerateName = ""
 	job.ObjectMeta.Name = objectName
+
+	if len(b.priority) != 0 {
+		job.Labels[kueue.WorkloadPriorityClassLabel] = b.priority
+	}
 
 	envEntrypointScript, err := b.buildInitEntrypointScript()
 	if err != nil {

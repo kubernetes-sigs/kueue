@@ -108,9 +108,11 @@ type Builder struct {
 	nTasks                   *int32
 	output                   string
 	partition                string
+	priority                 string
 	initImage                string
 	ignoreUnknown            bool
 	skipLocalQueueValidation bool
+	skipPriorityValidation   bool
 
 	profile       *v1alpha1.ApplicationProfile
 	mode          *v1alpha1.SupportedMode
@@ -253,6 +255,11 @@ func (b *Builder) WithPartition(partition string) *Builder {
 	return b
 }
 
+func (b *Builder) WithPriority(priority string) *Builder {
+	b.priority = priority
+	return b
+}
+
 func (b *Builder) WithInitImage(initImage string) *Builder {
 	b.initImage = initImage
 	return b
@@ -265,6 +272,11 @@ func (b *Builder) WithIgnoreUnknown(ignoreUnknown bool) *Builder {
 
 func (b *Builder) WithSkipLocalQueueValidation(skip bool) *Builder {
 	b.skipLocalQueueValidation = skip
+	return b
+}
+
+func (b *Builder) WithSkipPriorityValidation(skip bool) *Builder {
+	b.skipPriorityValidation = skip
 	return b
 }
 

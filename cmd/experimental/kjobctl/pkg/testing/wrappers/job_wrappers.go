@@ -80,6 +80,11 @@ func (j *JobWrapper) Profile(v string) *JobWrapper {
 	return j.Label(constants.ProfileLabel, v)
 }
 
+// Priority sets the workload priority class label.
+func (j *JobWrapper) Priority(v string) *JobWrapper {
+	return j.Label(kueueconstants.WorkloadPriorityClassLabel, v)
+}
+
 // Mode sets the profile label.
 func (j *JobWrapper) Mode(v v1alpha1.ApplicationProfileMode) *JobWrapper {
 	return j.Label(constants.ModeLabel, string(v))

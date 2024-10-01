@@ -58,6 +58,7 @@ const (
 	ignoreUnknownFlagName            = "ignore-unknown-flags"
 	initImageFlagName                = "init-image"
 	skipLocalQueueValidationFlagName = "skip-localqueue-validation"
+	skipPriorityValidationFlagName   = "skip-priority-validation"
 
 	commandFlagName     = string(v1alpha1.CmdFlag)
 	parallelismFlagName = string(v1alpha1.ParallelismFlag)
@@ -81,6 +82,7 @@ const (
 	inputFlagName       = string(v1alpha1.InputFlag)
 	jobNameFlagName     = string(v1alpha1.JobNameFlag)
 	partitionFlagName   = string(v1alpha1.PartitionFlag)
+	priorityFlagName    = string(v1alpha1.PriorityFlag)
 )
 
 var (
@@ -185,8 +187,10 @@ type CreateOptions struct {
 	Input                    string
 	JobName                  string
 	Partition                string
+	Priority                 string
 	IgnoreUnknown            bool
 	SkipLocalQueueValidation bool
+	SkipPriorityValidation   bool
 
 	UserSpecifiedCommand     string
 	UserSpecifiedParallelism int32
@@ -317,6 +321,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 		ModeName: v1alpha1.SlurmMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
 			subcmd.Use += " [--ignore-unknown-flags]" +
+				" [--skip-priority-validation]" +
 				" -- " +
 				" [--array ARRAY]" +
 				" [--cpus-per-task QUANTITY]" +
@@ -331,6 +336,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 				" [--input FILENAME_PATTERN]" +
 				" [--job-name NAME]" +
 				" [--partition NAME]" +
+				" [--priority NAME]" +
 				" SCRIPT"
 
 			subcmd.Short = "Create a slurm job"
@@ -341,6 +347,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"Ignore all the unsupported flags in the bash script.")
 			subcmd.Flags().StringVar(&o.InitImage, initImageFlagName, "bash:5-alpine3.20",
 				"The image used for the init container.")
+			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
+				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 
 			o.SlurmFlagSet = pflag.NewFlagSet("slurm", pflag.ExitOnError)
 			o.SlurmFlagSet.StringVarP(&o.Array, arrayFlagName, "a", "",
@@ -373,6 +381,8 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"What is the job name.")
 			o.SlurmFlagSet.StringVar(&o.Partition, partitionFlagName, "",
 				"Local queue name.")
+			o.SlurmFlagSet.StringVar(&o.Priority, priorityFlagName, "",
+				"Apply priority for the entire workload.")
 		},
 	},
 }
@@ -608,9 +618,11 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithInput(o.Input).
 		WithJobName(o.JobName).
 		WithPartition(o.Partition).
+		WithPriority(o.Priority).
 		WithInitImage(o.InitImage).
 		WithIgnoreUnknown(o.IgnoreUnknown).
 		WithSkipLocalQueueValidation(o.SkipLocalQueueValidation).
+		WithSkipPriorityValidation(o.SkipPriorityValidation).
 		Do(ctx)
 	if err != nil {
 		return err
