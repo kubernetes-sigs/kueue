@@ -101,6 +101,8 @@ EOF
 
 search_webhook_pod_mutate="        path: /mutate--v1-pod"
 search_webhook_pod_validate="        path: /validate--v1-pod"
+search_webhook_deployment_mutate="        path: /mutate-apps-v1-deployment"
+search_webhook_deployment_validate="        path: /validate-apps-v1-deployment"
 search_mutate_webhook_annotations='  name: '\''{{ include "kueue.fullname" . }}-mutating-webhook-configuration'\'''
 search_validate_webhook_annotations='  name: '\''{{ include "kueue.fullname" . }}-validating-webhook-configuration'\'''
 add_webhook_line=$(
@@ -157,6 +159,41 @@ add_webhook_pod_validate=$(
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+EOF
+)
+
+add_webhook_deployment_mutate=$(
+  cat <<'EOF'
+    {{- if has "deployment" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
+    name: mdeployment.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+EOF
+)
+add_webhook_deployment_validate=$(
+  cat <<'EOF'
+    {{- if has "deployment" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
+    name: vdeployment.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
 EOF
 )
 
@@ -260,6 +297,14 @@ for output_file in "${new_files[@]}"; do
     if [[ $line == "$search_webhook_pod_validate" ]]; then
       count=$((count+2))
       echo "$add_webhook_pod_validate" >>"$output_file"
+    fi
+    if [[ $line == "$search_webhook_deployment_mutate" ]]; then
+      count=$((count+2))
+      echo "$add_webhook_deployment_mutate" >>"$output_file"
+    fi
+    if [[ $line == "$search_webhook_deployment_validate" ]]; then
+      count=$((count+2))
+      echo "$add_webhook_deployment_validate" >>"$output_file"
     fi
   done < "$input_file"
   rm "$input_file"
