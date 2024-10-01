@@ -41,8 +41,8 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
 )
 
-//go:embed templates/*
-var templates embed.FS
+//go:embed templates/slurm_*
+var slurmTemplates embed.FS
 
 const (
 	// Note that the first job ID will always be 1.
@@ -131,7 +131,7 @@ func (b *slurmBuilder) complete() error {
 	}
 	b.scriptContent = string(content)
 
-	t, err := template.ParseFS(templates, "templates/slurm_*")
+	t, err := template.ParseFS(slurmTemplates, "templates/*")
 	if err != nil {
 		return err
 	}
