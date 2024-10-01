@@ -52,9 +52,3 @@ By default, Kueue will set `suspend` to true via webhook and unsuspend it when t
 This example is based on https://github.com/kubeflow/training-operator/blob/855e0960668b34992ba4e1fd5914a08a3362cfb1/examples/pytorch/simple.yaml.
 
 {{< include "examples/jobs/sample-pytorchjob.yaml" "yaml" >}}
-
-
-
-
-
-
