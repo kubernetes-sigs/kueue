@@ -18,7 +18,6 @@ package fairsharing
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -116,8 +115,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
 
 			ginkgo.By("Creating newer workloads in cq-b")
-			// Ensure workloads in cqB have a newer timestamp.
-			time.Sleep(time.Second)
+			util.WaitForNextSecondAfterCreation(aWorkloads[len(aWorkloads)-1])
 			bWorkloads := make([]*kueue.Workload, 5)
 			for i := range bWorkloads {
 				bWorkloads[i] = testing.MakeWorkload(fmt.Sprintf("b-%d", i), ns.Name).

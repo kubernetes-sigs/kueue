@@ -19,7 +19,6 @@ package pod
 import (
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -1086,11 +1085,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that excess pod is deleted before admission", func() {
-					// Make sure that at least a second passes between
-					// creation of pods to avoid flaky behavior.
-					time.Sleep(time.Second * 1)
-
 					excessPod := excessBasePod.Clone().Obj()
+					util.WaitForNextSecondAfterCreation(pod2)
 					gomega.Expect(k8sClient.Create(ctx, excessPod)).Should(gomega.Succeed())
 
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, excessPod, false)
