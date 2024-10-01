@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -88,7 +89,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("Should reconcile workload and job for all jobs", func() {
+	ginkgo.It("Should reconcile workload and job for all jobs", framework.SlowSpec, func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")
 		priorityClass := testing.MakePriorityClass(priorityClassName).
 			PriorityValue(int32(priorityValue)).Obj()
@@ -1175,7 +1176,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 	})
 
-	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
+	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", framework.SlowSpec, func() {
 		ginkgo.By("creating localQueues")
 		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodLocalQ)).Should(gomega.Succeed())

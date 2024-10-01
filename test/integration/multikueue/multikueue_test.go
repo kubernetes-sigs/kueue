@@ -59,6 +59,7 @@ import (
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -727,7 +728,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.It("Should run a TFJob on worker if admitted", func() {
+	ginkgo.It("Should run a TFJob on worker if admitted", framework.RedundantSpec, func() {
 		tfJob := testingtfjob.MakeTFJob("tfjob1", managerNs.Name).
 			Queue(managerLq.Name).
 			TFReplicaSpecs(
@@ -820,7 +821,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.It("Should run a PaddleJob on worker if admitted", func() {
+	ginkgo.It("Should run a PaddleJob on worker if admitted", framework.RedundantSpec, func() {
 		paddleJob := testingpaddlejob.MakePaddleJob("paddlejob1", managerNs.Name).
 			Queue(managerLq.Name).
 			PaddleReplicaSpecs(
@@ -978,7 +979,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.It("Should run a XGBoostJob on worker if admitted", func() {
+	ginkgo.It("Should run a XGBoostJob on worker if admitted", framework.RedundantSpec, func() {
 		xgBoostJob := testingxgboostjob.MakeXGBoostJob("xgboostjob1", managerNs.Name).
 			Queue(managerLq.Name).
 			XGBReplicaSpecs(
@@ -1299,7 +1300,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
-	ginkgo.It("Should requeue the workload with a delay when the connection to the admitting worker is lost", func() {
+	ginkgo.It("Should requeue the workload with a delay when the connection to the admitting worker is lost", framework.SlowSpec, func() {
 		jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 			Queue(managerLq.Name).
 			ManagedBy(kueuealpha.MultiKueueControllerName).
@@ -1542,7 +1543,7 @@ var _ = ginkgo.Describe("Multikueue no GC", ginkgo.Ordered, ginkgo.ContinueOnFai
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultikueueSecret2, true)
 	})
 
-	ginkgo.It("Should remove the worker's workload and job when managers job is deleted", func() {
+	ginkgo.It("Should remove the worker's workload and job when managers job is deleted", framework.SlowSpec, func() {
 		job := testingjob.MakeJob("job", managerNs.Name).
 			Queue(managerLq.Name).
 			Obj()

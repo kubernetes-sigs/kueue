@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -206,7 +207,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
-		ginkgo.It("Should not create provisioning requests before quota is reserved", func() {
+		ginkgo.It("Should not create provisioning requests before quota is reserved", framework.SlowSpec, func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func() error {
 					err := k8sClient.Get(ctx, wlKey, &updatedWl)
@@ -225,7 +226,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should create provisioning requests after quota is reserved and preserve it when reservation is lost", func() {
+		ginkgo.It("Should create provisioning requests after quota is reserved and preserve it when reservation is lost", framework.SlowSpec, func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func() error {
 					err := k8sClient.Get(ctx, wlKey, &updatedWl)
@@ -315,7 +316,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should set the condition ready when the provision succeed", func() {
+		ginkgo.It("Should set the condition ready when the provision succeed", framework.SlowSpec, func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func() error {
 					err := k8sClient.Get(ctx, wlKey, &updatedWl)
@@ -422,7 +423,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should set the condition rejected when the provision fails", func() {
+		ginkgo.It("Should set the condition rejected when the provision fails", framework.SlowSpec, func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func() error {
 					err := k8sClient.Get(ctx, wlKey, &updatedWl)
@@ -498,7 +499,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
+		ginkgo.It("Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Finished, and the ProvisioningRequest's condition is set to CapacityRevoked", framework.SlowSpec, func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -570,7 +571,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Admitted, and the ProvisioningRequest's condition is set to CapacityRevoked", func() {
+		ginkgo.It("Should set AdmissionCheck status to Rejected, deactivate Workload, emit an event, and bump metrics when workloads is not Admitted, and the ProvisioningRequest's condition is set to CapacityRevoked", framework.SlowSpec, func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -709,7 +710,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should ignore the change if Workload is Admitted and the ProvisioningRequest's condition is set to BookingExpired", func() {
+		ginkgo.It("Should ignore the change if Workload is Admitted and the ProvisioningRequest's condition is set to BookingExpired", framework.SlowSpec, func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())

@@ -38,6 +38,11 @@ INTEGRATION_TARGET ?= ./test/integration/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
 INTEGRATION_API_LOG_LEVEL ?= 0
+# Integration filters
+INTEGRATION_RUN_ALL?=true
+ifneq ($(INTEGRATION_RUN_ALL),true) 
+	INTEGRATION_FILTERS= --label-filter="!slow && !redundant"
+endif
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
@@ -73,7 +78,7 @@ test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## 
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
-	$(GINKGO) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit.xml --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(PROJECT_DIR)/bin/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 CREATE_KIND_CLUSTER ?= true

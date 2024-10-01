@@ -212,3 +212,18 @@ func (f *Framework) Teardown() {
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 }
+
+var (
+	// Label used to decorate test specs that take a long time to be run and
+	// should be skipped in PR builds
+	//
+	// Initial list base on:
+	//  curl https://storage.googleapis.com/kubernetes-jenkins/pr-logs/pull/kubernetes-sigs_kueue/3054/pull-kueue-test-integration-main/1836045641336229888/artifacts/integration-top.yaml \
+	// | yq '.[] | select(.name != "") | .f.duration = .duration | .f.name = .name | .f.suite=.suite | .f | [] + .' | yq '.[0:30]' -oc
+	//
+	// taking the item which run for more then 5 sec
+	SlowSpec = ginkgo.Label("slow")
+
+	// Label used to decorate test specs that largely cover generic code covered by other specs also. (eg. Kubeflow jobs)
+	RedundantSpec = ginkgo.Label("Redundant")
+)

@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -98,7 +99,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqShared, true)
 		})
 
-		ginkgo.It("Admits workloads respecting fair share", func() {
+		ginkgo.It("Admits workloads respecting fair share", framework.SlowSpec, func() {
 			ginkgo.By("Saturating cq-a")
 
 			aWorkloads := make([]*kueue.Workload, 10)
@@ -236,7 +237,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, cqC)).To(gomega.Succeed())
 		})
 
-		ginkgo.It("Admits workloads respecting fair share", func() {
+		ginkgo.It("Admits workloads respecting fair share", framework.SlowSpec, func() {
 			ginkgo.By("Saturating cq-a")
 
 			aWorkloads := make([]*kueue.Workload, 10)

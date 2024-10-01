@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -174,7 +175,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devClusterQ.Name, devWl)
 		})
 
-		ginkgo.It("Should block admission of one new workload if two are considered in the same scheduling cycle", func() {
+		ginkgo.It("Should block admission of one new workload if two are considered in the same scheduling cycle", framework.SlowSpec, func() {
 			ginkgo.By("creating two workloads but delaying cluster queue creation which has enough capacity")
 			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
@@ -208,7 +209,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			requeueingBackoffLimitCount = ptr.To[int32](2)
 		})
 
-		ginkgo.It("Should requeue a workload which exceeded the timeout to reach PodsReady=True", func() {
+		ginkgo.It("Should requeue a workload which exceeded the timeout to reach PodsReady=True", framework.SlowSpec, func() {
 			const lowPrio, highPrio = 0, 100
 
 			ginkgo.By("create the 'prod1' workload")
@@ -256,7 +257,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			// To avoid flakiness, we don't verify if the workload has a QuotaReserved=false with pending reason here.
 		})
 
-		ginkgo.It("Should re-admit a timed out workload and deactivate a workload exceeded the re-queue count limit. After that re-activating a workload", func() {
+		ginkgo.It("Should re-admit a timed out workload and deactivate a workload exceeded the re-queue count limit. After that re-activating a workload", framework.SlowSpec, func() {
 			ginkgo.By("create the 'prod' workload")
 			prodWl := testing.MakeWorkload("prod", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
@@ -417,7 +418,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		})
 	})
 
-	ginkgo.It("Should move the evicted workload at the end of the queue", func() {
+	ginkgo.It("Should move the evicted workload at the end of the queue", framework.SlowSpec, func() {
 		// We wait 1 second between each workload creation calls. Therefore, we need to add this time to timeout.
 		podsReadyTimeout = util.TinyTimeout + 2*time.Second
 		requeueingBackoffLimitCount = ptr.To[int32](2)
@@ -511,7 +512,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, standaloneQueue)).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should prioritize workloads submitted earlier", func() {
+		ginkgo.It("Should prioritize workloads submitted earlier", framework.SlowSpec, func() {
 			// the workloads are created with a 1 cpu resource requirement to ensure only one can fit at a given time
 			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
@@ -718,7 +719,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, standaloneQueue)).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should keep the evicted workload at the front of the queue", func() {
+		ginkgo.It("Should keep the evicted workload at the front of the queue", framework.SlowSpec, func() {
 			// the workloads are created with a 1 cpu resource requirement to ensure only one can fit at a given time
 			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()

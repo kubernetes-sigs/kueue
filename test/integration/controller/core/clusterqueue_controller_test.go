@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -149,7 +150,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		})
 
-		ginkgo.It("Should update status and report metrics when workloads are assigned and finish", func() {
+		ginkgo.It("Should update status and report metrics when workloads are assigned and finish", framework.SlowSpec, func() {
 			workloads := []*kueue.Workload{
 				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
@@ -416,7 +417,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 		})
 
-		ginkgo.It("Should update status when workloads have reclaimable pods", func() {
+		ginkgo.It("Should update status when workloads have reclaimable pods", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceFlavors", func() {
 				onDemandFlavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
 				gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
@@ -885,7 +886,7 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", func() {
+		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", framework.SlowSpec, func() {
 			const lowPrio, midLowerPrio, midHigherPrio, highPrio = 0, 10, 20, 100
 			workloadsFirstBatch := []*kueue.Workload{
 				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).Priority(highPrio).
