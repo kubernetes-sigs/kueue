@@ -568,8 +568,13 @@ func AdmissionStatusPatch(w *kueue.Workload, strict bool) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
-	for _, rr := range w.Status.DesiredResources {
-		wlCopy.Status.DesiredResources = append(wlCopy.Status.DesiredResources, *rr.DeepCopy())
+	if wlCopy.Status.Admission != nil && len(w.Status.DesiredResources) > 0 {
+		// Clear DesiredResources; Assignment.PodSetAssignment[].ResourceUsage supercedes it
+		wlCopy.Status.DesiredResources = []kueue.PodSetRequest{}
+	} else {
+		for _, rr := range w.Status.DesiredResources {
+			wlCopy.Status.DesiredResources = append(wlCopy.Status.DesiredResources, *rr.DeepCopy())
+		}
 	}
 	for _, conditionName := range admissionManagedConditions {
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
