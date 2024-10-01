@@ -43,6 +43,7 @@ As a batch user, you can learn how to:
 - [Submit Kueue jobs from Python](run/python_jobs).
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
+- [Submit jobs to MultiKueue](run/multikueue).
 
 ### Serving user
 
