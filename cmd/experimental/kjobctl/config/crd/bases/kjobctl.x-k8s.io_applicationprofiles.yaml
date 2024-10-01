@@ -63,7 +63,7 @@ spec:
                         The request flag used only for Interactive and Job modes.
                         The cmd flag used only for Interactive, Job, and RayJob.
                         If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
-                        For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem-per-cpu,
+                        For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem, mem-per-cpu,
                         mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue, priority.
 
                         cmd and requests values are going to be added only to the first primary container.
@@ -158,6 +158,9 @@ spec:
                       || self.name == ''Slurm'''
                   - message: job-name flag can be used only on Slurm mode
                     rule: '!has(self.requiredFlags) || !(''job-name'' in self.requiredFlags)
+                      || self.name == ''Slurm'''
+                  - message: mem flag can be used only on Slurm mode
+                    rule: '!has(self.requiredFlags) || !(''mem'' in self.requiredFlags)
                       || self.name == ''Slurm'''
                   - message: mem-per-cpu flag can be used only on Slurm mode
                     rule: '!has(self.requiredFlags) || !(''mem-per-cpu'' in self.requiredFlags)

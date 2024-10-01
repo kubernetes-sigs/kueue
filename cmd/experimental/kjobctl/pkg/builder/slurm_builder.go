@@ -174,6 +174,7 @@ func (b *slurmBuilder) complete() error {
 
 func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
 	flags := map[string]bool{
+		string(v1alpha1.MemPerNodeFlag): b.memPerNode != nil,
 		string(v1alpha1.MemPerTaskFlag): b.memPerTask != nil,
 		string(v1alpha1.MemPerCPUFlag):  b.memPerCPU != nil,
 		string(v1alpha1.MemPerGPUFlag):  b.memPerGPU != nil,
@@ -340,6 +341,12 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 			}
 		}
 
+		limits := corev1.ResourceList{}
+		if b.memPerNode != nil {
+			memPerContainer := b.memPerNode.MilliValue() / int64(len(job.Spec.Template.Spec.Containers))
+			limits[corev1.ResourceMemory] = *resource.NewMilliQuantity(memPerContainer, b.memPerNode.Format)
+		}
+
 		if b.memPerTask != nil {
 			requests[corev1.ResourceMemory] = *b.memPerTask
 		}
@@ -358,6 +365,10 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 
 		if len(requests) > 0 {
 			container.Resources.Requests = b.requests
+		}
+
+		if len(limits) > 0 {
+			container.Resources.Limits = limits
 		}
 
 		container.VolumeMounts = append(container.VolumeMounts,
@@ -624,6 +635,16 @@ func (b *slurmBuilder) getSbatchEnvs() error {
 		}
 	}
 
+	if b.memPerNode == nil {
+		if env, ok := os.LookupEnv("SBATCH_MEM_PER_NODE"); ok {
+			val, err := resource.ParseQuantity(env)
+			if err != nil {
+				return fmt.Errorf("cannot parse '%s': %w", env, err)
+			}
+			b.memPerNode = ptr.To(val)
+		}
+	}
+
 	if b.memPerTask == nil {
 		if env, ok := os.LookupEnv("SBATCH_MEM_PER_CPU"); ok {
 			val, err := resource.ParseQuantity(env)
@@ -683,6 +704,10 @@ func (b *slurmBuilder) replaceScriptFlags() error {
 
 	if b.gpusPerTask == nil {
 		b.gpusPerTask = scriptFlags.GpusPerTask
+	}
+
+	if b.memPerNode == nil {
+		b.memPerNode = scriptFlags.MemPerNode
 	}
 
 	if b.memPerTask == nil {
