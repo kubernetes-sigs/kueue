@@ -27,7 +27,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -106,7 +105,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		},
 		Spec: *createdWorkload.Spec.DeepCopy(),
 	}
-	gomega.Expect(ctrl.SetControllerReference(createdJob.Object(), secondWl, scheme.Scheme)).Should(gomega.Succeed())
+	gomega.Expect(ctrl.SetControllerReference(createdJob.Object(), secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 	secondWl.Spec.PodSets[0].Count += 1
 
 	gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
