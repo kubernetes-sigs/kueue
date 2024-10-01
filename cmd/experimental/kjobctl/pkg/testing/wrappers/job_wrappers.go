@@ -114,6 +114,12 @@ func (j *JobWrapper) WithContainer(container corev1.Container) *JobWrapper {
 	return j
 }
 
+// WithInitContainer add init container on the pod template.
+func (j *JobWrapper) WithInitContainer(initContainer corev1.Container) *JobWrapper {
+	j.Job.Spec.Template.Spec.InitContainers = append(j.Job.Spec.Template.Spec.InitContainers, initContainer)
+	return j
+}
+
 // WithVolume add volume.
 func (j *JobWrapper) WithVolume(volume corev1.Volume) *JobWrapper {
 	j.Job.Spec.Template.Spec.Volumes = append(j.Job.Spec.Template.Spec.Volumes, volume)
@@ -122,10 +128,6 @@ func (j *JobWrapper) WithVolume(volume corev1.Volume) *JobWrapper {
 
 // WithEnvVar add env var to the container template.
 func (j *JobWrapper) WithEnvVar(envVar corev1.EnvVar) *JobWrapper {
-	for index := range j.Job.Spec.Template.Spec.InitContainers {
-		j.Job.Spec.Template.Spec.InitContainers[index].Env =
-			append(j.Job.Spec.Template.Spec.InitContainers[index].Env, envVar)
-	}
 	for index := range j.Job.Spec.Template.Spec.Containers {
 		j.Job.Spec.Template.Spec.Containers[index].Env =
 			append(j.Job.Spec.Template.Spec.Containers[index].Env, envVar)
@@ -135,10 +137,6 @@ func (j *JobWrapper) WithEnvVar(envVar corev1.EnvVar) *JobWrapper {
 
 // WithEnvVarIndexValue add env var to the container template with index value.
 func (j *JobWrapper) WithEnvVarIndexValue(name string) *JobWrapper {
-	for index := range j.Job.Spec.Template.Spec.InitContainers {
-		j.Job.Spec.Template.Spec.InitContainers[index].Env = append(j.Job.Spec.Template.Spec.InitContainers[index].Env,
-			corev1.EnvVar{Name: name, Value: strconv.Itoa(index)})
-	}
 	for index := range j.Job.Spec.Template.Spec.Containers {
 		j.Job.Spec.Template.Spec.Containers[index].Env = append(j.Job.Spec.Template.Spec.Containers[index].Env,
 			corev1.EnvVar{Name: name, Value: strconv.Itoa(index)})
