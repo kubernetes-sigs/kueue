@@ -12,6 +12,8 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API](#api)
+    - [Workload Spec](#workload-spec)
+    - [Workload Status](#workload-status)
   - [Constants](#constants)
   - [Controller](#controller)
     - [Workload](#workload)
@@ -37,12 +39,13 @@ Add the ability to set a maximum execution time of a Job.
 
 ## Motivation
 
-Different Jobs CRDs have a field with similar semantics, but there is no standard. For example `batch/Job` has `spec.activeDeadlneSeconds`, while JobSet does not have such an API for now.
+Extend Kueue so that kjobctl can incorporate functionalities equivalent to `-t` in [slurm](https://slurm.schedmd.com/).
 
+Different Jobs CRDs have a field with similar semantics, but there is no standard. For example `batch/Job` has `spec.activeDeadlneSeconds`, while JobSet does not have such an API for now.
 
 ### Goals
 
-We would like to have a common API of setting and enforcing the maximum execution time of a Job.
+Introduce a Job agnostic API of setting and enforcing the maximum execution time of a Job.
 
 
 ### Non-Goals
@@ -62,20 +65,18 @@ If a workload stays admitted for longer that it is expected it will be Deactivat
 
 #### Story 1
 
-**TBD**
+As a Batch User, I want to have the ability to set a limit on how long my job can run.
 
 ### Notes/Constraints/Caveats (Optional)
 
 
 ### Risks and Mitigations
 
-We can accumulate the time a Workload has spent in Admitted state in previous Admit - Evict cycles, however:
-- For a Job this counter can be easily reset by deleting it's workload.
-- It's not possible for the Job creators to account for the time lost due to potential preemptions which may make them overcompensate (especially for Jobs in which the Eviction resets its progress).
-
 ## Design Details
 
 ### API
+
+#### Workload Spec
 
 Add a new optional filed to hold the 
 
@@ -83,33 +84,56 @@ Add a new optional filed to hold the
 // WorkloadSpec defines the desired state of Workload
 // +kubebuilder:validation:XValidation:rule="has(self.priorityClassName) ? has(self.priority) : true", message="priority should not be nil when priorityClassName is set"
 type WorkloadSpec struct {
-    // ...
+	// ...
 
 	// MaximumExecutionTime if provided, determines the maximum time the workload can be admitted  
-    // befrore it's automatically deactivated.
+	// befrore it's automatically deactivated.
 	MaximumExecutionTime *metav1.Duration `json:"maximumExecutionTime,omitempty"`
 }
 ```
+
+#### Workload Status
+
+Add a optional filed to hold the 
+```go
+// WorkloadStatus defines the observed state of Workload
+type WorkloadStatus struct {
+	// ...
+
+	// AccumulatedExecutionTime holds the total duration the workload spent in Admitted state
+	// in the previous `Admit` - `Evict` cycles.
+	AccumulatedExecutionTime metav1.Duration `json:"maximumExecutionTime,omitempty"`
+}
+
+```
+
 ### Constants
 
 Define a new constant holding the new label name `kueue.x-k8s.io/max-exec-time-seconds`.
 
-
 ### Controller
 
 #### Workload
+During reconcile:
 
-If the workload is admitted and a maximum execution time is specified compute the remaining execution execution time as:
+- When a workload transitions out of `Admitted` state, add the time spent in its `status.AccumulatedExecutionTime`
+```go
+cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+wl.Status.AccumulatedExecutionTime += wl.Spec.MaximumExecutionTime.Duration -
+    time.Now().Sub(cond.LastTransitionTime.Time)
 ```
+- When the workload is admitted and a maximum execution time is specified compute the remaining execution execution time as:
+```go
 if wl.Spec.MaximumExecutionTime != nil {
 	if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted); cond != nil && cond.Status == metav1.ConditionTrue {
-		remainingTime := wl.Spec.MaximumExecutionTime.Duration - time.Now().Sub(cond.LastTransitionTime.Time)
+		remainingTime := wl.Spec.MaximumExecutionTime.Duration -
+            wl.Status.AccumulatedExecutionTime -
+            time.Now().Sub(cond.LastTransitionTime.Time)
 	}
 }
 ```
-
-- If `remainingTime` > 0 , a reconcile request should be queued with a `remainingTime` delay.
-- If `remainingTime` <= 0 , the workload should be deactivated `wl.spec.Active = *false`.
+  - If `remainingTime` > 0 , a reconcile request should be queued with a `remainingTime` delay.
+  - If `remainingTime` <= 0 , the workload should be deactivated `wl.spec.Active = *false`.
 
 #### Jobs / Jobframework
 
