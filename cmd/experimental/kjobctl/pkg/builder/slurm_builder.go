@@ -41,8 +41,7 @@ import (
 )
 
 const (
-	// Job array's master job ID number.
-	// Job IDs start at 1, so the master job ID will always be 1.
+	// Note that the first job ID will always be 1.
 	slurmArrayJobID = 1
 
 	slurmScriptsPath            = "/slurm/scripts"
