@@ -19,6 +19,7 @@ package builder
 import (
 	"bytes"
 	"context"
+	"embed"
 	"errors"
 	"fmt"
 	"math"
@@ -39,6 +40,9 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
 )
+
+//go:embed templates/*
+var templates embed.FS
 
 const (
 	// Note that the first job ID will always be 1.
