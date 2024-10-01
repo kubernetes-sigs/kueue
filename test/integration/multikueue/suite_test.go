@@ -228,29 +228,22 @@ var _ = ginkgo.BeforeSuite(func() {
 	}
 
 	ginkgo.By("creating the clusters", func() {
-		mtx := sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
 			c := createCluster(nil, managerFeatureGates...)
-			mtx.Lock()
-			defer mtx.Unlock()
 			managerTestCluster = c
 		}()
 		go func() {
 			defer wg.Done()
 			c := createCluster(managerSetup)
-			mtx.Lock()
-			defer mtx.Unlock()
 			worker1TestCluster = c
 		}()
 		go func() {
 			defer wg.Done()
 			c := createCluster(managerSetup)
-			mtx.Lock()
-			defer mtx.Unlock()
 			worker2TestCluster = c
 		}()
 		wg.Wait()
