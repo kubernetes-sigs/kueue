@@ -156,6 +156,7 @@ type slurmBuilderTestCase struct {
 	input         string
 	jobName       string
 	partition     string
+	initImage     string
 	kjobctlObjs   []runtime.Object
 	wantRootObj   runtime.Object
 	wantChildObjs []runtime.Object
@@ -219,6 +220,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 			profile:    "profile",
 			mode:       v1alpha1.SlurmMode,
 			array:      "1-5%2",
+			initImage:  "bash:latest",
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeJobTemplate("slurm-job-template", metav1.NamespaceDefault).
 					WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").Obj()).
@@ -233,7 +235,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 				CompletionMode(batchv1.IndexedCompletion).
 				Profile("profile").
 				Mode(v1alpha1.SlurmMode).
-				WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:5-alpine3.20").
+				WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:latest").
 					Command("bash", "/slurm/scripts/init-entrypoint.sh").
 					WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 					WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
@@ -282,6 +284,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
 
 # External variables
 # JOB_COMPLETION_INDEX  - completion index of the job.
@@ -435,6 +438,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 				WithInput(tc.input).
 				WithJobName(tc.jobName).
 				WithPartition(tc.partition).
+				WithInitImage(tc.initImage).
 				Do(ctx)
 
 			var opts []cmp.Option

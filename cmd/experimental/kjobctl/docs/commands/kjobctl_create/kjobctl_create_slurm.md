@@ -71,7 +71,7 @@ kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEU
         </td>
     </tr>
     <tr>
-        <td colspan="2">--init-image string</td>
+        <td colspan="2">--init-image string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;bash:5-alpine3.20&#34;</td>
     </tr>
     <tr>
         <td></td>

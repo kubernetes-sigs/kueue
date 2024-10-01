@@ -337,7 +337,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 
 			subcmd.Flags().BoolVar(&o.IgnoreUnknown, ignoreUnknownFlagName, false,
 				"Ignore all the unsupported flags in the bash script.")
-			subcmd.Flags().StringVar(&o.InitImage, initImageFlagName, "",
+			subcmd.Flags().StringVar(&o.InitImage, initImageFlagName, "bash:5-alpine3.20",
 				"The image used for the init container.")
 
 			o.SlurmFlagSet = pflag.NewFlagSet("slurm", pflag.ExitOnError)

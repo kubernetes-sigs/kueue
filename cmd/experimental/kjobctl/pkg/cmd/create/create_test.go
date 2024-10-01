@@ -741,6 +741,7 @@ func TestCreateCmd(t *testing.T) {
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
 
 # External variables
 # JOB_COMPLETION_INDEX  - completion index of the job.
@@ -968,6 +969,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
 
 # External variables
 # JOB_COMPLETION_INDEX  - completion index of the job.

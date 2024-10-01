@@ -57,8 +57,6 @@ const (
 	slurmSbatchEnvFilename = "sbatch.env"
 	slurmSlurmEnvFilename  = "slurm.env"
 
-	slurmDefaultInitImage = "bash:5-alpine3.20"
-
 	//# \\ - Do not process any of the replacement symbols.
 	//# %% - The character "%".
 	//# %A - Job array's master job allocation number (for now it is equivalent to SLURM_JOB_ID).
@@ -159,10 +157,6 @@ func (b *slurmBuilder) complete() error {
 		if b.arrayIndexes.Parallelism != nil {
 			b.nodes = b.arrayIndexes.Parallelism
 		}
-	}
-
-	if b.initImage == "" {
-		b.initImage = slurmDefaultInitImage
 	}
 
 	return nil
