@@ -913,6 +913,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					"--input", "/slurm/input.txt",
 					"--job-name", "job-name",
 					"--partition", "lq1",
+					"--chdir", "/mydir",
 					tc.tempFile,
 				}
 			},
@@ -1117,6 +1118,8 @@ unmask_filename () {
 input_file=$(unmask_filename "$SBATCH_INPUT")
 output_file=$(unmask_filename "$SBATCH_OUTPUT")
 error_path=$(unmask_filename "$SBATCH_ERROR")
+
+cd /mydir
 
 /slurm/scripts/script <$input_file 1>$output_file 2>$error_file
 `,
