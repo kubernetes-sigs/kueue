@@ -3544,7 +3544,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 						Message: "didn't fit",
 					},
 				},
-				DesiredResources: []kueue.PodSetRequest{
+				ResourceRequests: []kueue.PodSetRequest{
 					{Name: "main"},
 				},
 			},
@@ -3588,7 +3588,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 						Message: "cohort used in this cycle",
 					},
 				},
-				DesiredResources: []kueue.PodSetRequest{
+				ResourceRequests: []kueue.PodSetRequest{
 					{Name: "main"},
 				},
 			},

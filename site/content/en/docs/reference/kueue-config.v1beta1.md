@@ -785,21 +785,21 @@ re-queuing an evicted workload.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
 </td>
 <td>
-   <p>Name of the input resource</p>
+   <p>Input is the name of the input resource.</p>
 </td>
 </tr>
 <tr><td><code>strategy</code> <B>[Required]</B><br/>
 <a href="#ResourceTransformationStrategy"><code>ResourceTransformationStrategy</code></a>
 </td>
 <td>
-   <p>Whether the input resource should be replaced or retained</p>
+   <p>Strategy specifies if the input resource should be replaced or retained.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
 <td>
-   <p>Output resources and quantities per unit of input resource</p>
+   <p>Outputs specifies the output resources and quantities per unit of input resource.</p>
 </td>
 </tr>
 </tbody>

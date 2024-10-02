@@ -523,7 +523,7 @@ Status:
     Reason:                Pending
     Status:                False
     Type:                  QuotaReserved
-  Desired Resources:
+  Resource Requests:
     Name: main
     Resources:
       Cpu:                             1
