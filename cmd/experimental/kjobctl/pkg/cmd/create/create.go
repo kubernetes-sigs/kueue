@@ -52,11 +52,12 @@ import (
 )
 
 const (
-	profileFlagName           = "profile"
-	podRunningTimeoutFlagName = "pod-running-timeout"
-	removeFlagName            = "rm"
-	ignoreUnknownFlagName     = "ignore-unknown-flags"
-	initImageFlagName         = "init-image"
+	profileFlagName                  = "profile"
+	podRunningTimeoutFlagName        = "pod-running-timeout"
+	removeFlagName                   = "rm"
+	ignoreUnknownFlagName            = "ignore-unknown-flags"
+	initImageFlagName                = "init-image"
+	skipLocalQueueValidationFlagName = "skip-localqueue-validation"
 
 	commandFlagName     = string(v1alpha1.CmdFlag)
 	parallelismFlagName = string(v1alpha1.ParallelismFlag)
@@ -162,29 +163,30 @@ type CreateOptions struct {
 
 	SlurmFlagSet *pflag.FlagSet
 
-	Command       []string
-	Parallelism   *int32
-	Completions   *int32
-	Replicas      map[string]int
-	MinReplicas   map[string]int
-	MaxReplicas   map[string]int
-	Requests      corev1.ResourceList
-	LocalQueue    string
-	RayCluster    string
-	Array         string
-	CpusPerTask   *apiresource.Quantity
-	GpusPerTask   map[string]*apiresource.Quantity
-	MemPerTask    *apiresource.Quantity
-	MemPerCPU     *apiresource.Quantity
-	MemPerGPU     *apiresource.Quantity
-	Nodes         *int32
-	NTasks        *int32
-	Output        string
-	Error         string
-	Input         string
-	JobName       string
-	Partition     string
-	IgnoreUnknown bool
+	Command                  []string
+	Parallelism              *int32
+	Completions              *int32
+	Replicas                 map[string]int
+	MinReplicas              map[string]int
+	MaxReplicas              map[string]int
+	Requests                 corev1.ResourceList
+	LocalQueue               string
+	RayCluster               string
+	Array                    string
+	CpusPerTask              *apiresource.Quantity
+	GpusPerTask              map[string]*apiresource.Quantity
+	MemPerTask               *apiresource.Quantity
+	MemPerCPU                *apiresource.Quantity
+	MemPerGPU                *apiresource.Quantity
+	Nodes                    *int32
+	NTasks                   *int32
+	Output                   string
+	Error                    string
+	Input                    string
+	JobName                  string
+	Partition                string
+	IgnoreUnknown            bool
+	SkipLocalQueueValidation bool
 
 	UserSpecifiedCommand     string
 	UserSpecifiedParallelism int32
@@ -394,7 +396,8 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 		subcmd := &cobra.Command{
 			Use: modeName +
 				" --profile APPLICATION_PROFILE_NAME" +
-				" [--localqueue LOCAL_QUEUE_NAME]",
+				" [--localqueue LOCAL_QUEUE_NAME]" +
+				" [--skip-localqueue-validation]",
 			DisableFlagsInUseLine: true,
 			Args:                  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -415,6 +418,8 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			"Application profile contains a template (with defaults set) for running a specific type of application.")
 		subcmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
 			"Kueue localqueue name which is associated with the resource.")
+		subcmd.Flags().BoolVar(&o.SkipLocalQueueValidation, skipLocalQueueValidationFlagName, false,
+			"Skip local queue validation. Add local queue even if the queue does not exist.")
 
 		modeSubcommand.Setup(clientGetter, subcmd, o)
 
@@ -605,6 +610,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithPartition(o.Partition).
 		WithInitImage(o.InitImage).
 		WithIgnoreUnknown(o.IgnoreUnknown).
+		WithSkipLocalQueueValidation(o.SkipLocalQueueValidation).
 		Do(ctx)
 	if err != nil {
 		return err

@@ -14,7 +14,7 @@ Create a raycluster.
  KubeRay operator is required for RayCluster. How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
 
 ```
-kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
+kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
 ```
 
 
@@ -128,6 +128,15 @@ kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--skip-localqueue-validation</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Skip local queue validation. Add local queue even if the queue does not exist.</p>
         </td>
     </tr>
     <tr>

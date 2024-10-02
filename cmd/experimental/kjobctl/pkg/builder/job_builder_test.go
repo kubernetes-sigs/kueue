@@ -197,6 +197,7 @@ func TestJobBuilder(t *testing.T) {
 				WithCompletions(tc.completions).
 				WithRequests(tc.requests).
 				WithLocalQueue(tc.localQueue).
+				WithSkipLocalQueueValidation(true).
 				Do(ctx)
 
 			var opts []cmp.Option

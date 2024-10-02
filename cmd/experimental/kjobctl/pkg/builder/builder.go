@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
+	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
@@ -78,36 +79,38 @@ type Builder struct {
 	clientGetter     util.ClientGetter
 	kjobctlClientset versioned.Interface
 	k8sClientset     k8s.Interface
+	kueueClientset   kueueversioned.Interface
 
 	namespace   string
 	profileName string
 	modeName    v1alpha1.ApplicationProfileMode
 
-	command       []string
-	parallelism   *int32
-	completions   *int32
-	replicas      map[string]int
-	minReplicas   map[string]int
-	maxReplicas   map[string]int
-	requests      corev1.ResourceList
-	localQueue    string
-	rayCluster    string
-	script        string
-	array         string
-	cpusPerTask   *resource.Quantity
-	error         string
-	gpusPerTask   map[string]*resource.Quantity
-	input         string
-	jobName       string
-	memPerCPU     *resource.Quantity
-	memPerGPU     *resource.Quantity
-	memPerTask    *resource.Quantity
-	nodes         *int32
-	nTasks        *int32
-	output        string
-	partition     string
-	initImage     string
-	ignoreUnknown bool
+	command                  []string
+	parallelism              *int32
+	completions              *int32
+	replicas                 map[string]int
+	minReplicas              map[string]int
+	maxReplicas              map[string]int
+	requests                 corev1.ResourceList
+	localQueue               string
+	rayCluster               string
+	script                   string
+	array                    string
+	cpusPerTask              *resource.Quantity
+	error                    string
+	gpusPerTask              map[string]*resource.Quantity
+	input                    string
+	jobName                  string
+	memPerCPU                *resource.Quantity
+	memPerGPU                *resource.Quantity
+	memPerTask               *resource.Quantity
+	nodes                    *int32
+	nTasks                   *int32
+	output                   string
+	partition                string
+	initImage                string
+	ignoreUnknown            bool
+	skipLocalQueueValidation bool
 
 	profile       *v1alpha1.ApplicationProfile
 	mode          *v1alpha1.SupportedMode
@@ -260,7 +263,12 @@ func (b *Builder) WithIgnoreUnknown(ignoreUnknown bool) *Builder {
 	return b
 }
 
-func (b *Builder) validateGeneral() error {
+func (b *Builder) WithSkipLocalQueueValidation(skip bool) *Builder {
+	b.skipLocalQueueValidation = skip
+	return b
+}
+
+func (b *Builder) validateGeneral(ctx context.Context) error {
 	if b.namespace == "" {
 		return noNamespaceSpecifiedErr
 	}
@@ -273,21 +281,19 @@ func (b *Builder) validateGeneral() error {
 		return noApplicationProfileModeSpecifiedErr
 	}
 
+	// check that local queue exists
+	if len(b.localQueue) != 0 && !b.skipLocalQueueValidation {
+		_, err := b.kueueClientset.KueueV1beta1().LocalQueues(b.namespace).Get(ctx, b.localQueue, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (b *Builder) complete(ctx context.Context) error {
 	var err error
-
-	b.kjobctlClientset, err = b.clientGetter.KjobctlClientset()
-	if err != nil {
-		return err
-	}
-
-	b.k8sClientset, err = b.clientGetter.K8sClientset()
-	if err != nil {
-		return err
-	}
 
 	b.profile, err = b.kjobctlClientset.KjobctlV1alpha1().ApplicationProfiles(b.namespace).Get(ctx, b.profileName, metav1.GetOptions{})
 	if err != nil {
@@ -408,7 +414,11 @@ func (b *Builder) validateFlags() error {
 }
 
 func (b *Builder) Do(ctx context.Context) (runtime.Object, []runtime.Object, error) {
-	if err := b.validateGeneral(); err != nil {
+	if err := b.setClients(); err != nil {
+		return nil, nil, err
+	}
+
+	if err := b.validateGeneral(ctx); err != nil {
 		return nil, nil, err
 	}
 
@@ -440,6 +450,27 @@ func (b *Builder) Do(ctx context.Context) (runtime.Object, []runtime.Object, err
 	}
 
 	return bImpl.build(ctx)
+}
+
+func (b *Builder) setClients() error {
+	var err error
+
+	b.kjobctlClientset, err = b.clientGetter.KjobctlClientset()
+	if err != nil {
+		return err
+	}
+
+	b.k8sClientset, err = b.clientGetter.K8sClientset()
+	if err != nil {
+		return err
+	}
+
+	b.kueueClientset, err = b.clientGetter.KueueClientset()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {

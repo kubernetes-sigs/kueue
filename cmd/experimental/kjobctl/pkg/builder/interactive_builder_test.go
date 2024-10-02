@@ -193,6 +193,7 @@ func TestInteractiveBuilder(t *testing.T) {
 				WithCommand(tc.command).
 				WithRequests(tc.requests).
 				WithLocalQueue(tc.localQueue).
+				WithSkipLocalQueueValidation(true).
 				Do(ctx)
 
 			var opts []cmp.Option

@@ -94,6 +94,7 @@ var _ = ginkgo.Describe("Kjobctl Create", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					"--completions", "3",
 					"--request", "cpu=100m,memory=4Gi",
 					"--localqueue", "lq1",
+					"--skip-localqueue-validation",
 				})
 
 				err := kjobctlCmd.Execute()
