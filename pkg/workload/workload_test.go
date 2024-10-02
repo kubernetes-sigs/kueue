@@ -298,7 +298,7 @@ func TestNewInfo(t *testing.T) {
 						Obj(),
 				).
 				Obj(),
-			infoOptions: []InfoOption{WithResourceMappings([]config.ResourceTransformation{
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
 					Strategy: "Replace",

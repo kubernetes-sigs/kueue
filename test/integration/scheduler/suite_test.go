@@ -82,7 +82,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 		},
 	}
 	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithResourceMappings(transformations))
+	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithResourceTransformations(transformations))
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
