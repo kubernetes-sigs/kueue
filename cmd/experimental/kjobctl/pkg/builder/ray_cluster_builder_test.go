@@ -242,6 +242,7 @@ func TestRayClusterBuilder(t *testing.T) {
 				WithMinReplicas(tc.minReplicas).
 				WithMaxReplicas(tc.maxReplicas).
 				WithLocalQueue(tc.localQueue).
+				WithSkipLocalQueueValidation(true).
 				Do(ctx)
 
 			var opts []cmp.Option

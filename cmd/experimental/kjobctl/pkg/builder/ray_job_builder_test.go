@@ -274,6 +274,7 @@ func TestRayJobBuilder(t *testing.T) {
 				WithMinReplicas(tc.minReplicas).
 				WithMaxReplicas(tc.maxReplicas).
 				WithLocalQueue(tc.localQueue).
+				WithSkipLocalQueueValidation(true).
 				WithRayCluster(tc.rayCluster).
 				Do(ctx)
 

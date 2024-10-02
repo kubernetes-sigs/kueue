@@ -50,6 +50,8 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuefake "sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	kjobctlfake "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
@@ -115,6 +117,7 @@ type createCmdTestCase struct {
 	ns             string
 	args           func(tc *createCmdTestCase) []string
 	kjobctlObjs    []runtime.Object
+	kueueObjs      []runtime.Object
 	gvks           []schema.GroupVersionKind
 	wantLists      []runtime.Object
 	cmpopts        []cmp.Option
@@ -248,6 +251,41 @@ func TestCreateCmd(t *testing.T) {
 		"should create job with localqueue replacement": {
 			args: func(tc *createCmdTestCase) []string {
 				return []string{"job", "--profile", "profile", "--localqueue", "lq1"}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").Obj()).
+					Obj(),
+			},
+			kueueObjs: []runtime.Object{
+				&kueue.LocalQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: metav1.NamespaceDefault,
+						Name:      "lq1",
+					},
+				},
+			},
+			gvks: []schema.GroupVersionKind{{Group: "batch", Version: "v1", Kind: "Job"}},
+			wantLists: []runtime.Object{
+				&batchv1.JobList{
+					TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
+					Items: []batchv1.Job{
+						*wrappers.MakeJob("", metav1.NamespaceDefault).
+							GenerateName("profile-job-").
+							Profile("profile").
+							Mode(v1alpha1.JobMode).
+							LocalQueue("lq1").
+							Obj(),
+					},
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "job.batch/<unknown> created\n",
+		},
+		"should create job with localqueue and skip local queue validation": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"job", "--profile", "profile", "--localqueue", "lq1", "--skip-localqueue-validation"}
 			},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).Obj(),
@@ -886,6 +924,14 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.SlurmMode, "slurm-job-template").Obj()).
 					Obj(),
 			},
+			kueueObjs: []runtime.Object{
+				&kueue.LocalQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: metav1.NamespaceDefault,
+						Name:      "lq1",
+					},
+				},
+			},
 			gvks: []schema.GroupVersionKind{
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
@@ -1131,6 +1177,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 
 			clientset := kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...)
 			dynamicClient := fake.NewSimpleDynamicClient(scheme)
+			kueueClientset := kueuefake.NewSimpleClientset(tc.kueueObjs...)
 			restMapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{})
 
 			for _, gvk := range tc.gvks {
@@ -1140,6 +1187,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(clientset).
 				WithDynamicClient(dynamicClient).
+				WithKueueClientset(kueueClientset).
 				WithRESTMapper(restMapper)
 			if tc.ns != "" {
 				tcg.WithNamespace(tc.ns)
