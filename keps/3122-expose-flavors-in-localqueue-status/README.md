@@ -1,0 +1,154 @@
+# KEP-3122: Expose Flavors in LocalQueue Status
+
+<!-- toc -->
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [User Stories (Optional)](#user-stories-optional)
+    - [Story 1](#story-1)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+  - [Risks and Mitigations](#risks-and-mitigations)
+- [Design Details](#design-details)
+  - [API](#api)
+  - [Implementation overview](#implementation-overview)
+  - [Test Plan](#test-plan)
+      - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
+- [Implementation History](#implementation-history)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
+<!-- /toc -->
+
+## Summary
+
+This KEP introduces a new status field in LocalQueue, allowing users to see
+all currently available ResourceFlavors in the LocalQueue.
+
+## Motivation
+
+Currently, users without RBAC access to ResourceFlavors cannot view the list
+of available flavors. Depending on the RBAC rules, users might also lack read
+access to ClusterQueues. Providing users with information about the available
+flavors is useful, as it gives them an idea of the capabilities provided by
+a LocalQueue (e.g., a flavor might include newer GPUs).
+
+### Goals
+
+- Provide a possibility to see all currently available ResourceFlavors in 
+  the LocalQueue.
+
+### Non-Goals
+
+- Verify that the ResourceFlavors exist and show only the existing flavors.
+
+## Proposal
+
+Introduce a new status field `availableFlavors` in LocalQueue 
+that will be updated when ClusterQueue flavors are modified.
+
+### User Stories (Optional)
+
+#### Story 1
+
+As a user I want to see the list of all ResourceFlavors available in each LocalQueue 
+due to the RBAC configuration for ClusterQueue in my cluster I cannot inspect the 
+ClusterQueue objects directly, only LocalQueues.
+
+### Notes/Constraints/Caveats (Optional)
+
+### Risks and Mitigations
+
+## Design Details
+
+### API
+
+Create `AvailableFlavor` API object:
+
+```go
+type AvailableFlavor struct {
+	// name of the flavor.
+	Name ResourceFlavorReference `json:"name"`
+}
+```
+
+Modify `LocalQueueStatus` API object:
+
+```go
+// LocalQueueStatus defines the observed state of LocalQueue
+type LocalQueueStatus struct {
+	...
+	// availableFlavors lists all currently available ResourceFlavors
+	// in specified ClusterQueue.
+	//
+	// +listType=map
+	// +listMapKey=name
+	AvailableFlavors []AvailableFlavor `json:"availableFlavors,omitempty"`
+}
+```
+
+### Implementation overview
+
+Modify `LocalQueueUsageStats` object:
+
+```go
+type LocalQueueUsageStats struct {
+  ...
+	AvailableFlavors []kueue.ResourceFlavorReference
+}
+```
+
+Get available `Flavors` from `cqImpl.ResourceGroups` in `cache.LocalQueueUsage(...)` 
+method and update `AvailableFlavors` field on `UpdateStatusIfChanged(...)`
+on each LocalQueue reconcile when it was updated.
+
+### Test Plan
+
+<!--
+**Note:** *Not required until targeted at a release.*
+The goal is to ensure that we don't accept enhancements with inadequate testing.
+
+All code is expected to have adequate tests (eventually with coverage
+expectations). Please adhere to the [Kubernetes testing guidelines][testing-guidelines]
+when drafting this test plan.
+
+[testing-guidelines]: https://git.k8s.io/community/contributors/devel/sig-testing/testing.md
+-->
+
+[x] I/we understand the owners of the involved components may require updates to
+existing tests to make this code solid enough prior to committing the changes necessary
+to implement this enhancement.
+
+##### Prerequisite testing updates
+
+<!--
+Based on reviewers feedback describe what additional tests need to be added prior
+implementing this enhancement to ensure the enhancements have also solid foundations.
+-->
+
+None.
+
+#### Unit Tests
+
+Existing unit tests should be updated to tests whether the new data are correctly
+passed and applied on CRD.
+
+#### Integration tests
+
+Existing integration tests should be updated to tests whether the new data are correctly
+passed and applied on CRD.
+
+### Graduation Criteria
+
+We will graduate this feature to stable together with the whole LocalQueue API.
+
+## Implementation History
+
+2024-10-02 KEP
+
+## Drawbacks
+
+## Alternatives
