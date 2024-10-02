@@ -15,7 +15,7 @@ source {{.EnvsPath}}/$JOB_CONTAINER_INDEX/{{.SbatchEnvFilename}}
 
 export $(cat {{.EnvsPath}}/$JOB_CONTAINER_INDEX/{{.SlurmEnvFilename}} | xargs)
 
-{{.UnmaskFilenameFunction}}
+{{template "slurm_unmask_filename.sh.tmpl" .}}
 
 input_file=$(unmask_filename "$SBATCH_INPUT")
 output_file=$(unmask_filename "$SBATCH_OUTPUT")
