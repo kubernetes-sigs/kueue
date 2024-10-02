@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
-			fwk.RunManager(cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
 				reconciler := raycluster.NewReconciler(
 					mgr.GetClient(),
 					mgr.GetEventRecorderFor(constants.JobControllerName),
