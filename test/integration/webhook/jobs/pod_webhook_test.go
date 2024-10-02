@@ -179,7 +179,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			fwk.RunManager(cfg, managerSetup(
+			fwk.StartManager(ctx, cfg, managerSetup(
 				pod.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),

@@ -207,12 +207,6 @@ func (f *Framework) StopManager(ctx context.Context) {
 	})
 }
 
-func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
-	ctx, k8sClient := f.SetupClient(cfg)
-	f.StartManager(ctx, cfg, managerSetup)
-	return ctx, k8sClient
-}
-
 func (f *Framework) Teardown() {
 	ginkgo.By("tearing down the test environment")
 	if f.cancel != nil {
