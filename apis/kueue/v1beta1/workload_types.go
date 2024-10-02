@@ -75,6 +75,10 @@ type WorkloadSpec struct {
 	// Defaults to true
 	// +kubebuilder:default=true
 	Active *bool `json:"active,omitempty"`
+
+	// MaximumExecutionTime if provided, determines the maximum time the workload can be admitted
+	// before it's automatically deactivated.
+	MaximumExecutionTime *metav1.Duration `json:"maximumExecutionTime,omitempty"`
 }
 
 // PodSetTopologyRequest defines the topology request for a PodSet.
