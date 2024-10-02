@@ -298,7 +298,7 @@ type WorkloadStatus struct {
 	// desiredResources provides a detailed view of the resources that were
 	// requested by a non-admitted workload when it was considered for admission.
 	// If admission is non-null, desiredResouces will be empty because
-	// admission.resourceUsgae contains the detailed information.
+	// admission.resourceUsage contains the detailed information.
 	//
 	// +optional
 	// +listType=map
