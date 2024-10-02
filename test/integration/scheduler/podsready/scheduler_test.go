@@ -179,9 +179,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("creating two workloads but delaying cluster queue creation which has enough capacity")
 			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
-			// wait a second to ensure the CreationTimestamps differ and scheduler picks the first created to be admitted
-			time.Sleep(time.Second)
 			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
+			util.WaitForNextSecondAfterCreation(prodWl)
 			gomega.Expect(k8sClient.Create(ctx, devWl)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl, devWl)
 
@@ -333,9 +332,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("create the 'prod' workload")
 			prodWl := testing.MakeWorkload("prod", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
-
-			ginkgo.By("create the 'dev' workload after a second")
-			time.Sleep(time.Second)
+			util.WaitForNextSecondAfterCreation(prodWl)
 			devWl := testing.MakeWorkload("dev", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, devWl)).Should(gomega.Succeed())
 
@@ -432,12 +429,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		wl3 := testing.MakeWorkload("prod3", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
 
 		ginkgo.By("create the workloads", func() {
-			// since metav1.Time has only second resolution, wait one second between
-			// create calls to avoid any potential creation timestamp collision
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
-			time.Sleep(time.Second)
+			util.WaitForNextSecondAfterCreation(wl1)
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-			time.Sleep(time.Second)
+			util.WaitForNextSecondAfterCreation(wl2)
 			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 		})
 
@@ -519,12 +514,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 
 			ginkgo.By("create the workloads", func() {
-				// since metav1.Time has only second resolution, wait one second between
-				// create calls to avoid any potential creation timestamp collision
 				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
-				time.Sleep(time.Second)
+				util.WaitForNextSecondAfterCreation(wl1)
 				gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-				time.Sleep(time.Second)
+				util.WaitForNextSecondAfterCreation(wl2)
 				gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 			})
 
@@ -726,12 +719,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 
 			ginkgo.By("create the workloads", func() {
-				// since metav1.Time has only second resolution, wait one second between
-				// create calls to avoid any potential creation timestamp collision
 				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
-				time.Sleep(time.Second)
+				util.WaitForNextSecondAfterCreation(wl1)
 				gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-				time.Sleep(time.Second)
+				util.WaitForNextSecondAfterCreation(wl2)
 				gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 			})
 

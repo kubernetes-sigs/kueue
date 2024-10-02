@@ -729,3 +729,10 @@ func NewTestingLogger(writer io.Writer, level int) logr.Logger {
 		zap.Level(zapcore.Level(level)),
 		opts)
 }
+
+// WaitForNextSecondAfterCreation wait time between the start of the next second
+// after creationTimestamp and the current time to ensure that the new
+// created object has a later creation time.
+func WaitForNextSecondAfterCreation(obj client.Object) {
+	time.Sleep(time.Until(obj.GetCreationTimestamp().Add(time.Second)))
+}

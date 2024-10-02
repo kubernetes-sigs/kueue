@@ -18,7 +18,6 @@ package scheduler
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -167,10 +166,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			gomega.Expect(k8sClient.Create(ctx, wl3)).To(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
-
-			ginkgo.By("Waiting one second, to ensure that the new workload has a later creation time")
-			time.Sleep(time.Second)
-
+			util.WaitForNextSecondAfterCreation(wl3)
 			ginkgo.By("Creating a new Workload")
 			wl4 := testing.MakeWorkload("wl-4", ns.Name).
 				Queue(q.Name).
