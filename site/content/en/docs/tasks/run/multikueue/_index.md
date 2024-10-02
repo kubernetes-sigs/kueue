@@ -1,6 +1,6 @@
 ---
-title: "Multi-cluster Job dispatching"
-linkTitle: "MultiKueue"
+title: "Multi-Cluster Job dispatching"
+linkTitle: "Multi-Cluster"
 weight: 8
 date: 2024-09-25
 description: >

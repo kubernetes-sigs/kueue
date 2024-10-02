@@ -1,5 +1,5 @@
 ---
-title: "Run Kubeflow Jobs in MultiKueue"
+title: "Run Kubeflow Jobs in Multi-Cluster"
 linkTitle: "Kubeflow"
 weight: 2
 date: 2024-09-25
@@ -17,9 +17,9 @@ For the ease of setup and use we recommend using at least Kueue v0.8.1.
 The use of the feature is limited only to latest version of [Kubeflow Training Operator](https://github.com/kubeflow/training-operator).
 None of the released version of the training-operator supports the JobManagedBy feature.
 
-In order to install latest version run:
+In order to install the least version containing the feature run:
 ```bash
-kubectl apply -k "github.com/kubeflow/training-operator.git/manifests/overlays/standalone?ref=master"
+kubectl apply -k "github.com/kubeflow/training-operator.git/manifests/overlays/standalone?ref=d8b8b347ae33cbfd32bf5df81797d2d715724e87"
 ```
 For more details see [this](https://www.kubeflow.org/docs/components/training/installation/#installing-the-training-operator)
 {{% /alert %}}
