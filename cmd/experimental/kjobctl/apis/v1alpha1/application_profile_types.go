@@ -62,6 +62,7 @@ const (
 	NTasksFlag      Flag = "ntasks"
 	OutputFlag      Flag = "output"
 	PartitionFlag   Flag = "partition"
+	PriorityFlag    Flag = "priority"
 )
 
 // TemplateReference is the name of the template.
@@ -90,6 +91,7 @@ type TemplateReference string
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('ntasks' in self.requiredFlags) || self.name == 'Slurm'", message="ntasks flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('output' in self.requiredFlags) || self.name == 'Slurm'", message="output flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('partition' in self.requiredFlags) || self.name == 'Slurm'", message="partition flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('priority' in self.requiredFlags) || self.name == 'Slurm'", message="priority flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || !('parallelism' in self.requiredFlags)", message="parallelism flag can't be used on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || !('completions' in self.requiredFlags)", message="completions flag can't be used on Slurm mode"
 type SupportedMode struct {
@@ -119,13 +121,13 @@ type SupportedMode struct {
 	// The cmd flag used only for Interactive, Job, and RayJob.
 	// If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
 	// For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem-per-cpu,
-	// mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue.
+	// mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue, priority.
 	//
 	// cmd and requests values are going to be added only to the first primary container.
 	//
 	// +optional
 	// +listType=set
-	// +kubebuilder:validation:MaxItems=12
+	// +kubebuilder:validation:MaxItems=13
 	RequiredFlags []Flag `json:"requiredFlags,omitempty"`
 }
 
