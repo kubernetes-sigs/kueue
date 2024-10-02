@@ -734,5 +734,5 @@ func NewTestingLogger(writer io.Writer, level int) logr.Logger {
 // after creationTimestamp and the current time to ensure that the new
 // created object has a later creation time.
 func WaitForNextSecondAfterCreation(obj client.Object) {
-	time.Sleep(time.Until(obj.GetCreationTimestamp().Add(time.Second).Truncate(time.Second)))
+	time.Sleep(time.Until(obj.GetCreationTimestamp().Add(time.Second)))
 }
