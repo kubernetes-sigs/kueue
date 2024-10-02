@@ -124,6 +124,10 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 	spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 	gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
+	defer func() {
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
+	}()
 	clusterQueue := testing.MakeClusterQueue("cluster-queue").
 		ResourceGroup(
 			*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
