@@ -386,14 +386,14 @@ const Retain ResourceTransformationStrategy = "Retain"
 const Replace ResourceTransformationStrategy = "Replace"
 
 type ResourceTransformation struct {
-	// Name of the input resource
+	// Input is the name of the input resource.
 	Input corev1.ResourceName `json:"input"`
 
-	// Whether the input resource should be replaced or retained
-	// +kubebuilder:default="Retain"
+	// Strategy specifies if the input resource should be replaced or retained.
+	// +kubebuilder:validation:Required
 	Strategy ResourceTransformationStrategy `json:"strategy"`
 
-	// Output resources and quantities per unit of input resource
+	// Outputs specifies the output resources and quantities per unit of input resource.
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
 }
 

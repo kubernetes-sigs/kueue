@@ -1584,8 +1584,8 @@ func (in *WorkloadStatus) DeepCopyInto(out *WorkloadStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.DesiredResources != nil {
-		in, out := &in.DesiredResources, &out.DesiredResources
+	if in.ResourceRequests != nil {
+		in, out := &in.ResourceRequests, &out.ResourceRequests
 		*out = make([]PodSetRequest, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])

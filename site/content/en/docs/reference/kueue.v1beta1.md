@@ -1699,7 +1699,7 @@ annotation.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
 <td>
-   <p>resources is the total resources all the pods in the podset need to run.</p>
+   <p>Resources is the total resources all the pods in the podset need to run.</p>
 <p>Beside what is provided in podSet's specs, this value also takes into account
 the LimitRange defaults and RuntimeClass overheads at the moment of consideration
 and the application of resource.excludeResourcePrefixes and resource.transformations.</p>
@@ -2365,14 +2365,14 @@ the resource reservation is no longer needed.</p>
    <p>admissionChecks list all the admission checks required by the workload and the current status</p>
 </td>
 </tr>
-<tr><td><code>desiredResources</code><br/>
+<tr><td><code>resourceRequests</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-PodSetRequest"><code>[]PodSetRequest</code></a>
 </td>
 <td>
-   <p>desiredResources provides a detailed view of the resources that were
+   <p>ResourceRequests provides a detailed view of the resources that were
 requested by a non-admitted workload when it was considered for admission.
-If admission is non-null, desiredResouces will be empty because
-admission.resourceUsgae contains the detailed information.</p>
+If admission is non-null, resourceRequests will be empty because
+admission.resourceUsage contains the detailed information.</p>
 </td>
 </tr>
 </tbody>
