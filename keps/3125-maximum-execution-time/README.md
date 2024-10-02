@@ -100,9 +100,9 @@ Add a optional filed to hold the
 type WorkloadStatus struct {
 	// ...
 
-	// AccumulatedExecutionTime holds the total duration the workload spent in Admitted state
+	// AccumulatedPastAdmittedTime holds the total duration the workload spent in Admitted state
 	// in the previous `Admit` - `Evict` cycles.
-	AccumulatedExecutionTime metav1.Duration `json:"maximumExecutionTime,omitempty"`
+	AccumulatedPastAdmittedTime metav1.Duration `json:"AccumulatedPastAdmittedTime,omitempty"`
 }
 
 ```
@@ -116,10 +116,10 @@ Define a new constant holding the new label name `kueue.x-k8s.io/max-exec-time-s
 #### Workload
 During reconcile:
 
-- When a workload transitions out of `Admitted` state, add the time spent in its `status.AccumulatedExecutionTime`
+- When a workload transitions out of `Admitted` state, add the time spent in its `status.AccumulatedPastAdmittedTime`
 ```go
 cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-wl.Status.AccumulatedExecutionTime += wl.Spec.MaximumExecutionTime.Duration -
+wl.Status.AccumulatedPastAdmittedTime += wl.Spec.MaximumExecutionTime.Duration -
     time.Now().Sub(cond.LastTransitionTime.Time)
 ```
 - When the workload is admitted and a maximum execution time is specified compute the remaining execution execution time as:
@@ -127,13 +127,13 @@ wl.Status.AccumulatedExecutionTime += wl.Spec.MaximumExecutionTime.Duration -
 if wl.Spec.MaximumExecutionTime != nil {
 	if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted); cond != nil && cond.Status == metav1.ConditionTrue {
 		remainingTime := wl.Spec.MaximumExecutionTime.Duration -
-            wl.Status.AccumulatedExecutionTime -
+            wl.Status.AccumulatedPastAdmittedTime -
             time.Now().Sub(cond.LastTransitionTime.Time)
 	}
 }
 ```
   - If `remainingTime` > 0 , a reconcile request should be queued with a `remainingTime` delay.
-  - If `remainingTime` <= 0 , the workload should be deactivated `wl.spec.Active = *false`.
+  - If `remainingTime` <= 0 , the workload should be deactivated `wl.spec.Active = *false`, the `wl.status,AccumulatedPastAdmittedTime` set to 0, and a relevant event recorded.
 
 #### Jobs / Jobframework
 
