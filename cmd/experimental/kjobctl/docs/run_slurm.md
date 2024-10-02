@@ -76,7 +76,7 @@ If an unsupported flag is passed in the script, the command will fail with an er
 
 The following example demonstrates a use case for running a Python script.
 
-See [config/samples](../config/samples) for the full samples used in this section.
+See [config/samples/slurm](../config/samples/slurm/) for the full samples used in this section.
 
 ### 1. Create Slurm Template
 
@@ -124,20 +124,53 @@ kubectl create -f application_profile.yaml
 
 > Note: This setup process, including the creation of the JobTemplate and ApplicationProfile, only needs to be completed once and can be applied to subsequent Python script executions.
 
-### 2. Load the Python Script
+### 2. Prepare the Python Script for the Job
 
-Now that you have created your `JobTemplate` for Slurm, you can make your script available to the pods by mounting a `VolumeBundle`. In the following example, a `ConfigMap` is used to pass the script to be executed.
+Before loading the Python script for use with the pods, it's crucial to consider how the script will be made accessible. 
 
-```yaml 
----
+For the purposes of this tutorial, we'll utilize a ConfigMap to store and pass the Python script. While this method simplifies the setup and is suitable for demonstration purposes, for a scalable setup, using NFS or a similar shared file system is necessary.
+
+#### Creating a ConfigMap with Your Python Script
+
+Create a file named `sample_code.py` and add your Python script. For example:
+
+```python
+import time
+
+print('Start at ' + time.strftime('%H:%M:%S'))
+
+print('Sleep for 10 seconds...')
+time.sleep(10)
+
+print('Stop at ' + time.strftime('%H:%M:%S'))
+```
+
+To create a `ConfigMap` from this Python script, save it and then run the following command:
+
+```bash
+kubectl create configmap slurm-code-sample --from-file=sample_code.py
+```
+
+This command packages your script into a `ConfigMap` named `slurm-code-sample`.
+
+### 3. Integrate the Script with a VolumeBundle
+
+With your Python script now encapsulated in a `ConfigMap`, the next step is to make it accessible to your Slurm pods through a `VolumeBundle`.
+
+#### Creating a VolumeBundle
+
+Define a `VolumeBundle` object to specify how the containers should mount the volumes containing your script:
+
+```yaml
 apiVersion: kjobctl.x-k8s.io/v1alpha1
 kind: VolumeBundle
 metadata:
   name: slurm-volume-bundle
+  namespace: default
 spec:
   volumes:
-  - name: slurm-code-sample
-    configMap:
+    - name: slurm-code-sample
+      configMap:
         name: slurm-code-sample
         items:
           - key: sample_code.py
@@ -148,30 +181,17 @@ spec:
   envVars:
     - name: ENTRYPOINT_PATH
       value: /home/slurm/samples
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: slurm-code-sample
-data:
-  sample_code.py: |
-    import time
-
-    print('Start at ' + time.strftime('%H:%M:%S'))
-
-    print('Sleep for 10 seconds...')
-    time.sleep(10)
-
-    print('Stop at ' + time.strftime('%H:%M:%S'))
 ```
 
-To create the `VolumeBundle`, save the file as `slurm_volume_bundle.yaml` and run:
+Save this definition as a file named `slurm_volume_bundle.yaml`. And then, apply this configuration to your Kubernetes cluster by running:
 
 ```bash
 kubectl create -f slurm_volume_bundle.yaml
 ```
 
-### 3. Submit Job
+This setup mounts the `ConfigMap` as a volume at `/home/slurm/samples` on the pods, making your Python script readily accessible to be executed as part of your Slurm job.
+
+### 4. Submit Job
 
 After setting up the `ApplicationProfile` and `VolumeBundle`, you're ready to run tasks using your template. To submit a job, you need to pass a batch script to the `create slurm` command. You can run your script with custom configurations by the supported options via the `#SBATCH` directive or flags.
 
