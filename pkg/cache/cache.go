@@ -78,10 +78,10 @@ func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	}
 }
 
-// WithResourceMappings sets the resource transformer
-func WithResourceMappings(transforms []config.ResourceTransformation) Option {
+// WithResourceTransformations sets the resource transformations.
+func WithResourceTransformations(transforms []config.ResourceTransformation) Option {
 	return func(o *options) {
-		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithResourceMappings(transforms))
+		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithResourceTransformations(transforms))
 	}
 }
 

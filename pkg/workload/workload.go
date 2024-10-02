@@ -98,8 +98,8 @@ func WithExcludedResourcePrefixes(n []string) InfoOption {
 	}
 }
 
-// WithResourceMappings sets the resource mappings
-func WithResourceMappings(transforms []config.ResourceTransformation) InfoOption {
+// WithResourceTransformations sets the resource transformations.
+func WithResourceTransformations(transforms []config.ResourceTransformation) InfoOption {
 	return func(o *InfoOptions) {
 		o.resourceTransformations = utilslices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
 	}
@@ -243,7 +243,7 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func applyResourceMappings(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
+func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
 	match := false
 	for resourceName := range input {
 		if _, ok := transforms[resourceName]; ok {
@@ -330,7 +330,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		}
 		specRequests := limitrange.TotalRequests(&ps.Template.Spec)
 		filteredRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
-		effectiveRequests := applyResourceMappings(filteredRequests, info.resourceTransformations)
+		effectiveRequests := applyResourceTransformations(filteredRequests, info.resourceTransformations)
 		setRes.Requests = resources.NewRequests(effectiveRequests)
 		scaleUp(setRes.Requests, int64(count))
 		res = append(res, setRes)
