@@ -37,14 +37,14 @@ If you want to directly access the Visibility API with a http client like
 `curl` or `wget`, or a browser, there are multiple ways you can locate and 
 authenticate against the Visibility API server:
 
-#### Using kubectl proxy
+#### (Recommended) Using kubectl proxy
 
-Run kubectl in proxy mode (recommended). This method is recommended, since it uses 
+Run kubectl in proxy mode. This method is recommended, since it uses 
 the stored API server location and verifies the identity of the API server using 
 a self-signed certificate. No man-in-the-middle (MITM) attack is possible using 
 this method. 
 
-For more details, see [here](https://kubernetes.io/docs/tasks/administer-cluster/access-cluster-api/#using-kubectl-proxy).
+For more details, see [kubectl documentation](https://kubernetes.io/docs/tasks/administer-cluster/access-cluster-api/#using-kubectl-proxy).
 
 #### Without kubectl proxy
 
@@ -52,9 +52,9 @@ Alternatively, you can provide the location and credentials directly to the http
 This works with client code that is confused by proxies. To protect against man in 
 the middle attacks, you'll need to import a root cert into your browser.
 
-For more details, see [here](https://kubernetes.io/docs/tasks/administer-cluster/access-cluster-api/#without-kubectl-proxy).
+For more details, see [kubectl documentation](https://kubernetes.io/docs/tasks/administer-cluster/access-cluster-api/#without-kubectl-proxy).
 
-You then need to create `ClusterRole` and `ClusterRoleBinding` for that same account
+You then need to create `ClusterRole` and `ClusterRoleBinding` for that same (default) k8s service account
 
 {{< include "examples/visibility/cluster-role-and-binding.yaml" "yaml" >}}
 
