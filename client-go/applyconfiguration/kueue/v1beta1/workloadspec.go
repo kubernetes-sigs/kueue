@@ -17,15 +17,20 @@ limitations under the License.
 
 package v1beta1
 
+import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 // WorkloadSpecApplyConfiguration represents a declarative configuration of the WorkloadSpec type for use
 // with apply.
 type WorkloadSpecApplyConfiguration struct {
-	PodSets             []PodSetApplyConfiguration `json:"podSets,omitempty"`
-	QueueName           *string                    `json:"queueName,omitempty"`
-	PriorityClassName   *string                    `json:"priorityClassName,omitempty"`
-	Priority            *int32                     `json:"priority,omitempty"`
-	PriorityClassSource *string                    `json:"priorityClassSource,omitempty"`
-	Active              *bool                      `json:"active,omitempty"`
+	PodSets              []PodSetApplyConfiguration `json:"podSets,omitempty"`
+	QueueName            *string                    `json:"queueName,omitempty"`
+	PriorityClassName    *string                    `json:"priorityClassName,omitempty"`
+	Priority             *int32                     `json:"priority,omitempty"`
+	PriorityClassSource  *string                    `json:"priorityClassSource,omitempty"`
+	Active               *bool                      `json:"active,omitempty"`
+	MaximumExecutionTime *v1.Duration               `json:"maximumExecutionTime,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -84,5 +89,13 @@ func (b *WorkloadSpecApplyConfiguration) WithPriorityClassSource(value string) *
 // If called multiple times, the Active field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithActive(value bool) *WorkloadSpecApplyConfiguration {
 	b.Active = &value
+	return b
+}
+
+// WithMaximumExecutionTime sets the MaximumExecutionTime field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaximumExecutionTime field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithMaximumExecutionTime(value v1.Duration) *WorkloadSpecApplyConfiguration {
+	b.MaximumExecutionTime = &value
 	return b
 }
