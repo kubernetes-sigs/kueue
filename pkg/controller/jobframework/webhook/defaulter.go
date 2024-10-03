@@ -18,10 +18,15 @@ package webhook
 
 import (
 	"context"
+	"net/http"
+	"regexp"
+	"strings"
 
-	jsonpatch "gomodules.xyz/jsonpatch/v2"
+	"gomodules.xyz/jsonpatch/v2"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	"sigs.k8s.io/json"
 )
 
 // WithLosslessDefaulter creates a new Handler for a CustomDefaulter interface that **drops** remove operations,
@@ -29,11 +34,13 @@ import (
 func WithLosslessDefaulter(scheme *runtime.Scheme, obj runtime.Object, defaulter admission.CustomDefaulter) admission.Handler {
 	return &losslessDefaulter{
 		Handler: admission.WithCustomDefaulter(scheme, obj, defaulter).Handler,
+		object:  obj,
 	}
 }
 
 type losslessDefaulter struct {
 	admission.Handler
+	object runtime.Object
 }
 
 // Handle handles admission requests, **dropping** remove operations from patches produced by controller-runtime.
@@ -45,9 +52,14 @@ type losslessDefaulter struct {
 func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) admission.Response {
 	response := h.Handler.Handle(ctx, req)
 	if response.Allowed {
+		unknownPaths, err := h.getUnknownPaths(req.Object.Raw)
+		if err != nil {
+			return admission.Errored(http.StatusInternalServerError, err)
+		}
+
 		var patches []jsonpatch.Operation
 		for _, p := range response.Patches {
-			if p.Operation != "remove" {
+			if p.Operation != "remove" || !unknownPaths.Has(convertToFieldErrorPath(p.Path)) {
 				patches = append(patches, p)
 			}
 		}
@@ -57,4 +69,33 @@ func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) a
 		response.Patches = patches
 	}
 	return response
+}
+
+// getUnknownPaths returns a list of unknown paths.
+func (h *losslessDefaulter) getUnknownPaths(raw []byte) (sets.Set[string], error) {
+	obj := h.object.DeepCopyObject()
+	strictErrors, err := json.UnmarshalStrict(raw, obj, json.DisallowUnknownFields)
+	if err != nil {
+		return nil, err
+	}
+	paths := sets.New[string]()
+	for _, err := range strictErrors {
+		paths.Insert(err.(json.FieldError).FieldPath())
+	}
+	return paths, nil
+}
+
+// convertToFieldErrorPath converts the given path into the FieldError path.
+func convertToFieldErrorPath(path string) string {
+	// Replace /foo/bar to foo/bar
+	path, _ = strings.CutPrefix(path, "/")
+	// Replace foo/0 to foo[0]
+	re := regexp.MustCompile(`\/(\d+)$`)
+	path = re.ReplaceAllString(path, `[$1]`)
+	// Replace foo/1/bar to foo[1].bar
+	re = regexp.MustCompile(`\/(\d+)\/`)
+	path = re.ReplaceAllString(path, `[$1].`)
+	// Replace foo/bar to foo.bar
+	path = strings.ReplaceAll(path, "/", ".")
+	return path
 }

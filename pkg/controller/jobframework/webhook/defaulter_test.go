@@ -21,11 +21,13 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	jsonpatch "gomodules.xyz/jsonpatch/v2"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"gomodules.xyz/jsonpatch/v2"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -36,7 +38,20 @@ var (
 )
 
 type TestResource struct {
-	Foo string `json:"foo,omitempty"`
+	Foo string   `json:"foo,omitempty"`
+	Bar string   `json:"bar,omitempty"`
+	Baz []string `json:"baz,omitempty"`
+
+	Labels     map[string]string  `json:"labels,omitempty"`
+	Finalizers []string           `json:"finalizers,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	SubResource TestSubResource `json:"subresource"`
+}
+
+type TestSubResource struct {
+	Foo string  `json:"foo"`
+	Bar *string `json:"bar"`
 }
 
 func (d *TestResource) GetObjectKind() schema.ObjectKind { return d }
@@ -57,8 +72,45 @@ type TestCustomDefaulter struct{}
 func (*TestCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
 	d := obj.(*TestResource)
 	if d.Foo == "" {
-		d.Foo = "bar"
+		d.Foo = "foo"
 	}
+	if d.Bar == "bar" {
+		d.Bar = ""
+	}
+	if len(d.Baz) > 0 {
+		d.Baz = nil
+	}
+
+	if d.Labels != nil {
+		delete(d.Labels, "foo")
+	}
+	if len(d.Finalizers) > 0 {
+		finalizers := make([]string, 0, len(d.Finalizers))
+		for _, val := range d.Finalizers {
+			if val != "foo" {
+				finalizers = append(finalizers, val)
+			}
+		}
+		d.Finalizers = finalizers
+	}
+	if len(d.Conditions) > 0 {
+		conditions := make([]metav1.Condition, 0, len(d.Conditions))
+		for _, cond := range d.Conditions {
+			if cond.Type == "foo" {
+				cond.ObservedGeneration = 0
+				conditions = append(conditions, cond)
+			}
+		}
+		d.Conditions = conditions
+	}
+
+	if d.SubResource.Foo == "foo" {
+		d.SubResource.Foo = ""
+	}
+	if ptr.Deref(d.SubResource.Bar, "") == "bar" {
+		d.SubResource.Bar = nil
+	}
+
 	return nil
 }
 
@@ -78,7 +130,19 @@ func TestLossLessDefaulter(t *testing.T) {
 			Object: runtime.RawExtension{
 				// This raw object has a field not defined in the go type.
 				// controller-runtime CustomDefaulter would have added a remove operation for it.
-				Raw: []byte(`{"baz": "qux"}`),
+				Raw: []byte(`{
+	"invalid1": "invalid",
+	"invalid2": ["invalid"],
+	"bar": "bar", 
+	"baz": ["foo"],
+	"finalizers": ["foo","bar"],
+	"labels": {"foo": "foo", "bar": "bar", "invalid": "invalid"},
+	"subresource": {"invalid1": "invalid", "invalid2": ["invalid"], "foo": "foo", "bar": "bar"},
+	"conditions": [
+		{"type": "foo", "message": "foo", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1, "invalid": "invalid"}, 
+		{"type": "bar", "message": "bar", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1, "invalid": "invalid"}
+	]
+}`),
 			},
 		},
 	}
@@ -87,13 +151,68 @@ func TestLossLessDefaulter(t *testing.T) {
 		t.Errorf("Response not allowed")
 	}
 	wantPatches := []jsonpatch.Operation{
-		{
-			Operation: "add",
-			Path:      "/foo",
-			Value:     "bar",
+		{Operation: "add", Path: "/foo", Value: "foo"},
+		{Operation: "remove", Path: "/bar"},
+		{Operation: "remove", Path: "/baz"},
+		{Operation: "replace", Path: "/finalizers/0", Value: "bar"},
+		{Operation: "remove", Path: "/finalizers/1"},
+		{Operation: "remove", Path: "/labels/foo"},
+		{Operation: "replace", Path: "/subresource/foo", Value: ""},
+		{Operation: "replace", Path: "/subresource/bar"},
+		{Operation: "remove", Path: "/conditions/0/observedGeneration"},
+		{Operation: "remove", Path: "/conditions/1"},
+	}
+	if diff := cmp.Diff(wantPatches, resp.Patches, cmpopts.SortSlices(func(a, b jsonpatch.Operation) bool {
+		return a.Path < b.Path
+	})); diff != "" {
+		t.Errorf("Unexpected patches (-want, +got): %s", diff)
+	}
+}
+
+func TestConvertToFieldErrorPath(t *testing.T) {
+	testCases := map[string]struct {
+		path     string
+		wantPath string
+	}{
+		"empty": {
+			path:     "",
+			wantPath: "",
+		},
+		"with slash": {
+			path:     "/",
+			wantPath: "",
+		},
+		"with one token": {
+			path:     "/foo",
+			wantPath: "foo",
+		},
+		"with two tokens": {
+			path:     "/foo/bar",
+			wantPath: "foo.bar",
+		},
+		"with element": {
+			path:     "/foo/0",
+			wantPath: "foo[0]",
+		},
+		"with field in array": {
+			path:     "/foo/0/bar",
+			wantPath: "foo[0].bar",
+		},
+		"with field in array deep": {
+			path:     "/foo/1/bar/10/baz",
+			wantPath: "foo[1].bar[10].baz",
+		},
+		"with field in array deep and element": {
+			path:     "/foo/1/bar/10/baz/0",
+			wantPath: "foo[1].bar[10].baz[0]",
 		},
 	}
-	if diff := cmp.Diff(wantPatches, resp.Patches); diff != "" {
-		t.Errorf("Unexpected patches (-want, +got): %s", diff)
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotPath := convertToFieldErrorPath(tc.path)
+			if diff := cmp.Diff(tc.wantPath, gotPath); diff != "" {
+				t.Errorf("Unexpected path (-want, +got): %s", diff)
+			}
+		})
 	}
 }
