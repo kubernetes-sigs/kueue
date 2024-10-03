@@ -699,7 +699,7 @@ func TestCreateCmd(t *testing.T) {
 			beforeTest: beforeSlurmTest,
 			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
-				return []string{"slurm", "--profile", "profile", "--", tc.tempFile}
+				return []string{"slurm", "--profile", "profile", "--", "--cpus-per-task", "2", tc.tempFile}
 			},
 			kjobctlObjs: []runtime.Object{
 				wrappers.MakeJobTemplate("slurm-job-template", metav1.NamespaceDefault).
@@ -733,6 +733,7 @@ func TestCreateCmd(t *testing.T) {
 								Command("bash", "/slurm/scripts/entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
+								WithRequest(corev1.ResourceCPU, resource.MustParse("2")).
 								Obj()).
 							WithVolume(corev1.Volume{
 								Name: "slurm-scripts",
@@ -821,14 +822,14 @@ SLURM_ARRAY_TASK_COUNT=1
 SLURM_ARRAY_TASK_MAX=0
 SLURM_ARRAY_TASK_MIN=0
 SLURM_TASKS_PER_NODE=1
-SLURM_CPUS_PER_TASK=
-SLURM_CPUS_ON_NODE=
-SLURM_JOB_CPUS_PER_NODE=
+SLURM_CPUS_PER_TASK=2
+SLURM_CPUS_ON_NODE=2
+SLURM_JOB_CPUS_PER_NODE=2
 SLURM_CPUS_PER_GPU=
 SLURM_MEM_PER_CPU=
 SLURM_MEM_PER_GPU=
 SLURM_MEM_PER_NODE=
-SLURM_GPUS=0
+SLURM_GPUS=
 SLURM_NTASKS=1
 SLURM_NTASKS_PER_NODE=1
 SLURM_NPROCS=1
@@ -1094,7 +1095,7 @@ SLURM_CPUS_PER_GPU=
 SLURM_MEM_PER_CPU=
 SLURM_MEM_PER_GPU=
 SLURM_MEM_PER_NODE=
-SLURM_GPUS=0
+SLURM_GPUS=
 SLURM_NTASKS=3
 SLURM_NTASKS_PER_NODE=3
 SLURM_NPROCS=3

@@ -112,7 +112,7 @@ type slurmBuilder struct {
 	cpusOnNode      *resource.Quantity
 	cpusPerGpu      *resource.Quantity
 	totalMemPerNode *resource.Quantity
-	totalGpus       int32
+	totalGpus       *resource.Quantity
 }
 
 var _ builder = (*slurmBuilder)(nil)
@@ -244,26 +244,6 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		job.Labels[kueue.WorkloadPriorityClassLabel] = b.priority
 	}
 
-	envEntrypointScript, err := b.buildInitEntrypointScript()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	entrypointScript, err := b.buildEntrypointScript()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	configMap := &corev1.ConfigMap{
-		TypeMeta:   metav1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
-		ObjectMeta: objectMeta,
-		Data: map[string]string{
-			slurmInitEntrypointFilename: envEntrypointScript,
-			slurmEntrypointFilename:     entrypointScript,
-			slurmScriptFilename:         b.scriptContent,
-		},
-	}
-
 	service := &corev1.Service{
 		TypeMeta:   metav1.TypeMeta{Kind: "Service", APIVersion: "v1"},
 		ObjectMeta: objectMeta,
@@ -282,7 +262,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: configMap.Name,
+						Name: b.objectName,
 					},
 					Items: []corev1.KeyToPath{
 						{
@@ -326,14 +306,12 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		},
 	})
 
-	gpusPerTask, err := resource.ParseQuantity("0")
-	if err != nil {
-		return nil, nil, errors.New("error initializing gpus counter")
-	}
+	var gpusPerTask resource.Quantity
 	for _, number := range b.gpusPerTask {
 		gpusPerTask.Add(*number)
 	}
 
+	var totalCpus, totalGpus, totalMem resource.Quantity
 	for i := range job.Spec.Template.Spec.Containers {
 		container := &job.Spec.Template.Spec.Containers[i]
 
@@ -348,11 +326,13 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 
 		if b.cpusPerTask != nil {
 			requests[corev1.ResourceCPU] = *b.cpusPerTask
+			totalCpus.Add(*b.cpusPerTask)
 		}
 
 		if b.gpusPerTask != nil {
 			for name, number := range b.gpusPerTask {
 				requests[corev1.ResourceName(name)] = *number
+				totalGpus.Add(*number)
 			}
 		}
 
@@ -364,18 +344,21 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 
 		if b.memPerTask != nil {
 			requests[corev1.ResourceMemory] = *b.memPerTask
+			totalMem.Add(*b.memPerTask)
 		}
 
 		if b.memPerCPU != nil && b.cpusPerTask != nil {
 			memPerCPU := *b.memPerCPU
 			memPerCPU.Mul(b.cpusPerTask.Value())
 			requests[corev1.ResourceMemory] = memPerCPU
+			totalMem.Add(memPerCPU)
 		}
 
 		if b.memPerGPU != nil && b.gpusPerTask != nil {
 			memPerGpu := *b.memPerGPU
 			memPerGpu.Mul(gpusPerTask.Value())
 			requests[corev1.ResourceMemory] = memPerGpu
+			totalMem.Add(memPerGpu)
 		}
 
 		if len(requests) > 0 {
@@ -426,25 +409,49 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		job.Spec.Parallelism = b.nodes
 	}
 
-	if b.cpusPerTask != nil {
-		b.cpusOnNode = ptr.To(b.cpusPerTask.DeepCopy())
-		b.cpusOnNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
+	if !totalCpus.IsZero() {
+		b.cpusOnNode = &totalCpus
 	}
 
-	if b.memPerCPU != nil {
-		b.totalMemPerNode = ptr.To(b.memPerCPU.DeepCopy())
-		b.totalMemPerNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
+	if !totalGpus.IsZero() {
+		b.totalGpus = &totalGpus
 	}
 
-	totalGpus := gpusPerTask
-	totalTasks := int64(len(job.Spec.Template.Spec.Containers))
-	totalGpus.Mul(totalTasks)
-	b.totalGpus = int32(totalGpus.Value())
-
-	if b.cpusOnNode != nil && b.totalGpus > 0 {
-		cpusPerGpu := b.cpusOnNode.Value() / int64(b.totalGpus)
-		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, resource.DecimalSI)
+	if b.memPerNode != nil {
+		b.totalMemPerNode = b.memPerNode
+	} else if !totalMem.IsZero() {
+		b.totalMemPerNode = &totalMem
 	}
+
+	if b.cpusOnNode != nil && b.totalGpus != nil && !totalGpus.IsZero() {
+		cpusPerGpu := totalCpus.MilliValue() / totalGpus.MilliValue()
+		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, b.cpusOnNode.Format)
+	}
+
+	envEntrypointScript, err := b.buildInitEntrypointScript()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	entrypointScript, err := b.buildEntrypointScript()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	configMap := &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
+		Data: map[string]string{
+			slurmInitEntrypointFilename: envEntrypointScript,
+			slurmEntrypointFilename:     entrypointScript,
+			slurmScriptFilename:         b.scriptContent,
+		},
+	}
+	configMap.ObjectMeta.GenerateName = ""
+	configMap.ObjectMeta.Name = b.objectName
 
 	return job, []runtime.Object{configMap, service}, nil
 }
@@ -496,7 +503,7 @@ type slurmInitEntrypointScript struct {
 	SlurmMemPerCPU      string
 	SlurmMemPerGPU      string
 	SlurmMemPerNode     string
-	SlurmGPUs           int32
+	SlurmGPUs           string
 	SlurmNTasks         int32
 	SlurmNTasksPerNode  int32
 	SlurmNProcs         int32
@@ -571,7 +578,7 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 		SlurmMemPerCPU:      getValueOrEmpty(b.memPerCPU),
 		SlurmMemPerGPU:      getValueOrEmpty(b.memPerGPU),
 		SlurmMemPerNode:     getValueOrEmpty(b.totalMemPerNode),
-		SlurmGPUs:           b.totalGpus,
+		SlurmGPUs:           getValueOrEmpty(b.totalGpus),
 		SlurmNTasks:         nTasks,
 		SlurmNTasksPerNode:  nTasks,
 		SlurmNProcs:         nTasks,
