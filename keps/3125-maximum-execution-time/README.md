@@ -50,7 +50,8 @@ Introduce a Job agnostic API of setting and enforcing the maximum execution time
 
 ### Non-Goals
 
-Change the behavior of the Kueue's scheduler based on the maximum execution time.
+- Change the behavior of the Kueue's scheduler based on the maximum execution time.
+- Mitigate potential conflicting configurations between `kueue.x-k8s.io/max-exec-time-seconds` and other job specific `activeDeadline` functionalities.
 
 ## Proposal
 
@@ -78,7 +79,7 @@ As a Batch User, I want to have the ability to set a limit on how long my job ca
 
 #### Workload Spec
 
-Add a new optional filed to hold the 
+Add a new optional field to hold the 
 
 ```go
 // WorkloadSpec defines the desired state of Workload
@@ -94,7 +95,7 @@ type WorkloadSpec struct {
 
 #### Workload Status
 
-Add a optional filed to hold the 
+Add a optional field to hold the 
 ```go
 // WorkloadStatus defines the observed state of Workload
 type WorkloadStatus struct {
