@@ -18,12 +18,14 @@ package jobframework
 
 import (
 	"context"
+	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -142,6 +144,20 @@ func QueueNameForObject(object client.Object) string {
 	}
 	// fallback to the annotation (deprecated)
 	return object.GetAnnotations()[constants.QueueAnnotation]
+}
+
+func MaxExecTime(job GenericJob) *int32 {
+	strVal, found := job.Object().GetLabels()[constants.MaxExecTimeSecondsLabel]
+	if !found {
+		return nil
+	}
+
+	v, err := strconv.ParseInt(strVal, 10, 32)
+	if err != nil || v <= 0 {
+		return nil
+	}
+
+	return ptr.To[int32](int32(v))
 }
 
 func workloadPriorityClassName(job GenericJob) string {

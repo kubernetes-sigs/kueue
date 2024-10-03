@@ -900,8 +900,9 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 			Annotations: admissioncheck.FilterProvReqAnnotations(job.Object().GetAnnotations()),
 		},
 		Spec: kueue.WorkloadSpec{
-			PodSets:   podSets,
-			QueueName: QueueName(job),
+			PodSets:                     podSets,
+			QueueName:                   QueueName(job),
+			MaximumExecutionTimeSeconds: MaxExecTime(job),
 		},
 	}
 	if wl.Labels == nil {

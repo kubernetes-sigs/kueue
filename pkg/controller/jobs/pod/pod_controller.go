@@ -972,7 +972,8 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 			Annotations: admissioncheck.FilterProvReqAnnotations(p.pod.GetAnnotations()),
 		},
 		Spec: kueue.WorkloadSpec{
-			QueueName: jobframework.QueueName(p),
+			QueueName:                   jobframework.QueueName(p),
+			MaximumExecutionTimeSeconds: jobframework.MaxExecTime(p),
 		},
 	}
 
