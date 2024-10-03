@@ -622,6 +622,60 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"workload is composed and created for the pod group with fast admission": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+					Group("test-group").
+					GroupTotalCount("3").
+					Annotation(GroupFastAdmissionAnnotation, "true").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				// Other pods are created on second reconcile
+				*basePodWrapper.
+					Clone().
+					Label(constants.ManagedByKueueLabel, "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
+					Annotation("invalid-provreq-prefix/test-annotation-2", "test-val-2").
+					Group("test-group").
+					GroupTotalCount("3").
+					Annotation(GroupFastAdmissionAnnotation, "true").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("dc85db45", 3).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							Obj(),
+					).
+					Queue("user-queue").
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Annotations(map[string]string{
+						"kueue.x-k8s.io/is-group-workload":                           "true",
+						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
 		"workload is found for the pod group": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
