@@ -237,6 +237,15 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath, nil, ""),
 			},
 		},
+
+		"valid maximum execution time": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).MaximumExecutionTime(time.Microsecond).Obj(),
+		},
+
+		"invalid maximum execution time": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).MaximumExecutionTime(0).Obj(),
+			wantErr:  field.ErrorList{field.Invalid(specPath.Child("maximumExecutionTime"), 0, "")},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -391,6 +400,28 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 				State:              kueue.CheckStateReady,
 			}).Obj(),
+		},
+		"can add maximum execution time when not admitted": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			after:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).MaximumExecutionTime(time.Second).Obj(),
+		},
+		"can update maximum execution time when not admitted": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).MaximumExecutionTime(2 * time.Second).Obj(),
+			after:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).MaximumExecutionTime(time.Second).Obj(),
+		},
+		"cannot add maximum execution time when admitted": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Admitted(true).
+				MaximumExecutionTime(time.Second).Obj(),
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec", "maximumExecutionTime"), metav1.Duration{Duration: time.Second}, "")},
+		},
+		"cannot update maximum execution time when admitted": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).MaximumExecutionTime(2 * time.Second).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Admitted(true).
+				MaximumExecutionTime(time.Second).Obj(),
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec", "maximumExecutionTime"), metav1.Duration{Duration: time.Second}, "")},
 		},
 	}
 	for name, tc := range testCases {

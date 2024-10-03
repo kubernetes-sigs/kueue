@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -111,6 +112,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	if variableCountPodSets > 1 {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
+	allErrs = append(allErrs, validateMaximumExecutionTime(obj.Spec.MaximumExecutionTime, specPath.Child("maximumExecutionTime"))...)
 
 	statusPath := field.NewPath("status")
 	if workload.HasQuotaReservation(obj) {
@@ -181,6 +183,13 @@ func validatePodSetUpdates(acs *kueue.AdmissionCheckState, obj *kueue.Workload, 
 		allErrs = append(allErrs, metav1validation.ValidateLabels(psu.Labels, psuPath.Child("labels"))...)
 	}
 	return allErrs
+}
+
+func validateMaximumExecutionTime(met *metav1.Duration, path *field.Path) field.ErrorList {
+	if met != nil && met.Duration <= 0 {
+		return field.ErrorList{field.Invalid(path, *met, "should be grater then 0 if specified")}
+	}
+	return nil
 }
 
 func validateImmutablePodSetUpdates(newObj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
@@ -275,6 +284,8 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	if workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
 	}
+	allErrs = append(allErrs, validateMaximumExecutionTimeUpdate(newObj, oldObj, specPath.Child("maximumExecutionTime"))...)
+
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
@@ -330,4 +341,13 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 		}
 	}
 	return ret
+}
+
+func validateMaximumExecutionTimeUpdate(newWl, oldWl *kueue.Workload, path *field.Path) field.ErrorList {
+	admitted := workload.IsAdmitted(oldWl) || workload.IsAdmitted(newWl)
+	changed := ptr.Deref(oldWl.Spec.MaximumExecutionTime, metav1.Duration{}) != ptr.Deref(newWl.Spec.MaximumExecutionTime, metav1.Duration{})
+	if admitted && changed {
+		return apivalidation.ValidateImmutableField(newWl.Spec.MaximumExecutionTime, oldWl.Spec.MaximumExecutionTime, path)
+	}
+	return nil
 }
