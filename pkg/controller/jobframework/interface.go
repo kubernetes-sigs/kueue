@@ -18,6 +18,8 @@ package jobframework
 
 import (
 	"context"
+	"strconv"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -142,6 +144,20 @@ func QueueNameForObject(object client.Object) string {
 	}
 	// fallback to the annotation (deprecated)
 	return object.GetAnnotations()[constants.QueueAnnotation]
+}
+
+func MaxExecTime(job GenericJob) *metav1.Duration {
+	strVal, found := job.Object().GetLabels()[constants.MaxExecTimeSecondsLabel]
+	if !found {
+		return nil
+	}
+
+	v, err := strconv.Atoi(strVal)
+	if err != nil || v <= 0 {
+		return nil
+	}
+
+	return &metav1.Duration{Duration: time.Duration(v) * time.Second}
 }
 
 func workloadPriorityClassName(job GenericJob) string {
