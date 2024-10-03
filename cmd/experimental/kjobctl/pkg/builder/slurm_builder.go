@@ -560,6 +560,7 @@ type slurmEntrypointScript struct {
 	SbatchEnvFilename      string
 	SlurmEnvFilename       string
 	UnmaskFilenameFunction string
+	ChangeDir              string
 	BuildEntrypointCommand string
 }
 
@@ -569,6 +570,7 @@ func (b *slurmBuilder) buildEntrypointScript() (string, error) {
 		SbatchEnvFilename:      slurmSbatchEnvFilename,
 		SlurmEnvFilename:       slurmSlurmEnvFilename,
 		UnmaskFilenameFunction: unmaskFilenameFunction,
+		ChangeDir:              b.changeDir,
 		BuildEntrypointCommand: b.buildEntrypointCommand(),
 	}
 

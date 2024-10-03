@@ -59,6 +59,7 @@ const (
 	initImageFlagName                = "init-image"
 	skipLocalQueueValidationFlagName = "skip-localqueue-validation"
 	skipPriorityValidationFlagName   = "skip-priority-validation"
+	changeDirFlagName                = "chdir"
 
 	commandFlagName     = string(v1alpha1.CmdFlag)
 	parallelismFlagName = string(v1alpha1.ParallelismFlag)
@@ -162,6 +163,7 @@ type CreateOptions struct {
 	InitImage            string
 	PodRunningTimeout    time.Duration
 	RemoveInteractivePod bool
+	ChangeDir            string
 
 	SlurmFlagSet *pflag.FlagSet
 
@@ -383,6 +385,8 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"Local queue name.")
 			o.SlurmFlagSet.StringVar(&o.Priority, priorityFlagName, "",
 				"Apply priority for the entire workload.")
+			o.SlurmFlagSet.StringVarP(&o.ChangeDir, changeDirFlagName, "D", "",
+				"Change directory before executing the script.")
 		},
 	},
 }
@@ -623,6 +627,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithIgnoreUnknown(o.IgnoreUnknown).
 		WithSkipLocalQueueValidation(o.SkipLocalQueueValidation).
 		WithSkipPriorityValidation(o.SkipPriorityValidation).
+		WithChangeDir(o.ChangeDir).
 		Do(ctx)
 	if err != nil {
 		return err

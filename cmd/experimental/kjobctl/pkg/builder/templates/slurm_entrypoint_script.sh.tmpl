@@ -20,5 +20,7 @@ export $(cat {{.EnvsPath}}/$JOB_CONTAINER_INDEX/{{.SlurmEnvFilename}} | xargs)
 input_file=$(unmask_filename "$SBATCH_INPUT")
 output_file=$(unmask_filename "$SBATCH_OUTPUT")
 error_path=$(unmask_filename "$SBATCH_ERROR")
-
+{{if .ChangeDir }}
+cd {{.ChangeDir}}
+{{end}}
 {{.BuildEntrypointCommand}}

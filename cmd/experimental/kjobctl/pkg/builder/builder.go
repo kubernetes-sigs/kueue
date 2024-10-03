@@ -113,6 +113,7 @@ type Builder struct {
 	ignoreUnknown            bool
 	skipLocalQueueValidation bool
 	skipPriorityValidation   bool
+	changeDir                string
 
 	profile       *v1alpha1.ApplicationProfile
 	mode          *v1alpha1.SupportedMode
@@ -267,6 +268,11 @@ func (b *Builder) WithInitImage(initImage string) *Builder {
 
 func (b *Builder) WithIgnoreUnknown(ignoreUnknown bool) *Builder {
 	b.ignoreUnknown = ignoreUnknown
+	return b
+}
+
+func (b *Builder) WithChangeDir(chdir string) *Builder {
+	b.changeDir = chdir
 	return b
 }
 
