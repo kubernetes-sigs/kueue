@@ -175,10 +175,14 @@ func (w *WorkloadWrapper) QuotaReservedTime(t time.Time) *WorkloadWrapper {
 }
 
 func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
+	return w.AdmittedAt(a, time.Now())
+}
+
+func (w *WorkloadWrapper) AdmittedAt(a bool, t time.Time) *WorkloadWrapper {
 	cond := metav1.Condition{
 		Type:               kueue.WorkloadAdmitted,
 		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
+		LastTransitionTime: metav1.NewTime(t),
 		Reason:             "ByTest",
 		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
 	}
@@ -347,6 +351,11 @@ func (w *WorkloadWrapper) RequeueState(count *int32, requeueAt *metav1.Time) *Wo
 
 func (w *WorkloadWrapper) ResourceVersion(v string) *WorkloadWrapper {
 	w.SetResourceVersion(v)
+	return w
+}
+
+func (w *WorkloadWrapper) MaximumExecutionTime(v time.Duration) *WorkloadWrapper {
+	w.Spec.MaximumExecutionTime = ptr.To(metav1.Duration{Duration: v})
 	return w
 }
 
