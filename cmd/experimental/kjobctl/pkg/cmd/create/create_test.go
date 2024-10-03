@@ -1235,7 +1235,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 								Command("bash", "/slurm/scripts/entrypoint.sh").
 								WithResources(corev1.ResourceRequirements{
 									Limits: corev1.ResourceList{
-										corev1.ResourceMemory: resource.MustParse("0.5G"),
+										corev1.ResourceMemory: resource.MustParse("500M"),
 									},
 								}).
 								Obj()).
