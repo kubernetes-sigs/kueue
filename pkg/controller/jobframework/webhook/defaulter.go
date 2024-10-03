@@ -18,8 +18,11 @@ package webhook
 
 import (
 	"context"
+	"reflect"
+	"strconv"
+	"strings"
 
-	jsonpatch "gomodules.xyz/jsonpatch/v2"
+	"gomodules.xyz/jsonpatch/v2"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -29,11 +32,13 @@ import (
 func WithLosslessDefaulter(scheme *runtime.Scheme, obj runtime.Object, defaulter admission.CustomDefaulter) admission.Handler {
 	return &losslessDefaulter{
 		Handler: admission.WithCustomDefaulter(scheme, obj, defaulter).Handler,
+		object:  obj,
 	}
 }
 
 type losslessDefaulter struct {
 	admission.Handler
+	object runtime.Object
 }
 
 // Handle handles admission requests, **dropping** remove operations from patches produced by controller-runtime.
@@ -47,7 +52,7 @@ func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) a
 	if response.Allowed {
 		var patches []jsonpatch.Operation
 		for _, p := range response.Patches {
-			if p.Operation != "remove" {
+			if p.Operation != "remove" || fieldExistsByJSONPath(h.object, p.Path) {
 				patches = append(patches, p)
 			}
 		}
@@ -57,4 +62,71 @@ func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) a
 		response.Patches = patches
 	}
 	return response
+}
+
+func fieldExistsByJSONPath(object interface{}, path string) bool {
+	pathParts := strings.Split(path, "/")
+	// Invalid path. For more information, see https://jsonpatch.com/.
+	if len(pathParts) < 2 || len(pathParts) > 0 && pathParts[0] != "" {
+		return false
+	}
+	return fieldExistsByJSONPathHelper(object, pathParts[1:])
+}
+
+func fieldExistsByJSONPathHelper(object interface{}, pathParts []string) bool {
+	if object == nil {
+		return false
+	}
+
+	t := reflect.TypeOf(object)
+	v := reflect.ValueOf(object)
+
+	if v.Kind() == reflect.Pointer {
+		t = t.Elem()
+		v = v.Elem()
+	}
+
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+
+	for i := 0; i < t.NumField(); i++ {
+		ft := t.Field(i)
+		fv := v.Field(i)
+
+		tag := ft.Tag.Get("json")
+		if tag == "" {
+			tag = ft.Name
+		} else if tagParts := strings.Split(tag, ","); len(tagParts) > 1 {
+			tag = tagParts[0]
+		}
+
+		if tag != pathParts[0] {
+			continue
+		}
+
+		if len(pathParts) == 1 {
+			return true
+		}
+
+		switch fv.Kind() {
+		case reflect.Pointer:
+			return fieldExistsByJSONPathHelper(reflect.New(ft.Type.Elem()).Interface(), pathParts[1:])
+		case reflect.Struct:
+			return fieldExistsByJSONPathHelper(fv.Interface(), pathParts[1:])
+		case reflect.Array, reflect.Slice:
+			if len(pathParts) > 2 && isInt(pathParts[1]) {
+				return fieldExistsByJSONPathHelper(reflect.New(ft.Type.Elem()).Interface(), pathParts[2:])
+			}
+		}
+
+		return false
+	}
+
+	return false
+}
+
+func isInt(v string) bool {
+	_, err := strconv.ParseInt(v, 10, 64)
+	return err == nil
 }
