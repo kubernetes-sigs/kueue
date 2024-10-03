@@ -527,7 +527,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	}
 
 	if o.SlurmFlagSet.Changed(gpusPerTaskFlagName) {
-		gpusPerTask, err := parser.GpusFlag(gpusPerTaskFlagName)
+		gpusPerTask, err := parser.GpusFlag(o.UserSpecifiedGpusPerTask)
 		if err != nil {
 			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedCpusPerTask, err)
 		}
