@@ -121,6 +121,10 @@ func (b *slurmBuilder) validateGeneral(ctx context.Context) error {
 		return noScriptSpecifiedErr
 	}
 
+	if b.memPerCPU != nil && b.cpusPerTask == nil {
+		return noCpusPerTaskSpecifiedErr
+	}
+
 	// check that priority class exists
 	if len(b.priority) != 0 && !b.skipPriorityValidation {
 		_, err := b.kueueClientset.KueueV1beta1().WorkloadPriorityClasses().Get(ctx, b.priority, metav1.GetOptions{})
@@ -364,7 +368,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		}
 
 		if len(requests) > 0 {
-			container.Resources.Requests = b.requests
+			container.Resources.Requests = requests
 		}
 
 		if len(limits) > 0 {

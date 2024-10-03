@@ -1266,6 +1266,98 @@ cd /mydir
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
+		"should create slurm with --mem-per-cpu flag": {
+			beforeTest: beforeSlurmTest,
+			afterTest:  afterSlurmTest,
+			args: func(tc *createCmdTestCase) []string {
+				return []string{
+					"slurm",
+					"--profile", "profile",
+					"--",
+					"--cpus-per-task", "2",
+					"--mem-per-cpu", "500M",
+					tc.tempFile,
+				}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeJobTemplate("slurm-job-template", metav1.NamespaceDefault).
+					WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").Obj()).
+					WithContainer(*wrappers.MakeContainer("c2", "bash:4.4").Obj()).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.SlurmMode, "slurm-job-template").Obj()).
+					Obj(),
+			},
+			gvks: []schema.GroupVersionKind{
+				{Group: "batch", Version: "v1", Kind: "Job"},
+				{Group: "", Version: "v1", Kind: "ConfigMap"},
+			},
+			wantLists: []runtime.Object{
+				&batchv1.JobList{
+					TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
+					Items: []batchv1.Job{
+						*wrappers.MakeJob("", metav1.NamespaceDefault).
+							Completions(1).
+							CompletionMode(batchv1.IndexedCompletion).
+							Profile("profile").
+							Mode(v1alpha1.SlurmMode).
+							WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
+								Command("bash", "/slurm/scripts/entrypoint.sh").
+								WithResources(corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("2"),
+										corev1.ResourceMemory: resource.MustParse("1G"),
+									},
+								}).
+								Obj()).
+							WithContainer(*wrappers.MakeContainer("c2", "bash:4.4").
+								Command("bash", "/slurm/scripts/entrypoint.sh").
+								WithResources(corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("2"),
+										corev1.ResourceMemory: resource.MustParse("1G"),
+									},
+								}).
+								Obj()).
+							Obj(),
+					},
+				},
+				&corev1.ConfigMapList{},
+			},
+			cmpopts: []cmp.Option{
+				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
+				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
+				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers"),
+				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
+				cmpopts.IgnoreTypes([]corev1.Volume{}),
+				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
+				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
+			},
+			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+		},
+		"should return error slurm with --mem-per-cpu flag": {
+			beforeTest: beforeSlurmTest,
+			afterTest:  afterSlurmTest,
+			args: func(tc *createCmdTestCase) []string {
+				return []string{
+					"slurm",
+					"--profile", "profile",
+					"--",
+					"--mem-per-cpu", "500M",
+					tc.tempFile,
+				}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeJobTemplate("slurm-job-template", metav1.NamespaceDefault).
+					WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").Obj()).
+					WithContainer(*wrappers.MakeContainer("c2", "bash:4.4").Obj()).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.SlurmMode, "slurm-job-template").Obj()).
+					Obj(),
+			},
+			wantErr: "no cpus-per-task specified",
+		},
 		"should create slurm with --priority flag": {
 			beforeTest: beforeSlurmTest,
 			afterTest:  afterSlurmTest,
