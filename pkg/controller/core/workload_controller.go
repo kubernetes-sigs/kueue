@@ -275,7 +275,21 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 
-		return r.reconcileNotReadyTimeout(ctx, req, &wl)
+		podsReadyRecheckAfter, err := r.reconcileNotReadyTimeout(ctx, req, &wl)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		maxExecRecheckAfter, err := r.reconcileMaxExecutionTime(ctx, &wl)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// get the minimun non-zero value
+		recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter)
+		if recheckAfter == 0 {
+			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
+		}
+		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	}
 
 	switch {
@@ -322,6 +336,26 @@ func isDisabledRequeuedByLocalQueueStopped(w *kueue.Workload) bool {
 func isDisabledRequeuedByReason(w *kueue.Workload, reason string) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadRequeued)
 	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == reason
+}
+
+// reconcileMaxExecutionTime deactivates the workload if its MaximumExecutionTime exceeded or returns a retry after value.
+func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
+	admittedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	if admittedCondition == nil || admittedCondition.Status != metav1.ConditionTrue || wl.Spec.MaximumExecutionTime == nil {
+		return 0, nil
+	}
+
+	remainingTime := wl.Spec.MaximumExecutionTime.Duration - r.clock.Since(admittedCondition.LastTransitionTime.Time)
+	if remainingTime > 0 {
+		return remainingTime, nil
+	}
+
+	wl.Spec.Active = ptr.To(false)
+	if err := r.client.Update(ctx, wl); err != nil {
+		return 0, err
+	}
+	r.recorder.Eventf(wl, corev1.EventTypeWarning, "MaximumExecutionTimeExceeded", "The maximum execution time (%v) exceeded", wl.Spec.MaximumExecutionTime.Duration)
+	return 0, nil
 }
 
 // reconcileCheckBasedEviction returns true if Workload has been deactivated or evicted
@@ -483,24 +517,24 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionCh
 	return conds, shouldUpdate
 }
 
-func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (ctrl.Result, error) {
+func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	if !workload.IsActive(wl) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 		// the workload has already been evicted by the PodsReadyTimeout or been deactivated.
-		return ctrl.Result{}, nil
+		return 0, nil
 	}
 	countingTowardsTimeout, recheckAfter := r.admittedNotReadyWorkload(wl)
 	if !countingTowardsTimeout {
-		return ctrl.Result{}, nil
+		return 0, nil
 	}
 	if recheckAfter > 0 {
 		log.V(4).Info("Workload not yet ready and did not exceed its timeout", "recheckAfter", recheckAfter)
-		return ctrl.Result{RequeueAfter: recheckAfter}, nil
+		return recheckAfter, nil
 	}
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
 	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		return 0, client.IgnoreNotFound(err)
 	}
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String())
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, message)
@@ -509,7 +543,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
 		workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByPodsReadyTimeout, message)
 	}
-	return ctrl.Result{}, client.IgnoreNotFound(err)
+	return 0, client.IgnoreNotFound(err)
 }
 
 // triggerDeactivationOrBackoffRequeue trigger deactivation of workload
