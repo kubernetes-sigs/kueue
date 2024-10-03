@@ -73,6 +73,7 @@ const (
 	arrayFlagName       = string(v1alpha1.ArrayFlag)
 	cpusPerTaskFlagName = string(v1alpha1.CpusPerTaskFlag)
 	gpusPerTaskFlagName = string(v1alpha1.GpusPerTaskFlag)
+	memPerNodeFlagName  = string(v1alpha1.MemPerNodeFlag)
 	memPerTaskFlagName  = string(v1alpha1.MemPerTaskFlag)
 	memPerCPUFlagName   = string(v1alpha1.MemPerCPUFlag)
 	memPerGPUFlagName   = string(v1alpha1.MemPerGPUFlag)
@@ -179,6 +180,7 @@ type CreateOptions struct {
 	Array                    string
 	CpusPerTask              *apiresource.Quantity
 	GpusPerTask              map[string]*apiresource.Quantity
+	MemPerNode               *apiresource.Quantity
 	MemPerTask               *apiresource.Quantity
 	MemPerCPU                *apiresource.Quantity
 	MemPerGPU                *apiresource.Quantity
@@ -200,6 +202,7 @@ type CreateOptions struct {
 	UserSpecifiedRequest     map[string]string
 	UserSpecifiedCpusPerTask string
 	UserSpecifiedGpusPerTask string
+	UserSpecifiedMemPerNode  string
 	UserSpecifiedMemPerTask  string
 	UserSpecifiedMemPerCPU   string
 	UserSpecifiedMemPerGPU   string
@@ -328,6 +331,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 				" [--array ARRAY]" +
 				" [--cpus-per-task QUANTITY]" +
 				" [--gpus-per-task QUANTITY]" +
+				" [--mem QUANTITY]" +
 				" [--mem-per-task QUANTITY]" +
 				" [--mem-per-cpu QUANTITY]" +
 				" [--mem-per-gpu QUANTITY]" +
@@ -363,6 +367,8 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"How much cpus a container inside a pod requires.")
 			o.SlurmFlagSet.StringVar(&o.UserSpecifiedGpusPerTask, gpusPerTaskFlagName, "",
 				"How much gpus a container inside a pod requires.")
+			o.SlurmFlagSet.StringVar(&o.UserSpecifiedMemPerNode, memPerNodeFlagName, "",
+				"How much memory a pod requires.")
 			o.SlurmFlagSet.StringVar(&o.UserSpecifiedMemPerTask, memPerTaskFlagName, "",
 				"How much memory a container requires.")
 			o.SlurmFlagSet.StringVar(&o.UserSpecifiedMemPerCPU, memPerCPUFlagName, "",
@@ -528,6 +534,14 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 		o.GpusPerTask = gpusPerTask
 	}
 
+	if o.SlurmFlagSet.Changed(memPerNodeFlagName) {
+		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedMemPerNode)
+		if err != nil {
+			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedMemPerNode, err)
+		}
+		o.MemPerNode = &quantity
+	}
+
 	if o.SlurmFlagSet.Changed(memPerTaskFlagName) {
 		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedMemPerTask)
 		if err != nil {
@@ -612,6 +626,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithArray(o.Array).
 		WithCpusPerTask(o.CpusPerTask).
 		WithGpusPerTask(o.GpusPerTask).
+		WithMemPerNode(o.MemPerNode).
 		WithMemPerTask(o.MemPerTask).
 		WithMemPerCPU(o.MemPerCPU).
 		WithMemPerGPU(o.MemPerGPU).

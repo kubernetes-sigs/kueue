@@ -101,6 +101,7 @@ type Builder struct {
 	gpusPerTask              map[string]*resource.Quantity
 	input                    string
 	jobName                  string
+	memPerNode               *resource.Quantity
 	memPerCPU                *resource.Quantity
 	memPerGPU                *resource.Quantity
 	memPerTask               *resource.Quantity
@@ -218,6 +219,11 @@ func (b *Builder) WithInput(input string) *Builder {
 
 func (b *Builder) WithJobName(jobName string) *Builder {
 	b.jobName = jobName
+	return b
+}
+
+func (b *Builder) WithMemPerNode(memPerNode *resource.Quantity) *Builder {
+	b.memPerNode = memPerNode
 	return b
 }
 
