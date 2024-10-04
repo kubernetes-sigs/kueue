@@ -54,6 +54,7 @@ var (
 	labelsPath                    = field.NewPath("metadata", "labels")
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
 	queueNameAnnotationsPath      = annotationsPath.Key(constants.QueueAnnotation)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
@@ -220,6 +221,55 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr:       nil,
 			serverVersion: "1.27.0",
+		},
+		{
+			name: "invalid maximum execution time",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "NaN").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, "NaN", `strconv.Atoi: parsing "NaN": invalid syntax`),
+			},
+			serverVersion: "1.31.0",
+		},
+		{
+			name: "zero maximum execution time",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "0").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, 0, "should be grater then 0"),
+			},
+			serverVersion: "1.31.0",
+		},
+		{
+			name: "negative maximum execution time",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "-10").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, -10, "should be grater then 0"),
+			},
+			serverVersion: "1.31.0",
+		},
+		{
+			name: "valid maximum execution time",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "10").
+				Indexed(true).
+				Obj(),
+			serverVersion: "1.31.0",
 		},
 	}
 
@@ -429,6 +479,33 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
 			},
+		},
+		{
+			name: "immutable max exec time while unsuspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Label(constants.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				Label(constants.MaxExecTimeSecondsLabel, "20").
+				Obj(),
+			wantErr: apivalidation.ValidateImmutableField("20", "10", maxExecTimeLabelPath),
+		},
+		{
+			name: "mutable max exec time while suspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Label(constants.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Parallelism(5).
+				Completions(6).
+				Label(constants.MaxExecTimeSecondsLabel, "20").
+				Obj(),
 		},
 	}
 
