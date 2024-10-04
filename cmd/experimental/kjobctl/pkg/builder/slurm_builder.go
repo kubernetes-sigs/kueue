@@ -399,8 +399,9 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	job.Spec.Parallelism = b.nodes
 
 	if nTasks > 1 {
+		replicatedContainer := job.Spec.Template.Spec.Containers[0]
 		for i := 1; i < int(nTasks); i++ {
-			job.Spec.Template.Spec.Containers = append(job.Spec.Template.Spec.Containers, job.Spec.Template.Spec.Containers[0])
+			job.Spec.Template.Spec.Containers = append(job.Spec.Template.Spec.Containers, replicatedContainer)
 
 			if b.cpusPerTask != nil {
 				totalCpus.Add(*b.cpusPerTask)
@@ -415,9 +416,14 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 			}
 		}
 
-		for i := range nTasks {
+		for i, j := 0, 0; i <= int(nTasks); i++ {
+			if job.Spec.Template.Spec.Containers[i].Name != replicatedContainer.Name {
+				continue
+			}
+
 			job.Spec.Template.Spec.Containers[i].Name =
-				fmt.Sprintf("%s-%d", job.Spec.Template.Spec.Containers[i].Name, i)
+				fmt.Sprintf("%s-%d", job.Spec.Template.Spec.Containers[i].Name, j)
+			j++
 		}
 	}
 
