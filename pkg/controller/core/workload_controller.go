@@ -350,11 +350,13 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		return remainingTime, nil
 	}
 
-	wl.Spec.Active = ptr.To(false)
-	if err := r.client.Update(ctx, wl); err != nil {
-		return 0, err
+	if ptr.Deref(wl.Spec.Active, true) {
+		wl.Spec.Active = ptr.To(false)
+		if err := r.client.Update(ctx, wl); err != nil {
+			return 0, err
+		}
+		r.recorder.Eventf(wl, corev1.EventTypeWarning, "MaximumExecutionTimeExceeded", "The maximum execution time (%v) exceeded", wl.Spec.MaximumExecutionTime.Duration)
 	}
-	r.recorder.Eventf(wl, corev1.EventTypeWarning, "MaximumExecutionTimeExceeded", "The maximum execution time (%v) exceeded", wl.Spec.MaximumExecutionTime.Duration)
 	return 0, nil
 }
 
