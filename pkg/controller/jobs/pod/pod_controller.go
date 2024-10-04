@@ -1107,6 +1107,11 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 		return nil, nil, err
 	}
 
+	defaultDuration := metav1.Duration{Duration: -1}
+	if ptr.Deref(workload.Spec.MaximumExecutionTime, defaultDuration) != ptr.Deref(jobframework.MaxExecTime(p), defaultDuration) {
+		return nil, []*kueue.Workload{workload}, nil
+	}
+
 	// Cleanup excess pods for each workload pod set (role)
 	activePods := p.runnableOrSucceededPods()
 	inactivePods := p.notRunnableNorSucceededPods()
