@@ -18,6 +18,7 @@ package webhook
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -302,7 +303,64 @@ func TestFieldExistsByJSONPath(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotExists := fieldExistsByJSONPath(tc.obj, tc.path)
 			if diff := cmp.Diff(tc.wantExists, gotExists); diff != "" {
-				t.Errorf("Unexpected patches (-want, +got): %s", diff)
+				t.Errorf("Unexpected exists (-want, +got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestGetFieldName(t *testing.T) {
+	testCases := map[string]struct {
+		field    reflect.StructField
+		wantName string
+	}{
+		"empty": {},
+		"with json tag": {
+			field:    reflect.StructField{Name: "Foo", Tag: `json:"foo"`},
+			wantName: "foo",
+		},
+		"without json tag": {
+			field:    reflect.StructField{Name: "Foo", Tag: `foo:"bar"`},
+			wantName: "Foo",
+		},
+		"with json tag and omitempty": {
+			field:    reflect.StructField{Name: "Foo", Tag: `json:"foo,omitempty"`},
+			wantName: "foo",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotName := getFieldName(tc.field)
+			if diff := cmp.Diff(tc.wantName, gotName); diff != "" {
+				t.Errorf("Unexpected field name (-want, +got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestIsInt(t *testing.T) {
+	testCases := map[string]struct {
+		str        string
+		wantResult bool
+	}{
+		"empty": {
+			str:        "123",
+			wantResult: true,
+		},
+		"int": {
+			str:        "123",
+			wantResult: true,
+		},
+		"not int": {
+			str:        "string",
+			wantResult: false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotResult := isInt(tc.str)
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("Unexpected result (-want, +got): %s", diff)
 			}
 		})
 	}

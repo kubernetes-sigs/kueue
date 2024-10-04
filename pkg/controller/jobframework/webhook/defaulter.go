@@ -94,14 +94,7 @@ func fieldExistsByJSONPathHelper(object interface{}, pathParts []string) bool {
 		ft := t.Field(i)
 		fv := v.Field(i)
 
-		tag := ft.Tag.Get("json")
-		if tag == "" {
-			tag = ft.Name
-		} else if tagParts := strings.Split(tag, ","); len(tagParts) > 1 {
-			tag = tagParts[0]
-		}
-
-		if tag != pathParts[0] {
+		if getFieldName(ft) != pathParts[0] {
 			continue
 		}
 
@@ -124,6 +117,18 @@ func fieldExistsByJSONPathHelper(object interface{}, pathParts []string) bool {
 	}
 
 	return false
+}
+
+func getFieldName(fieldType reflect.StructField) string {
+	fieldName := fieldType.Tag.Get("json")
+
+	if fieldName == "" {
+		fieldName = fieldType.Name
+	} else if tagParts := strings.Split(fieldName, ","); len(tagParts) > 1 {
+		fieldName = strings.Trim(tagParts[0], " ")
+	}
+
+	return fieldName
 }
 
 func isInt(v string) bool {
