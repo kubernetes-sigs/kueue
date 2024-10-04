@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -758,6 +759,11 @@ func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	// Indexes don't work in unit tests, so we explicitly check for the
 	// owner here.
 	if owner.Name != job.Object().GetName() {
+		return false
+	}
+
+	defaultDuration := int32(-1)
+	if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(MaxExecTime(job), defaultDuration) {
 		return false
 	}
 

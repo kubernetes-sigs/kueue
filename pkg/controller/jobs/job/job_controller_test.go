@@ -2773,6 +2773,42 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"the maximum execution time is updated in the workload": {
+			job: *baseJobWrapper.Clone().
+				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").
+					MaximumExecutionTimeSeconds(5).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("foo").
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").
+					MaximumExecutionTimeSeconds(10).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("foo").
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: string(baseJobWrapper.GetUID())}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/job",
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

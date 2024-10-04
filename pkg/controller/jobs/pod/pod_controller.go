@@ -1111,6 +1111,11 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 		return nil, nil, err
 	}
 
+	defaultDuration := int32(-1)
+	if ptr.Deref(workload.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(jobframework.MaxExecTime(p), defaultDuration) {
+		return nil, []*kueue.Workload{workload}, nil
+	}
+
 	// Cleanup excess pods for each workload pod set (role)
 	activePods := p.runnableOrSucceededPods()
 	inactivePods := p.notRunnableNorSucceededPods()
