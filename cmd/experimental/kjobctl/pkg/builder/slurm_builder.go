@@ -125,6 +125,10 @@ func (b *slurmBuilder) validateGeneral(ctx context.Context) error {
 		return noCpusPerTaskSpecifiedErr
 	}
 
+	if b.memPerGPU != nil && b.gpusPerTask == nil {
+		return noGpusPerTaskSpecifiedErr
+	}
+
 	// check that priority class exists
 	if len(b.priority) != 0 && !b.skipPriorityValidation {
 		_, err := b.kueueClientset.KueueV1beta1().WorkloadPriorityClasses().Get(ctx, b.priority, metav1.GetOptions{})
@@ -430,7 +434,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	totalGpus.Mul(totalTasks)
 	b.totalGpus = int32(totalGpus.Value())
 
-	if b.totalGpus > 0 {
+	if b.cpusOnNode != nil && b.totalGpus > 0 {
 		cpusPerGpu := b.cpusOnNode.Value() / int64(b.totalGpus)
 		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, resource.DecimalSI)
 	}
