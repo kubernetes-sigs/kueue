@@ -712,16 +712,18 @@ func TestCreateCmd(t *testing.T) {
 			gvks: []schema.GroupVersionKind{
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
+				{Group: "", Version: "v1", Kind: "Service"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
 					TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 					Items: []batchv1.Job{
-						*wrappers.MakeJob("", metav1.NamespaceDefault).
+						*wrappers.MakeJob("profile-slurm", metav1.NamespaceDefault).
 							Completions(1).
 							CompletionMode(batchv1.IndexedCompletion).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
+							Subdomain("profile-slurm").
 							WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:5-alpine3.20").
 								Command("bash", "/slurm/scripts/init-entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
@@ -736,6 +738,7 @@ func TestCreateCmd(t *testing.T) {
 								Name: "slurm-scripts",
 								VolumeSource: corev1.VolumeSource{
 									ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{Name: "profile-slurm"},
 										Items: []corev1.KeyToPath{
 											{Key: "init-entrypoint.sh", Path: "init-entrypoint.sh"},
 											{Key: "entrypoint.sh", Path: "entrypoint.sh"},
@@ -765,8 +768,9 @@ func TestCreateCmd(t *testing.T) {
 				&corev1.ConfigMapList{
 					TypeMeta: metav1.TypeMeta{Kind: "ConfigMapList", APIVersion: "v1"},
 					Items: []corev1.ConfigMap{
-						*wrappers.MakeConfigMap("", metav1.NamespaceDefault).
+						*wrappers.MakeConfigMap("profile-slurm", metav1.NamespaceDefault).
 							WithOwnerReference(metav1.OwnerReference{
+								Name:       "profile-slurm",
 								APIVersion: "batch/v1",
 								Kind:       "Job",
 							}).
@@ -831,6 +835,8 @@ SLURM_NPROCS=1
 SLURM_NNODES=1
 SLURM_SUBMIT_DIR=/slurm/scripts
 SLURM_SUBMIT_HOST=$HOSTNAME
+SLURM_JOB_NODELIST=profile-slurm-0.profile-slurm
+SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
 SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
@@ -888,10 +894,33 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 							Obj(),
 					},
 				},
+				&corev1.ServiceList{
+					TypeMeta: metav1.TypeMeta{Kind: "ServiceList", APIVersion: "v1"},
+					Items: []corev1.Service{
+						*wrappers.MakeService("profile-slurm", metav1.NamespaceDefault).
+							Profile("profile").
+							Mode(v1alpha1.SlurmMode).
+							ClusterIP("None").
+							Selector("job-name", "profile-slurm").
+							WithOwnerReference(metav1.OwnerReference{
+								Name:       "profile-slurm",
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+							}).
+							Obj(),
+					},
+				},
 			},
 			cmpopts: []cmp.Option{
-				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
-				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
+				cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInString", func(val string) string {
+					return regexp.MustCompile("(profile-slurm)(-.{5})").ReplaceAllString(val, "$1")
+				}),
+				cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInMap", func(m map[string]string) map[string]string {
+					for key, val := range m {
+						m[key] = regexp.MustCompile("(profile-slurm)(-.{5})").ReplaceAllString(val, "$1")
+					}
+					return m
+				}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -936,18 +965,20 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 			gvks: []schema.GroupVersionKind{
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
+				{Group: "", Version: "v1", Kind: "Service"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
 					TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
 					Items: []batchv1.Job{
-						*wrappers.MakeJob("", metav1.NamespaceDefault).
+						*wrappers.MakeJob("profile-slurm", metav1.NamespaceDefault).
 							Parallelism(2).
 							Completions(9).
 							CompletionMode(batchv1.IndexedCompletion).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
 							LocalQueue("lq1").
+							Subdomain("profile-slurm").
 							WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:latest").
 								Command("bash", "/slurm/scripts/init-entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
@@ -972,6 +1003,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 								Name: "slurm-scripts",
 								VolumeSource: corev1.VolumeSource{
 									ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{Name: "profile-slurm"},
 										Items: []corev1.KeyToPath{
 											{Key: "init-entrypoint.sh", Path: "init-entrypoint.sh"},
 											{Key: "entrypoint.sh", Path: "entrypoint.sh"},
@@ -1001,8 +1033,9 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 				&corev1.ConfigMapList{
 					TypeMeta: metav1.TypeMeta{Kind: "ConfigMapList", APIVersion: "v1"},
 					Items: []corev1.ConfigMap{
-						*wrappers.MakeConfigMap("", metav1.NamespaceDefault).
+						*wrappers.MakeConfigMap("profile-slurm", metav1.NamespaceDefault).
 							WithOwnerReference(metav1.OwnerReference{
+								Name:       "profile-slurm",
 								APIVersion: "batch/v1",
 								Kind:       "Job",
 							}).
@@ -1068,6 +1101,8 @@ SLURM_NPROCS=3
 SLURM_NNODES=2
 SLURM_SUBMIT_DIR=/slurm/scripts
 SLURM_SUBMIT_HOST=$HOSTNAME
+SLURM_JOB_NODELIST=profile-slurm-fpxnj-0.profile-slurm-fpxnj,profile-slurm-fpxnj-1.profile-slurm-fpxnj
+SLURM_JOB_FIRST_NODE=profile-slurm-fpxnj-0.profile-slurm-fpxnj
 SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 3 + i + 1 ))
 SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 3 + i + 1 ))
 SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
@@ -1127,10 +1162,34 @@ cd /mydir
 							Obj(),
 					},
 				},
+				&corev1.ServiceList{
+					TypeMeta: metav1.TypeMeta{Kind: "ServiceList", APIVersion: "v1"},
+					Items: []corev1.Service{
+						*wrappers.MakeService("profile-slurm", metav1.NamespaceDefault).
+							Profile("profile").
+							Mode(v1alpha1.SlurmMode).
+							LocalQueue("lq1").
+							ClusterIP("None").
+							Selector("job-name", "profile-slurm").
+							WithOwnerReference(metav1.OwnerReference{
+								Name:       "profile-slurm",
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+							}).
+							Obj(),
+					},
+				},
 			},
 			cmpopts: []cmp.Option{
-				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
-				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
+				cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInString", func(val string) string {
+					return regexp.MustCompile("(profile-slurm)(-.{5})").ReplaceAllString(val, "$1")
+				}),
+				cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInMap", func(m map[string]string) map[string]string {
+					for key, val := range m {
+						m[key] = regexp.MustCompile("(profile-slurm)(-.{5})").ReplaceAllString(val, "$1")
+					}
+					return m
+				}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1158,6 +1217,7 @@ cd /mydir
 			gvks: []schema.GroupVersionKind{
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
+				{Group: "", Version: "v1", Kind: "Service"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1188,15 +1248,18 @@ cd /mydir
 					},
 				},
 				&corev1.ConfigMapList{},
+				&corev1.ServiceList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
-				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers"),
+				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
+				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1224,6 +1287,7 @@ cd /mydir
 			gvks: []schema.GroupVersionKind{
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
+				{Group: "", Version: "v1", Kind: "Service"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1254,15 +1318,18 @@ cd /mydir
 					},
 				},
 				&corev1.ConfigMapList{},
+				&corev1.ServiceList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
-				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers"),
+				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
+				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1291,6 +1358,7 @@ cd /mydir
 			gvks: []schema.GroupVersionKind{
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
+				{Group: "", Version: "v1", Kind: "Service"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1323,15 +1391,18 @@ cd /mydir
 					},
 				},
 				&corev1.ConfigMapList{},
+				&corev1.ServiceList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
-				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers"),
+				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
+				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1388,6 +1459,7 @@ cd /mydir
 			gvks: []schema.GroupVersionKind{
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
+				{Group: "", Version: "v1", Kind: "Service"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1406,15 +1478,18 @@ cd /mydir
 					},
 				},
 				&corev1.ConfigMapList{},
+				&corev1.ServiceList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
-				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers"),
+				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
+				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1443,6 +1518,7 @@ cd /mydir
 			gvks: []schema.GroupVersionKind{
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
+				{Group: "", Version: "v1", Kind: "Service"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1477,15 +1553,18 @@ cd /mydir
 					},
 				},
 				&corev1.ConfigMapList{},
+				&corev1.ServiceList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
-				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers"),
+				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
+				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1536,6 +1615,7 @@ cd /mydir
 			gvks: []schema.GroupVersionKind{
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
+				{Group: "", Version: "v1", Kind: "Service"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1547,6 +1627,7 @@ cd /mydir
 							CompletionMode(batchv1.IndexedCompletion).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
+							Subdomain("profile-slurm").
 							WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").
 								Command("bash", "/slurm/scripts/entrypoint.sh").
 								Obj()).
@@ -1554,15 +1635,18 @@ cd /mydir
 					},
 				},
 				&corev1.ConfigMapList{},
+				&corev1.ServiceList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
-				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers"),
+				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
+				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1690,9 +1774,7 @@ cd /mydir
 					return
 				}
 
-				defaultCmpOpts := []cmp.Option{cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")}
-				opts := append(defaultCmpOpts, tc.cmpopts...)
-				if diff := cmp.Diff(tc.wantLists[index], gotList, opts...); diff != "" {
+				if diff := cmp.Diff(tc.wantLists[index], gotList, tc.cmpopts...); diff != "" {
 					t.Errorf("Unexpected list for %s (-want/+got)\n%s", gvk.String(), diff)
 				}
 			}

@@ -69,6 +69,12 @@ func (j *JobWrapper) CompletionMode(completionMode batchv1.CompletionMode) *JobW
 	return j
 }
 
+// Subdomain updates pod template subdomain.
+func (j *JobWrapper) Subdomain(subdomain string) *JobWrapper {
+	j.Job.Spec.Template.Spec.Subdomain = subdomain
+	return j
+}
+
 // Parallelism updates job parallelism.
 func (j *JobWrapper) Parallelism(v int32) *JobWrapper {
 	j.Job.Spec.Parallelism = ptr.To(v)
