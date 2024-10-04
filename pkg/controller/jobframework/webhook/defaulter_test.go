@@ -175,6 +175,15 @@ func TestFieldExistsByJSONPath(t *testing.T) {
 			path:       "/foo/0/bar",
 			wantExists: true,
 		},
+		"exists with array": {
+			obj: struct {
+				Foo [0]struct {
+					Bar string `json:"bar,omitempty"`
+				} `json:"foo,omitempty"`
+			}{},
+			path:       "/foo/0/bar",
+			wantExists: true,
+		},
 		"exists without tag": {
 			obj: struct {
 				Foo string
@@ -249,6 +258,15 @@ func TestFieldExistsByJSONPath(t *testing.T) {
 		"not exists with slice": {
 			obj: struct {
 				Foo []struct {
+					Bar string `json:"bar,omitempty"`
+				} `json:"foo,omitempty"`
+			}{},
+			path:       "/foo/1/baz",
+			wantExists: false,
+		},
+		"not exists with array": {
+			obj: struct {
+				Foo [0]struct {
 					Bar string `json:"bar,omitempty"`
 				} `json:"foo,omitempty"`
 			}{},
