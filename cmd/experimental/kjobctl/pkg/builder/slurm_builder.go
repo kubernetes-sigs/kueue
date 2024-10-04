@@ -306,9 +306,25 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		},
 	})
 
-	var gpusPerTask resource.Quantity
+	var totalGPUsPerTask resource.Quantity
 	for _, number := range b.gpusPerTask {
-		gpusPerTask.Add(*number)
+		totalGPUsPerTask.Add(*number)
+	}
+
+	var memPerCPU, memPerGPU, memPerContainer resource.Quantity
+	if b.memPerCPU != nil && b.cpusPerTask != nil {
+		memPerCPU = *b.memPerCPU
+		memPerCPU.Mul(b.cpusPerTask.Value())
+	}
+
+	if b.memPerGPU != nil && b.gpusPerTask != nil {
+		memPerGPU = *b.memPerGPU
+		memPerGPU.Mul(totalGPUsPerTask.Value())
+	}
+
+	if b.memPerNode != nil {
+		mem := b.memPerNode.MilliValue() / int64(len(job.Spec.Template.Spec.Containers))
+		memPerContainer = *resource.NewMilliQuantity(mem, b.memPerNode.Format)
 	}
 
 	var totalCpus, totalGpus, totalMem resource.Quantity
@@ -332,14 +348,8 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		if b.gpusPerTask != nil {
 			for name, number := range b.gpusPerTask {
 				requests[corev1.ResourceName(name)] = *number
-				totalGpus.Add(*number)
 			}
-		}
-
-		limits := corev1.ResourceList{}
-		if b.memPerNode != nil {
-			memPerContainer := b.memPerNode.MilliValue() / int64(len(job.Spec.Template.Spec.Containers))
-			limits[corev1.ResourceMemory] = *resource.NewMilliQuantity(memPerContainer, b.memPerNode.Format)
+			totalGpus.Add(totalGPUsPerTask)
 		}
 
 		if b.memPerTask != nil {
@@ -347,22 +357,23 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 			totalMem.Add(*b.memPerTask)
 		}
 
-		if b.memPerCPU != nil && b.cpusPerTask != nil {
-			memPerCPU := *b.memPerCPU
-			memPerCPU.Mul(b.cpusPerTask.Value())
+		if !memPerCPU.IsZero() {
 			requests[corev1.ResourceMemory] = memPerCPU
 			totalMem.Add(memPerCPU)
 		}
 
-		if b.memPerGPU != nil && b.gpusPerTask != nil {
-			memPerGpu := *b.memPerGPU
-			memPerGpu.Mul(gpusPerTask.Value())
-			requests[corev1.ResourceMemory] = memPerGpu
-			totalMem.Add(memPerGpu)
+		if !memPerGPU.IsZero() {
+			requests[corev1.ResourceMemory] = memPerGPU
+			totalMem.Add(memPerGPU)
 		}
 
 		if len(requests) > 0 {
 			container.Resources.Requests = requests
+		}
+
+		limits := corev1.ResourceList{}
+		if !memPerContainer.IsZero() {
+			limits[corev1.ResourceMemory] = memPerContainer
 		}
 
 		if len(limits) > 0 {
@@ -390,6 +401,18 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	if nTasks > 1 {
 		for i := 1; i < int(nTasks); i++ {
 			job.Spec.Template.Spec.Containers = append(job.Spec.Template.Spec.Containers, job.Spec.Template.Spec.Containers[0])
+
+			if b.cpusPerTask != nil {
+				totalCpus.Add(*b.cpusPerTask)
+			}
+
+			if !memPerCPU.IsZero() {
+				totalMem.Add(memPerCPU)
+			}
+
+			if !memPerGPU.IsZero() {
+				totalMem.Add(memPerGPU)
+			}
 		}
 
 		for i := range nTasks {
