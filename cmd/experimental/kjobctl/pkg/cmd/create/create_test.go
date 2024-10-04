@@ -1489,6 +1489,29 @@ cd /mydir
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
+		"shouldn't create slurm with --mem-per-gpu flag because --gpus-per-task flag not specified": {
+			beforeTest: beforeSlurmTest,
+			afterTest:  afterSlurmTest,
+			args: func(tc *createCmdTestCase) []string {
+				return []string{
+					"slurm",
+					"--profile", "profile",
+					"--",
+					"--mem-per-gpu", "500M",
+					tc.tempFile,
+				}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeJobTemplate("slurm-job-template", metav1.NamespaceDefault).
+					WithContainer(*wrappers.MakeContainer("c1", "bash:4.4").Obj()).
+					WithContainer(*wrappers.MakeContainer("c2", "bash:4.4").Obj()).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.SlurmMode, "slurm-job-template").Obj()).
+					Obj(),
+			},
+			wantErr: "no gpus-per-task specified",
+		},
 		"should create slurm with --priority flag and skip workload priority class validation": {
 			beforeTest: beforeSlurmTest,
 			afterTest:  afterSlurmTest,
