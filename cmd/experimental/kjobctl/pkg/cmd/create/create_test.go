@@ -1335,7 +1335,7 @@ cd /mydir
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
-		"should return error slurm with --mem-per-cpu flag": {
+		"shouldn't create slurm with --mem-per-cpu flag because --cpus-per-task flag not specified": {
 			beforeTest: beforeSlurmTest,
 			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
