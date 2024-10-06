@@ -108,8 +108,12 @@ func fieldExistsByJSONPathHelper(object interface{}, pathParts []string) bool {
 		case reflect.Struct:
 			return fieldExistsByJSONPathHelper(fv.Interface(), pathParts[1:])
 		case reflect.Array, reflect.Slice:
-			if len(pathParts) > 2 && isInt(pathParts[1]) {
-				return fieldExistsByJSONPathHelper(reflect.New(ft.Type.Elem()).Interface(), pathParts[2:])
+			if isInt(pathParts[1]) {
+				if len(pathParts) > 2 {
+					return fieldExistsByJSONPathHelper(reflect.New(ft.Type.Elem()).Interface(), pathParts[2:])
+				} else {
+					return true
+				}
 			}
 		}
 

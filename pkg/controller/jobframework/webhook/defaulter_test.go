@@ -22,11 +22,13 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	jsonpatch "gomodules.xyz/jsonpatch/v2"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"gomodules.xyz/jsonpatch/v2"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -37,8 +39,18 @@ var (
 )
 
 type TestResource struct {
-	Foo string `json:"foo,omitempty"`
-	Bar string `json:"bar,omitempty"`
+	Foo  string   `json:"foo,omitempty"`
+	Bar  string   `json:"bar,omitempty"`
+	Qux  []string `json:"qux,omitempty"`
+	Quux []string `json:"quux,omitempty"`
+
+	SubResource TestSubResource    `json:"subresource"`
+	Conditions  []metav1.Condition `json:"conditions,omitempty"`
+}
+
+type TestSubResource struct {
+	Foo string  `json:"foo"`
+	Bar *string `json:"bar"`
 }
 
 func (d *TestResource) GetObjectKind() schema.ObjectKind { return d }
@@ -59,10 +71,38 @@ type TestCustomDefaulter struct{}
 func (*TestCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
 	d := obj.(*TestResource)
 	if d.Foo == "" {
-		d.Foo = "bar"
+		d.Foo = "foo"
 	}
-	if d.Bar == "qux" {
+	if d.Bar == "bar" {
 		d.Bar = ""
+	}
+	if d.SubResource.Foo == "foo" {
+		d.SubResource.Foo = ""
+	}
+	if ptr.Deref(d.SubResource.Bar, "") == "bar" {
+		d.SubResource.Bar = nil
+	}
+	if len(d.Qux) > 0 {
+		d.Qux = nil
+	}
+	if len(d.Quux) > 0 {
+		quux := make([]string, 0, len(d.Quux))
+		for _, val := range d.Quux {
+			if val != "foo" {
+				quux = append(quux, val)
+			}
+		}
+		d.Quux = quux
+	}
+	if len(d.Conditions) > 0 {
+		conditions := make([]metav1.Condition, 0, len(d.Conditions))
+		for _, cond := range d.Conditions {
+			if cond.Type == "foo" {
+				cond.ObservedGeneration = 0
+				conditions = append(conditions, cond)
+			}
+		}
+		d.Conditions = conditions
 	}
 	return nil
 }
@@ -83,7 +123,18 @@ func TestLossLessDefaulter(t *testing.T) {
 			Object: runtime.RawExtension{
 				// This raw object has a field not defined in the go type.
 				// controller-runtime CustomDefaulter would have added a remove operation for it.
-				Raw: []byte(`{"bar": "qux", "baz": "qux"}`),
+				Raw: []byte(`{
+	"hoge": "hoge",
+	"fuga": ["hoge"],
+	"bar": "bar", 
+	"qux": ["foo"],
+	"quux": ["foo","bar"],
+	"subresource": {"hoge": "hoge", "fuga": ["hoge"], "foo": "foo", "bar": "bar"},
+	"conditions": [
+		{"type": "foo", "message": "foo", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1}, 
+		{"type": "bar", "message": "bar", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1}
+	]
+}`),
 			},
 		},
 	}
@@ -92,17 +143,19 @@ func TestLossLessDefaulter(t *testing.T) {
 		t.Errorf("Response not allowed")
 	}
 	wantPatches := []jsonpatch.Operation{
-		{
-			Operation: "add",
-			Path:      "/foo",
-			Value:     "bar",
-		},
-		{
-			Operation: "remove",
-			Path:      "/bar",
-		},
+		{Operation: "add", Path: "/foo", Value: "foo"},
+		{Operation: "remove", Path: "/bar"},
+		{Operation: "remove", Path: "/qux"},
+		{Operation: "replace", Path: "/quux/0", Value: "bar"},
+		{Operation: "remove", Path: "/quux/1"},
+		{Operation: "replace", Path: "/subresource/foo", Value: ""},
+		{Operation: "replace", Path: "/subresource/bar"},
+		{Operation: "remove", Path: "/conditions/0/observedGeneration"},
+		{Operation: "remove", Path: "/conditions/1"},
 	}
-	if diff := cmp.Diff(wantPatches, resp.Patches); diff != "" {
+	if diff := cmp.Diff(wantPatches, resp.Patches, cmpopts.SortSlices(func(a, b jsonpatch.Operation) bool {
+		return a.Path < b.Path
+	})); diff != "" {
 		t.Errorf("Unexpected patches (-want, +got): %s", diff)
 	}
 }
@@ -173,10 +226,46 @@ func TestFieldExistsByJSONPath(t *testing.T) {
 					Bar string `json:"bar,omitempty"`
 				} `json:"foo,omitempty"`
 			}{},
+			path:       "/foo",
+			wantExists: true,
+		},
+		"exists with slice element": {
+			obj: struct {
+				Foo []struct {
+					Bar string `json:"bar,omitempty"`
+				} `json:"foo,omitempty"`
+			}{},
+			path:       "/foo/0",
+			wantExists: true,
+		},
+		"exists with slice element field": {
+			obj: struct {
+				Foo []struct {
+					Bar string `json:"bar,omitempty"`
+				} `json:"foo,omitempty"`
+			}{},
 			path:       "/foo/0/bar",
 			wantExists: true,
 		},
 		"exists with array": {
+			obj: struct {
+				Foo [0]struct {
+					Bar string `json:"bar,omitempty"`
+				} `json:"foo,omitempty"`
+			}{},
+			path:       "/foo",
+			wantExists: true,
+		},
+		"exists with array element": {
+			obj: struct {
+				Foo [0]struct {
+					Bar string `json:"bar,omitempty"`
+				} `json:"foo,omitempty"`
+			}{},
+			path:       "/foo/0",
+			wantExists: true,
+		},
+		"exists with array element field": {
 			obj: struct {
 				Foo [0]struct {
 					Bar string `json:"bar,omitempty"`
@@ -256,7 +345,7 @@ func TestFieldExistsByJSONPath(t *testing.T) {
 			path:       "/foo/bar/quz",
 			wantExists: false,
 		},
-		"not exists with slice": {
+		"not exists with slice element field": {
 			obj: struct {
 				Foo []struct {
 					Bar string `json:"bar,omitempty"`
@@ -265,7 +354,7 @@ func TestFieldExistsByJSONPath(t *testing.T) {
 			path:       "/foo/1/baz",
 			wantExists: false,
 		},
-		"not exists with array": {
+		"not exists with array element field": {
 			obj: struct {
 				Foo [0]struct {
 					Bar string `json:"bar,omitempty"`
