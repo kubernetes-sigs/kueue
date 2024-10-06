@@ -65,9 +65,12 @@ func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) a
 }
 
 func fieldExistsByJSONPath(object interface{}, path string) bool {
+	// Invalid path. For more information, see https://datatracker.ietf.org/doc/html/rfc6901#section-3.
+	if !strings.HasPrefix(path, "/") {
+		return false
+	}
 	pathParts := strings.Split(path, "/")
-	// Invalid path. For more information, see https://jsonpatch.com/.
-	if len(pathParts) < 2 || len(pathParts) > 0 && pathParts[0] != "" {
+	if len(pathParts) < 2 {
 		return false
 	}
 	return fieldExistsByJSONPathHelper(object, pathParts[1:])
