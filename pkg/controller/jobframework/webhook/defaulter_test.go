@@ -38,12 +38,12 @@ var (
 )
 
 type TestResource struct {
+	metav1.ObjectMeta `json:",inline"`
+
 	Foo string   `json:"foo,omitempty"`
 	Bar string   `json:"bar,omitempty"`
 	Baz []string `json:"baz,omitempty"`
 
-	Labels     map[string]string  `json:"labels,omitempty"`
-	Finalizers []string           `json:"finalizers,omitempty"`
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	SubResource TestSubResource `json:"subresource"`
@@ -151,6 +151,7 @@ func TestLossLessDefaulter(t *testing.T) {
 		t.Errorf("Response not allowed")
 	}
 	wantPatches := []jsonpatch.Operation{
+		{Operation: "add", Path: "/creationTimestamp"},
 		{Operation: "add", Path: "/foo", Value: "foo"},
 		{Operation: "remove", Path: "/bar"},
 		{Operation: "remove", Path: "/baz"},
