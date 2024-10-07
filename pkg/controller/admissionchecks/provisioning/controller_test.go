@@ -1211,7 +1211,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeWarning,
 					Reason:    "FailedCreate",
-					Message:   `Error creating ProvisioningRequest: "wl-check1-1"`,
+					Message:   `Error creating ProvisioningRequest "wl-check1-1": invalid ProvisioningRequest error`,
 				},
 			},
 		},
