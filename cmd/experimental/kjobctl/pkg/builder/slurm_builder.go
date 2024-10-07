@@ -244,17 +244,6 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		job.Labels[kueue.WorkloadPriorityClassLabel] = b.priority
 	}
 
-	service := &corev1.Service{
-		TypeMeta:   metav1.TypeMeta{Kind: "Service", APIVersion: "v1"},
-		ObjectMeta: objectMeta,
-		Spec: corev1.ServiceSpec{
-			ClusterIP: "None",
-			Selector: map[string]string{
-				"job-name": b.objectName,
-			},
-		},
-	}
-
 	b.buildPodSpecVolumesAndEnv(&job.Spec.Template.Spec)
 	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes,
 		corev1.Volume{
@@ -481,6 +470,17 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	}
 	configMap.ObjectMeta.GenerateName = ""
 	configMap.ObjectMeta.Name = b.objectName
+
+	service := &corev1.Service{
+		TypeMeta:   metav1.TypeMeta{Kind: "Service", APIVersion: "v1"},
+		ObjectMeta: objectMeta,
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "None",
+			Selector: map[string]string{
+				"job-name": b.objectName,
+			},
+		},
+	}
 
 	return job, []runtime.Object{configMap, service}, nil
 }
