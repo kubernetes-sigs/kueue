@@ -678,21 +678,17 @@ func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
 }
 
 func constructGroupPodSetsFast(p *Pod, groupTotalCount int) ([]kueue.PodSet, error) {
-	podSets := make([]kueue.PodSet, 1)
-	for i, podInGroup := range p.list.Items {
+	for _, podInGroup := range p.list.Items {
 		if !isPodRunnableOrSucceeded(&podInGroup) {
 			continue
 		}
-
 		roleHash, err := getRoleHash(podInGroup)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
-
-		podSet := FromObject(&podInGroup).PodSets()
-		podSet[0].Name = roleHash
-		podSet[0].Count = int32(groupTotalCount)
-		podSets[i] = podSet[0]
+		podSets := FromObject(&podInGroup).PodSets()
+		podSets[0].Name = roleHash
+		podSets[0].Count = int32(groupTotalCount)
 		return podSets, nil
 	}
 
