@@ -42,23 +42,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type fakeControllerRuntimeClient struct {
-	client.Client
-	err error
-}
-
-func (c *fakeControllerRuntimeClient) WithError(err error) {
-	c.err = err
-}
-
-func (c *fakeControllerRuntimeClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-	if c.err != nil {
-		return c.err
-	}
-
-	return c.Client.Create(ctx, obj, opts...)
-}
-
 var errInvalidProvisioningRequest = errors.New("invalid ProvisioningRequest error")
 
 var (
@@ -1222,6 +1205,14 @@ func TestReconcile(t *testing.T) {
 			builder, ctx := getClientBuilder()
 			builder = builder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
+			if tc.wantReconcileError != nil {
+				builder = builder.WithInterceptorFuncs(
+					interceptor.Funcs{
+						Create: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+							return tc.wantReconcileError
+						}})
+			}
+
 			builder = builder.WithObjects(tc.workload)
 			builder = builder.WithStatusSubresource(tc.workload)
 
@@ -1233,14 +1224,7 @@ func TestReconcile(t *testing.T) {
 				&kueue.ResourceFlavorList{Items: tc.flavors},
 			)
 
-			fakeClient := builder.Build()
-			k8sclient := &fakeControllerRuntimeClient{
-				Client: fakeClient,
-			}
-			if tc.wantReconcileError != nil {
-				k8sclient.WithError(tc.wantReconcileError)
-			}
-
+			k8sclient := builder.Build()
 			recorder := &utiltesting.EventRecorder{}
 			controller, err := NewController(
 				k8sclient,
