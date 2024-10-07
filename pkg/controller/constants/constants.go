@@ -39,7 +39,4 @@ const (
 
 	// ProvReqAnnotationPrefix is the prefix for annotations that should be pass to ProvisioningRequest as Parameters.
 	ProvReqAnnotationPrefix = "provreq.kueue.x-k8s.io/"
-
-	// PrebuiltWorkloadIndexName is the job field to set up as an IndexField.
-	PrebuiltWorkloadIndexName = "metadata.prebuiltworkload"
 )

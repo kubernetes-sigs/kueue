@@ -151,7 +151,7 @@ func (h *parentWorkloadHandler) queueReconcileJobsWaitingForPrebuiltWorkload(ctx
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Queueing reconcile for prebuilt workload waiting jobs")
 	var waitingJobs batchv1.JobList
-	if err := h.client.List(ctx, &waitingJobs, client.InNamespace(w.Namespace), client.MatchingFields{constants.PrebuiltWorkloadIndexName: w.Name}); err != nil {
+	if err := h.client.List(ctx, &waitingJobs, client.InNamespace(w.Namespace), client.MatchingLabels{constants.PrebuiltWorkloadLabel: w.Name}); err != nil {
 		log.Error(err, "Unable to list waiting jobs")
 		return
 	}
@@ -369,10 +369,6 @@ func (j *Job) syncCompletionWithParallelism() bool {
 
 func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {
 	if err := fieldIndexer.IndexField(ctx, &batchv1.Job{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID); err != nil {
-		return err
-	}
-
-	if err := jobframework.SetupPrebuiltWorkloadIndex(ctx, fieldIndexer, &batchv1.Job{}); err != nil {
 		return err
 	}
 

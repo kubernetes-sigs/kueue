@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 func SetupWorkloadOwnerIndex(ctx context.Context, indexer client.FieldIndexer, gvk schema.GroupVersionKind) error {
@@ -41,14 +40,5 @@ func SetupWorkloadOwnerIndex(ctx context.Context, indexer client.FieldIndexer, g
 			}
 		}
 		return owners
-	})
-}
-
-func SetupPrebuiltWorkloadIndex(ctx context.Context, indexer client.FieldIndexer, objectType client.Object) error {
-	return indexer.IndexField(ctx, objectType, constants.PrebuiltWorkloadIndexName, func(o client.Object) []string {
-		if pwl, found := o.GetLabels()[constants.PrebuiltWorkloadLabel]; found {
-			return []string{pwl}
-		}
-		return nil
 	})
 }

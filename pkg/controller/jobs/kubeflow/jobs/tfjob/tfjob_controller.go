@@ -120,7 +120,7 @@ func (h *parentWorkloadHandler) queueReconcileJobsWaitingForPrebuiltWorkload(ctx
 	log.V(5).Info("Queueing reconcile for prebuilt workload waiting tfjobs")
 
 	var waitingJobs kftraining.TFJobList
-	if err := h.client.List(ctx, &waitingJobs, client.InNamespace(w.Namespace), client.MatchingFields{constants.PrebuiltWorkloadIndexName: w.Name}); err != nil {
+	if err := h.client.List(ctx, &waitingJobs, client.InNamespace(w.Namespace), client.MatchingLabels{constants.PrebuiltWorkloadLabel: w.Name}); err != nil {
 		log.Error(err, "Unable to list waiting tfjobs")
 		return
 	}
@@ -179,10 +179,6 @@ func (j *JobControl) OrderedReplicaTypes() []kftraining.ReplicaType {
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	if err := jobframework.SetupPrebuiltWorkloadIndex(ctx, indexer, &kftraining.TFJob{}); err != nil {
-		return err
-	}
-
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
