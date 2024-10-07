@@ -131,16 +131,16 @@ func TestLossLessDefaulter(t *testing.T) {
 				// This raw object has a field not defined in the go type.
 				// controller-runtime CustomDefaulter would have added a remove operation for it.
 				Raw: []byte(`{
-	"invalid1": "invalid",
-	"invalid2": ["invalid"],
+	"unknown1": "unknown",
+	"unknown2": ["unknown"],
 	"bar": "bar", 
 	"baz": ["foo"],
 	"finalizers": ["foo","bar"],
-	"labels": {"foo": "foo", "bar": "bar", "invalid": "invalid"},
-	"subresource": {"invalid1": "invalid", "invalid2": ["invalid"], "foo": "foo", "bar": "bar"},
+	"labels": {"foo": "foo", "bar": "bar", "unknown": "unknown"},
+	"subresource": {"unknown1": "unknown", "unknown2": ["unknown"], "foo": "foo", "bar": "bar"},
 	"conditions": [
-		{"type": "foo", "message": "foo", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1, "invalid": "invalid"}, 
-		{"type": "bar", "message": "bar", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1, "invalid": "invalid"}
+		{"type": "foo", "message": "foo", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1, "unknown": "unknown"}, 
+		{"type": "bar", "message": "bar", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1, "unknown": "unknown"}
 	]
 }`),
 			},
