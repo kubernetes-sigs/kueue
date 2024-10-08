@@ -371,7 +371,6 @@ func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {
 	if err := fieldIndexer.IndexField(ctx, &batchv1.Job{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID); err != nil {
 		return err
 	}
-
 	return jobframework.SetupWorkloadOwnerIndex(ctx, fieldIndexer, gvk)
 }
 
