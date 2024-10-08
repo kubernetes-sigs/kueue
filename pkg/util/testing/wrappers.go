@@ -359,6 +359,11 @@ func (w *WorkloadWrapper) MaximumExecutionTimeSeconds(v int32) *WorkloadWrapper 
 	return w
 }
 
+func (w *WorkloadWrapper) PastAdmittedTime(v time.Duration) *WorkloadWrapper {
+	w.Status.AccumulatedPastAdmittedTime.Duration = v
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {

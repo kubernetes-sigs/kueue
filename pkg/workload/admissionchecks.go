@@ -29,7 +29,7 @@ import (
 // SyncAdmittedCondition sync the state of the Admitted condition
 // with the state of QuotaReserved and AdmissionChecks.
 // Return true if any change was done.
-func SyncAdmittedCondition(w *kueue.Workload) bool {
+func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasReservation := HasQuotaReservation(w)
 	hasAllChecksReady := HasAllChecksReady(w)
 	isAdmitted := IsAdmitted(w)
@@ -59,6 +59,14 @@ func SyncAdmittedCondition(w *kueue.Workload) bool {
 		newCondition.Message = "The workload has not all checks ready"
 	}
 
+	// Accumulate the admitted time if needed
+	if isAdmitted && newCondition.Status == metav1.ConditionFalse {
+		oldCondition := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadAdmitted)
+		// in practice the oldCondition cannot be nil, however we should try to avoid nil ptr deref.
+		if oldCondition != nil {
+			w.Status.AccumulatedPastAdmittedTime.Duration += now.Sub(oldCondition.LastTransitionTime.Time)
+		}
+	}
 	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
 }
 

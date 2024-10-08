@@ -541,7 +541,7 @@ func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource strin
 func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
 	wl = wl.DeepCopy()
 	if admission == nil {
-		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test")
+		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test", time.Now())
 	} else {
 		workload.SetQuotaReservation(wl, admission)
 	}
@@ -555,7 +555,7 @@ func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Cli
 	var updatedWorkload kueue.Workload
 	for _, wl := range wls {
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-		if workload.SyncAdmittedCondition(&updatedWorkload) {
+		if workload.SyncAdmittedCondition(&updatedWorkload, time.Now()) {
 			gomega.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, false)).To(gomega.Succeed())
 		}
 	}
@@ -583,7 +583,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			}
 
 			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved) {
-				workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test")
+				workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test", time.Now())
 				return workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)
 			}
 			return nil
