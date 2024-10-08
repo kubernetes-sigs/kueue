@@ -345,7 +345,10 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		return 0, nil
 	}
 
-	remainingTime := wl.Spec.MaximumExecutionTime.Duration - wl.Status.AccumulatedPastAdmittedTime.Duration - r.clock.Since(admittedCondition.LastTransitionTime.Time)
+	remainingTime := wl.Spec.MaximumExecutionTime.Duration - r.clock.Since(admittedCondition.LastTransitionTime.Time)
+	if apat := wl.Status.AccumulatedPastAdmittedTime; apat != nil {
+		remainingTime -= apat.Duration
+	}
 	if remainingTime > 0 {
 		return remainingTime, nil
 	}
