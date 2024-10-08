@@ -366,7 +366,7 @@ func UpdateStatus(ctx context.Context,
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
-func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) bool {
+func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string, now time.Time) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
@@ -381,7 +381,7 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	}
 
 	// Reset the admitted condition if necessary.
-	if SyncAdmittedCondition(wl) {
+	if SyncAdmittedCondition(wl, now) {
 		changed = true
 	}
 	return changed
@@ -510,6 +510,7 @@ func AdmissionStatusPatch(w *kueue.Workload, strict bool) *kueue.Workload {
 	if strict {
 		wlCopy.ResourceVersion = w.ResourceVersion
 	}
+	wlCopy.Status.AccumulatedPastAdmittedTime = w.Status.AccumulatedPastAdmittedTime
 	return wlCopy
 }
 
