@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -396,6 +397,11 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	// the clock is primarily used with second rounded times
+	// use the current time trimmed.
+	testStartTime := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(testStartTime)
+
 	t.Cleanup(jobframework.EnableIntegrationsForTest(t, FrameworkName))
 	baseJobWrapper := utiltestingjob.MakeJob("job", "ns").
 		Suspend(true).
@@ -552,7 +558,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -576,7 +582,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					PastAdmittedTime(time.Second).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
@@ -634,7 +640,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -645,7 +651,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					PastAdmittedTime(time.Second).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
@@ -690,7 +696,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -713,7 +719,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					PastAdmittedTime(time.Second).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
@@ -770,7 +776,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -793,7 +799,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					PastAdmittedTime(time.Second).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
@@ -850,7 +856,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -873,7 +879,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					PastAdmittedTime(time.Second).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
@@ -930,7 +936,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
@@ -953,7 +959,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Admitted(true).
+					PastAdmittedTime(time.Second).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
@@ -2747,7 +2753,7 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
 
 			jobKey := client.ObjectKeyFromObject(&tc.job)
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
