@@ -19,6 +19,7 @@ package jobframework_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,6 +27,8 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/clock"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -104,6 +107,7 @@ func TestIsParentJobManaged(t *testing.T) {
 }
 
 func TestProcessOptions(t *testing.T) {
+	fakeClock := testingclock.NewFakeClock(time.Now())
 	cases := map[string]struct {
 		inputOpts []Option
 		wantOpts  Options
@@ -117,6 +121,7 @@ func TestProcessOptions(t *testing.T) {
 					PodSelector: &metav1.LabelSelector{},
 				}),
 				WithLabelKeysToCopy([]string{"toCopyKey"}),
+				WithClock(t, fakeClock),
 			},
 			wantOpts: Options{
 				ManageJobsWithoutQueueName: true,
@@ -128,6 +133,7 @@ func TestProcessOptions(t *testing.T) {
 					},
 				},
 				LabelKeysToCopy: []string{"toCopyKey"},
+				Clock:           fakeClock,
 			},
 		},
 		"a single option is passed": {
@@ -139,6 +145,7 @@ func TestProcessOptions(t *testing.T) {
 				WaitForPodsReady:           false,
 				KubeServerVersion:          nil,
 				IntegrationOptions:         nil,
+				Clock:                      clock.RealClock{},
 			},
 		},
 		"no options are passed": {
@@ -148,6 +155,7 @@ func TestProcessOptions(t *testing.T) {
 				KubeServerVersion:          nil,
 				IntegrationOptions:         nil,
 				LabelKeysToCopy:            nil,
+				Clock:                      clock.RealClock{},
 			},
 		},
 	}
@@ -155,7 +163,7 @@ func TestProcessOptions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotOpts := ProcessOptions(tc.inputOpts...)
 			if diff := cmp.Diff(tc.wantOpts, gotOpts,
-				cmpopts.IgnoreUnexported(kubeversion.ServerVersionFetcher{})); len(diff) != 0 {
+				cmpopts.IgnoreUnexported(kubeversion.ServerVersionFetcher{}, testingclock.FakePassiveClock{}, testingclock.FakeClock{})); len(diff) != 0 {
 				t.Errorf("Unexpected error from ProcessOptions (-want,+got):\n%s", diff)
 			}
 		})
