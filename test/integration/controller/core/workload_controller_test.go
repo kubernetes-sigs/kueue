@@ -475,7 +475,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			maxExecTime := 10 * time.Second
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue("lq").
-				MaximumExecutionTime(maxExecTime).
+				MaximumExecutionTimeSeconds(int32(maxExecTime.Seconds())).
 				Obj()
 			key := client.ObjectKeyFromObject(wl)
 			ginkgo.By("creating the workload and reserving its quota", func() {

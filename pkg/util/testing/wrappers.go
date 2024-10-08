@@ -360,7 +360,7 @@ func (w *WorkloadWrapper) MaximumExecutionTimeSeconds(v int32) *WorkloadWrapper 
 }
 
 func (w *WorkloadWrapper) PastAdmittedTime(v time.Duration) *WorkloadWrapper {
-	w.Status.AccumulatedPastAdmittedTime.Duration = v
+	w.Status.AccumulatedPastAdmittedTime = &metav1.Duration{Duration: v}
 	return w
 }
 
