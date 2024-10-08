@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -759,6 +760,11 @@ func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false
 	}
 
+	defaultDuration := metav1.Duration{Duration: -1}
+	if ptr.Deref(wl.Spec.MaximumExecutionTime, defaultDuration) != ptr.Deref(MaxExecTime(job), defaultDuration) {
+		return false
+	}
+
 	jobPodSets := clearMinCountsIfFeatureDisabled(job.PodSets())
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
@@ -898,8 +904,9 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 			Annotations: admissioncheck.FilterProvReqAnnotations(job.Object().GetAnnotations()),
 		},
 		Spec: kueue.WorkloadSpec{
-			PodSets:   podSets,
-			QueueName: QueueName(job),
+			PodSets:              podSets,
+			QueueName:            QueueName(job),
+			MaximumExecutionTime: MaxExecTime(job),
 		},
 	}
 	if wl.Labels == nil {
