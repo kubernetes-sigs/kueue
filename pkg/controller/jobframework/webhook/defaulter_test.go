@@ -90,7 +90,7 @@ func (*TestCustomDefaulter) Default(ctx context.Context, obj runtime.Object) err
 	}
 
 	if d.Labels != nil {
-		delete(d.Labels, "foo")
+		delete(d.Labels, "example.com/foo")
 	}
 	if len(d.Finalizers) > 0 {
 		finalizers := make([]string, 0, len(d.Finalizers))
@@ -152,10 +152,11 @@ func TestLossLessDefaulter(t *testing.T) {
 				Raw: []byte(`{
 	"unknown1": "unknown",
 	"unknown2": ["unknown"],
+	"unknown/unknown": "unknown",
 	"bar": "bar", 
 	"baz": ["foo"],
 	"finalizers": ["foo","bar"],
-	"labels": {"foo": "foo", "bar": "bar", "unknown": "unknown"},
+	"labels": {"example.com/foo": "foo", "example.com/bar": "bar", "unknown": "unknown"},
 	"subresource": {"unknown1": "unknown", "unknown2": ["unknown"], "foo": "foo", "bar": "bar"},
 	"conditions": [
 		{"type": "foo", "message": "foo", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1, "unknown": "unknown"}, 
@@ -177,7 +178,7 @@ func TestLossLessDefaulter(t *testing.T) {
 		{Operation: "remove", Path: "/baz"},
 		{Operation: "replace", Path: "/finalizers/0", Value: "bar"},
 		{Operation: "remove", Path: "/finalizers/1"},
-		{Operation: "remove", Path: "/labels/foo"},
+		{Operation: "remove", Path: "/labels/example.com~1foo"},
 		{Operation: "replace", Path: "/subresource/foo", Value: ""},
 		{Operation: "replace", Path: "/subresource/bar"},
 		{Operation: "remove", Path: "/conditions/0/observedGeneration"},

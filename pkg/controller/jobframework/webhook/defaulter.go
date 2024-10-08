@@ -29,6 +29,11 @@ import (
 	"sigs.k8s.io/json"
 )
 
+var (
+	reLastArrayIndex  = regexp.MustCompile(`\/(\d+)$`)
+	reInnerArrayIndex = regexp.MustCompile(`\/(\d+)\/`)
+)
+
 // WithLosslessDefaulter creates a new Handler for a CustomDefaulter interface that **drops** remove operations,
 // which are typically the result of new API fields not present in Kueue libraries.
 func WithLosslessDefaulter(scheme *runtime.Scheme, obj runtime.Object, defaulter admission.CustomDefaulter) admission.Handler {
@@ -80,7 +85,9 @@ func (h *losslessDefaulter) getUnknownPaths(raw []byte) (sets.Set[string], error
 	}
 	paths := sets.New[string]()
 	for _, err := range strictErrors {
-		paths.Insert(err.(json.FieldError).FieldPath())
+		if fieldError, ok := err.(json.FieldError); ok {
+			paths.Insert(fieldError.FieldPath())
+		}
 	}
 	return paths, nil
 }
@@ -88,14 +95,14 @@ func (h *losslessDefaulter) getUnknownPaths(raw []byte) (sets.Set[string], error
 // convertToFieldErrorPath converts the given path into the FieldError path.
 func convertToFieldErrorPath(path string) string {
 	// Replace /foo/bar to foo/bar
-	path, _ = strings.CutPrefix(path, "/")
+	path = strings.TrimLeft(path, "/")
 	// Replace foo/0 to foo[0]
-	re := regexp.MustCompile(`\/(\d+)$`)
-	path = re.ReplaceAllString(path, `[$1]`)
+	path = reLastArrayIndex.ReplaceAllString(path, `[$1]`)
 	// Replace foo/1/bar to foo[1].bar
-	re = regexp.MustCompile(`\/(\d+)\/`)
-	path = re.ReplaceAllString(path, `[$1].`)
+	path = reInnerArrayIndex.ReplaceAllString(path, `[$1].`)
 	// Replace foo/bar to foo.bar
 	path = strings.ReplaceAll(path, "/", ".")
+	// Replace example.com~1foo to example.com/foo
+	path = strings.ReplaceAll(path, "~1", "/")
 	return path
 }
