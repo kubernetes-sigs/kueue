@@ -138,32 +138,32 @@ unmask_filename "%s"
 }
 
 type slurmBuilderTestCase struct {
-	beforeTest              func(tc *slurmBuilderTestCase) error
-	afterTest               func(tc *slurmBuilderTestCase) error
-	tempFile                string
-	namespace               string
-	profile                 string
-	mode                    v1alpha1.ApplicationProfileMode
-	array                   string
-	cpusPerTask             *resource.Quantity
-	gpusPerTask             map[string]*resource.Quantity
-	memPerTask              *resource.Quantity
-	memPerCPU               *resource.Quantity
-	memPerGPU               *resource.Quantity
-	nodes                   *int32
-	nTasks                  *int32
-	output                  string
-	err                     string
-	input                   string
-	jobName                 string
-	partition               string
-	initImage               string
-	waitForFirstNodeTimeout time.Duration
-	kjobctlObjs             []runtime.Object
-	wantRootObj             runtime.Object
-	wantChildObjs           []runtime.Object
-	wantErr                 error
-	cmpopts                 []cmp.Option
+	beforeTest       func(tc *slurmBuilderTestCase) error
+	afterTest        func(tc *slurmBuilderTestCase) error
+	tempFile         string
+	namespace        string
+	profile          string
+	mode             v1alpha1.ApplicationProfileMode
+	array            string
+	cpusPerTask      *resource.Quantity
+	gpusPerTask      map[string]*resource.Quantity
+	memPerTask       *resource.Quantity
+	memPerCPU        *resource.Quantity
+	memPerGPU        *resource.Quantity
+	nodes            *int32
+	nTasks           *int32
+	output           string
+	err              string
+	input            string
+	jobName          string
+	partition        string
+	initImage        string
+	firstNodeTimeout time.Duration
+	kjobctlObjs      []runtime.Object
+	wantRootObj      runtime.Object
+	wantChildObjs    []runtime.Object
+	wantErr          error
+	cmpopts          []cmp.Option
 }
 
 func beforeSlurmTest(tc *slurmBuilderTestCase) error {
@@ -320,30 +320,6 @@ SBATCH_JOB_NAME=
 SBATCH_PARTITION=
 EOF
 
-  apk --update add curl jq
-
-  token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-  ca_cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-  timeout=0
-  start_time=$(date +%s)
-
-  while true; do
-    ip=$(curl -k --cacert $ca_cert -H "Authorization: Bearer $token" "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/api/v1/namespaces/default/pods?labelSelector=batch.kubernetes.io/job-name=profile-slurm-kbms6,batch.kubernetes.io/job-completion-index=0" | jq -r '.items[0].status.podIP')
-    if [[ -n "$ip" ]]; then
-      SLURM_JOB_FIRST_NODE_IP=$ip
-      break
-    else
-      current_time=$(date +%s)
-      elapsed_time=$((current_time - start_time))
-      if (( elapsed_time >= timeout )); then
-        echo "timeout reached, IP ip for the first node ($SLURM_JOB_FIRST_NODE) not found."
-        break
-      fi
-      echo "IP Address for the first node ($SLURM_JOB_FIRST_NODE) not found, retrying..."
-      sleep 1
-    fi
-  done
-
 	cat << EOF > /slurm/env/$i/slurm.env
 SLURM_ARRAY_JOB_ID=1
 SLURM_ARRAY_TASK_COUNT=5
@@ -369,7 +345,6 @@ SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
 SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
-SLURM_JOB_FIRST_NODE_IP=$SLURM_JOB_FIRST_NODE_IP
 EOF
 
 done
@@ -484,7 +459,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 				WithJobName(tc.jobName).
 				WithPartition(tc.partition).
 				WithInitImage(tc.initImage).
-				WithWaitForFirstNodeTimeout(tc.waitForFirstNodeTimeout).
+				WithFirstNodeIPTimeout(tc.firstNodeTimeout).
 				Do(ctx)
 
 			var opts []cmp.Option

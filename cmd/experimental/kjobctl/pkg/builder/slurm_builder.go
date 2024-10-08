@@ -539,7 +539,8 @@ type slurmInitEntrypointScript struct {
 	SlurmJobNodeList    string
 	SlurmJobFirstNode   string
 
-	WaitForFirstNodeTimeoutSeconds int32
+	FirstNodeIP               bool
+	FirstNodeIPTimeoutSeconds int32
 }
 
 func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
@@ -619,7 +620,8 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 		SlurmJobNodeList:    strings.Join(nodeList, ","),
 		SlurmJobFirstNode:   nodeList[0],
 
-		WaitForFirstNodeTimeoutSeconds: int32(b.waitForFirstNodeTimeout.Seconds()),
+		FirstNodeIP:               b.firstNodeIP,
+		FirstNodeIPTimeoutSeconds: int32(b.firstNodeIPTimeout.Seconds()),
 	}
 
 	var script bytes.Buffer

@@ -60,7 +60,8 @@ const (
 	skipLocalQueueValidationFlagName = "skip-localqueue-validation"
 	skipPriorityValidationFlagName   = "skip-priority-validation"
 	changeDirFlagName                = "chdir"
-	waitForFirstNodeTimeoutFlagName  = "wait-for-first-node-timeout"
+	firstNodeIPFlagName              = "first-node-ip"
+	firstNodeIPTimeoutFlagName       = "first-node-ip-timeout"
 
 	commandFlagName     = string(v1alpha1.CmdFlag)
 	parallelismFlagName = string(v1alpha1.ParallelismFlag)
@@ -158,15 +159,16 @@ type CreateOptions struct {
 
 	DryRunStrategy util.DryRunStrategy
 
-	Namespace               string
-	ProfileName             string
-	ModeName                v1alpha1.ApplicationProfileMode
-	Script                  string
-	InitImage               string
-	PodRunningTimeout       time.Duration
-	WaitForFirstNodeTimeout time.Duration
-	RemoveInteractivePod    bool
-	ChangeDir               string
+	Namespace            string
+	ProfileName          string
+	ModeName             v1alpha1.ApplicationProfileMode
+	Script               string
+	InitImage            string
+	PodRunningTimeout    time.Duration
+	FirstNodeIPTimeout   time.Duration
+	FirstNodeIP          bool
+	RemoveInteractivePod bool
+	ChangeDir            string
 
 	SlurmFlagSet *pflag.FlagSet
 
@@ -330,7 +332,8 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Use += " [--ignore-unknown-flags]" +
 				" [--skip-priority-validation]" +
 				" [--init-image IMAGE]" +
-				" [--wait-for-first-node-timeout DURATION]" +
+				" [--first-node-ip]" +
+				" [--first-node-ip-timeout DURATION]" +
 				" -- " +
 				" [--array ARRAY]" +
 				" [--cpus-per-task QUANTITY]" +
@@ -359,7 +362,9 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"The image used for the init container.")
 			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
 				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
-			subcmd.Flags().DurationVar(&o.WaitForFirstNodeTimeout, waitForFirstNodeTimeoutFlagName, time.Minute,
+			subcmd.Flags().BoolVar(&o.FirstNodeIP, firstNodeIPFlagName, false,
+				"Enable the retrieval of the first node's IP address.")
+			subcmd.Flags().DurationVar(&o.FirstNodeIPTimeout, firstNodeIPTimeoutFlagName, time.Minute,
 				"The timeout for the retrieval of the first node's IP address.")
 
 			o.SlurmFlagSet = pflag.NewFlagSet("slurm", pflag.ExitOnError)
@@ -649,7 +654,8 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithSkipLocalQueueValidation(o.SkipLocalQueueValidation).
 		WithSkipPriorityValidation(o.SkipPriorityValidation).
 		WithChangeDir(o.ChangeDir).
-		WithWaitForFirstNodeTimeout(o.WaitForFirstNodeTimeout).
+		WithFirstNodeIP(o.FirstNodeIP).
+		WithFirstNodeIPTimeout(o.FirstNodeIPTimeout).
 		Do(ctx)
 	if err != nil {
 		return err

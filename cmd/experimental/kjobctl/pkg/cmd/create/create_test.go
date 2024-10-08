@@ -815,30 +815,6 @@ SBATCH_JOB_NAME=
 SBATCH_PARTITION=
 EOF
 
-  apk --update add curl jq
-
-  token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-  ca_cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-  timeout=60
-  start_time=$(date +%s)
-
-  while true; do
-    ip=$(curl -k --cacert $ca_cert -H "Authorization: Bearer $token" "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/api/v1/namespaces/default/pods?labelSelector=batch.kubernetes.io/job-name=profile-slurm-2pq84,batch.kubernetes.io/job-completion-index=0" | jq -r '.items[0].status.podIP')
-    if [[ -n "$ip" ]]; then
-      SLURM_JOB_FIRST_NODE_IP=$ip
-      break
-    else
-      current_time=$(date +%s)
-      elapsed_time=$((current_time - start_time))
-      if (( elapsed_time >= timeout )); then
-        echo "timeout reached, IP ip for the first node ($SLURM_JOB_FIRST_NODE) not found."
-        break
-      fi
-      echo "IP Address for the first node ($SLURM_JOB_FIRST_NODE) not found, retrying..."
-      sleep 1
-    fi
-  done
-
 	cat << EOF > /slurm/env/$i/slurm.env
 SLURM_ARRAY_JOB_ID=1
 SLURM_ARRAY_TASK_COUNT=1
@@ -864,7 +840,6 @@ SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
 SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
 SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
-SLURM_JOB_FIRST_NODE_IP=$SLURM_JOB_FIRST_NODE_IP
 EOF
 
 done
@@ -958,6 +933,8 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					"--profile", "profile",
 					"--localqueue", "lq1",
 					"--init-image", "bash:latest",
+					"--first-node-ip",
+					"--first-node-ip-timeout", "29s",
 					"--",
 					"--array", "0-25",
 					"--nodes", "2",
@@ -1121,11 +1098,11 @@ EOF
 
   token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
   ca_cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-  timeout=60
+  timeout=29
   start_time=$(date +%s)
 
   while true; do
-    ip=$(curl -k --cacert $ca_cert -H "Authorization: Bearer $token" "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/api/v1/namespaces/default/pods?labelSelector=batch.kubernetes.io/job-name=profile-slurm-dph4c,batch.kubernetes.io/job-completion-index=0" | jq -r '.items[0].status.podIP')
+    ip=$(curl -k --cacert $ca_cert -H "Authorization: Bearer $token" "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/api/v1/namespaces/default/pods?labelSelector=batch.kubernetes.io/job-name=profile-slurm-9f5wb,batch.kubernetes.io/job-completion-index=0" | jq -r '.items[0].status.podIP')
     if [[ -n "$ip" ]]; then
       SLURM_JOB_FIRST_NODE_IP=$ip
       break
@@ -1165,8 +1142,7 @@ SLURM_JOB_NODELIST=profile-slurm-fpxnj-0.profile-slurm-fpxnj,profile-slurm-fpxnj
 SLURM_JOB_FIRST_NODE=profile-slurm-fpxnj-0.profile-slurm-fpxnj
 SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 3 + i + 1 ))
 SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 3 + i + 1 ))
-SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
-SLURM_JOB_FIRST_NODE_IP=$SLURM_JOB_FIRST_NODE_IP
+SLURM_ARRAY_TASK_ID=${container_indexes[$i]}SLURM_JOB_FIRST_NODE_IP=$SLURM_JOB_FIRST_NODE_IP
 EOF
 
 done
