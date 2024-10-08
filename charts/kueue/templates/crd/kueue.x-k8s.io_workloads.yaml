@@ -8269,6 +8269,11 @@ spec:
           status:
             description: WorkloadStatus defines the observed state of Workload
             properties:
+              AccumulatedPastAdmittedTime:
+                description: |-
+                  AccumulatedPastAdmittedTime holds the total duration the workload spent in Admitted state
+                  in the previous `Admit` - `Evict` cycles.
+                type: string
               admission:
                 description: |-
                   admission holds the parameters of the admission of the workload by a

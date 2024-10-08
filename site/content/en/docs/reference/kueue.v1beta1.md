@@ -2444,6 +2444,14 @@ If admission is non-null, resourceRequests will be empty because
 admission.resourceUsage contains the detailed information.</p>
 </td>
 </tr>
+<tr><td><code>AccumulatedPastAdmittedTime</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>AccumulatedPastAdmittedTime holds the total duration the workload spent in Admitted state
+in the previous <code>Admit</code> - <code>Evict</code> cycles.</p>
+</td>
+</tr>
 </tbody>
 </table>
   
