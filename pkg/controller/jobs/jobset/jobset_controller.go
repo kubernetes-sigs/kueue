@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -78,46 +79,31 @@ func NewJob() jobframework.GenericJob {
 }
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob, func(b *builder.Builder, c client.Client) *builder.Builder {
-	return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
+	prebuiltWlHndl := &handler.Funcs{
+		CreateFunc: func(ctx context.Context, tce event.CreateEvent, trli workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			queueReconcileJobsWaitingForPrebuiltWorkload(ctx, c, tce.Object, trli)
+		},
+	}
+	return b.Watches(&kueue.Workload{}, prebuiltWlHndl)
 })
 
 func isJobSet(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "JobSet" && strings.HasPrefix(owner.APIVersion, "jobset.x-k8s.io/v1")
 }
 
-type parentWorkloadHandler struct {
-	client client.Client
-}
-
-func (h *parentWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.queueReconcileJobsWaitingForPrebuiltWorkload(ctx, e.Object, q)
-}
-
-func (h *parentWorkloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *parentWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *parentWorkloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *parentWorkloadHandler) queueReconcileJobsWaitingForPrebuiltWorkload(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func queueReconcileJobsWaitingForPrebuiltWorkload(ctx context.Context, c client.Client, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	w, ok := object.(*kueue.Workload)
 	if !ok || len(w.OwnerReferences) > 0 {
 		return
 	}
-
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(w))
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Queueing reconcile for prebuilt workload waiting jobsets")
-
 	var waitingJobs jobsetapi.JobSetList
-	if err := h.client.List(ctx, &waitingJobs, client.InNamespace(w.Namespace), client.MatchingLabels{constants.PrebuiltWorkloadLabel: w.Name}); err != nil {
+	if err := c.List(ctx, &waitingJobs, client.InNamespace(w.Namespace), client.MatchingLabels{constants.PrebuiltWorkloadLabel: w.Name}); err != nil {
 		log.Error(err, "Unable to list waiting jobs")
 		return
 	}
-
 	for _, waitingJob := range waitingJobs.Items {
 		log.V(5).Info("Queueing reconcile for waiting jobset", "jobset", klog.KObj(&waitingJob))
 		q.Add(reconcile.Request{
