@@ -306,7 +306,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				ac.Message = fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
 				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac)
 
-				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", "Error creating ProvisioningRequest %q: %v", req.Name, err)
+				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", ac.Message)
 				return nil, err
 			}
 			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)
