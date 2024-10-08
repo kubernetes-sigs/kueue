@@ -314,6 +314,11 @@ type WorkloadStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=8
 	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
+
+	// AccumulatedPastAdmittedTime holds the total duration the workload spent in Admitted state
+	// in the previous `Admit` - `Evict` cycles.
+	// +optional
+	AccumulatedPastAdmittedTime metav1.Duration `json:"AccumulatedPastAdmittedTime,omitempty"`
 }
 
 type RequeueState struct {
