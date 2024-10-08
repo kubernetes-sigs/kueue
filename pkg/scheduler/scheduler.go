@@ -318,7 +318,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
-			workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition")
+			workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", time.Now())
 			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, false); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
@@ -582,7 +582,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	workload.SetQuotaReservation(newWorkload, admission)
 	if workload.HasAllChecks(newWorkload, workload.AdmissionChecksForWorkload(log, newWorkload, cq.AdmissionChecks)) {
 		// sync Admitted, ignore the result since an API update is always done.
-		_ = workload.SyncAdmittedCondition(newWorkload)
+		_ = workload.SyncAdmittedCondition(newWorkload, time.Now())
 	}
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
@@ -685,7 +685,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 
 	if e.status == notNominated || e.status == skipped {
 		patch := workload.AdmissionStatusPatch(e.Obj, true)
-		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg)
+		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, time.Now())
 		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
 		if reservationIsChanged || resourceRequestsIsChanged {
 			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, patch); err != nil {

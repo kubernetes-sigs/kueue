@@ -31,11 +31,15 @@ import (
 )
 
 func TestSyncAdmittedCondition(t *testing.T) {
+	testTime := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
-		checkStates    []kueue.AdmissionCheckState
-		conditions     []metav1.Condition
-		wantConditions []metav1.Condition
-		wantChange     bool
+		checkStates      []kueue.AdmissionCheckState
+		conditions       []metav1.Condition
+		pastAdmittedTime time.Duration
+
+		wantConditions   []metav1.Condition
+		wantChange       bool
+		wantAdmittedTime time.Duration
 	}{
 		"empty": {},
 		"reservation no checks": {
@@ -127,8 +131,9 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			conditions: []metav1.Condition{
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
 				},
 			},
 			wantConditions: []metav1.Condition{
@@ -139,7 +144,8 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange: true,
+			wantChange:       true,
+			wantAdmittedTime: time.Second,
 		},
 		"check lost": {
 			checkStates: []kueue.AdmissionCheckState{
@@ -158,8 +164,9 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					Status: metav1.ConditionTrue,
 				},
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
 				},
 			},
 			wantConditions: []metav1.Condition{
@@ -174,7 +181,8 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange: true,
+			wantChange:       true,
+			wantAdmittedTime: time.Second,
 		},
 		"reservation and check lost": {
 			checkStates: []kueue.AdmissionCheckState{
@@ -189,8 +197,9 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			conditions: []metav1.Condition{
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
 				},
 			},
 			wantConditions: []metav1.Condition{
@@ -201,7 +210,28 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange: true,
+			wantChange:       true,
+			wantAdmittedTime: time.Second,
+		},
+		"reservation lost with past admitted time": {
+			conditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
+				},
+			},
+			pastAdmittedTime: time.Second,
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "NoReservation",
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange:       true,
+			wantAdmittedTime: 2 * time.Second,
 		},
 	}
 
@@ -211,9 +241,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				AdmissionChecks(tc.checkStates...).
 				Conditions(tc.conditions...).
 				Generation(1).
+				PastAdmittedTime(tc.pastAdmittedTime).
 				Obj()
 
-			gotChange := SyncAdmittedCondition(wl)
+			gotChange := SyncAdmittedCondition(wl, testTime)
 
 			if gotChange != tc.wantChange {
 				t.Errorf("Unexpected change status, expecting %v", tc.wantChange)
@@ -221,6 +252,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantConditions, wl.Status.Conditions, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message")); diff != "" {
 				t.Errorf("Unexpected conditions after sync (- want/+ got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantAdmittedTime, wl.Status.AccumulatedPastAdmittedTime.Duration); diff != "" {
+				t.Errorf("Unexpected conditions admitted time (- want/+ got):\n%s", diff)
 			}
 		})
 	}
