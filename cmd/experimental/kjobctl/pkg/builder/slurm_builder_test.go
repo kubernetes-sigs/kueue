@@ -30,7 +30,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -428,17 +427,6 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					Mode(v1alpha1.SlurmMode).
 					ClusterIP("None").
 					Selector("job-name", "profile-slurm").
-					Obj(),
-				wrappers.MakeRole("profile-slurm", metav1.NamespaceDefault).
-					WithRule(rbacv1.PolicyRule{
-						Verbs:     []string{"get", "list"},
-						APIGroups: []string{""},
-						Resources: []string{"pods"},
-					}).
-					Obj(),
-				wrappers.MakeRoleBinding("profile-slurm", metav1.NamespaceDefault).
-					WithSubject(rbacv1.Subject{Kind: "ServiceAccount", Name: "default", Namespace: "default"}).
-					RoleRef(rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "profile-slurm"}).
 					Obj(),
 			},
 			cmpopts: []cmp.Option{

@@ -32,7 +32,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -714,8 +713,6 @@ func TestCreateCmd(t *testing.T) {
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
 				{Group: "", Version: "v1", Kind: "Service"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -938,37 +935,6 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 							Obj(),
 					},
 				},
-				&rbacv1.RoleList{
-					TypeMeta: metav1.TypeMeta{Kind: "RoleList", APIVersion: "rbac.authorization.k8s.io/v1"},
-					Items: []rbacv1.Role{
-						*wrappers.MakeRole("profile-slurm", metav1.NamespaceDefault).
-							WithRule(rbacv1.PolicyRule{
-								Verbs:     []string{"get", "list"},
-								APIGroups: []string{""},
-								Resources: []string{"pods"},
-							}).
-							WithOwnerReference(metav1.OwnerReference{
-								Name:       "profile-slurm",
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-							}).
-							Obj(),
-					},
-				},
-				&rbacv1.RoleBindingList{
-					TypeMeta: metav1.TypeMeta{Kind: "RoleBindingList", APIVersion: "rbac.authorization.k8s.io/v1"},
-					Items: []rbacv1.RoleBinding{
-						*wrappers.MakeRoleBinding("profile-slurm", metav1.NamespaceDefault).
-							WithSubject(rbacv1.Subject{Kind: "ServiceAccount", Name: "default", Namespace: "default"}).
-							RoleRef(rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "profile-slurm"}).
-							WithOwnerReference(metav1.OwnerReference{
-								Name:       "profile-slurm",
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-							}).
-							Obj(),
-					},
-				},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInString", func(val string) string {
@@ -1027,8 +993,6 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
 				{Group: "", Version: "v1", Kind: "Service"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1276,37 +1240,6 @@ cd /mydir
 							Obj(),
 					},
 				},
-				&rbacv1.RoleList{
-					TypeMeta: metav1.TypeMeta{Kind: "RoleList", APIVersion: "rbac.authorization.k8s.io/v1"},
-					Items: []rbacv1.Role{
-						*wrappers.MakeRole("profile-slurm", metav1.NamespaceDefault).
-							WithRule(rbacv1.PolicyRule{
-								Verbs:     []string{"get", "list"},
-								APIGroups: []string{""},
-								Resources: []string{"pods"},
-							}).
-							WithOwnerReference(metav1.OwnerReference{
-								Name:       "profile-slurm",
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-							}).
-							Obj(),
-					},
-				},
-				&rbacv1.RoleBindingList{
-					TypeMeta: metav1.TypeMeta{Kind: "RoleBindingList", APIVersion: "rbac.authorization.k8s.io/v1"},
-					Items: []rbacv1.RoleBinding{
-						*wrappers.MakeRoleBinding("profile-slurm", metav1.NamespaceDefault).
-							WithSubject(rbacv1.Subject{Kind: "ServiceAccount", Name: "default", Namespace: "default"}).
-							RoleRef(rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "profile-slurm"}).
-							WithOwnerReference(metav1.OwnerReference{
-								Name:       "profile-slurm",
-								APIVersion: "batch/v1",
-								Kind:       "Job",
-							}).
-							Obj(),
-					},
-				},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInString", func(val string) string {
@@ -1346,8 +1279,6 @@ cd /mydir
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
 				{Group: "", Version: "v1", Kind: "Service"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1379,8 +1310,6 @@ cd /mydir
 				},
 				&corev1.ConfigMapList{},
 				&corev1.ServiceList{},
-				&rbacv1.RoleList{},
-				&rbacv1.RoleBindingList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
@@ -1392,8 +1321,6 @@ cd /mydir
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleBindingList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1422,8 +1349,6 @@ cd /mydir
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
 				{Group: "", Version: "v1", Kind: "Service"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1455,8 +1380,6 @@ cd /mydir
 				},
 				&corev1.ConfigMapList{},
 				&corev1.ServiceList{},
-				&rbacv1.RoleList{},
-				&rbacv1.RoleBindingList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
@@ -1468,8 +1391,6 @@ cd /mydir
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleBindingList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1499,8 +1420,6 @@ cd /mydir
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
 				{Group: "", Version: "v1", Kind: "Service"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1534,8 +1453,6 @@ cd /mydir
 				},
 				&corev1.ConfigMapList{},
 				&corev1.ServiceList{},
-				&rbacv1.RoleList{},
-				&rbacv1.RoleBindingList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
@@ -1547,8 +1464,6 @@ cd /mydir
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleBindingList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1606,8 +1521,6 @@ cd /mydir
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
 				{Group: "", Version: "v1", Kind: "Service"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1627,8 +1540,6 @@ cd /mydir
 				},
 				&corev1.ConfigMapList{},
 				&corev1.ServiceList{},
-				&rbacv1.RoleList{},
-				&rbacv1.RoleBindingList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
@@ -1640,8 +1551,6 @@ cd /mydir
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleBindingList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1671,8 +1580,6 @@ cd /mydir
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
 				{Group: "", Version: "v1", Kind: "Service"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1708,8 +1615,6 @@ cd /mydir
 				},
 				&corev1.ConfigMapList{},
 				&corev1.ServiceList{},
-				&rbacv1.RoleList{},
-				&rbacv1.RoleBindingList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
@@ -1721,8 +1626,6 @@ cd /mydir
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleBindingList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1774,8 +1677,6 @@ cd /mydir
 				{Group: "batch", Version: "v1", Kind: "Job"},
 				{Group: "", Version: "v1", Kind: "ConfigMap"},
 				{Group: "", Version: "v1", Kind: "Service"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
-				{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 			},
 			wantLists: []runtime.Object{
 				&batchv1.JobList{
@@ -1796,8 +1697,6 @@ cd /mydir
 				},
 				&corev1.ConfigMapList{},
 				&corev1.ServiceList{},
-				&rbacv1.RoleList{},
-				&rbacv1.RoleBindingList{},
 			},
 			cmpopts: []cmp.Option{
 				cmpopts.IgnoreFields(corev1.LocalObjectReference{}, "Name"),
@@ -1809,8 +1708,6 @@ cd /mydir
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleList{}),
-				cmpopts.IgnoreTypes(rbacv1.RoleBindingList{}),
 			},
 			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
 		},
@@ -1855,9 +1752,7 @@ cd /mydir
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
 			scheme := runtime.NewScheme()
-
 			utilruntime.Must(k8sscheme.AddToScheme(scheme))
-			utilruntime.Must(rbacv1.AddToScheme(scheme))
 			utilruntime.Must(rayv1.AddToScheme(scheme))
 
 			clientset := kjobctlfake.NewSimpleClientset(tc.kjobctlObjs...)

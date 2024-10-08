@@ -31,7 +31,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -466,8 +465,6 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 			slurmScriptFilename:         b.scriptContent,
 		},
 	}
-	configMap.ObjectMeta.GenerateName = ""
-	configMap.ObjectMeta.Name = b.objectName
 
 	service := &corev1.Service{
 		TypeMeta:   metav1.TypeMeta{Kind: "Service", APIVersion: "v1"},
@@ -479,35 +476,8 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 			},
 		},
 	}
-	service.ObjectMeta.GenerateName = ""
-	service.ObjectMeta.Name = b.objectName
 
-	role := &rbacv1.Role{
-		TypeMeta:   metav1.TypeMeta{Kind: "Role", APIVersion: "rbac.authorization.k8s.io/v1"},
-		ObjectMeta: metav1.ObjectMeta{Name: b.objectName, Namespace: b.namespace},
-		Rules: []rbacv1.PolicyRule{{
-			Verbs:     []string{"get", "list"},
-			APIGroups: []string{""},
-			Resources: []string{"pods"},
-		}},
-	}
-
-	roleBinding := &rbacv1.RoleBinding{
-		TypeMeta:   metav1.TypeMeta{Kind: "RoleBinding", APIVersion: "rbac.authorization.k8s.io/v1"},
-		ObjectMeta: metav1.ObjectMeta{Name: b.objectName, Namespace: b.namespace},
-		Subjects: []rbacv1.Subject{{
-			Kind:      "ServiceAccount",
-			Name:      "default",
-			Namespace: b.namespace,
-		}},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     b.objectName,
-		},
-	}
-
-	return job, []runtime.Object{configMap, service, role, roleBinding}, nil
+	return job, []runtime.Object{configMap, service}, nil
 }
 
 func (b *slurmBuilder) buildIndexesMap() map[int32][]int32 {
