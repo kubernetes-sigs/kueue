@@ -44,9 +44,17 @@ type TestResource struct {
 	Bar string   `json:"bar,omitempty"`
 	Baz []string `json:"baz,omitempty"`
 
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions  []metav1.Condition `json:"conditions,omitempty"`
+	Items       []TestResourceItem `json:"items,omitempty"`
+	SubResource TestSubResource    `json:"subresource"`
+}
 
-	SubResource TestSubResource `json:"subresource"`
+type TestResourceItem struct {
+	SubItems []TestResourceSubItem `json:"subItems,omitempty"`
+}
+
+type TestResourceSubItem struct {
+	Baz []string `json:"baz,omitempty"`
 }
 
 type TestSubResource struct {
@@ -104,6 +112,17 @@ func (*TestCustomDefaulter) Default(ctx context.Context, obj runtime.Object) err
 		d.Conditions = conditions
 	}
 
+	// Checking the case `items[0].subItems[0].baz[1]`.
+	if len(d.Items) > 0 && len(d.Items[0].SubItems) > 0 {
+		baz := make([]string, 0, len(d.Items[0].SubItems[0].Baz))
+		for _, val := range d.Items[0].SubItems[0].Baz {
+			if val != "foo" {
+				baz = append(baz, val)
+			}
+		}
+		d.Items[0].SubItems[0].Baz = baz
+	}
+
 	if d.SubResource.Foo == "foo" {
 		d.SubResource.Foo = ""
 	}
@@ -128,8 +147,8 @@ func TestLossLessDefaulter(t *testing.T) {
 		AdmissionRequest: admissionv1.AdmissionRequest{
 			Kind: metav1.GroupVersionKind(testResourceGVK),
 			Object: runtime.RawExtension{
-				// This raw object has a field not defined in the go type.
-				// controller-runtime CustomDefaulter would have added a remove operation for it.
+				// This raw object has fields not defined in the go type.
+				// controller-runtime CustomDefaulter would have added remove operations for it.
 				Raw: []byte(`{
 	"unknown1": "unknown",
 	"unknown2": ["unknown"],
@@ -141,7 +160,8 @@ func TestLossLessDefaulter(t *testing.T) {
 	"conditions": [
 		{"type": "foo", "message": "foo", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1, "unknown": "unknown"}, 
 		{"type": "bar", "message": "bar", "reason": "", "status": "", "lastTransitionTime": null, "observedGeneration": 1, "unknown": "unknown"}
-	]
+	],
+	"items": [{"subItems": [{ "unknown1": "unknown", "baz": ["foo"] }] }]	
 }`),
 			},
 		},
@@ -162,58 +182,11 @@ func TestLossLessDefaulter(t *testing.T) {
 		{Operation: "replace", Path: "/subresource/bar"},
 		{Operation: "remove", Path: "/conditions/0/observedGeneration"},
 		{Operation: "remove", Path: "/conditions/1"},
+		{Operation: "remove", Path: "/items/0/subItems/0/baz"},
 	}
 	if diff := cmp.Diff(wantPatches, resp.Patches, cmpopts.SortSlices(func(a, b jsonpatch.Operation) bool {
 		return a.Path < b.Path
 	})); diff != "" {
 		t.Errorf("Unexpected patches (-want, +got): %s", diff)
-	}
-}
-
-func TestConvertToFieldErrorPath(t *testing.T) {
-	testCases := map[string]struct {
-		path     string
-		wantPath string
-	}{
-		"empty": {
-			path:     "",
-			wantPath: "",
-		},
-		"with slash": {
-			path:     "/",
-			wantPath: "",
-		},
-		"with one token": {
-			path:     "/foo",
-			wantPath: "foo",
-		},
-		"with two tokens": {
-			path:     "/foo/bar",
-			wantPath: "foo.bar",
-		},
-		"with element": {
-			path:     "/foo/0",
-			wantPath: "foo[0]",
-		},
-		"with field in array": {
-			path:     "/foo/0/bar",
-			wantPath: "foo[0].bar",
-		},
-		"with field in array deep": {
-			path:     "/foo/1/bar/10/baz",
-			wantPath: "foo[1].bar[10].baz",
-		},
-		"with field in array deep and element": {
-			path:     "/foo/1/bar/10/baz/0",
-			wantPath: "foo[1].bar[10].baz[0]",
-		},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			gotPath := convertToFieldErrorPath(tc.path)
-			if diff := cmp.Diff(tc.wantPath, gotPath); diff != "" {
-				t.Errorf("Unexpected path (-want, +got): %s", diff)
-			}
-		})
 	}
 }
