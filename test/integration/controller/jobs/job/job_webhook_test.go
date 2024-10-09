@@ -225,5 +225,23 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			createdJob.Spec.Suspend = ptr.To(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("should allow restoring parallelism", func() {
+			originalJob := testingjob.MakeJob("job-with-queue-name", ns.Name).Queue("queue").
+				Parallelism(3).
+				Completions(6).
+				SetAnnotation(job.StoppingAnnotation, "true").
+				SetAnnotation(job.JobMinParallelismAnnotation, "2").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, originalJob)).Should(gomega.Succeed())
+
+			lookupKey := types.NamespacedName{Name: originalJob.Name, Namespace: originalJob.Namespace}
+			updatedJob := &batchv1.Job{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, updatedJob)).Should(gomega.Succeed())
+
+			updatedJob.Spec.Parallelism = ptr.To[int32](6)
+			delete(updatedJob.Annotations, job.StoppingAnnotation)
+			gomega.Expect(k8sClient.Update(ctx, updatedJob)).Should(gomega.Succeed())
+		})
 	})
 })
