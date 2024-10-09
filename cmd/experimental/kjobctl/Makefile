@@ -1,6 +1,10 @@
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.31.0
 
+ifeq ($(shell uname),Darwin)
+    GOFLAGS ?= -ldflags=-extldflags=-Wl,-ld_classic
+endif
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -118,7 +122,7 @@ test: verify vet test-unit test-integration ## Run all tests.
 
 .PHONY: test-unit
 test-unit: gomod-download gotestsum embeded-manifest ## Run unit tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo embeded-manifest ray-operator-crd ## Run integration tests.
