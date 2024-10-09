@@ -667,7 +667,32 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 }
 
 func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
+	if _, useFastAdmission := p.pod.GetAnnotations()[GroupFastAdmissionAnnotation]; useFastAdmission {
+		tc, err := p.groupTotalCount()
+		if err != nil {
+			return nil, err
+		}
+		return constructGroupPodSetsFast(p, tc)
+	}
 	return constructGroupPodSets(p.list.Items)
+}
+
+func constructGroupPodSetsFast(p *Pod, groupTotalCount int) ([]kueue.PodSet, error) {
+	for _, podInGroup := range p.list.Items {
+		if !isPodRunnableOrSucceeded(&podInGroup) {
+			continue
+		}
+		roleHash, err := getRoleHash(podInGroup)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
+		}
+		podSets := FromObject(&podInGroup).PodSets()
+		podSets[0].Name = roleHash
+		podSets[0].Count = int32(groupTotalCount)
+		return podSets, nil
+	}
+
+	return nil, errors.New("failed to find a runnable pod in the group")
 }
 
 func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
@@ -713,8 +738,9 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 		return err
 	}
 	originalQueue := jobframework.QueueName(p)
+	_, useFastAdmission := p.pod.GetAnnotations()[GroupFastAdmissionAnnotation]
 
-	if len(activePods) < groupTotalCount {
+	if !useFastAdmission && len(activePods) < groupTotalCount {
 		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", podGroupName(p.pod))
 		r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, errMsg)
 		return jobframework.UnretryableError(errMsg)
