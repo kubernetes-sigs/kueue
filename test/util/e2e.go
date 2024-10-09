@@ -120,18 +120,27 @@ func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
 }
 
 func WaitForJobSetAvailability(ctx context.Context, k8sClient client.Client) {
-	jcmKey := types.NamespacedName{Namespace: "jobset-system", Name: "jobset-controller-manager"}
-	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
+	_, skipJobsetAvailabilityCheck := os.LookupEnv("SKIP_JOB_SET_AVAILABILITY_CHECK")
+	if !skipJobsetAvailabilityCheck {
+		jcmKey := types.NamespacedName{Namespace: "jobset-system", Name: "jobset-controller-manager"}
+		waitForOperatorAvailability(ctx, k8sClient, jcmKey)
+	}
 }
 
 func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient client.Client) {
-	kftoKey := types.NamespacedName{Namespace: "kubeflow", Name: "training-operator"}
-	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+	_, skipTrainingOperatorAvailabilityCheck := os.LookupEnv("SKIP_TRAINING_OPERATOR_AVAILABILITY_CHECK")
+	if !skipTrainingOperatorAvailabilityCheck {
+		kftoKey := types.NamespacedName{Namespace: "kubeflow", Name: "training-operator"}
+		waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+	}
 }
 
 func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient client.Client) {
-	kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
-	waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+	_, skipMPIOperatorAvailabilityCheck := os.LookupEnv("SKIP_MPI_OPERATOR_AVAILABILITY_CHECK")
+	if !skipMPIOperatorAvailabilityCheck {
+		kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
+		waitForOperatorAvailability(ctx, k8sClient, kftoKey)
+	}
 }
 
 func GetNamespace() string {
