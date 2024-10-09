@@ -15,11 +15,16 @@
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ARTIFACTS ?= $(PROJECT_DIR)/bin
 
+ifeq ($(shell uname),Darwin)
+    GOFLAGS ?= -ldflags=-extldflags=-Wl,-ld_classic
+endif
+
 ifeq (,$(shell go env GOBIN))
 	GOBIN=$(shell go env GOPATH)/bin
 else
 	GOBIN=$(shell go env GOBIN)
 endif
+
 GO_CMD ?= go
 GO_TEST_FLAGS ?= -race
 version_pkg = sigs.k8s.io/kueue/pkg/version
@@ -70,7 +75,7 @@ KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ku
 
 .PHONY: test
 test: gotestsum ## Run tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo dep-crds kueuectl ginkgo-top ## Run tests.
