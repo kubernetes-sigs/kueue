@@ -71,6 +71,13 @@ func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	}
 }
 
+// WithResourceTransformations sets the resource transformations.
+func WithResourceTransformations(transforms []config.ResourceTransformation) Option {
+	return func(o *options) {
+		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithResourceTransformations(transforms))
+	}
+}
+
 type Manager struct {
 	sync.RWMutex
 	cond sync.Cond

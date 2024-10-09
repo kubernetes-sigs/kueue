@@ -1416,6 +1416,40 @@ in that case spec.podSets[*].count value will be used.</p>
 </tbody>
 </table>
 
+## `PodSetRequest`     {#kueue-x-k8s-io-v1beta1-PodSetRequest}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is the name of the podSet. It should match one of the names in .spec.podSets.</p>
+</td>
+</tr>
+<tr><td><code>resources</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
+</td>
+<td>
+   <p>Resources is the total resources all the pods in the podset need to run.</p>
+<p>Beside what is provided in podSet's specs, this value also takes into account
+the LimitRange defaults and RuntimeClass overheads at the moment of consideration
+and the application of resource.excludeResourcePrefixes and resource.transformations.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `PodSetUpdate`     {#kueue-x-k8s-io-v1beta1-PodSetUpdate}
     
 
@@ -1994,6 +2028,16 @@ the resource reservation is no longer needed.</p>
 </td>
 <td>
    <p>admissionChecks list all the admission checks required by the workload and the current status</p>
+</td>
+</tr>
+<tr><td><code>resourceRequests</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetRequest"><code>[]PodSetRequest</code></a>
+</td>
+<td>
+   <p>ResourceRequests provides a detailed view of the resources that were
+requested by a non-admitted workload when it was considered for admission.
+If admission is non-null, resourceRequests will be empty because
+admission.resourceUsage contains the detailed information.</p>
 </td>
 </tr>
 </tbody>
