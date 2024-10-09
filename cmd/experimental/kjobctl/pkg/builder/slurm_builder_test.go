@@ -17,6 +17,7 @@ limitations under the License.
 package builder
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"os/exec"
 	"regexp"
 	"testing"
+	"text/template"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -85,6 +87,17 @@ func TestUnmaskFilenameFunction(t *testing.T) {
 				return
 			}
 
+			tmpl, err := template.ParseFS(slurmTemplates, "templates/*")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var unmaskFilenameFunction bytes.Buffer
+
+			if err := tmpl.ExecuteTemplate(&unmaskFilenameFunction, "slurm_unmask_filename.sh.tmpl", nil); err != nil {
+				t.Fatal(err)
+			}
+
 			script := fmt.Sprintf(`#!/usr/bin/bash
 
 set -o errexit
@@ -95,7 +108,7 @@ set -o pipefail
 
 unmask_filename "%s"
 
-`, unmaskFilenameFunction, tc.input)
+`, unmaskFilenameFunction.String(), tc.input)
 
 			if _, err := file.WriteString(script); err != nil {
 				t.Error(err)
