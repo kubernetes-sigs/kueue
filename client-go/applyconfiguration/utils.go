@@ -67,6 +67,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.AdmissionCheckStatusApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckStrategyRule"):
 		return &kueuev1beta1.AdmissionCheckStrategyRuleApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AvailableFlavor"):
+		return &kueuev1beta1.AvailableFlavorApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
 		return &kueuev1beta1.BorrowWithinCohortApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
