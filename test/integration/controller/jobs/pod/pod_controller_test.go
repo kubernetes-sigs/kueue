@@ -615,22 +615,14 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.It("Should ungate pods when admitted with fast admission", func() {
-				ginkgo.By("Creating pods with queue name")
+				ginkgo.By("Creating pod1 and delaying creation of pod2")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
 					Group("test-group").
 					GroupTotalCount("2").
 					Annotation(podcontroller.GroupFastAdmissionAnnotation, "true").
 					Queue("test-queue").
 					Obj()
-				pod2 := testingpod.MakePod("test-pod2", ns.Name).
-					Group("test-group").
-					GroupTotalCount("2").
-					Annotation(podcontroller.GroupFastAdmissionAnnotation, "true").
-					Queue("test-queue").
-					Obj()
 				pod1LookupKey := client.ObjectKeyFromObject(pod1)
-				pod2LookupKey := client.ObjectKeyFromObject(pod2)
-
 				gomega.Expect(k8sClient.Create(ctx, pod1)).Should(gomega.Succeed())
 
 				ginkgo.By("checking that workload is created for the pod group with the queue name")
@@ -664,7 +656,17 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+				})
 
+				pod2 := testingpod.MakePod("test-pod2", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Annotation(podcontroller.GroupFastAdmissionAnnotation, "true").
+					Queue("test-queue").
+					Obj()
+				pod2LookupKey := client.ObjectKeyFromObject(pod2)
+
+				ginkgo.By("Creating pod2 and checking that it is unsuspended", func() {
 					gomega.Expect(k8sClient.Create(ctx, pod2)).Should(gomega.Succeed())
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 				})
