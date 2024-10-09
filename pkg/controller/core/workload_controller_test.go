@@ -317,7 +317,9 @@ var (
 )
 
 func TestReconcile(t *testing.T) {
-	testStartTime := time.Now()
+	// the clock is primarily used with second rounded times
+	// use the current time trimmed.
+	testStartTime := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(testStartTime)
 
 	cases := map[string]struct {
@@ -327,6 +329,7 @@ func TestReconcile(t *testing.T) {
 		wantWorkload   *kueue.Workload
 		wantError      error
 		wantEvents     []utiltesting.EventRecord
+		wantResult     reconcile.Result
 		reconcilerOpts []Option
 	}{
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
@@ -745,6 +748,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: time.Minute},
 		},
 		"should set the WorkloadRequeued condition when backoff expires": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -1314,6 +1318,46 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+
+		"admitted workload with max execution time": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				MaximumExecutionTime(2*time.Minute).
+				AdmittedAt(true, testStartTime.Add(-time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				MaximumExecutionTime(2*time.Minute).
+				AdmittedAt(true, testStartTime.Add(-time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: time.Minute},
+		},
+
+		"admitted workload with max execution time - expired": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				MaximumExecutionTime(time.Minute).
+				AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Active(false).
+				MaximumExecutionTime(time.Minute).
+				AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Warning",
+					Reason:    "MaximumExecutionTimeExceeded",
+					Message:   "The maximum execution time (1m0s) exceeded",
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1350,10 +1394,14 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 
-			_, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)})
+			gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)})
 
 			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
 			}
 
 			gotWorkload := &kueue.Workload{}
