@@ -1314,6 +1314,95 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"shouldn't delete the workload because, object retention not configured": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadObjectRetention(nil),
+			},
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			wantError: nil,
+		},
+		"shouldn't try to delete the workload (no event emitted) because it is already being deleted by kubernetes, object retention configured": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{
+						Time: testStartTime,
+					},
+				}).
+				DeletionTimestamp(testStartTime).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadObjectRetention(&metav1.Duration{
+					Duration: 24 * time.Hour,
+				}),
+			},
+			wantWorkload: nil,
+			wantError: nil,
+		},
+		"shouldn't try to delete the workload because the retention period hasn't elapsed yet, object retention configured": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type: kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-10 * time.Second)),
+				}).
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadObjectRetention(
+					&metav1.Duration{
+						Duration: 30 * time.Second,
+				}),
+			},
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type: kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-10 * time.Second)),
+				}).
+				Obj(),
+			wantError: nil,
+		},
+		"should delete the workload because the retention period has elapsed, object retention configured": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type: kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-40 * time.Second)),
+				}).
+				Obj(),
+			reconcilerOpts: []Option{
+				WithWorkloadObjectRetention(
+					&metav1.Duration{
+						Duration: 30 * time.Second,
+				}),
+			},
+			wantWorkload: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key: types.NamespacedName{
+						Namespace: "ns",
+						Name: "wl",
+					},
+					EventType: corev1.EventTypeNormal,
+					Reason: "Deleted",
+					Message: "Deleted finished workload due to elapsed retention:  ns/wl",
+				},
+			},
+			wantError: nil,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
