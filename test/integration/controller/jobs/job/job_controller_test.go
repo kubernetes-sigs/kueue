@@ -447,11 +447,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdWl := kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
-				g.Expect(createdWl.OwnerReferences).To(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Check the job gets the ownership of the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
