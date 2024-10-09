@@ -340,10 +340,10 @@ not necessarily a Kubernetes Pod or Deployment name. Cannot be empty.</p>
 <code>int64</code>
 </td>
 <td>
-   <p>RetryDelayMinutes <strong>deprecated</strong> specifies how long to keep the workload suspended after
+   <p>RetryDelayMinutes specifies how long to keep the workload suspended after
 a failed check (after it transitioned to False). When the delay period has passed, the check
 state goes to &quot;Unknown&quot;. The default is 15 min.
-The default is 15 min.</p>
+Deprecated: retryDelayMinutes has already been deprecated since v0.8 and will be removed in v1beta2.</p>
 </td>
 </tr>
 <tr><td><code>parameters</code><br/>
