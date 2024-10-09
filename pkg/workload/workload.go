@@ -170,9 +170,11 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 		Flavors:  maps.Clone(psr.Flavors),
 	}
 
-	scaleDown(ret.Requests, int64(ret.Count))
-	scaleUp(ret.Requests, int64(newCount))
-	ret.Count = newCount
+	if psr.Count != 0 && psr.Count != newCount {
+		scaleDown(ret.Requests, int64(ret.Count))
+		scaleUp(ret.Requests, int64(newCount))
+		ret.Count = newCount
+	}
 	return ret
 }
 

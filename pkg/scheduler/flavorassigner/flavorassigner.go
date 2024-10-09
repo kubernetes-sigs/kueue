@@ -106,11 +106,18 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 	return psFlavors
 }
 
+// TotalRequestsFor - returns the total quota needs of the wl, taking into account the potential
+// scaling needed in case of partial admission.
 func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
 	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
+		// in case of partial admission scale down the quantity
+		aps := a.PodSets[i]
+		if aps.Count != ps.Count {
+			ps = *ps.ScaledTo(aps.Count)
+		}
 		for res, q := range ps.Requests {
-			flv := a.PodSets[i].Flavors[res].Name
+			flv := aps.Flavors[res].Name
 			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
 	}

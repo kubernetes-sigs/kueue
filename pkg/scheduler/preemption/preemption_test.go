@@ -910,6 +910,7 @@ func TestPreemption(t *testing.T) {
 								Mode: flavorassigner.Preempt,
 							},
 						},
+						Count: 1,
 					},
 					{
 						Name: "workers",
@@ -919,6 +920,7 @@ func TestPreemption(t *testing.T) {
 								Mode: flavorassigner.Preempt,
 							},
 						},
+						Count: 2,
 					},
 				},
 			},
@@ -2044,6 +2046,7 @@ func singlePodSetAssignment(assignments flavorassigner.ResourceAssignment) flavo
 		PodSets: []flavorassigner.PodSetAssignment{{
 			Name:    kueue.DefaultPodSetName,
 			Flavors: assignments,
+			Count:   1,
 		}},
 	}
 }
