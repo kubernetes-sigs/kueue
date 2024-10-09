@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Create a slurm job
 
 ```
-kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--ignore-unknown-flags] [--skip-priority-validation] --  [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--output FILENAME_PATTERN] [--error FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME] [--priority NAME] SCRIPT
+kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--ignore-unknown-flags] [--skip-priority-validation] [--init-image IMAGE] [--first-node-ip] [--first-node-ip-timeout DURATION] --  [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--output FILENAME_PATTERN] [--error FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME] [--priority NAME] SCRIPT
 ```
 
 
@@ -53,6 +53,24 @@ kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEU
         </td>
     </tr>
     <tr>
+        <td colspan="2">--first-node-ip</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Enable the retrieval of the first node&#39;s IP address.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--first-node-ip-timeout duration&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: 1m0s</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>The timeout for the retrieval of the first node&#39;s IP address.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-h, --help</td>
     </tr>
     <tr>
@@ -71,7 +89,7 @@ kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEU
         </td>
     </tr>
     <tr>
-        <td colspan="2">--init-image string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;bash:5-alpine3.20&#34;</td>
+        <td colspan="2">--init-image string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;registry.k8s.io/alpine-with-bash:1.0&#34;</td>
     </tr>
     <tr>
         <td></td>

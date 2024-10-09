@@ -114,6 +114,8 @@ type Builder struct {
 	ignoreUnknown            bool
 	skipLocalQueueValidation bool
 	skipPriorityValidation   bool
+	firstNodeIP              bool
+	firstNodeIPTimeout       time.Duration
 	changeDir                string
 
 	profile       *v1alpha1.ApplicationProfile
@@ -289,6 +291,16 @@ func (b *Builder) WithSkipLocalQueueValidation(skip bool) *Builder {
 
 func (b *Builder) WithSkipPriorityValidation(skip bool) *Builder {
 	b.skipPriorityValidation = skip
+	return b
+}
+
+func (b *Builder) WithFirstNodeIP(firstNodeIP bool) *Builder {
+	b.firstNodeIP = firstNodeIP
+	return b
+}
+
+func (b *Builder) WithFirstNodeIPTimeout(timeout time.Duration) *Builder {
+	b.firstNodeIPTimeout = timeout
 	return b
 }
 

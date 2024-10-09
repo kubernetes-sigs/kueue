@@ -724,7 +724,7 @@ func TestCreateCmd(t *testing.T) {
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
 							Subdomain("profile-slurm").
-							WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:5-alpine3.20").
+							WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "registry.k8s.io/alpine-with-bash:1.0").
 								Command("bash", "/slurm/scripts/init-entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
@@ -933,6 +933,8 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					"--profile", "profile",
 					"--localqueue", "lq1",
 					"--init-image", "bash:latest",
+					"--first-node-ip",
+					"--first-node-ip-timeout", "29s",
 					"--",
 					"--array", "0-25",
 					"--nodes", "2",
@@ -1092,6 +1094,30 @@ SBATCH_JOB_NAME=job-name
 SBATCH_PARTITION=lq1
 EOF
 
+  apk --update add curl jq
+
+  token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+  ca_cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  timeout=29
+  start_time=$(date +%s)
+
+  while true; do
+    ip=$(curl -k --cacert $ca_cert -H "Authorization: Bearer $token" "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT/api/v1/namespaces/default/pods?labelSelector=batch.kubernetes.io/job-name=profile-slurm-9f5wb,batch.kubernetes.io/job-completion-index=0" | jq -r '.items[0].status.podIP')
+    if [[ -n "$ip" ]]; then
+      SLURM_JOB_FIRST_NODE_IP=$ip
+      break
+    else
+      current_time=$(date +%s)
+      elapsed_time=$((current_time - start_time))
+      if (( elapsed_time >= timeout )); then
+        echo "timeout reached, IP ip for the first node ($SLURM_JOB_FIRST_NODE) not found."
+        break
+      fi
+      echo "IP Address for the first node ($SLURM_JOB_FIRST_NODE) not found, retrying..."
+      sleep 1
+    fi
+  done
+
 	cat << EOF > /slurm/env/$i/slurm.env
 SLURM_ARRAY_JOB_ID=1
 SLURM_ARRAY_TASK_COUNT=26
@@ -1116,7 +1142,7 @@ SLURM_JOB_NODELIST=profile-slurm-fpxnj-0.profile-slurm-fpxnj,profile-slurm-fpxnj
 SLURM_JOB_FIRST_NODE=profile-slurm-fpxnj-0.profile-slurm-fpxnj
 SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 3 + i + 1 ))
 SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 3 + i + 1 ))
-SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
+SLURM_ARRAY_TASK_ID=${container_indexes[$i]}SLURM_JOB_FIRST_NODE_IP=$SLURM_JOB_FIRST_NODE_IP
 EOF
 
 done

@@ -138,31 +138,32 @@ unmask_filename "%s"
 }
 
 type slurmBuilderTestCase struct {
-	beforeTest    func(tc *slurmBuilderTestCase) error
-	afterTest     func(tc *slurmBuilderTestCase) error
-	tempFile      string
-	namespace     string
-	profile       string
-	mode          v1alpha1.ApplicationProfileMode
-	array         string
-	cpusPerTask   *resource.Quantity
-	gpusPerTask   map[string]*resource.Quantity
-	memPerTask    *resource.Quantity
-	memPerCPU     *resource.Quantity
-	memPerGPU     *resource.Quantity
-	nodes         *int32
-	nTasks        *int32
-	output        string
-	err           string
-	input         string
-	jobName       string
-	partition     string
-	initImage     string
-	kjobctlObjs   []runtime.Object
-	wantRootObj   runtime.Object
-	wantChildObjs []runtime.Object
-	wantErr       error
-	cmpopts       []cmp.Option
+	beforeTest       func(tc *slurmBuilderTestCase) error
+	afterTest        func(tc *slurmBuilderTestCase) error
+	tempFile         string
+	namespace        string
+	profile          string
+	mode             v1alpha1.ApplicationProfileMode
+	array            string
+	cpusPerTask      *resource.Quantity
+	gpusPerTask      map[string]*resource.Quantity
+	memPerTask       *resource.Quantity
+	memPerCPU        *resource.Quantity
+	memPerGPU        *resource.Quantity
+	nodes            *int32
+	nTasks           *int32
+	output           string
+	err              string
+	input            string
+	jobName          string
+	partition        string
+	initImage        string
+	firstNodeTimeout time.Duration
+	kjobctlObjs      []runtime.Object
+	wantRootObj      runtime.Object
+	wantChildObjs    []runtime.Object
+	wantErr          error
+	cmpopts          []cmp.Option
 }
 
 func beforeSlurmTest(tc *slurmBuilderTestCase) error {
@@ -458,6 +459,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 				WithJobName(tc.jobName).
 				WithPartition(tc.partition).
 				WithInitImage(tc.initImage).
+				WithFirstNodeIPTimeout(tc.firstNodeTimeout).
 				Do(ctx)
 
 			var opts []cmp.Option
