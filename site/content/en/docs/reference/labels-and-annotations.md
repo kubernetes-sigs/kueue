@@ -101,7 +101,7 @@ Type: Label
 
 Example: `kueue.x-k8s.io/prebuilt -workload-name: "my-prebuild-workload-name"`
 
-Used on: Jobs.
+Used on: Kueue-managed Jobs.
 
 The label key of the job holds the name of the pre-built workload to be used.
 
@@ -112,7 +112,7 @@ Type: Label
 
 Example: `kueue.x-k8s.io/priority-class: "my-priority-class-name"`
 
-Used on: Jobs.
+Used on: Kueue-managed Jobs.
 
 The label key in the workload holds the `workloadPriorityClass` name.
 This label is always mutable, as it may be useful for preemption.
@@ -125,7 +125,7 @@ Type: Label
 
 Example: `kueue.x-k8s.io/queue-name: "my-local-queue"`
 
-Used on: Jobs.
+Used on: Kueue-managed Jobs.
 
 The label key in the workload holds the queue name.
 
@@ -136,7 +136,7 @@ Type: Annotation
 
 Example: `kueue.x-k8s.io/queue-name: "my-local-queue"`
 
-Used on: Jobs.
+Used on: Kueue-managed Jobs.
 
 The annotation key in the workload holds the queue name.
 
