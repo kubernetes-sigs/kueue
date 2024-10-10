@@ -116,7 +116,7 @@ type slurmBuilder struct {
 
 var _ builder = (*slurmBuilder)(nil)
 
-func (b *slurmBuilder) validateGeneral(ctx context.Context) error {
+func (b *slurmBuilder) validateGeneral() error {
 	if len(b.script) == 0 {
 		return noScriptSpecifiedErr
 	}
@@ -127,14 +127,6 @@ func (b *slurmBuilder) validateGeneral(ctx context.Context) error {
 
 	if b.memPerGPU != nil && b.gpusPerTask == nil {
 		return noGpusPerTaskSpecifiedErr
-	}
-
-	// check that priority class exists
-	if len(b.priority) != 0 && !b.skipPriorityValidation {
-		_, err := b.kueueClientset.KueueV1beta1().WorkloadPriorityClasses().Get(ctx, b.priority, metav1.GetOptions{})
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -213,7 +205,7 @@ func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
 }
 
 func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Object, error) {
-	if err := b.validateGeneral(ctx); err != nil {
+	if err := b.validateGeneral(); err != nil {
 		return nil, nil, err
 	}
 

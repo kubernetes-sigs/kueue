@@ -53,6 +53,10 @@ func (b *rayJobBuilder) build(ctx context.Context) (runtime.Object, []runtime.Ob
 		rayJob.Spec.Entrypoint = strings.Join(b.command, " ")
 	}
 
+	if len(b.priority) != 0 {
+		rayJob.Labels[kueueconstants.WorkloadPriorityClassLabel] = b.priority
+	}
+
 	if len(b.rayCluster) != 0 {
 		delete(rayJob.ObjectMeta.Labels, kueueconstants.QueueLabel)
 		rayJob.Spec.RayClusterSpec = nil

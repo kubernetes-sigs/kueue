@@ -341,6 +341,69 @@ func TestCreateCmd(t *testing.T) {
 			// Fake dynamic client not generating name. That's why we have <unknown>.
 			wantOut: "job.batch/<unknown> created\n",
 		},
+		"should create job with --priority flag": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"job", "--profile", "profile", "--priority", "sample-priority"}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").Obj()).
+					Obj(),
+			},
+			kueueObjs: []runtime.Object{
+				&kueue.WorkloadPriorityClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "sample-priority",
+					},
+				},
+			},
+			gvks: []schema.GroupVersionKind{{Group: "batch", Version: "v1", Kind: "Job"}},
+			wantLists: []runtime.Object{
+				&batchv1.JobList{
+					TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
+					Items: []batchv1.Job{
+						*wrappers.MakeJob("", metav1.NamespaceDefault).
+							Priority("sample-priority").
+							GenerateName("profile-job-").
+							Profile("profile").
+							Mode(v1alpha1.JobMode).
+							Obj(),
+					},
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "job.batch/<unknown> created\n",
+		},
+		"should create job with --priority flag and skip workload priority class validation": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"job", "--profile", "profile", "--skip-priority-validation", "--priority", "sample-priority"}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.JobMode, "job-template").Obj()).
+					Obj(),
+			},
+			gvks: []schema.GroupVersionKind{{Group: "batch", Version: "v1", Kind: "Job"}},
+			wantLists: []runtime.Object{
+				&batchv1.JobList{
+					TypeMeta: metav1.TypeMeta{Kind: "JobList", APIVersion: "batch/v1"},
+					Items: []batchv1.Job{
+						*wrappers.MakeJob("", metav1.NamespaceDefault).
+							Priority("sample-priority").
+							GenerateName("profile-job-").
+							Profile("profile").
+							Mode(v1alpha1.JobMode).
+							Obj(),
+					},
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "job.batch/<unknown> created\n",
+		},
 		"should create job with completions replacement": {
 			args: func(tc *createCmdTestCase) []string {
 				return []string{"job", "--profile", "profile", "--completions", "5"}
@@ -623,6 +686,69 @@ func TestCreateCmd(t *testing.T) {
 			// Fake dynamic client not generating name. That's why we have <unknown>.
 			wantOut: "rayjob.ray.io/<unknown> created\n",
 		},
+		"should create ray job with --priority flag": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"rayjob", "--profile", "profile", "--priority", "sample-priority"}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
+					Obj(),
+			},
+			kueueObjs: []runtime.Object{
+				&kueue.WorkloadPriorityClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "sample-priority",
+					},
+				},
+			},
+			gvks: []schema.GroupVersionKind{{Group: "ray.io", Version: "v1", Kind: "RayJob"}},
+			wantLists: []runtime.Object{
+				&rayv1.RayJobList{
+					TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
+					Items: []rayv1.RayJob{
+						*wrappers.MakeRayJob("", metav1.NamespaceDefault).
+							Priority("sample-priority").
+							GenerateName("profile-rayjob-").
+							Profile("profile").
+							Mode(v1alpha1.RayJobMode).
+							Obj(),
+					},
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "rayjob.ray.io/<unknown> created\n",
+		},
+		"should create ray job with --priority flag and skip workload priority class validation": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{"rayjob", "--profile", "profile", "--skip-priority-validation", "--priority", "sample-priority"}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayJobTemplate("ray-job-template", metav1.NamespaceDefault).
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayJobMode, "ray-job-template").Obj()).
+					Obj(),
+			},
+			gvks: []schema.GroupVersionKind{{Group: "ray.io", Version: "v1", Kind: "RayJob"}},
+			wantLists: []runtime.Object{
+				&rayv1.RayJobList{
+					TypeMeta: metav1.TypeMeta{Kind: "RayJobList", APIVersion: "ray.io/v1"},
+					Items: []rayv1.RayJob{
+						*wrappers.MakeRayJob("", metav1.NamespaceDefault).
+							Priority("sample-priority").
+							GenerateName("profile-rayjob-").
+							Profile("profile").
+							Mode(v1alpha1.RayJobMode).
+							Obj(),
+					},
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "rayjob.ray.io/<unknown> created\n",
+		},
 		"shouldn't create ray job with raycluster and localqueue replacements because mutually exclusive": {
 			args: func(tc *createCmdTestCase) []string {
 				return []string{"rayjob", "--profile", "profile", "--raycluster", "rc1", "--localqueue", "lq1"}
@@ -661,6 +787,76 @@ func TestCreateCmd(t *testing.T) {
 					TypeMeta: metav1.TypeMeta{Kind: "RayClusterList", APIVersion: "ray.io/v1"},
 					Items: []rayv1.RayCluster{
 						*wrappers.MakeRayCluster("", metav1.NamespaceDefault).
+							GenerateName("profile-raycluster-").
+							Profile("profile").
+							Mode(v1alpha1.RayClusterMode).
+							Obj(),
+					},
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "raycluster.ray.io/<unknown> created\n",
+		},
+		"should create raycluster with --priority flag": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{
+					"raycluster",
+					"--profile", "profile",
+					"--priority", "sample-priority",
+				}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayClusterTemplate("ray-cluster-template", metav1.NamespaceDefault).Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayClusterMode, "ray-cluster-template").Obj()).
+					Obj(),
+			},
+			kueueObjs: []runtime.Object{
+				&kueue.WorkloadPriorityClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "sample-priority",
+					},
+				},
+			},
+			gvks: []schema.GroupVersionKind{{Group: "ray.io", Version: "v1", Kind: "RayCluster"}},
+			wantLists: []runtime.Object{
+				&rayv1.RayClusterList{
+					TypeMeta: metav1.TypeMeta{Kind: "RayClusterList", APIVersion: "ray.io/v1"},
+					Items: []rayv1.RayCluster{
+						*wrappers.MakeRayCluster("", metav1.NamespaceDefault).
+							Priority("sample-priority").
+							GenerateName("profile-raycluster-").
+							Profile("profile").
+							Mode(v1alpha1.RayClusterMode).
+							Obj(),
+					},
+				},
+			},
+			// Fake dynamic client not generating name. That's why we have <unknown>.
+			wantOut: "raycluster.ray.io/<unknown> created\n",
+		},
+		"should create raycluster with --priority flag and skip workload priority class validation": {
+			args: func(tc *createCmdTestCase) []string {
+				return []string{
+					"raycluster",
+					"--profile", "profile",
+					"--skip-priority-validation",
+					"--priority", "sample-priority",
+				}
+			},
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeRayClusterTemplate("ray-cluster-template", metav1.NamespaceDefault).Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.RayClusterMode, "ray-cluster-template").Obj()).
+					Obj(),
+			},
+			gvks: []schema.GroupVersionKind{{Group: "ray.io", Version: "v1", Kind: "RayCluster"}},
+			wantLists: []runtime.Object{
+				&rayv1.RayClusterList{
+					TypeMeta: metav1.TypeMeta{Kind: "RayClusterList", APIVersion: "ray.io/v1"},
+					Items: []rayv1.RayCluster{
+						*wrappers.MakeRayCluster("", metav1.NamespaceDefault).
+							Priority("sample-priority").
 							GenerateName("profile-raycluster-").
 							Profile("profile").
 							Mode(v1alpha1.RayClusterMode).

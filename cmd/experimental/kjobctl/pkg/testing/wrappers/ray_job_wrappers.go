@@ -174,3 +174,8 @@ func (j *RayJobWrapper) RayClusterName(rayClusterName string) *RayJobWrapper {
 	j.RayJob.Status.RayClusterName = rayClusterName
 	return j
 }
+
+// Priority sets the workload priority class label.
+func (j *RayJobWrapper) Priority(v string) *RayJobWrapper {
+	return j.Label(kueueconstants.WorkloadPriorityClassLabel, v)
+}

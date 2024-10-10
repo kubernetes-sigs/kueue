@@ -93,7 +93,8 @@ type TemplateReference string
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('ntasks' in self.requiredFlags) || self.name == 'Slurm'", message="ntasks flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('output' in self.requiredFlags) || self.name == 'Slurm'", message="output flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('partition' in self.requiredFlags) || self.name == 'Slurm'", message="partition flag can be used only on Slurm mode"
-// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('priority' in self.requiredFlags) || self.name == 'Slurm'", message="priority flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('priority' in self.requiredFlags) || self.name != 'Interactive'", message="priority flag can't be used only on Interactive mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('skip-priority-validation' in self.requiredFlags) || self.name != 'Interactive'", message="skip priority validation flag can't be used only on Interactive mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || !('parallelism' in self.requiredFlags)", message="parallelism flag can't be used on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || !('completions' in self.requiredFlags)", message="completions flag can't be used on Slurm mode"
 type SupportedMode struct {
@@ -121,15 +122,16 @@ type SupportedMode struct {
 	// The raycluster flag used only for the RayJob mode.
 	// The request flag used only for Interactive and Job modes.
 	// The cmd flag used only for Interactive, Job, and RayJob.
+	// The skip-priority-workload and priority flags can be used in all modes except for Interactive mode.
 	// If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
 	// For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem, mem-per-cpu,
-	// mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue, priority.
+	// mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue.
 	//
 	// cmd and requests values are going to be added only to the first primary container.
 	//
 	// +optional
 	// +listType=set
-	// +kubebuilder:validation:MaxItems=13
+	// +kubebuilder:validation:MaxItems=14
 	RequiredFlags []Flag `json:"requiredFlags,omitempty"`
 }
 
