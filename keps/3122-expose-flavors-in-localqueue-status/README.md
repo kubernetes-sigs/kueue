@@ -70,8 +70,12 @@ Create `AvailableFlavor` API object:
 
 ```go
 type AvailableFlavor struct {
-	// name of the flavor.
-	Name ResourceFlavorReference `json:"name"`
+  // name of the flavor.
+  Name ResourceFlavorReference `json:"name"`
+  // resources used in the flavor.
+  // +listType=set
+  // +optional
+  Resources []string `json:"resources,omitempty"`
 }
 ```
 
