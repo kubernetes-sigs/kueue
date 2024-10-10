@@ -239,10 +239,12 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"job": {
 		ModeName: v1alpha1.JobMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--cmd COMMAND]" +
+			subcmd.Use += " [--skip-priority-validation]" +
+				" [--cmd COMMAND]" +
 				" [--request RESOURCE_NAME=QUANTITY]" +
 				" [--parallelism PARALLELISM]" +
-				" [--completions COMPLETIONS]"
+				" [--completions COMPLETIONS]" +
+				" [--priority NAME]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
 
@@ -254,6 +256,10 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
 				"Completions specifies the desired number of successfully finished pods.")
+			subcmd.Flags().StringVar(&o.Priority, priorityFlagName, "",
+				"Apply priority for the entire workload.")
+			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
+				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 		},
 	},
 	"interactive": {
@@ -279,10 +285,12 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"rayjob": {
 		ModeName: v1alpha1.RayJobMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--cmd COMMAND]" +
+			subcmd.Use += " [--skip-priority-validation]" +
+				" [--cmd COMMAND]" +
 				" [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
-				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
+				" [--priority NAME]"
 			subcmd.Short = "Create a rayjob"
 			subcmd.Long = createRayJobLong
 			subcmd.Example = createRayJobExample
@@ -297,6 +305,10 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
 			subcmd.Flags().StringVar(&o.RayCluster, rayClusterFlagName, "",
 				"Existing ray cluster on which the job will be created.")
+			subcmd.Flags().StringVar(&o.Priority, priorityFlagName, "",
+				"Apply priority for the entire workload.")
+			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
+				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, replicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, minReplicasFlagName)
@@ -307,9 +319,11 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"raycluster": {
 		ModeName: v1alpha1.RayClusterMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS]" +
+			subcmd.Use += " [--skip-priority-validation]" +
+				" [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
-				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
+				" [--priority NAME]"
 			subcmd.Short = "Create a raycluster"
 			subcmd.Long = createRayClusterLong
 			subcmd.Example = createRayClusterExample
@@ -320,6 +334,10 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
 			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
+			subcmd.Flags().StringVar(&o.Priority, priorityFlagName, "",
+				"Apply priority for the entire workload.")
+			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
+				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 		},
 	},
 	"slurm": {
