@@ -288,12 +288,6 @@ func GetIntegrationsList() []string {
 	return manager.getList()
 }
 
-// GetEnabledIntegrationsListForTest returns the list of currently enabled frameworks.
-func GetEnabledIntegrationsListForTest(tb testing.TB) []string {
-	tb.Helper()
-	return manager.getEnabledIntegrations().UnsortedList()
-}
-
 // IsOwnerManagedByKueue returns true if the provided owner can be managed by
 // kueue.
 func IsOwnerManagedByKueue(owner *metav1.OwnerReference) bool {

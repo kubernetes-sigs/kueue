@@ -17,11 +17,12 @@ limitations under the License.
 package job
 
 import (
-	"slices"
+	"errors"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -82,28 +83,6 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 	})
 
 	ginkgo.It("Should setup controller and webhook after CRD installation", framework.SlowSpec, func() {
-		ginkgo.By("Check that integration is not enabled", func() {
-			gomega.Expect(slices.Contains(jobframework.GetEnabledIntegrationsListForTest(ginkgo.GinkgoTB()), jobset.FrameworkName)).
-				To(gomega.BeFalse())
-		})
-
-		ginkgo.By("Install CRDs", func() {
-			options := envtest.CRDInstallOptions{
-				Paths:              []string{jobsetCrdPath},
-				ErrorIfPathMissing: true,
-				CleanUpAfterUse:    true,
-			}
-			_, err := envtest.InstallCRDs(cfg, options)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		})
-
-		ginkgo.By("Check that integration is enabled", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(slices.Contains(jobframework.GetEnabledIntegrationsListForTest(ginkgo.GinkgoTB()), jobset.FrameworkName)).
-					To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
 		jobSet := testingjobset.MakeJobSet("jobset", ns.Name).
 			ReplicatedJobs(testingjobset.ReplicatedJobRequirements{
 				Name:        "replicated-job-1",
@@ -114,6 +93,21 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 			Suspend(false).
 			Queue(localQueue.Name).
 			Obj()
+
+		ginkgo.By("Check that the JobSet CRDs are not installed", func() {
+			gomega.Expect(errors.Is(k8sClient.Create(ctx, jobSet), &meta.NoKindMatchError{})).To(gomega.BeTrue())
+		})
+
+		ginkgo.By("Install the JobSet CRDs", func() {
+			options := envtest.CRDInstallOptions{
+				Paths:              []string{jobsetCrdPath},
+				ErrorIfPathMissing: true,
+				CleanUpAfterUse:    true,
+			}
+			_, err := envtest.InstallCRDs(cfg, options)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		})
+
 		ginkgo.By("Create a JobSet", func() {
 			gomega.Expect(k8sClient.Create(ctx, jobSet)).To(gomega.Succeed())
 		})
