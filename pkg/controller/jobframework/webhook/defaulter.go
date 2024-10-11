@@ -20,10 +20,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	jsonpatch "gomodules.xyz/jsonpatch/v2"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/set"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -51,8 +52,9 @@ type losslessDefaulter struct {
 // released CRDs.
 // Dropping the "remove" operations is safe because Kueue's job mutators never remove fields.
 func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) admission.Response {
+	const opRemove = "remove"
 	response := h.Handler.Handle(ctx, req)
-	if needsCleanup(response) {
+	if response.Allowed && slices.ContainsFunc(response.Patches, func(p jsonpatch.JsonPatchOperation) bool { return p.Operation == opRemove }) {
 		// get the schema caused patch
 		obj := h.object.DeepCopyObject()
 		if err := h.decoder.Decode(req, obj); err != nil {
@@ -65,41 +67,12 @@ func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) a
 		}
 		schemePatch := admission.PatchResponseFromRaw(req.Object.Raw, marshalled)
 		if len(schemePatch.Patches) > 0 {
-			removedByScheme := set.New[string]()
-			for _, p := range schemePatch.Patches {
-				if p.Operation == "remove" {
-					removedByScheme.Insert(p.Path)
-				}
-			}
-
-			var patches []jsonpatch.Operation
-			for _, p := range response.Patches {
-				switch p.Operation {
-				case "remove":
-					if !removedByScheme.Has(p.Path) {
-						patches = append(patches, p)
-					}
-				default:
-					patches = append(patches, p)
-				}
-			}
-			if len(patches) == 0 {
+			removeOperation := sets.New(slices.DeleteFunc(schemePatch.Patches, func(p jsonpatch.JsonPatchOperation) bool { return p.Operation != opRemove })...)
+			response.Patches = slices.DeleteFunc(response.Patches, func(p jsonpatch.JsonPatchOperation) bool { return removeOperation.Has(p) })
+			if len(response.Patches) == 0 {
 				response.PatchType = nil
 			}
-			response.Patches = patches
 		}
 	}
 	return response
-}
-
-func needsCleanup(r admission.Response) bool {
-	if !r.Allowed {
-		return false
-	}
-	for _, p := range r.Patches {
-		if p.Operation != "remove" {
-			return true
-		}
-	}
-	return false
 }
