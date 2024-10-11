@@ -93,7 +93,7 @@ spec:
                         - output
                         - partition
                         type: string
-                      maxItems: 14
+                      maxItems: 13
                       type: array
                       x-kubernetes-list-type: set
                     template:
@@ -184,13 +184,9 @@ spec:
                   - message: partition flag can be used only on Slurm mode
                     rule: '!has(self.requiredFlags) || !(''partition'' in self.requiredFlags)
                       || self.name == ''Slurm'''
-                  - message: priority flag can't be used only on Interactive mode
+                  - message: priority flag can't be used on Interactive mode
                     rule: '!has(self.requiredFlags) || !(''priority'' in self.requiredFlags)
                       || self.name != ''Interactive'''
-                  - message: skip priority validation flag can't be used only on Interactive
-                      mode
-                    rule: '!has(self.requiredFlags) || !(''skip-priority-validation''
-                      in self.requiredFlags) || self.name != ''Interactive'''
                   - message: parallelism flag can't be used on Slurm mode
                     rule: '!has(self.requiredFlags) || self.name != ''Slurm'' || !(''parallelism''
                       in self.requiredFlags)'

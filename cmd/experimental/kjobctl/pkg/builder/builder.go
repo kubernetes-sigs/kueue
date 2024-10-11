@@ -325,14 +325,11 @@ func (b *Builder) validateGeneral(ctx context.Context) error {
 		}
 	}
 
-	// priority class is checked excluding interactive mode
-	if b.modeName != v1alpha1.InteractiveMode {
-		// check that priority class exists
-		if len(b.priority) != 0 && !b.skipPriorityValidation {
-			_, err := b.kueueClientset.KueueV1beta1().WorkloadPriorityClasses().Get(ctx, b.priority, metav1.GetOptions{})
-			if err != nil {
-				return err
-			}
+	// check that priority class exists
+	if len(b.priority) != 0 && !b.skipPriorityValidation {
+		_, err := b.kueueClientset.KueueV1beta1().WorkloadPriorityClasses().Get(ctx, b.priority, metav1.GetOptions{})
+		if err != nil {
+			return err
 		}
 	}
 

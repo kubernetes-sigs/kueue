@@ -243,12 +243,12 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"job": {
 		ModeName: v1alpha1.JobMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--skip-priority-validation]" +
-				" [--cmd COMMAND]" +
+			subcmd.Use += " [--cmd COMMAND]" +
 				" [--request RESOURCE_NAME=QUANTITY]" +
 				" [--parallelism PARALLELISM]" +
 				" [--completions COMPLETIONS]" +
-				" [--priority NAME]"
+				" [--priority NAME]" +
+				" [--skip-priority-validation]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
 
@@ -289,12 +289,12 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"rayjob": {
 		ModeName: v1alpha1.RayJobMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--skip-priority-validation]" +
-				" [--cmd COMMAND]" +
+			subcmd.Use += " [--cmd COMMAND]" +
 				" [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
 				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
-				" [--priority NAME]"
+				" [--priority NAME]" +
+				" [--skip-priority-validation]"
 			subcmd.Short = "Create a rayjob"
 			subcmd.Long = createRayJobLong
 			subcmd.Example = createRayJobExample
@@ -323,11 +323,11 @@ var createModeSubcommands = map[string]modeSubcommand{
 	"raycluster": {
 		ModeName: v1alpha1.RayClusterMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
-			subcmd.Use += " [--skip-priority-validation]" +
-				" [--replicas [WORKER_GROUP]=REPLICAS]" +
+			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
 				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
-				" [--priority NAME]"
+				" [--priority NAME]" +
+				" [--skip-priority-validation]"
 			subcmd.Short = "Create a raycluster"
 			subcmd.Long = createRayClusterLong
 			subcmd.Example = createRayClusterExample
