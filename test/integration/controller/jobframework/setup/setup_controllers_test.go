@@ -17,8 +17,7 @@ limitations under the License.
 package job
 
 import (
-	"errors"
-
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -95,7 +94,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 			Obj()
 
 		ginkgo.By("Check that the JobSet CRDs are not installed", func() {
-			gomega.Expect(errors.Is(k8sClient.Create(ctx, jobSet), &meta.NoKindMatchError{})).To(gomega.BeTrue())
+			gomega.Expect(k8sClient.Create(ctx, jobSet)).To(gomega.BeComparableTo(&meta.NoKindMatchError{}, cmpopts.EquateErrors()))
 		})
 
 		ginkgo.By("Install the JobSet CRDs", func() {
