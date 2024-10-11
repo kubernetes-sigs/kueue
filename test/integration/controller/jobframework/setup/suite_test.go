@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -32,6 +33,7 @@ import (
 
 var (
 	cfg           *rest.Config
+	k8sClient     client.Client
 	ctx           context.Context
 	fwk           *framework.Framework
 	crdPath       = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
@@ -49,6 +51,8 @@ func TestAPIs(t *testing.T) {
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		gomega.Expect(jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)).NotTo(gomega.HaveOccurred())
+		// The integration manager is a shared state and that after enabled a framework
+		// will remain enabled until the end of the test suite.
 		gomega.Expect(jobframework.SetupControllers(ctx, mgr, ginkgo.GinkgoLogr, opts...)).NotTo(gomega.HaveOccurred())
 	}
 }

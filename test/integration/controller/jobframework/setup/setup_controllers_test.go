@@ -21,23 +21,62 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	"sigs.k8s.io/kueue/pkg/util/testing"
+	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
+	var (
+		ns           *corev1.Namespace
+		flavor       *kueue.ResourceFlavor
+		clusterQueue *kueue.ClusterQueue
+		localQueue   *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
 		fwk = &framework.Framework{CRDPath: crdPath}
 		cfg = fwk.Init()
-		ctx, _ = fwk.SetupClient(cfg)
+		ctx, k8sClient = fwk.SetupClient(cfg)
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
+
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "jobset-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+		flavor = testing.MakeResourceFlavor("on-demand").Obj()
+		gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+
+		clusterQueue = testing.MakeClusterQueue("cluster-queue").
+			ResourceGroup(
+				*testing.MakeFlavorQuotas(flavor.Name).
+					Resource(corev1.ResourceCPU, "5").
+					Obj(),
+			).Obj()
+
+		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+		localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 	})
 
-	ginkgo.AfterAll(func() {
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+
 		fwk.StopManager(ctx)
 		fwk.Teardown()
 	})
@@ -60,6 +99,39 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 		ginkgo.By("Check that integration is enabled", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(slices.Contains(jobframework.GetEnabledIntegrationsList(), jobset.FrameworkName)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		jobSet := testingjobset.MakeJobSet("jobset", ns.Name).
+			ReplicatedJobs(testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-1",
+				Replicas:    1,
+				Parallelism: 1,
+				Completions: 1,
+			}).
+			Suspend(false).
+			Queue(localQueue.Name).
+			Obj()
+		ginkgo.By("Create a JobSet", func() {
+			gomega.Expect(k8sClient.Create(ctx, jobSet)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("Check that the JobSet was created and got suspended", func() {
+			createdJobSet := &jobsetapi.JobSet{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobSet.Name, Namespace: ns.Name}, createdJobSet)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(createdJobSet.Spec.Suspend, false)).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Check that the workload was created", func() {
+			wlLookupKey := types.NamespacedName{
+				Name:      jobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID),
+				Namespace: ns.Name,
+			}
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
