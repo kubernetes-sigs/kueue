@@ -37,6 +37,7 @@ var (
 
 type TestResource struct {
 	Foo string `json:"foo,omitempty"`
+	Bar *int   `json:"bar,omitempty"`
 }
 
 func (d *TestResource) GetObjectKind() schema.ObjectKind { return d }
@@ -59,6 +60,7 @@ func (*TestCustomDefaulter) Default(ctx context.Context, obj runtime.Object) err
 	if d.Foo == "" {
 		d.Foo = "bar"
 	}
+	d.Bar = nil
 	return nil
 }
 
@@ -78,7 +80,7 @@ func TestLossLessDefaulter(t *testing.T) {
 			Object: runtime.RawExtension{
 				// This raw object has a field not defined in the go type.
 				// controller-runtime CustomDefaulter would have added a remove operation for it.
-				Raw: []byte(`{"baz": "qux"}`),
+				Raw: []byte(`{"baz": "qux", "bar": 1}`),
 			},
 		},
 	}
@@ -91,6 +93,10 @@ func TestLossLessDefaulter(t *testing.T) {
 			Operation: "add",
 			Path:      "/foo",
 			Value:     "bar",
+		},
+		{
+			Operation: "remove",
+			Path:      "/bar",
 		},
 	}
 	if diff := cmp.Diff(wantPatches, resp.Patches); diff != "" {
