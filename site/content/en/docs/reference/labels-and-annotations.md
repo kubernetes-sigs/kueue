@@ -15,7 +15,7 @@ Example: `kueue.x-k8s.io/is-group-workload: "true"`
 
 Used on: [Workload](/docs/concepts/workload/).
 
-The label key indicates that this workload is used for a group of Pods.
+The annotation key indicates that this workload is used for a group of Pods.
 
 
 ### kueue.x-k8s.io/job-completions-equal-parallelism
@@ -26,7 +26,7 @@ Example: `kueue.x-k8s.io/job-completions-equal-parallelism: "true"`
 
 Used on: [batch/Job](/docs/tasks/run/jobs/).
 
-The label key is used to keep `completions` and `parallelism` in sync
+The annotation key is used to keep `completions` and `parallelism` in sync
 
 
 ### kueue.x-k8s.io/job-min-parallelism
@@ -37,7 +37,7 @@ Example: `kueue.x-k8s.io/job-min-parallelism: "5"`
 
 Used on: [batch/Job](/docs/tasks/run/jobs/).
 
-The label key indicates the minimum `parallelism` acceptable for the job in the case of partial admission.
+The annotation key indicates the minimum `parallelism` acceptable for the job in the case of partial admission.
 
 
 ### kueue.x-k8s.io/job-uid
@@ -57,9 +57,9 @@ Type: Label
 
 Example: `kueue.x-k8s.io/managed: "true"`
 
-Used on: Resources managed by Kueue.
+Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
-The label key that indicates an object is managed by Kueue.
+The label key that indicates which pods are managed by Kueuue.
 
 
 ### kueue.x-k8s.io/multikueue-origin
@@ -70,7 +70,7 @@ Example: `kueue.x-k8s.io/multikueue-origin: "true"`
 
 Used on: [MultiKueue](/docs/concepts/multikueue/).
 
-The label key is used to track the creator of MultiKueue remote objects.
+The label key is used to track the creator of MultiKueue remote objects in Worker Cluster.
 
 
 ### kueue.x-k8s.io/pod-group-name
@@ -92,7 +92,7 @@ Example: `kueue.x-k8s.io/pod-group-total-count: "2"`
 
 Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
-The label key is used to indicate how many Pods to expect in the group.
+The annotation key is used to indicate how many Pods to expect in the group.
 
 
 ### kueue.x-k8s.io/prebuilt-workload-name
@@ -154,7 +154,7 @@ Example: `kueue.x-k8s.io/retriable-in-group: "false"`
 
 Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
-The label key is used to finalize the group if at least one terminated Pod (either Failed or Succeeded)
+The annotation key is used to finalize the group if at least one terminated Pod (either Failed or Succeeded)
 has the `retriable-in-group: false` annotation.
 
 
@@ -166,4 +166,4 @@ Example: `kueue.x-k8s.io/role-hash: "b54683bb"`
 
 Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
-The label key is used as the name for a Workload podSet.
+The annotation key is used as the name for a Workload podSet.
