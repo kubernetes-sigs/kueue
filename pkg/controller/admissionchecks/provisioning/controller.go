@@ -303,10 +303,11 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			}
 
 			if err := c.client.Create(ctx, req); err != nil {
-				ac.Message = fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
+				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
+				ac.Message = api.TruncateConditionMessage(msg)
 				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac)
 
-				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", ac.Message)
+				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 				return nil, err
 			}
 			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)
