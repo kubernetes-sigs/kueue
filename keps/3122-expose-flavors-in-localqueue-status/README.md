@@ -78,10 +78,26 @@ Create `AvailableFlavor` API object:
 type AvailableFlavor struct {
   // name of the flavor.
   Name ResourceFlavorReference `json:"name"`
+  
   // resources used in the flavor.
   // +listType=set
+  // +kubebuilder:validation:MaxItems=16
   // +optional
   Resources []string `json:"resources,omitempty"`
+
+  // nodeLabels are labels that associate the ResourceFlavor with Nodes that
+  // have the same labels.
+  // +mapType=atomic
+  // +kubebuilder:validation:MaxProperties=8
+  // +optional
+  NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+
+  // nodeTaints are taints that the nodes associated with this ResourceFlavor
+  // have.
+  // +listType=atomic
+  // +kubebuilder:validation:MaxItems=8
+  // +optional
+  NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
 }
 ```
 
