@@ -83,7 +83,8 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 
 	ginkgo.It("Should setup controller and webhook after CRD installation", framework.SlowSpec, func() {
 		ginkgo.By("Check that integration is not enabled", func() {
-			gomega.Expect(slices.Contains(jobframework.GetEnabledIntegrationsList(), jobset.FrameworkName)).To(gomega.BeFalse())
+			gomega.Expect(slices.Contains(jobframework.GetEnabledIntegrationsListForTest(ginkgo.GinkgoTB()), jobset.FrameworkName)).
+				To(gomega.BeFalse())
 		})
 
 		ginkgo.By("Install CRDs", func() {
@@ -98,7 +99,8 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Ordered, ginkgo.ContinueOnFa
 
 		ginkgo.By("Check that integration is enabled", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(slices.Contains(jobframework.GetEnabledIntegrationsList(), jobset.FrameworkName)).To(gomega.BeTrue())
+				g.Expect(slices.Contains(jobframework.GetEnabledIntegrationsListForTest(ginkgo.GinkgoTB()), jobset.FrameworkName)).
+					To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

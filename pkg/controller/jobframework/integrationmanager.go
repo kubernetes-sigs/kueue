@@ -288,8 +288,9 @@ func GetIntegrationsList() []string {
 	return manager.getList()
 }
 
-// GetEnabledIntegrationsList returns the list of currently enabled frameworks.
-func GetEnabledIntegrationsList() []string {
+// GetEnabledIntegrationsListForTest returns the list of currently enabled frameworks.
+func GetEnabledIntegrationsListForTest(tb testing.TB) []string {
+	tb.Helper()
 	return manager.getEnabledIntegrations().UnsortedList()
 }
 
