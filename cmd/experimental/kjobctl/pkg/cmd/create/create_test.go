@@ -1674,8 +1674,8 @@ cd /mydir
 				return []string{
 					"slurm",
 					"--profile", "profile",
-					"--",
 					"--priority", "sample-priority",
+					"--",
 					tc.tempFile,
 				}
 			},
@@ -1836,9 +1836,9 @@ cd /mydir
 				return []string{
 					"slurm",
 					"--profile", "profile",
+					"--priority", "sample-priority",
 					"--skip-priority-validation",
 					"--",
-					"--priority", "sample-priority",
 					tc.tempFile,
 				}
 			},

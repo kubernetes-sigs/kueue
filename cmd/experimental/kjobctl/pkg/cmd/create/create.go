@@ -246,9 +246,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Use += " [--cmd COMMAND]" +
 				" [--request RESOURCE_NAME=QUANTITY]" +
 				" [--parallelism PARALLELISM]" +
-				" [--completions COMPLETIONS]" +
-				" [--priority NAME]" +
-				" [--skip-priority-validation]"
+				" [--completions COMPLETIONS]"
 			subcmd.Short = "Create a job"
 			subcmd.Example = createJobExample
 
@@ -260,10 +258,6 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"Parallelism specifies the maximum desired number of pods the job should run at any given time.")
 			subcmd.Flags().Int32Var(&o.UserSpecifiedCompletions, completionsFlagName, 0,
 				"Completions specifies the desired number of successfully finished pods.")
-			subcmd.Flags().StringVar(&o.Priority, priorityFlagName, "",
-				"Apply priority for the entire workload.")
-			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
-				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 		},
 	},
 	"interactive": {
@@ -292,9 +286,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 			subcmd.Use += " [--cmd COMMAND]" +
 				" [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
-				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
-				" [--priority NAME]" +
-				" [--skip-priority-validation]"
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
 			subcmd.Short = "Create a rayjob"
 			subcmd.Long = createRayJobLong
 			subcmd.Example = createRayJobExample
@@ -309,10 +301,6 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
 			subcmd.Flags().StringVar(&o.RayCluster, rayClusterFlagName, "",
 				"Existing ray cluster on which the job will be created.")
-			subcmd.Flags().StringVar(&o.Priority, priorityFlagName, "",
-				"Apply priority for the entire workload.")
-			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
-				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, replicasFlagName)
 			subcmd.MarkFlagsMutuallyExclusive(rayClusterFlagName, minReplicasFlagName)
@@ -325,9 +313,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
 			subcmd.Use += " [--replicas [WORKER_GROUP]=REPLICAS]" +
 				" [--min-replicas [WORKER_GROUP]=MIN_REPLICAS]" +
-				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]" +
-				" [--priority NAME]" +
-				" [--skip-priority-validation]"
+				" [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]"
 			subcmd.Short = "Create a raycluster"
 			subcmd.Long = createRayClusterLong
 			subcmd.Example = createRayClusterExample
@@ -338,17 +324,12 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"MinReplicas denotes the minimum number of desired Pods for this worker group.")
 			subcmd.Flags().StringToIntVar(&o.MaxReplicas, maxReplicasFlagName, nil,
 				"MaxReplicas denotes the maximum number of desired Pods for this worker group, and the default value is maxInt32.")
-			subcmd.Flags().StringVar(&o.Priority, priorityFlagName, "",
-				"Apply priority for the entire workload.")
-			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
-				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 		},
 	},
 	"slurm": {
 		ModeName: v1alpha1.SlurmMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
 			subcmd.Use += " [--ignore-unknown-flags]" +
-				" [--skip-priority-validation]" +
 				" [--init-image IMAGE]" +
 				" [--first-node-ip]" +
 				" [--first-node-ip-timeout DURATION]" +
@@ -367,7 +348,6 @@ var createModeSubcommands = map[string]modeSubcommand{
 				" [--input FILENAME_PATTERN]" +
 				" [--job-name NAME]" +
 				" [--partition NAME]" +
-				" [--priority NAME]" +
 				" SCRIPT"
 
 			subcmd.Short = "Create a slurm job"
@@ -378,8 +358,6 @@ var createModeSubcommands = map[string]modeSubcommand{
 				"Ignore all the unsupported flags in the bash script.")
 			subcmd.Flags().StringVar(&o.InitImage, initImageFlagName, "registry.k8s.io/busybox:1.27.2",
 				"The image used for the init container.")
-			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
-				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 			subcmd.Flags().BoolVar(&o.FirstNodeIP, firstNodeIPFlagName, false,
 				"Enable the retrieval of the first node's IP address.")
 			subcmd.Flags().DurationVar(&o.FirstNodeIPTimeout, firstNodeIPTimeoutFlagName, time.Minute,
@@ -418,8 +396,6 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"What is the job name.")
 			o.SlurmFlagSet.StringVar(&o.Partition, partitionFlagName, "",
 				"Local queue name.")
-			o.SlurmFlagSet.StringVar(&o.Priority, priorityFlagName, "",
-				"Apply priority for the entire workload.")
 			o.SlurmFlagSet.StringVarP(&o.ChangeDir, changeDirFlagName, "D", "",
 				"Change directory before executing the script.")
 		},
@@ -446,7 +422,9 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			Use: modeName +
 				" --profile APPLICATION_PROFILE_NAME" +
 				" [--localqueue LOCAL_QUEUE_NAME]" +
-				" [--skip-localqueue-validation]",
+				" [--skip-localqueue-validation]" +
+				" [--priority NAME]" +
+				" [--skip-priority-validation]",
 			DisableFlagsInUseLine: true,
 			Args:                  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -469,6 +447,10 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			"Kueue localqueue name which is associated with the resource.")
 		subcmd.Flags().BoolVar(&o.SkipLocalQueueValidation, skipLocalQueueValidationFlagName, false,
 			"Skip local queue validation. Add local queue even if the queue does not exist.")
+		subcmd.Flags().StringVar(&o.Priority, priorityFlagName, "",
+			"Apply priority for the entire workload.")
+		subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
+			"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 
 		modeSubcommand.Setup(clientGetter, subcmd, o)
 
