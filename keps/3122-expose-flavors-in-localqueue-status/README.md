@@ -62,6 +62,12 @@ ClusterQueue objects directly, only LocalQueues.
 
 ### Risks and Mitigations
 
+Risk: Increased size of the status object due to adding 16 resource flavors 
+to the LocalQueue.
+
+Mitigation: The number of available flavor names is limited to 16, so this 
+additional field does not significantly impact performance.
+
 ## Design Details
 
 ### API
@@ -90,6 +96,8 @@ type LocalQueueStatus struct {
 	//
 	// +listType=map
 	// +listMapKey=name
+  // +kubebuilder:validation:MaxItems=16
+  // +optional
 	AvailableFlavors []AvailableFlavor `json:"availableFlavors,omitempty"`
 }
 ```
