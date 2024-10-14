@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -49,7 +49,7 @@ func TestMultikueueAdapter(t *testing.T) {
 	}
 
 	baseJobBuilder := utiltestingjob.MakeJob("job1", TestNamespace)
-	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueuealpha.MultiKueueControllerName)
+	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		managersJobs        []batchv1.Job
@@ -77,7 +77,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 		},
@@ -88,7 +88,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
 			},
@@ -102,7 +102,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
 			},
@@ -114,7 +114,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -130,7 +130,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -142,7 +142,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
 			},
@@ -157,7 +157,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
 			},
@@ -169,7 +169,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -186,7 +186,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			wantWorkerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -195,7 +195,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			workerJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Active(2).
 					Obj(),
 			},

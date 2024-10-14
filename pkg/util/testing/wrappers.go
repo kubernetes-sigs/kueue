@@ -1108,12 +1108,12 @@ func (p *WorkloadPriorityClassWrapper) Obj() *kueue.WorkloadPriorityClass {
 }
 
 type MultiKueueConfigWrapper struct {
-	kueuealpha.MultiKueueConfig
+	kueue.MultiKueueConfig
 }
 
 func MakeMultiKueueConfig(name string) *MultiKueueConfigWrapper {
 	return &MultiKueueConfigWrapper{
-		MultiKueueConfig: kueuealpha.MultiKueueConfig{
+		MultiKueueConfig: kueue.MultiKueueConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: name,
 			},
@@ -1121,7 +1121,7 @@ func MakeMultiKueueConfig(name string) *MultiKueueConfigWrapper {
 	}
 }
 
-func (mkc *MultiKueueConfigWrapper) Obj() *kueuealpha.MultiKueueConfig {
+func (mkc *MultiKueueConfigWrapper) Obj() *kueue.MultiKueueConfig {
 	return &mkc.MultiKueueConfig
 }
 
@@ -1131,12 +1131,12 @@ func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConf
 }
 
 type MultiKueueClusterWrapper struct {
-	kueuealpha.MultiKueueCluster
+	kueue.MultiKueueCluster
 }
 
 func MakeMultiKueueCluster(name string) *MultiKueueClusterWrapper {
 	return &MultiKueueClusterWrapper{
-		MultiKueueCluster: kueuealpha.MultiKueueCluster{
+		MultiKueueCluster: kueue.MultiKueueCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: name,
 			},
@@ -1144,12 +1144,12 @@ func MakeMultiKueueCluster(name string) *MultiKueueClusterWrapper {
 	}
 }
 
-func (mkc *MultiKueueClusterWrapper) Obj() *kueuealpha.MultiKueueCluster {
+func (mkc *MultiKueueClusterWrapper) Obj() *kueue.MultiKueueCluster {
 	return &mkc.MultiKueueCluster
 }
 
-func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueuealpha.LocationType, location string) *MultiKueueClusterWrapper {
-	mkc.Spec.KubeConfig = kueuealpha.KubeConfig{
+func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueue.LocationType, location string) *MultiKueueClusterWrapper {
+	mkc.Spec.KubeConfig = kueue.KubeConfig{
 		Location:     location,
 		LocationType: locationType,
 	}
@@ -1158,7 +1158,7 @@ func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueuealpha.Location
 
 func (mkc *MultiKueueClusterWrapper) Active(state metav1.ConditionStatus, reason, message string, generation int64) *MultiKueueClusterWrapper {
 	cond := metav1.Condition{
-		Type:               kueuealpha.MultiKueueClusterActive,
+		Type:               kueue.MultiKueueClusterActive,
 		Status:             state,
 		Reason:             reason,
 		Message:            message,

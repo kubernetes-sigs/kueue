@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -80,9 +80,9 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			return nil
 		}
 		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
-			if admissionCheck.Controller == v1alpha1.MultiKueueControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", v1alpha1.MultiKueueControllerName)
-				jobSet.Spec.ManagedBy = ptr.To(v1alpha1.MultiKueueControllerName)
+			if admissionCheck.Controller == kueue.MultiKueueControllerName {
+				log.V(5).Info("Defaulting ManagedBy", "jobset", klog.KObj(jobSet), "oldManagedBy", jobSet.Spec.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
+				jobSet.Spec.ManagedBy = ptr.To(kueue.MultiKueueControllerName)
 				return nil
 			}
 		}

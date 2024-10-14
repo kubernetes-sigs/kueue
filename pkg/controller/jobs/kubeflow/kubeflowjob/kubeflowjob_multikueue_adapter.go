@@ -27,7 +27,7 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -112,7 +112,7 @@ func (a adapter[PtrT, T]) SyncJob(
 		labels = make(map[string]string, 2)
 	}
 	labels[constants.PrebuiltWorkloadLabel] = workloadName
-	labels[kueuealpha.MultiKueueOriginLabel] = origin
+	labels[kueue.MultiKueueOriginLabel] = origin
 	remoteJob.SetLabels(labels)
 
 	return remoteClient.Create(ctx, remoteJob)
