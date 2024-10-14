@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	workloadpaddlejob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
@@ -130,7 +131,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = jobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadjob.SetupWebhook(mgr)
+	err = workloadjob.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadjobset.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -142,7 +143,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = jobsetReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadjobset.SetupJobSetWebhook(mgr)
+	err = workloadjobset.SetupJobSetWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadtfjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -154,7 +155,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = tfjobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadtfjob.SetupTFJobWebhook(mgr)
+	err = workloadtfjob.SetupTFJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadpaddlejob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -166,7 +167,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = paddleJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadpaddlejob.SetupPaddleJobWebhook(mgr)
+	err = workloadpaddlejob.SetupPaddleJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadpytorchjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -178,7 +179,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = pyTorchJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadpytorchjob.SetupPyTorchJobWebhook(mgr)
+	err = workloadpytorchjob.SetupPyTorchJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadxgboostjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -190,7 +191,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = xgboostJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadxgboostjob.SetupXGBoostJobWebhook(mgr)
+	err = workloadxgboostjob.SetupXGBoostJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadmpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -202,7 +203,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err = mpiJobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadmpijob.SetupMPIJobWebhook(mgr)
+	err = workloadmpijob.SetupMPIJobWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
