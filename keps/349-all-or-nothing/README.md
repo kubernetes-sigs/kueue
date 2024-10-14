@@ -127,6 +127,7 @@ which prevents starvation of new workloads.
 Additionally, we introduce a second mechanism to timeout Kueue's AdmissionChecks.
 AdmissionChecks (especially ProvisioningRequest), face the same risk of getting stuck for 
 an extended period of time, for example, in case of quota fragmentation as described above.
+an extended period of time, for example, in case of quota fragmentation as described above.
 
 Both behaviors can be opted-in at the level of
 the Kueue configuration.
