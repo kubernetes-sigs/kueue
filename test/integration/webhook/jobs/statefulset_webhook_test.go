@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package statefulset
+package jobs
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -30,9 +30,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -41,20 +41,14 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 
 	ginkgo.When("with pod integration enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
-			fwk = &framework.Framework{
-				CRDPath:     crdPath,
-				WebhookPath: webhookPath,
-			}
-			cfg = fwk.Init()
-
 			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
-				nil,
+			fwk.StartManager(ctx, cfg, managerSetup(
+				statefulset.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 				jobframework.WithIntegrationOptions(
@@ -62,6 +56,9 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					&configapi.PodIntegrationOptions{},
 				),
 			))
+		})
+		ginkgo.AfterAll(func() {
+			fwk.StopManager(ctx)
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
@@ -71,12 +68,8 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
-
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		})
-		ginkgo.AfterAll(func() {
-			fwk.Teardown()
 		})
 
 		ginkgo.When("The queue-name label is set", func() {

@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"fmt"
+	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -134,7 +135,7 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupTotalCountAnnotation(replic
 }
 
 func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation(enabled bool) *StatefulSetWrapper {
-	return ss.PodTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, fmt.Sprint(enabled))
+	return ss.PodTemplateSpecAnnotation(pod.GroupFastAdmissionAnnotation, strconv.FormatBool(enabled))
 }
 
 func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {
