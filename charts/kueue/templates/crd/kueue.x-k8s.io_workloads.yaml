@@ -8657,7 +8657,7 @@ spec:
                   properties:
                     name:
                       default: main
-                      description: Name is the name of the podSet. It should match
+                      description: name is the name of the podSet. It should match
                         one of the names in .spec.podSets.
                       maxLength: 63
                       pattern: ^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$
@@ -8670,7 +8670,7 @@ spec:
                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                         x-kubernetes-int-or-string: true
                       description: |-
-                        Resources is the total resources all the pods in the podset need to run.
+                        resources is the total resources all the pods in the podset need to run.
 
                         Beside what is provided in podSet's specs, this value also takes into account
                         the LimitRange defaults and RuntimeClass overheads at the moment of consideration

@@ -394,13 +394,13 @@ type ReclaimablePod struct {
 }
 
 type PodSetRequest struct {
-	// Name is the name of the podSet. It should match one of the names in .spec.podSets.
+	// name is the name of the podSet. It should match one of the names in .spec.podSets.
 	// +kubebuilder:default=main
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern="^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
 	Name string `json:"name"`
 
-	// Resources is the total resources all the pods in the podset need to run.
+	// resources is the total resources all the pods in the podset need to run.
 	//
 	// Beside what is provided in podSet's specs, this value also takes into account
 	// the LimitRange defaults and RuntimeClass overheads at the moment of consideration
