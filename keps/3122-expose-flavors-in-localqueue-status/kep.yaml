@@ -25,4 +25,7 @@ latest-milestone: "v0.9"
 milestone:
   beta: "v0.9"
 
-disable-supported: false
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: ExposeFlavorsInLocalQueue
+disable-supported: true
