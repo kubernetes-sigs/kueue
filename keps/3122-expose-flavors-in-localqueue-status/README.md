@@ -45,6 +45,7 @@ a LocalQueue (e.g., a flavor might include newer GPUs).
 ### Non-Goals
 
 - Verify that the ResourceFlavors exist and show only the existing flavors.
+- The stopPolicies are never considered in the LocalQueue flavors status field.
 
 ## Proposal
 
@@ -73,10 +74,10 @@ additional field does not significantly impact performance.
 
 ### API
 
-Create `AvailableFlavor` API object:
+Create `Flavor` API object:
 
 ```go
-type AvailableFlavor struct {
+type Flavor struct {
   // name of the flavor.
   Name ResourceFlavorReference `json:"name"`
   
@@ -115,7 +116,7 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
   // +kubebuilder:validation:MaxItems=16
   // +optional
-	AvailableFlavors []AvailableFlavor `json:"availableFlavors,omitempty"`
+	Flavors []Flavor `json:"availableFlavors,omitempty"`
 }
 ```
 
@@ -126,12 +127,12 @@ Modify `LocalQueueUsageStats` object:
 ```go
 type LocalQueueUsageStats struct {
   ...
-	AvailableFlavors []kueue.ResourceFlavorReference
+	Flavors []kueue.ResourceFlavorReference
 }
 ```
 
 Get available `Flavors` from `cqImpl.ResourceGroups` in `cache.LocalQueueUsage(...)` 
-method and update `AvailableFlavors` field on `UpdateStatusIfChanged(...)`
+method and update `Flavors` field on `UpdateStatusIfChanged(...)`
 on each LocalQueue reconcile when it was updated.
 
 ### Future works
