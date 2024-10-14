@@ -2369,7 +2369,7 @@ the resource reservation is no longer needed.</p>
 <a href="#kueue-x-k8s-io-v1beta1-PodSetRequest"><code>[]PodSetRequest</code></a>
 </td>
 <td>
-   <p>ResourceRequests provides a detailed view of the resources that were
+   <p>resourceRequests provides a detailed view of the resources that were
 requested by a non-admitted workload when it was considered for admission.
 If admission is non-null, resourceRequests will be empty because
 admission.resourceUsage contains the detailed information.</p>

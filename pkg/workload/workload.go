@@ -329,8 +329,10 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			Count: count,
 		}
 		specRequests := limitrange.TotalRequests(&ps.Template.Spec)
-		filteredRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
-		effectiveRequests := applyResourceTransformations(filteredRequests, info.resourceTransformations)
+		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
+		if features.Enabled(features.ConfigurableResourceTransformations) {
+			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
+		}
 		setRes.Requests = resources.NewRequests(effectiveRequests)
 		scaleUp(setRes.Requests, int64(count))
 		res = append(res, setRes)

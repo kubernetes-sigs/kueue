@@ -788,11 +788,12 @@ re-queuing an evicted workload.</p>
    <p>Input is the name of the input resource.</p>
 </td>
 </tr>
-<tr><td><code>strategy</code> <B>[Required]</B><br/>
+<tr><td><code>strategy</code><br/>
 <a href="#ResourceTransformationStrategy"><code>ResourceTransformationStrategy</code></a>
 </td>
 <td>
-   <p>Strategy specifies if the input resource should be replaced or retained.</p>
+   <p>Strategy specifies if the input resource should be replaced or retained.
+Defaults to Retain.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
@@ -837,7 +838,7 @@ re-queuing an evicted workload.</p>
    <p>ExcludedResourcePrefixes defines which resources should be ignored by Kueue</p>
 </td>
 </tr>
-<tr><td><code>transformations</code> <B>[Required]</B><br/>
+<tr><td><code>transformations</code><br/>
 <a href="#ResourceTransformation"><code>[]ResourceTransformation</code></a>
 </td>
 <td>

@@ -377,6 +377,7 @@ type Resources struct {
 	// Transformations defines how to transform PodSpec resources into Workload resource requests.
 	// +listType=map
 	// +listMapKey=input
+	// +optional
 	Transformations []ResourceTransformation `json:"transformations,omitempty"`
 }
 
@@ -390,7 +391,8 @@ type ResourceTransformation struct {
 	Input corev1.ResourceName `json:"input"`
 
 	// Strategy specifies if the input resource should be replaced or retained.
-	// +kubebuilder:validation:Required
+	// +optional
+	// Defaults to Retain.
 	Strategy ResourceTransformationStrategy `json:"strategy"`
 
 	// Outputs specifies the output resources and quantities per unit of input resource.

@@ -295,7 +295,7 @@ type WorkloadStatus struct {
 	// +kubebuilder:validation:MaxItems=8
 	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 
-	// ResourceRequests provides a detailed view of the resources that were
+	// resourceRequests provides a detailed view of the resources that were
 	// requested by a non-admitted workload when it was considered for admission.
 	// If admission is non-null, resourceRequests will be empty because
 	// admission.resourceUsage contains the detailed information.
