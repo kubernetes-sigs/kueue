@@ -9,7 +9,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.20.2
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.12.0
-	helm.sh/helm/v3 v3.16.1
+	helm.sh/helm/v3 v3.16.2
 	k8s.io/code-generator v0.31.1
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240813183042-b901db121e1f
 	sigs.k8s.io/controller-tools v0.16.3
