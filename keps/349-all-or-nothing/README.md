@@ -251,7 +251,7 @@ type WaitForPodsReady struct {
 	// which is used to ensure that specific AdmissionCheck is ready within the specified time.
 	// If there is no specified configuration for an AdmissionCheck, there is no timeout for it.
 	// +listType=map
-	WaitForAdmissionChecks *WaitForAdmissionChecks
+	WaitForAdmissionChecks []WaitForAdmissionChecks
 }
 
 type WaitForAdmissionChecks struct {
