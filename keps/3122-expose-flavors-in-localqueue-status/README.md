@@ -49,7 +49,7 @@ a LocalQueue (e.g., a flavor might include newer GPUs).
 
 ## Proposal
 
-Introduce a new status field `availableFlavors` in LocalQueue 
+Introduce a new status field `flavors` in LocalQueue 
 that will be updated when ClusterQueue flavors are modified.
 
 ### User Stories (Optional)
@@ -109,14 +109,13 @@ Modify `LocalQueueStatus` API object:
 // LocalQueueStatus defines the observed state of LocalQueue
 type LocalQueueStatus struct {
 	...
-	// availableFlavors lists all currently available ResourceFlavors
-	// in specified ClusterQueue.
+	// flavors lists all currently available ResourceFlavors in specified ClusterQueue.
 	//
 	// +listType=map
 	// +listMapKey=name
   // +kubebuilder:validation:MaxItems=16
   // +optional
-	Flavors []Flavor `json:"availableFlavors,omitempty"`
+	Flavors []Flavor `json:"flavors,omitempty"`
 }
 ```
 
