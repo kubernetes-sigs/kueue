@@ -164,8 +164,7 @@ configuration.
 #### Story 2
 
 As a Kueue administrator I want to ensure that a Job doesn't allocate resources
-infinitely if there is capacity in Kueue, but there's no capacity on the cloud
-provider side.
+infinitely for Workloads awaiting for AdmissionChecks.
 
 ### Notes/Constraints/Caveats (Optional)
 
