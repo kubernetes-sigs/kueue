@@ -569,6 +569,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlCopy := wl.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
+	workload.AddDeviceClassesToContainerRequests(ctx, r.client, wlCopy)
 
 	if !workload.HasQuotaReservation(wl) {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
@@ -655,6 +656,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	wlCopy := wl.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
+	workload.AddDeviceClassesToContainerRequests(ctx, r.client, wlCopy)
 
 	switch {
 	case status == workload.StatusFinished || !active:
@@ -858,6 +860,8 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
+		workload.AddDeviceClassesToContainerRequests(ctx, h.r.client, wlCopy)
+
 		if !h.r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist")
 		}

@@ -291,6 +291,14 @@ rules:
   - get
   - update
 - apiGroups:
+  - resource.k8s.io
+  resources:
+  - resourceclaimtemplates
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - scheduling.k8s.io
   resources:
   - priorityclasses
