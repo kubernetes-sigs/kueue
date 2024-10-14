@@ -78,9 +78,12 @@ large jobs may deadlock if there are issues with resource provisioning to
 match the configured cluster quota. The same pair of jobs could run to
 completion if their pods were scheduled sequentially.
 
-Another reason a pods could not schedule, even if Kueue had a free quota would be resource
-fragmentation. We would like to prevent allocating quota for an extended period of time
-if it cannot be consumed.
+Another reason pods could not schedule is that there are some AdmissionChecks configured which are
+not satisfied for a long time for a Workload which already reserves the quota.
+
+For example, some users may use AdmissionCheck [atomic-scale-up ProvisioningRequest](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/proposals/provisioning-request.md#atomic-scale-upkubernetesio-class)
+to gate admission of Workload. If there is a stock out on the cloud provider side, the Workload may stay waiting for admission for
+an extended period of time, and we would like to help users to avoid that situation.
 
 <!--
 This section is for explicitly listing the motivation, goals, and non-goals of
@@ -259,8 +262,8 @@ type WaitForAdmissionChecks struct {
 	// Name of the AdmissionCheck the configuration refers to
 	AdmissionCheck string
 
-	// Timeout defines the time for workload with reserved quota to reach the
-	// Admitted=true condition. When the timeout is exceeded, the workload
+	// Timeout defines the time for an AdmissionCheck to change its state from
+	// Pending to Ready. When the timeout is exceeded, the workload is
 	// evicted and requeued in the same cluster queue.
 	// Defaults to 10min.
 	// +optional
