@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
-	kueue "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
@@ -230,10 +229,6 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	}
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
 	job.Spec.Template.Spec.Subdomain = b.objectName
-
-	if len(b.priority) != 0 {
-		job.Labels[kueue.WorkloadPriorityClassLabel] = b.priority
-	}
 
 	b.buildPodSpecVolumesAndEnv(&job.Spec.Template.Spec)
 	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes,

@@ -541,6 +541,10 @@ func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.O
 		objectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
 	}
 
+	if len(b.priority) != 0 {
+		objectMeta.Labels[kueueconstants.WorkloadPriorityClassLabel] = b.priority
+	}
+
 	return objectMeta
 }
 

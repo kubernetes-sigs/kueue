@@ -93,7 +93,7 @@ spec:
                         - output
                         - partition
                         type: string
-                      maxItems: 12
+                      maxItems: 13
                       type: array
                       x-kubernetes-list-type: set
                     template:

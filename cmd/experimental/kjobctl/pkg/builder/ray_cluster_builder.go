@@ -22,7 +22,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type rayClusterBuilder struct {
@@ -45,10 +44,6 @@ func (b *rayClusterBuilder) build(ctx context.Context) (runtime.Object, []runtim
 		},
 		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
 		Spec:       template.Template.Spec,
-	}
-
-	if len(b.priority) != 0 {
-		rayCluster.Labels[kueueconstants.WorkloadPriorityClassLabel] = b.priority
 	}
 
 	b.buildRayClusterSpec(&rayCluster.Spec)

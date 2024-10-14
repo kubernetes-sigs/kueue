@@ -22,7 +22,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type jobBuilder struct {
@@ -48,10 +47,6 @@ func (b *jobBuilder) build(ctx context.Context) (runtime.Object, []runtime.Objec
 	}
 
 	job.Spec.Template.Spec = b.buildPodSpec(job.Spec.Template.Spec)
-
-	if len(b.priority) != 0 {
-		job.Labels[kueueconstants.WorkloadPriorityClassLabel] = b.priority
-	}
 
 	if b.parallelism != nil {
 		job.Spec.Parallelism = b.parallelism
