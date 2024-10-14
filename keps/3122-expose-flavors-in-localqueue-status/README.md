@@ -13,6 +13,7 @@
 - [Design Details](#design-details)
   - [API](#api)
   - [Implementation overview](#implementation-overview)
+  - [Future works](#future-works)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -132,6 +133,12 @@ type LocalQueueUsageStats struct {
 Get available `Flavors` from `cqImpl.ResourceGroups` in `cache.LocalQueueUsage(...)` 
 method and update `AvailableFlavors` field on `UpdateStatusIfChanged(...)`
 on each LocalQueue reconcile when it was updated.
+
+### Future works
+
+In the future, we can also add the `availableCoveredResources` field. This field allows 
+batch users to understand which resources may be available for the LocalQueue.
+
 
 ### Test Plan
 
