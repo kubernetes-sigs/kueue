@@ -194,7 +194,10 @@ We extend the global Kueue Configuration API to introduce the new fields:
 // Configuration is the Schema for the kueueconfigurations API
 type Configuration struct {
   ...
-	// WaitForPodsReady is configuration for waitForPodsReady
+	// WaitForPodsReady is configuration to provide a time-based all-or-nothing
+	// scheduling semantics for Jobs, by ensuring all pods are ready (running
+	// and passing the readiness probe) within the specified time. If the timeout
+	// is exceeded, then the workload is evicted.
 	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
 }
 
@@ -207,15 +210,72 @@ type WaitForPodsReady struct {
 	// it defaults to false.
 	Enable *bool `json:"enable,omitempty"`
 
-	// timeoutSeconds defines optional time duration in seconds, relative to the
-	// job.status.StartTime, it can take an admitted workload to reach
-	// the PodsReady condition.
-	// After exceeding the timeout the corresponding job gets suspended again
-	// and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
-	// enforced only if waitForPodsReady.enable=true. If unspecified, it defaults to 5min.
+	// Timeout defines the time for an admitted workload to reach the
+	// PodsReady=true condition. When the timeout is exceeded, the workload
+	// evicted and requeued in the same cluster queue.
+	// Defaults to 5min.
 	// +optional
-	TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// BlockAdmission when true, cluster queue will block admissions for all
+	// subsequent jobs until the jobs reach the PodsReady=true condition.
+	// This setting is only honored when `Enable` is set to true.
+	BlockAdmission *bool `json:"blockAdmission,omitempty"`
+
+	// RequeuingStrategy defines the strategy for requeuing a Workload.
+	// +optional
+	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 }
+
+type RequeuingStrategy struct {
+	// Timestamp defines the timestamp used for re-queuing a Workload
+	// that was evicted due to Pod readiness. The possible values are:
+	//
+	// - `Eviction` (default) indicates from Workload `Evicted` condition with `PodsReadyTimeout` reason.
+	// - `Creation` indicates from Workload .metadata.creationTimestamp.
+	//
+	// +optional
+	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
+
+	// BackoffLimitCount defines the maximum number of re-queuing retries.
+	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	// When it is null, the workloads will repeatedly and endless re-queueing.
+	//
+	// Every backoff duration is about "b*2^(n-1)+Rand" where:
+	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
+	// - "n" represents the "workloadStatus.requeueState.count",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and
+	// other workloads will have a chance to be admitted.
+	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
+	//
+	// Defaults to null.
+	// +optional
+	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+
+	// BackoffBaseSeconds defines the base for the exponential backoff for
+	// re-queuing an evicted workload.
+	//
+	// Defaults to 60.
+	// +optional
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	//
+	// Defaults to 3600.
+	// +optional
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
+}
+
+type RequeuingTimestamp string
+
+const (
+	// CreationTimestamp timestamp (from Workload .metadata.creationTimestamp).
+	CreationTimestamp RequeuingTimestamp = "Creation"
+
+	// EvictionTimestamp timestamp (from Workload .status.conditions).
+	EvictionTimestamp RequeuingTimestamp = "Eviction"
+)
 
 ```
 
