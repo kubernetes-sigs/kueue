@@ -176,6 +176,9 @@ passed and applied on CRD.
 Existing integration tests should be updated to tests whether the new data are correctly
 passed and applied on CRD.
 
+Additionally, add an integration test case to check that Flavors are updated after 
+forcefully removing the ClusterQueue while ignoring validations.
+
 ### Graduation Criteria
 
 We will graduate this feature to stable together with the whole LocalQueue API.
