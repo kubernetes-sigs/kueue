@@ -69,8 +69,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.FairSharingApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FairSharingStatus"):
 		return &kueuev1beta1.FairSharingStatusApplyConfiguration{}
-	case v1beta1.SchemeGroupVersion.WithKind("Flavor"):
-		return &kueuev1beta1.FlavorApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorFungibility"):
 		return &kueuev1beta1.FlavorFungibilityApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorQuotas"):
@@ -81,6 +79,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.KubeConfigApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueue"):
 		return &kueuev1beta1.LocalQueueApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueFlavorStatus"):
+		return &kueuev1beta1.LocalQueueFlavorStatusApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueFlavorUsage"):
 		return &kueuev1beta1.LocalQueueFlavorUsageApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueResourceUsage"):

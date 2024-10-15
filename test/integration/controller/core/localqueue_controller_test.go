@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
-			Flavors: []kueue.Flavor{
+			Flavors: []kueue.LocalQueueFlavorStatus{
 				{Name: flavorModelC},
 				{Name: flavorModelD},
 			},
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
-			Flavors: []kueue.Flavor{
+			Flavors: []kueue.LocalQueueFlavorStatus{
 				{Name: flavorModelC, NodeLabels: map[string]string{"example.com/gpu": "model-c"}},
 				{Name: flavorModelD, NodeLabels: map[string]string{"example.com/gpu": "model-d"}},
 			},
@@ -281,7 +281,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
-			Flavors: []kueue.Flavor{
+			Flavors: []kueue.LocalQueueFlavorStatus{
 				{Name: flavorModelC},
 				{Name: flavorModelD},
 			},
@@ -335,7 +335,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: fullUsage,
 			FlavorUsage:        emptyUsage,
-			Flavors: []kueue.Flavor{
+			Flavors: []kueue.LocalQueueFlavorStatus{
 				{Name: flavorModelC},
 				{Name: flavorModelD},
 			},
@@ -364,7 +364,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: fullUsage,
 			FlavorUsage:        fullUsage,
-			Flavors: []kueue.Flavor{
+			Flavors: []kueue.LocalQueueFlavorStatus{
 				{Name: flavorModelC},
 				{Name: flavorModelD},
 			},
@@ -387,7 +387,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
-			Flavors: []kueue.Flavor{
+			Flavors: []kueue.LocalQueueFlavorStatus{
 				{Name: flavorModelC},
 				{Name: flavorModelD},
 			},

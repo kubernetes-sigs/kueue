@@ -22,25 +22,25 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// FlavorApplyConfiguration represents a declarative configuration of the Flavor type for use
+// LocalQueueFlavorStatusApplyConfiguration represents a declarative configuration of the LocalQueueFlavorStatus type for use
 // with apply.
-type FlavorApplyConfiguration struct {
+type LocalQueueFlavorStatusApplyConfiguration struct {
 	Name       *v1beta1.ResourceFlavorReference `json:"name,omitempty"`
 	Resources  []v1.ResourceName                `json:"resources,omitempty"`
 	NodeLabels map[string]string                `json:"nodeLabels,omitempty"`
 	NodeTaints []v1.Taint                       `json:"nodeTaints,omitempty"`
 }
 
-// FlavorApplyConfiguration constructs a declarative configuration of the Flavor type for use with
+// LocalQueueFlavorStatusApplyConfiguration constructs a declarative configuration of the LocalQueueFlavorStatus type for use with
 // apply.
-func Flavor() *FlavorApplyConfiguration {
-	return &FlavorApplyConfiguration{}
+func LocalQueueFlavorStatus() *LocalQueueFlavorStatusApplyConfiguration {
+	return &LocalQueueFlavorStatusApplyConfiguration{}
 }
 
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *FlavorApplyConfiguration) WithName(value v1beta1.ResourceFlavorReference) *FlavorApplyConfiguration {
+func (b *LocalQueueFlavorStatusApplyConfiguration) WithName(value v1beta1.ResourceFlavorReference) *LocalQueueFlavorStatusApplyConfiguration {
 	b.Name = &value
 	return b
 }
@@ -48,7 +48,7 @@ func (b *FlavorApplyConfiguration) WithName(value v1beta1.ResourceFlavorReferenc
 // WithResources adds the given value to the Resources field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Resources field.
-func (b *FlavorApplyConfiguration) WithResources(values ...v1.ResourceName) *FlavorApplyConfiguration {
+func (b *LocalQueueFlavorStatusApplyConfiguration) WithResources(values ...v1.ResourceName) *LocalQueueFlavorStatusApplyConfiguration {
 	for i := range values {
 		b.Resources = append(b.Resources, values[i])
 	}
@@ -59,7 +59,7 @@ func (b *FlavorApplyConfiguration) WithResources(values ...v1.ResourceName) *Fla
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the NodeLabels field,
 // overwriting an existing map entries in NodeLabels field with the same key.
-func (b *FlavorApplyConfiguration) WithNodeLabels(entries map[string]string) *FlavorApplyConfiguration {
+func (b *LocalQueueFlavorStatusApplyConfiguration) WithNodeLabels(entries map[string]string) *LocalQueueFlavorStatusApplyConfiguration {
 	if b.NodeLabels == nil && len(entries) > 0 {
 		b.NodeLabels = make(map[string]string, len(entries))
 	}
@@ -72,7 +72,7 @@ func (b *FlavorApplyConfiguration) WithNodeLabels(entries map[string]string) *Fl
 // WithNodeTaints adds the given value to the NodeTaints field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the NodeTaints field.
-func (b *FlavorApplyConfiguration) WithNodeTaints(values ...v1.Taint) *FlavorApplyConfiguration {
+func (b *LocalQueueFlavorStatusApplyConfiguration) WithNodeTaints(values ...v1.Taint) *LocalQueueFlavorStatusApplyConfiguration {
 	for i := range values {
 		b.NodeTaints = append(b.NodeTaints, values[i])
 	}

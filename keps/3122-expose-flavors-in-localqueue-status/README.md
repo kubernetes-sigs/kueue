@@ -74,10 +74,10 @@ additional field does not significantly impact performance.
 
 ### API
 
-Create `Flavor` API object:
+Create `LocalQueueFlavorStatus` API object:
 
 ```go
-type Flavor struct {
+type LocalQueueFlavorStatus struct {
   // name of the flavor.
   Name ResourceFlavorReference `json:"name"`
   
@@ -115,7 +115,7 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
   // +kubebuilder:validation:MaxItems=16
   // +optional
-	Flavors []Flavor `json:"flavors,omitempty"`
+	Flavors []LocalQueueFlavorStatus `json:"flavors,omitempty"`
 }
 ```
 

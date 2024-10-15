@@ -671,7 +671,7 @@ type LocalQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.LocalQueueFlavorUsage
 	AdmittedWorkloads  int
-	Flavors            []kueue.Flavor
+	Flavors            []kueue.LocalQueueFlavorStatus
 }
 
 func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {
@@ -687,7 +687,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		return nil, errQNotFound
 	}
 
-	flavors := make(map[kueue.ResourceFlavorReference]kueue.Flavor)
+	flavors := make(map[kueue.ResourceFlavorReference]kueue.LocalQueueFlavorStatus)
 	if features.Enabled(features.ExposeFlavorsInLocalQueue) {
 		resourcesInFlavor := make(map[kueue.ResourceFlavorReference]sets.Set[corev1.ResourceName])
 		for _, rg := range cqImpl.ResourceGroups {
@@ -701,7 +701,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 
 		for _, rg := range cqImpl.ResourceGroups {
 			for _, rgFlavor := range rg.Flavors {
-				flavor := kueue.Flavor{Name: rgFlavor}
+				flavor := kueue.LocalQueueFlavorStatus{Name: rgFlavor}
 				if rif, ok := resourcesInFlavor[rgFlavor]; !ok {
 					flavor.Resources = rif.UnsortedList()
 				}

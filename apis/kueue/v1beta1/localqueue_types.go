@@ -48,7 +48,7 @@ type LocalQueueSpec struct {
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ClusterQueueReference string
 
-type Flavor struct {
+type LocalQueueFlavorStatus struct {
 	// name of the flavor.
 	Name ResourceFlavorReference `json:"name"`
 
@@ -119,7 +119,7 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	Flavors []Flavor `json:"flavors,omitempty"`
+	Flavors []LocalQueueFlavorStatus `json:"flavors,omitempty"`
 }
 
 const (
