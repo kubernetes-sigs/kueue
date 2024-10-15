@@ -8183,6 +8183,23 @@ spec:
                           - containers
                           type: object
                       type: object
+                    topologyRequest:
+                      description: topologyRequest defines the topology request for
+                        the PodSet.
+                      properties:
+                        preferred:
+                          description: |-
+                            preferred indicates the topology level preferred by the PodSet, as
+                            indicated by the `kueue.x-k8s.io/podset-preferred-topology` PodSet
+                            annotation.
+                          type: string
+                        required:
+                          description: |-
+                            required indicates the topology level required by the PodSet, as
+                            indicated by the `kueue.x-k8s.io/podset-required-topology` PodSet
+                            annotation.
+                          type: string
+                      type: object
                   required:
                   - count
                   - template
@@ -8299,6 +8316,80 @@ spec:
                             Beside what is provided in podSet's specs, this calculation takes into account
                             the LimitRange defaults and RuntimeClass overheads at the moment of admission.
                             This field will not change in case of quota reclaim.
+                          type: object
+                        topologyAssignment:
+                          description: |-
+                            topologyAssignment indicates the topology assignment divided into
+                            topology domains corresponding to the lowest level of the topology.
+                            The assignment specifies the number of Pods to be scheduled per topology
+                            domain and specifies the node selectors for each topology domain, in the
+                            following way: the node selector keys are specified by the levels field
+                            (same for all domains), and the corresponding node selector value is
+                            specified by the domains.values subfield.
+
+                            Example:
+
+                            topologyAssignment:
+                              levels:
+                              - cloud.provider.com/topology-block
+                              - cloud.provider.com/topology-rack
+                              domains:
+                              - values: [block-1, rack-1]
+                                count: 4
+                              - values: [block-1, rack-2]
+                                count: 2
+
+                            Here:
+                            - 4 Pods are to be scheduled on nodes matching the node selector:
+                              cloud.provider.com/topology-block: block-1
+                              cloud.provider.com/topology-rack: rack-1
+                            - 2 Pods are to be scheduled on nodes matching the node selector:
+                              cloud.provider.com/topology-block: block-1
+                              cloud.provider.com/topology-rack: rack-2
+                          properties:
+                            domains:
+                              description: |-
+                                domains is a list of topology assignments split by topology domains at
+                                the lowest level of the topology.
+                              items:
+                                properties:
+                                  count:
+                                    description: |-
+                                      count indicates the number of Pods to be scheduled in the topology
+                                      domain indicated by the values field.
+                                    format: int32
+                                    minimum: 1
+                                    type: integer
+                                  values:
+                                    description: |-
+                                      values is an ordered list of node selector values describing a topology
+                                      domain. The values correspond to the consecutive topology levels, from
+                                      the highest to the lowest.
+                                    items:
+                                      type: string
+                                    maxItems: 8
+                                    minItems: 1
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - count
+                                - values
+                                type: object
+                              type: array
+                            levels:
+                              description: |-
+                                levels is an ordered list of keys denoting the levels of the assigned
+                                topology (i.e. node label keys), from the highest to the lowest level of
+                                the topology.
+                              items:
+                                type: string
+                              maxItems: 8
+                              minItems: 1
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - domains
+                          - levels
                           type: object
                       required:
                       - name

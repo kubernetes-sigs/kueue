@@ -186,6 +186,12 @@ spec:
                     ''NoExecute'''
                   rule: self.all(x, !has(x.effect) || x.effect in ['NoSchedule', 'PreferNoSchedule',
                     'NoExecute'])
+              topologyName:
+                description: |-
+                  topologyName indicates topology for the TAS ResourceFlavor.
+                  When specified, it enables scraping of the topology information from the
+                  nodes matching to the Resource Flavor node labels.
+                type: string
             type: object
         type: object
     served: true

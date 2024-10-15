@@ -77,6 +77,23 @@ type WorkloadSpec struct {
 	Active *bool `json:"active,omitempty"`
 }
 
+// PodSetTopologyRequest defines the topology request for a PodSet.
+type PodSetTopologyRequest struct {
+	// required indicates the topology level required by the PodSet, as
+	// indicated by the `kueue.x-k8s.io/podset-required-topology` PodSet
+	// annotation.
+	//
+	// +optional
+	Required *string `json:"required,omitempty"`
+
+	// preferred indicates the topology level preferred by the PodSet, as
+	// indicated by the `kueue.x-k8s.io/podset-preferred-topology` PodSet
+	// annotation.
+	//
+	// +optional
+	Preferred *string `json:"preferred,omitempty"`
+}
+
 type Admission struct {
 	// clusterQueue is the name of the ClusterQueue that admitted this workload.
 	ClusterQueue ClusterQueueReference `json:"clusterQueue"`
@@ -113,6 +130,74 @@ type PodSetAssignment struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Count *int32 `json:"count,omitempty"`
+
+	// topologyAssignment indicates the topology assignment divided into
+	// topology domains corresponding to the lowest level of the topology.
+	// The assignment specifies the number of Pods to be scheduled per topology
+	// domain and specifies the node selectors for each topology domain, in the
+	// following way: the node selector keys are specified by the levels field
+	// (same for all domains), and the corresponding node selector value is
+	// specified by the domains.values subfield.
+	//
+	// Example:
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - cloud.provider.com/topology-block
+	//   - cloud.provider.com/topology-rack
+	//   domains:
+	//   - values: [block-1, rack-1]
+	//     count: 4
+	//   - values: [block-1, rack-2]
+	//     count: 2
+	//
+	// Here:
+	// - 4 Pods are to be scheduled on nodes matching the node selector:
+	//   cloud.provider.com/topology-block: block-1
+	//   cloud.provider.com/topology-rack: rack-1
+	// - 2 Pods are to be scheduled on nodes matching the node selector:
+	//   cloud.provider.com/topology-block: block-1
+	//   cloud.provider.com/topology-rack: rack-2
+	//
+	// +optional
+	TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
+}
+
+type TopologyAssignment struct {
+	// levels is an ordered list of keys denoting the levels of the assigned
+	// topology (i.e. node label keys), from the highest to the lowest level of
+	// the topology.
+	//
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	Levels []string `json:"levels"`
+
+	// domains is a list of topology assignments split by topology domains at
+	// the lowest level of the topology.
+	//
+	// +required
+	Domains []TopologyDomainAssignment `json:"domains"`
+}
+
+type TopologyDomainAssignment struct {
+	// values is an ordered list of node selector values describing a topology
+	// domain. The values correspond to the consecutive topology levels, from
+	// the highest to the lowest.
+	//
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	Values []string `json:"values"`
+
+	// count indicates the number of Pods to be scheduled in the topology
+	// domain indicated by the values field.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Count int32 `json:"count"`
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
@@ -156,6 +241,11 @@ type PodSet struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MinCount *int32 `json:"minCount,omitempty"`
+
+	// topologyRequest defines the topology request for the PodSet.
+	//
+	// +optional
+	TopologyRequest *PodSetTopologyRequest `json:"topologyRequest,omitempty"`
 }
 
 // WorkloadStatus defines the observed state of Workload
