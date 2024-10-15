@@ -136,7 +136,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	ProvisioningACC:                     {Default: true, PreRelease: featuregate.Beta},
 	VisibilityOnDemand:                  {Default: true, PreRelease: featuregate.Beta},
 	PrioritySortingWithinCohort:         {Default: true, PreRelease: featuregate.Beta},
-	MultiKueue:                          {Default: false, PreRelease: featuregate.Alpha},
+	MultiKueue:                          {Default: true, PreRelease: featuregate.Beta},
 	LendingLimit:                        {Default: true, PreRelease: featuregate.Beta},
 	MultiKueueBatchJobWithManagedBy:     {Default: false, PreRelease: featuregate.Alpha},
 	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.Beta},
