@@ -56,13 +56,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
 	SchedulingGateName             = "kueue.x-k8s.io/admission"
 	FrameworkName                  = "pod"
-	gateNotFound                   = -1
 	ConditionTypeTerminationTarget = "TerminationTarget"
 	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 8 roles"
 	IsGroupWorkloadAnnotationKey   = "kueue.x-k8s.io/is-group-workload"
@@ -177,23 +177,12 @@ func (p *Pod) Object() client.Object {
 	return &p.pod
 }
 
-// gateIndex returns the index of the Kueue scheduling gate for corev1.Pod.
-// If the scheduling gate is not found, returns -1.
-func gateIndex(p *corev1.Pod) int {
-	for i := range p.Spec.SchedulingGates {
-		if p.Spec.SchedulingGates[i].Name == SchedulingGateName {
-			return i
-		}
-	}
-	return gateNotFound
-}
-
 func isPodTerminated(p *corev1.Pod) bool {
 	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
 }
 
 func podSuspended(p *corev1.Pod) bool {
-	return isPodTerminated(p) || gateIndex(p) != gateNotFound
+	return isPodTerminated(p) || isGated(p)
 }
 
 func isUnretriablePod(pod corev1.Pod) bool {
@@ -238,18 +227,6 @@ func (p *Pod) Suspend() {
 	// Not implemented because this is not called when JobWithCustomStop is implemented.
 }
 
-// ungatePod removes the kueue scheduling gate from the pod.
-// Returns true if the pod has been ungated and false otherwise.
-func ungatePod(pod *corev1.Pod) bool {
-	idx := gateIndex(pod)
-	if idx != gateNotFound {
-		pod.Spec.SchedulingGates = append(pod.Spec.SchedulingGates[:idx], pod.Spec.SchedulingGates[idx+1:]...)
-		return true
-	}
-
-	return false
-}
-
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder record.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
@@ -259,12 +236,12 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return fmt.Errorf("%w: expecting 1 pod set got %d", podset.ErrInvalidPodsetInfo, len(podSetsInfo))
 		}
 
-		if gateIndex(&p.pod) == gateNotFound {
+		if !isGated(&p.pod) {
 			return nil
 		}
 
 		if err := clientutil.Patch(ctx, c, &p.pod, true, func() (bool, error) {
-			ungatePod(&p.pod)
+			ungate(&p.pod)
 			return true, podset.Merge(&p.pod.ObjectMeta, &p.pod.Spec, podSetsInfo[0])
 		}); err != nil {
 			return err
@@ -280,12 +257,12 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
 		pod := &p.list.Items[i]
 
-		if gateIndex(pod) == gateNotFound {
+		if !isGated(pod) {
 			return nil
 		}
 
 		if err := clientutil.Patch(ctx, c, pod, true, func() (bool, error) {
-			ungatePod(pod)
+			ungate(pod)
 
 			roleHash, err := getRoleHash(*pod)
 			if err != nil {
@@ -854,8 +831,8 @@ func sortActivePods(activePods []corev1.Pod) {
 		if iFin != jFin {
 			return iFin
 		}
-		iGated := gateIndex(pi) != gateNotFound
-		jGated := gateIndex(pj) != gateNotFound
+		iGated := isGated(pi)
+		jGated := isGated(pj)
 		// Prefer to keep pods that aren't gated.
 		if iGated != jGated {
 			return !iGated
@@ -1353,4 +1330,16 @@ func IsPodOwnerManagedByKueue(p *Pod) bool {
 
 func GetWorkloadNameForPod(podName string, podUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(podName, podUID, gvk)
+}
+
+func isGated(pod *corev1.Pod) bool {
+	return utilpod.HasGate(pod, SchedulingGateName)
+}
+
+func ungate(pod *corev1.Pod) bool {
+	return utilpod.Ungate(pod, SchedulingGateName)
+}
+
+func gate(pod *corev1.Pod) bool {
+	return utilpod.Gate(pod, SchedulingGateName)
 }

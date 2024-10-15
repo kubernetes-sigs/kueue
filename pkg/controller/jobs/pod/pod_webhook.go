@@ -179,10 +179,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 		pod.pod.Labels[ManagedLabelKey] = ManagedLabelValue
 
-		if gateIndex(&pod.pod) == gateNotFound {
-			log.V(5).Info("Adding gate")
-			pod.pod.Spec.SchedulingGates = append(pod.pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: SchedulingGateName})
-		}
+		gate(&pod.pod)
 
 		if podGroupName(pod.pod) != "" {
 			if err := pod.addRoleHash(); err != nil {
