@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -73,7 +73,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			wantWorkerJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 		},
@@ -84,7 +84,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			workerJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -100,7 +100,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			wantWorkerJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -109,7 +109,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			workerJobSets: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {

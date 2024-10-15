@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -90,7 +89,7 @@ func makeTestSecret(name string, kubeconfig string) corev1.Secret {
 			Namespace: TestNamespace,
 		},
 		Data: map[string][]byte{
-			kueuealpha.MultiKueueConfigSecretKey: []byte(kubeconfig),
+			kueue.MultiKueueConfigSecretKey: []byte(kubeconfig),
 		},
 	}
 }
@@ -102,28 +101,28 @@ func TestUpdateConfig(t *testing.T) {
 	cases := map[string]struct {
 		reconcileFor  string
 		remoteClients map[string]*remoteClient
-		clusters      []kueuealpha.MultiKueueCluster
+		clusters      []kueue.MultiKueueCluster
 		secrets       []corev1.Secret
 
 		wantRemoteClients map[string]*remoteClient
-		wantClusters      []kueuealpha.MultiKueueCluster
+		wantClusters      []kueue.MultiKueueCluster
 		wantRequeueAfter  time.Duration
 		wantCancelCalled  int
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
 			},
 			secrets: []corev1.Secret{
 				makeTestSecret("worker1", "worker1 kubeconfig"),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
 					Obj(),
@@ -136,9 +135,9 @@ func TestUpdateConfig(t *testing.T) {
 		},
 		"update client with valid secret config": {
 			reconcileFor: "worker1",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
 			},
@@ -148,9 +147,9 @@ func TestUpdateConfig(t *testing.T) {
 			remoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("worker1 old kubeconfig", cancelCalled),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
 					Obj(),
@@ -164,18 +163,18 @@ func TestUpdateConfig(t *testing.T) {
 		},
 		"update client with valid path config": {
 			reconcileFor: "worker1",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.PathLocationType, "testdata/worker1KubeConfig").
+					KubeConfig(kueue.PathLocationType, "testdata/worker1KubeConfig").
 					Generation(1).
 					Obj(),
 			},
 			remoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("worker1 old kubeconfig", cancelCalled),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.PathLocationType, "testdata/worker1KubeConfig").
+					KubeConfig(kueue.PathLocationType, "testdata/worker1KubeConfig").
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
 					Obj(),
@@ -189,9 +188,9 @@ func TestUpdateConfig(t *testing.T) {
 		},
 		"update client with invalid secret config": {
 			reconcileFor: "worker1",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
 			},
@@ -204,9 +203,9 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("invalid", nil),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig", 1).
 					Generation(1).
 					Obj(),
@@ -215,18 +214,18 @@ func TestUpdateConfig(t *testing.T) {
 		},
 		"update client with invalid path config": {
 			reconcileFor: "worker1",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.PathLocationType, "").
+					KubeConfig(kueue.PathLocationType, "").
 					Generation(1).
 					Obj(),
 			},
 			remoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("worker1 old kubeconfig", cancelCalled),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.PathLocationType, "").
+					KubeConfig(kueue.PathLocationType, "").
 					Active(metav1.ConditionFalse, "BadConfig", "open : no such file or directory", 1).
 					Generation(1).
 					Obj(),
@@ -235,9 +234,9 @@ func TestUpdateConfig(t *testing.T) {
 		},
 		"missing cluster is removed": {
 			reconcileFor: "worker2",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
 			},
@@ -245,9 +244,9 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient("worker1 kubeconfig", cancelCalled),
 				"worker2": newTestClient("worker2 kubeconfig", cancelCalled),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
 			},
@@ -260,9 +259,9 @@ func TestUpdateConfig(t *testing.T) {
 		},
 		"update client config, nowatch": {
 			reconcileFor: "worker1",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Generation(1).
 					Obj(),
 			},
@@ -275,9 +274,9 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": setReconnectState(newTestClient("nowatch", nil), 1),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
 					Obj(),
@@ -287,9 +286,9 @@ func TestUpdateConfig(t *testing.T) {
 		},
 		"update client config, nowatch 3rd try": {
 			reconcileFor: "worker1",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
 					Obj(),
@@ -303,9 +302,9 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": setReconnectState(newTestClient("nowatch", nil), 3),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
 					Obj(),
@@ -315,9 +314,9 @@ func TestUpdateConfig(t *testing.T) {
 		},
 		"failed attempts are set to 0 on successful connection": {
 			reconcileFor: "worker1",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
 					Obj(),
@@ -331,9 +330,9 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("good config", nil),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionTrue, "Active", "Connected", 1).
 					Generation(1).
 					Obj(),
@@ -342,9 +341,9 @@ func TestUpdateConfig(t *testing.T) {
 		},
 		"failed attempts are set to 0 on config change": {
 			reconcileFor: "worker1",
-			clusters: []kueuealpha.MultiKueueCluster{
+			clusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
 					Generation(1).
 					Obj(),
@@ -358,9 +357,9 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("invalid", nil),
 			},
-			wantClusters: []kueuealpha.MultiKueueCluster{
+			wantClusters: []kueue.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueuealpha.SecretLocationType, "worker1").
+					KubeConfig(kueue.SecretLocationType, "worker1").
 					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig", 1).
 					Generation(1).
 					Obj(),
@@ -372,9 +371,9 @@ func TestUpdateConfig(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			builder, ctx := getClientBuilder()
-			builder = builder.WithLists(&kueuealpha.MultiKueueClusterList{Items: tc.clusters})
+			builder = builder.WithLists(&kueue.MultiKueueClusterList{Items: tc.clusters})
 			builder = builder.WithLists(&corev1.SecretList{Items: tc.secrets})
-			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueuealpha.MultiKueueCluster) client.Object { return c })...)
+			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueue.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters()
@@ -401,7 +400,7 @@ func TestUpdateConfig(t *testing.T) {
 				t.Errorf("unexpected watch cancel call count want: %d,  got: %d", tc.wantCancelCalled, cancelCalledCount)
 			}
 
-			lst := &kueuealpha.MultiKueueClusterList{}
+			lst := &kueue.MultiKueueClusterList{}
 			gotErr = c.List(ctx, lst)
 			if gotErr != nil {
 				t.Errorf("unexpected list clusters error: %s", gotErr)
@@ -446,7 +445,7 @@ func TestRemoteClientGC(t *testing.T) {
 			},
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -459,7 +458,7 @@ func TestRemoteClientGC(t *testing.T) {
 			},
 			wantWorkersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			wantWorkersJobs: []batchv1.Job{
@@ -470,7 +469,7 @@ func TestRemoteClientGC(t *testing.T) {
 		"missing worker workloads are deleted": {
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -482,14 +481,14 @@ func TestRemoteClientGC(t *testing.T) {
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("NptAJob"), "job1", "test-uuid").
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
 		"missing worker workloads and their owner jobs are deleted": {
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -504,7 +503,7 @@ func TestRemoteClientGC(t *testing.T) {
 		"unrelated workers and jobs are not deleted": {
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, "other-gc-key").
+					Label(kueue.MultiKueueOriginLabel, "other-gc-key").
 					Obj(),
 			},
 			workersJobs: []batchv1.Job{
@@ -513,7 +512,7 @@ func TestRemoteClientGC(t *testing.T) {
 			},
 			wantWorkersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, "other-gc-key").
+					Label(kueue.MultiKueueOriginLabel, "other-gc-key").
 					Obj(),
 			},
 			wantWorkersJobs: []batchv1.Job{

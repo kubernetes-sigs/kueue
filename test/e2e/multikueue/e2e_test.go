@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
@@ -58,9 +57,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		worker1Ns *corev1.Namespace
 		worker2Ns *corev1.Namespace
 
-		workerCluster1   *kueuealpha.MultiKueueCluster
-		workerCluster2   *kueuealpha.MultiKueueCluster
-		multiKueueConfig *kueuealpha.MultiKueueConfig
+		workerCluster1   *kueue.MultiKueueCluster
+		workerCluster2   *kueue.MultiKueueCluster
+		multiKueueConfig *kueue.MultiKueueConfig
 		multiKueueAc     *kueue.AdmissionCheck
 		managerFlavor    *kueue.ResourceFlavor
 		managerCq        *kueue.ClusterQueue
@@ -97,18 +96,18 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		}
 		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Ns)).To(gomega.Succeed())
 
-		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueuealpha.SecretLocationType, "multikueue1").Obj()
+		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster1)).To(gomega.Succeed())
 
-		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig(kueuealpha.SecretLocationType, "multikueue2").Obj()
+		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, "multikueue2").Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster2)).To(gomega.Succeed())
 
 		multiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters("worker1", "worker2").Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueConfig)).Should(gomega.Succeed())
 
 		multiKueueAc = utiltesting.MakeAdmissionCheck("ac1").
-			ControllerName(kueuealpha.MultiKueueControllerName).
-			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
+			ControllerName(kueue.MultiKueueControllerName).
+			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueAc)).Should(gomega.Succeed())
 
@@ -208,7 +207,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueuealpha.MultiKueueControllerName))
+					g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueue.MultiKueueControllerName))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -522,12 +521,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Waiting for the cluster to become inactive", func() {
-				readClient := &kueuealpha.MultiKueueCluster{}
+				readClient := &kueue.MultiKueueCluster{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
 					g.Expect(readClient.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
 						metav1.Condition{
-							Type:   kueuealpha.MultiKueueClusterActive,
+							Type:   kueue.MultiKueueClusterActive,
 							Status: metav1.ConditionFalse,
 							Reason: "ClientConnectionFailed",
 						},
@@ -555,12 +554,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Waiting for the cluster do become active", func() {
-				readClient := &kueuealpha.MultiKueueCluster{}
+				readClient := &kueue.MultiKueueCluster{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, worker1ClusterKey, readClient)).To(gomega.Succeed())
 					g.Expect(readClient.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
 						metav1.Condition{
-							Type:    kueuealpha.MultiKueueClusterActive,
+							Type:    kueue.MultiKueueClusterActive,
 							Status:  metav1.ConditionTrue,
 							Reason:  "Active",
 							Message: "Connected",

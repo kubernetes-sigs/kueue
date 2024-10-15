@@ -89,11 +89,6 @@ Make sure to install only the Kubeflow TFJobs CRD of version v1.7.0 or newer on 
 ```
 {{% /alert %}}
 
-### Enable the MultiKueue feature
-
-Enable the `MultiKueue` feature.
-Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
-
 ### Create worker's Kubeconfig secret
 
 For the next example, having the `worker1` cluster Kubeconfig stored in a file called `worker1.kubeconfig`, you can create the `worker1-secret` secret by running the following command:

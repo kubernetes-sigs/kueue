@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -215,7 +214,7 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	acs.LastTransitionTime = metav1.NewTime(time.Now())
 	wlPatch := workload.BaseSSAWorkload(wl)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName), client.ForceOwnership)
+	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 }
 
 func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (map[string]*remoteClient, error) {
@@ -239,7 +238,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (m
 }
 
 func (w *wlReconciler) multikueueAC(ctx context.Context, local *kueue.Workload) (*kueue.AdmissionCheckState, error) {
-	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, local.Status.AdmissionChecks, kueuealpha.MultiKueueControllerName)
+	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, local.Status.AdmissionChecks, kueue.MultiKueueControllerName)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +331,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			Reason:  remoteFinishedCond.Reason,
 			Message: remoteFinishedCond.Message,
 		})
-		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName+"-finish"), client.ForceOwnership)
+		return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName+"-finish"), client.ForceOwnership)
 	}
 
 	// 2. delete all workloads that are out of sync or are not in the chosen worker
@@ -380,7 +379,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName), client.ForceOwnership)
+			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 			if err != nil {
 				return reconcile.Result{}, err
 			}
@@ -399,7 +398,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			acs.LastTransitionTime = metav1.NewTime(time.Now())
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueuealpha.MultiKueueControllerName), client.ForceOwnership)
+			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 		}
 	}
 
@@ -475,7 +474,7 @@ func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	if remoteWl.Labels == nil {
 		remoteWl.Labels = make(map[string]string)
 	}
-	remoteWl.Labels[kueuealpha.MultiKueueOriginLabel] = origin
+	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 	return remoteWl
 }

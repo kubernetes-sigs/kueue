@@ -76,6 +76,7 @@ const (
 	// owner: @trasc
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	// alpha: v0.6
+	// beta: v0.9
 	//
 	// Enables MultiKueue support.
 	MultiKueue featuregate.Feature = "MultiKueue"
@@ -120,7 +121,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	ProvisioningACC:                 {Default: true, PreRelease: featuregate.Beta},
 	VisibilityOnDemand:              {Default: true, PreRelease: featuregate.Beta},
 	PrioritySortingWithinCohort:     {Default: true, PreRelease: featuregate.Beta},
-	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
+	MultiKueue:                      {Default: true, PreRelease: featuregate.Beta},
 	LendingLimit:                    {Default: true, PreRelease: featuregate.Beta},
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
 	MultiplePreemptions:             {Default: true, PreRelease: featuregate.Beta},

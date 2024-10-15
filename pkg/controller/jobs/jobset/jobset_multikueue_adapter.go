@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -71,7 +71,7 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		remoteJob.Labels = map[string]string{}
 	}
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
-	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
+	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
 
 	// clear the managedBy enables the JobSet controller to take over
 	remoteJob.Spec.ManagedBy = nil
@@ -99,8 +99,8 @@ func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Cl
 		return false, "", err
 	}
 	jobsetControllerName := ptr.Deref(js.Spec.ManagedBy, "")
-	if jobsetControllerName != kueuealpha.MultiKueueControllerName {
-		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueuealpha.MultiKueueControllerName, jobsetControllerName), nil
+	if jobsetControllerName != kueue.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueue.MultiKueueControllerName, jobsetControllerName), nil
 	}
 	return true, "", nil
 }

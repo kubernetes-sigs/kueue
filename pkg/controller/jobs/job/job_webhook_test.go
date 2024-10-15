@@ -32,7 +32,6 @@ import (
 	fakeclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -490,12 +489,12 @@ func TestDefault(t *testing.T) {
 					Obj(),
 			},
 			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
+				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
 			want: testingutil.MakeJob("job", "default").
 				Queue("local-queue").
-				ManagedBy(v1alpha1.MultiKueueControllerName).
+				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
 			multiKueueEnabled:                      true,
 			multiKueueBatchJobWithManagedByEnabled: true,
@@ -517,7 +516,7 @@ func TestDefault(t *testing.T) {
 					Obj(),
 			},
 			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
+				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
 			want: testingutil.MakeJob("job", "default").
