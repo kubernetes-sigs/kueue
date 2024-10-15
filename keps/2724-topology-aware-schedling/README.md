@@ -334,7 +334,7 @@ the "cloud.provider.com/topology-rack" label, but in different blocks.
 type ResourceFlavorSpec struct {
     ...
 
-  // TopologyName indicates the name of the topology for the ResourceFlavor.
+  // topologyName indicates topology for the TAS ResourceFlavor.
   // When specified, it enables scraping of the topology information from the
   // nodes matching to the Resource Flavor node labels.
   //
@@ -344,11 +344,12 @@ type ResourceFlavorSpec struct {
 
 // TopologySpec defines the desired state of Topology
 type TopologySpec struct {
-  // Levels defines the levels of topology.
+  // levels define the levels of topology.
   //
+  // +required
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
-  // +kubebuilder:validation:MaxItems=5
+  // +kubebuilder:validation:MaxItems=8
   Levels []TopologyLevel `json:"levels,omitempty"`
 }
 
@@ -397,18 +398,19 @@ PodTemplate level:
 ```golang
 const (
 
-  // This annotation indicates that a PodSet requires Topology Aware Scheduling,
-  // and running all pods on nodes closely connected within the same level of
-  // hierarchy is a strong requirement for scheduling the workload.
+  // PodSetRequiredTopologyAnnotation indicates that a PodSet requires
+  // Topology Aware Scheduling, and requires scheduling all pods on nodes
+  // within the same topology domain corresponding to the topology level
+  // indicated by the annotation value (e.g. within a rack or within a block).
   PodSetRequiredTopologyAnnotation = "kueue.x-k8s.io/podset-required-topology"
 
-  // This annotation indicates that a PodSet requires Topology Aware Scheduling,
-  // but running all pods without the same topology level is a preference rather
-  // than requirement.
+  // PodSetPreferredTopologyAnnotation indicates that a PodSet requires
+  // Topology Aware Scheduling, but scheduling all pods within pods on nodes
+  // within the same topology domain is a preference rather than requirement.
   //
   // The levels are evaluated one-by-one going up from the level indicated by
   // the annotation. If the PodSet cannot fit within a given topology domain
-  // then the next topology level up is checked. If the PodSet cannot fit
+  // then the next topology level up is considered. If the PodSet cannot fit
   // at the highest topology level, then it gets admitted as distributed
   // among multiple topology domains.
   PodSetPreferredTopologyAnnotation = "kueue.x-k8s.io/podset-preferred-topology"
@@ -439,20 +441,26 @@ Job level.
 ```golang
 type PodSet struct {
   ...
-  // TopologyRequest defines the topology requested for the corresponding PodSet.
+  // topologyRequest defines the topology request for the PodSet.
+  //
   // +optional
   TopologyRequest *PodSetTopologyRequest `json:"topologyRequest,omitempty"`
 }
 
 type PodSetTopologyRequest struct {
-  // Policy defines the policy used for TAS. Possible values are:
-  // - Preferred set when `kueue.x-k8s.io/podset-preferred-topology` annotation is set on the Job
-  // - Required set when `kueue.x-k8s.io/podset-required-topology` annotation is set on the Job
-  Policy TopologyRequestPolicy `json:"policy"`
+  // required indicates the topology level required by the PodSet, as
+  // indicated by the `kueue.x-k8s.io/podset-required-topology` PodSet
+  // annotation.
+  //
+  // +optional
+  Required *string `json:"required,omitempty"`
 
-  // Level indicated by the `kueue.x-k8s.io/podset-preferred-topology` or
-  // `kueue.x-k8s.io/podset-required-topology` annotation
-  Level string  `json:"level"`
+  // preferred indicates the topology level preferred by the PodSet, as
+  // indicated by the `kueue.x-k8s.io/podset-preferred-topology` PodSet
+  // annotation.
+  //
+  // +optional
+  Preferred *string `json:"preferred,omitempty"`
 }
 ```
 
@@ -463,28 +471,72 @@ at each topology level to the specific subset of nodes.
 type PodSetAssignment struct {
   ...
 
-  // TopologyAssignment indicates the resources assigned per topology level
+  // topologyAssignment indicates the topology assignment divided into
+  // topology domains corresponding to the lowest level of the topology.
+  // The assignment specifies the number of Pods to be scheduled per topology
+  // domain and specifies the node selectors for each topology domain, in the
+  // following way: the node selector keys are specified by the levels field
+  // (same for all domains), and the corresponding node selector value is
+  // specified by the domains.values subfield.
+  //
+  // Example:
+  //
+  // topologyAssignment:
+  //   levels:
+  //   - cloud.provider.com/topology-block
+  //   - cloud.provider.com/topology-rack
+  //   domains:
+  //   - values: [block-1, rack-1]
+  //     count: 4
+  //   - values: [block-1, rack-2]
+  //     count: 2
+  //
+  // Here:
+  // - 4 Pods are to be scheduled on nodes matching the node selector:
+  //   cloud.provider.com/topology-block: block-1
+  //   cloud.provider.com/topology-rack: rack-1
+  // - 2 Pods are to be scheduled on nodes matching the node selector:
+  //   cloud.provider.com/topology-block: block-1
+  //   cloud.provider.com/topology-rack: rack-2
+  //
   // +optional
   TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
 }
 
 type TopologyAssignment struct {
-  // Groups contains the list of assignments split into groups corresponding
-  // to the same topology domain at the lowest level of the hierarchy.
+  // levels is an ordered list of keys denoting the levels of the assigned
+  // topology (i.e. node label keys), from the highest to the lowest level of
+  // the topology.
+  //
   // +required
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
-  Groups []TopologyAssignmentGroup `json:"groups"`
+  // +kubebuilder:validation:MaxItems=8
+  Levels []string `json:"levels"`
+
+  // domains is a list of topology assignments split by topology domains at
+  // the lowest level of the topology.
+  //
+  // +required
+  Domains []TopologyDomainAssignment `json:"domains"`
 }
 
-type TopologyAssignmentGroup struct {
-  // NodeLabels constitutes the nodeSelector for a given slice of pods. It
-  // defines values for all labels configured in the Topology.Levels.
-  // +kubebuilder:validation:MinItems=1
-  NodeLabels map[string]string `json:"nodeLabels"`
-
-  // Count indicates the number of pods in a given TopologyAssignmentGroup.
+type TopologyDomainAssignment struct {
+  // values is an ordered list of node selector values describing a topology
+  // domain. The values correspond to the consecutive topology levels, from
+  // the highest to the lowest.
+  //
   // +required
+  // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=8
+  Values []string `json:"values"`
+
+  // count indicates the number of Pods to be scheduled in the topology
+  // domain indicated by the values field.
+  //
+  // +required
+  // +kubebuilder:validation:Minimum=1
   Count int32 `json:"count"`
 }
 ```
@@ -495,15 +547,20 @@ different values:
 
 ```golang
 const (
-  // TopologySchedulingGate is used to delay topology assignment for pods
-  // once all the pods are created.
+  // TopologySchedulingGate is used to delay scheduling of a Pod until the
+  // nodeSelectors corresponding to the assigned topology domain are injected
+  // into the Pod.
   TopologySchedulingGate = "kueue.x-k8s.io/topology"
 
-  // WorkloadAnnotation indicates the name of the workload assigned.
+  // WorkloadAnnotation is an annotation set on the Job's PodTemplate to
+  // indicate the name of the admitted Workload corresponding to the Job. The
+  // annotation is set when starting the Job, and removed on stopping the Job.
   WorkloadAnnotation = "kueue.x-k8s.io/workload"
 
-  // PodSetLabel indicates the name of the PodSet in the workload
-  PodSeLabel = "kueue.x-k8s.io/podset"
+  // PodSetLabel is a label set on the Job's PodTemplate to indicate the name
+  // of the PodSet of the admitted Workload corresponding to the PodTemplate.
+  // The label is set when starting the Job, and removed on stopping the Job.
+  PodSetLabel = "kueue.x-k8s.io/podset"
 )
 ```
 
