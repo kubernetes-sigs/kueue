@@ -560,6 +560,12 @@ tests against it.
 
 ### Graduation Criteria
 
+We should implement additional verification to flag overlaps between `resources.excludeResourcePrefixes`
+and `resources.transformations`.  The implementation applies the exclusions before
+the transformations, so if a resource both matches an exclusion prefix and is an input resource
+to a transformation the transformation will never apply.  This could be detected when validating
+the configuration and reported as a configuration error.
+
 ## Implementation History
 
 2024-09-30: KEP Merged
