@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"text/template"
@@ -282,7 +281,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	job.Spec.Template.Spec.InitContainers = append(job.Spec.Template.Spec.InitContainers, corev1.Container{
 		Name:    "slurm-init-env",
 		Image:   b.initImage,
-		Command: []string{"bash", slurmInitEntrypointFilenamePath},
+		Command: []string{"sh", slurmInitEntrypointFilenamePath},
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      "slurm-scripts",
@@ -485,22 +484,30 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	return job, []runtime.Object{configMap, service}, nil
 }
 
-func (b *slurmBuilder) buildIndexesMap() map[int32][]int32 {
-	indexMap := make(map[int32][]int32)
+func (b *slurmBuilder) buildArrayIndexes() string {
 	nTasks := ptr.Deref(b.nTasks, 1)
+	length := int64(math.Ceil(float64(len(b.arrayIndexes.Indexes)) / float64(nTasks)))
+	containerIndexes := make([][]string, length)
+
 	var (
 		completionIndex int32
 		containerIndex  int32
 	)
 	for _, index := range b.arrayIndexes.Indexes {
-		indexMap[completionIndex] = append(indexMap[completionIndex], index)
+		containerIndexes[completionIndex] = append(containerIndexes[completionIndex], fmt.Sprint(index))
 		containerIndex++
 		if containerIndex >= nTasks {
 			containerIndex = 0
 			completionIndex++
 		}
 	}
-	return indexMap
+
+	completionIndexes := make([]string, length)
+	for completionIndex, containerIndexes := range containerIndexes {
+		completionIndexes[completionIndex] = strings.Join(containerIndexes, ",")
+	}
+
+	return strings.Join(completionIndexes, ";")
 }
 
 type slurmInitEntrypointScript struct {
@@ -546,18 +553,6 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 	nTasks := ptr.Deref(b.nTasks, 1)
 	nodes := ptr.Deref(b.nodes, 1)
 
-	indexesMap := b.buildIndexesMap()
-	keyValues := make([]string, 0, len(indexesMap))
-	for key, value := range indexesMap {
-		strIndexes := make([]string, 0, len(value))
-		for _, index := range value {
-			strIndexes = append(strIndexes, fmt.Sprintf("%d", index))
-		}
-		keyValues = append(keyValues, fmt.Sprintf(`["%d"]="%s"`, key, strings.Join(strIndexes, ",")))
-	}
-
-	slices.Sort(keyValues)
-
 	var gpusPerTask, memPerCPU, memPerGPU string
 	if b.gpusPerTask != nil {
 		gpus := make([]string, 0)
@@ -579,7 +574,7 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 	}
 
 	scriptValues := slurmInitEntrypointScript{
-		ArrayIndexes: strings.Join(keyValues, " "),
+		ArrayIndexes: b.buildArrayIndexes(),
 
 		EnvsPath:          slurmEnvsPath,
 		SbatchEnvFilename: slurmSbatchEnvFilename,
