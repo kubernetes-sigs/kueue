@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Create a slurm job
 
 ```
-kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--ignore-unknown-flags] [--skip-priority-validation] --  [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--output FILENAME_PATTERN] [--error FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME] [--priority NAME] SCRIPT
+kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--ignore-unknown-flags] [--skip-priority-validation] [--init-image IMAGE] [--first-node-ip] [--first-node-ip-timeout DURATION] --  [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--output FILENAME_PATTERN] [--error FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME] [--priority NAME] SCRIPT
 ```
 
 
@@ -50,6 +50,24 @@ kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEU
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>Must be &#34;none&#34;, &#34;server&#34;, or &#34;client&#34;. If client strategy, only print the object that would be sent, without sending it. If server strategy, submit server-side request without persisting the resource.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--first-node-ip</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Enable the retrieval of the first node&#39;s IP address.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--first-node-ip-timeout duration&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: 1m0s</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>The timeout for the retrieval of the first node&#39;s IP address.</p>
         </td>
     </tr>
     <tr>

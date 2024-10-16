@@ -282,6 +282,14 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		Name:    "slurm-init-env",
 		Image:   b.initImage,
 		Command: []string{"sh", slurmInitEntrypointFilenamePath},
+		Env: []corev1.EnvVar{
+			{
+				Name: "POD_IP",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"},
+				},
+			},
+		},
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      "slurm-scripts",
@@ -445,7 +453,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, b.cpusOnNode.Format)
 	}
 
-	envEntrypointScript, err := b.buildInitEntrypointScript()
+	initEntrypointScript, err := b.buildInitEntrypointScript()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -456,19 +464,14 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	}
 
 	configMap := &corev1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "ConfigMap",
-			APIVersion: "v1",
-		},
-		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
+		TypeMeta:   metav1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
+		ObjectMeta: objectMeta,
 		Data: map[string]string{
-			slurmInitEntrypointFilename: envEntrypointScript,
+			slurmInitEntrypointFilename: initEntrypointScript,
 			slurmEntrypointFilename:     entrypointScript,
 			slurmScriptFilename:         b.scriptContent,
 		},
 	}
-	configMap.ObjectMeta.GenerateName = ""
-	configMap.ObjectMeta.Name = b.objectName
 
 	service := &corev1.Service{
 		TypeMeta:   metav1.TypeMeta{Kind: "Service", APIVersion: "v1"},
@@ -513,6 +516,9 @@ func (b *slurmBuilder) buildArrayIndexes() string {
 type slurmInitEntrypointScript struct {
 	ArrayIndexes string
 
+	JobName   string
+	Namespace string
+
 	EnvsPath          string
 	SbatchEnvFilename string
 	SlurmEnvFilename  string
@@ -547,6 +553,9 @@ type slurmInitEntrypointScript struct {
 	SlurmSubmitDir      string
 	SlurmJobNodeList    string
 	SlurmJobFirstNode   string
+
+	FirstNodeIP               bool
+	FirstNodeIPTimeoutSeconds int32
 }
 
 func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
@@ -575,6 +584,9 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 
 	scriptValues := slurmInitEntrypointScript{
 		ArrayIndexes: b.buildArrayIndexes(),
+
+		JobName:   b.objectName,
+		Namespace: b.namespace,
 
 		EnvsPath:          slurmEnvsPath,
 		SbatchEnvFilename: slurmSbatchEnvFilename,
@@ -610,6 +622,9 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 		SlurmSubmitDir:      slurmScriptsPath,
 		SlurmJobNodeList:    strings.Join(nodeList, ","),
 		SlurmJobFirstNode:   nodeList[0],
+
+		FirstNodeIP:               b.firstNodeIP,
+		FirstNodeIPTimeoutSeconds: int32(b.firstNodeIPTimeout.Seconds()),
 	}
 
 	var script bytes.Buffer
