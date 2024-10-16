@@ -9,6 +9,7 @@
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
+    - [Story 3](#story-3)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [BookingExpired condition](#bookingexpired-condition)
 - [Design Details](#design-details)
@@ -72,6 +73,9 @@ expands a dedicated node group on which the workload will be run.
 I want to admit workloads only after a CheckCapacity request to ClusterAutoscaler
 succeeds.
 
+#### Story 3
+I want to cap the time ClusterAutoscaler spends on retrying ProvisioningRequest
+
 ### Risks and Mitigations
 
 #### BookingExpired condition
@@ -129,6 +133,9 @@ check will remain in the `Pending` state until the retries end. The max number
 of retries is 3, and the interval between attempts grows exponentially, starting
 from 1min (1, 2, 4 min).
 
+* Requeue the Workload if ClusterAutoscaler sets condition `Provisioned=False`,
+and the time defined in `.timeoutStrategy.timeoutInSeconds` has passed
+
 The definition of `ProvisioningRequestConfig` is relatively simple and is based on
 what can be set in `ProvisioningRequest`.
 
@@ -170,6 +177,63 @@ type ProvisioningRequestConfigSpec struct {
 	// +listType=set
 	// +kubebuilder:validation:MaxItems=100
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
+
+	// timeoutStrategy defines the timeout strategy on provisioning resources with ProvisioningRequest
+	// +optional
+	TimeoutStrategy *TimeoutStrategy `json:"timeoutStrategy,omitempty"`
+}
+
+type TimeoutStrategy struct {
+	// timeoutInSeconds defines the time for freshly created ProvisioningRequest to reach the
+	// Provisioned=true condition, provided that ClusterAutoscaler had a chance to handle it.
+	// When the timeout is exceeded, and the ProvisionedRequest is in state Provisioned=False,
+	// workload is evicted and requeuęd with backoff with respect to the .RequeueingStrategy.
+	TimeoutInSeconds *int64
+
+	// requeuingStrategy defines the strategy for requeuing a Workload.
+	// +optional
+	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
+}
+
+// requeuingStrategy type has been already defined in the KEP-349
+type RequeuingStrategy struct {
+	// Timestamp defines the timestamp used for re-queuing a Workload
+	// that was evicted due to Pod readiness. The possible values are:
+	//
+	// - `Eviction` (default) indicates from Workload `Evicted` condition with `PodsReadyTimeout` reason.
+	// - `Creation` indicates from Workload .metadata.creationTimestamp.
+	//
+	// +optional
+	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
+
+	// BackoffLimitCount defines the maximum number of re-queuing retries.
+	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	// When it is null, the workloads will repeatedly and endless re-queueing.
+	//
+	// Every backoff duration is about "b*2^(n-1)+Rand" where:
+	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
+	// - "n" represents the "workloadStatus.requeueState.count",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and
+	// other workloads will have a chance to be admitted.
+	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
+	//
+	// Defaults to null.
+	// +optional
+	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+
+	// BackoffBaseSeconds defines the base for the exponential backoff for
+	// re-queuing an evicted workload.
+	//
+	// Defaults to 60.
+	// +optional
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	//
+	// Defaults to 3600.
+	// +optional
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 ```
 
@@ -195,6 +259,10 @@ spec:
   - cpu
 
 ```
+
+The requeue mechanism will use the `workload.status.requeueState` field to mark
+the number of retries that have already happened and calculate back-off time for
+the Workload to be requeued.
 
 ### Test Plan
 
