@@ -1542,6 +1542,13 @@ enabled.</p>
 <p>This is an alpha field and requires enabling PartialAdmission feature gate.</p>
 </td>
 </tr>
+<tr><td><code>topologyRequest</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-PodSetTopologyRequest"><code>PodSetTopologyRequest</code></a>
+</td>
+<td>
+   <p>topologyRequest defines the topology request for the PodSet.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1591,6 +1598,77 @@ This field will not change in case of quota reclaim.</p>
 This field will not change in case of quota reclaim.
 Value could be missing for Workloads created before this field was added,
 in that case spec.podSets[*].count value will be used.</p>
+</td>
+</tr>
+<tr><td><code>topologyAssignment</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyAssignment"><code>TopologyAssignment</code></a>
+</td>
+<td>
+   <p>topologyAssignment indicates the topology assignment divided into
+topology domains corresponding to the lowest level of the topology.
+The assignment specifies the number of Pods to be scheduled per topology
+domain and specifies the node selectors for each topology domain, in the
+following way: the node selector keys are specified by the levels field
+(same for all domains), and the corresponding node selector value is
+specified by the domains.values subfield.</p>
+<p>Example:</p>
+<p>topologyAssignment:
+levels:</p>
+<ul>
+<li>cloud.provider.com/topology-block</li>
+<li>cloud.provider.com/topology-rack
+domains:</li>
+<li>values: [block-1, rack-1]
+count: 4</li>
+<li>values: [block-1, rack-2]
+count: 2</li>
+</ul>
+<p>Here:</p>
+<ul>
+<li>4 Pods are to be scheduled on nodes matching the node selector:
+cloud.provider.com/topology-block: block-1
+cloud.provider.com/topology-rack: rack-1</li>
+<li>2 Pods are to be scheduled on nodes matching the node selector:
+cloud.provider.com/topology-block: block-1
+cloud.provider.com/topology-rack: rack-2</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PodSetTopologyRequest`     {#kueue-x-k8s-io-v1beta1-PodSetTopologyRequest}
+    
+
+**Appears in:**
+
+- [PodSet](#kueue-x-k8s-io-v1beta1-PodSet)
+
+
+<p>PodSetTopologyRequest defines the topology request for a PodSet.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>required</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>required indicates the topology level required by the PodSet, as
+indicated by the <code>kueue.x-k8s.io/podset-required-topology</code> PodSet
+annotation.</p>
+</td>
+</tr>
+<tr><td><code>preferred</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>preferred indicates the topology level preferred by the PodSet, as
+indicated by the <code>kueue.x-k8s.io/podset-preferred-topology</code> PodSet
+annotation.</p>
 </td>
 </tr>
 </tbody>
@@ -1862,6 +1940,15 @@ cloud.provider.com/preemptible=&quot;true&quot;:NoSchedule</p>
 <p>tolerations can be up to 8 elements.</p>
 </td>
 </tr>
+<tr><td><code>topologyName</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>topologyName indicates topology for the TAS ResourceFlavor.
+When specified, it enables scraping of the topology information from the
+nodes matching to the Resource Flavor node labels.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -2029,6 +2116,74 @@ words, it's the used quota that is over the nominalQuota.</p>
 
 
 
+
+## `TopologyAssignment`     {#kueue-x-k8s-io-v1beta1-TopologyAssignment}
+    
+
+**Appears in:**
+
+- [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>levels</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>levels is an ordered list of keys denoting the levels of the assigned
+topology (i.e. node label keys), from the highest to the lowest level of
+the topology.</p>
+</td>
+</tr>
+<tr><td><code>domains</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyDomainAssignment"><code>[]TopologyDomainAssignment</code></a>
+</td>
+<td>
+   <p>domains is a list of topology assignments split by topology domains at
+the lowest level of the topology.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `TopologyDomainAssignment`     {#kueue-x-k8s-io-v1beta1-TopologyDomainAssignment}
+    
+
+**Appears in:**
+
+- [TopologyAssignment](#kueue-x-k8s-io-v1beta1-TopologyAssignment)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>values</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>values is an ordered list of node selector values describing a topology
+domain. The values correspond to the consecutive topology levels, from
+the highest to the lowest.</p>
+</td>
+</tr>
+<tr><td><code>count</code> <B>[Required]</B><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>count indicates the number of Pods to be scheduled in the topology
+domain indicated by the values field.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `WorkloadSpec`     {#kueue-x-k8s-io-v1beta1-WorkloadSpec}
     

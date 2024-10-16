@@ -16,7 +16,33 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 const (
+	// PodSetRequiredTopologyAnnotation indicates that a PodSet requires
+	// Topology Aware Scheduling, and requires scheduling all pods on nodes
+	// within the same topology domain corresponding to the topology level
+	// indicated by the annotation value (e.g. within a rack or within a block).
+	PodSetRequiredTopologyAnnotation = "kueue.x-k8s.io/podset-required-topology"
+
+	// PodSetPreferredTopologyAnnotation indicates that a PodSet requires
+	// Topology Aware Scheduling, but scheduling all pods within pods on nodes
+	// within the same topology domain is a preference rather than requirement.
+	//
+	// The levels are evaluated one-by-one going up from the level indicated by
+	// the annotation. If the PodSet cannot fit within a given topology domain
+	// then the next topology level up is considered. If the PodSet cannot fit
+	// at the highest topology level, then it gets admitted as distributed
+	// among multiple topology domains.
+	PodSetPreferredTopologyAnnotation = "kueue.x-k8s.io/podset-preferred-topology"
+
+	// TopologySchedulingGate is used to delay scheduling of a Pod until the
+	// nodeSelectors corresponding to the assigned topology domain are injected
+	// into the Pod.
+	TopologySchedulingGate = "kueue.x-k8s.io/topology"
+
 	// WorkloadAnnotation is an annotation set on the Job's PodTemplate to
 	// indicate the name of the admitted Workload corresponding to the Job. The
 	// annotation is set when starting the Job, and removed on stopping the Job.
@@ -27,3 +53,64 @@ const (
 	// The label is set when starting the Job, and removed on stopping the Job.
 	PodSetLabel = "kueue.x-k8s.io/podset"
 )
+
+// TopologySpec defines the desired state of Topology
+type TopologySpec struct {
+	// levels define the levels of topology.
+	//
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	Levels []TopologyLevel `json:"levels,omitempty"`
+}
+
+// TopologyLevel defines the desired state of TopologyLevel
+type TopologyLevel struct {
+	// nodeLabel indicates the name of the node label for a specific topology
+	// level.
+	//
+	// Examples:
+	// - cloud.provider.com/topology-block
+	// - cloud.provider.com/topology-rack
+	//
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=316
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
+	NodeLabel string `json:"nodeLabel"`
+}
+
+// TopologyStatus defines the observed state of Topology
+type TopologyStatus struct {
+}
+
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
+
+// Topology is the Schema for the topology API
+type Topology struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   TopologySpec   `json:"spec,omitempty"`
+	Status TopologyStatus `json:"status,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+
+// TopologyList contains a list of Topology
+type TopologyList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Topology `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&Topology{}, &TopologyList{})
+}
