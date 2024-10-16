@@ -24,9 +24,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
 // JobWrapper wraps a Job.
@@ -68,6 +69,12 @@ func (j *JobWrapper) CompletionMode(completionMode batchv1.CompletionMode) *JobW
 	return j
 }
 
+// Subdomain updates pod template subdomain.
+func (j *JobWrapper) Subdomain(subdomain string) *JobWrapper {
+	j.Job.Spec.Template.Spec.Subdomain = subdomain
+	return j
+}
+
 // Parallelism updates job parallelism.
 func (j *JobWrapper) Parallelism(v int32) *JobWrapper {
 	j.Job.Spec.Parallelism = ptr.To(v)
@@ -77,6 +84,16 @@ func (j *JobWrapper) Parallelism(v int32) *JobWrapper {
 // Profile sets the profile label.
 func (j *JobWrapper) Profile(v string) *JobWrapper {
 	return j.Label(constants.ProfileLabel, v)
+}
+
+// Priority sets the workload priority class label.
+func (j *JobWrapper) Priority(v string) *JobWrapper {
+	return j.Label(kueueconstants.WorkloadPriorityClassLabel, v)
+}
+
+// Mode sets the profile label.
+func (j *JobWrapper) Mode(v v1alpha1.ApplicationProfileMode) *JobWrapper {
+	return j.Label(constants.ModeLabel, string(v))
 }
 
 // LocalQueue sets the localqueue label.
@@ -108,6 +125,12 @@ func (j *JobWrapper) WithContainer(container corev1.Container) *JobWrapper {
 	return j
 }
 
+// WithInitContainer add init container on the pod template.
+func (j *JobWrapper) WithInitContainer(initContainer corev1.Container) *JobWrapper {
+	j.Job.Spec.Template.Spec.InitContainers = append(j.Job.Spec.Template.Spec.InitContainers, initContainer)
+	return j
+}
+
 // WithVolume add volume.
 func (j *JobWrapper) WithVolume(volume corev1.Volume) *JobWrapper {
 	j.Job.Spec.Template.Spec.Volumes = append(j.Job.Spec.Template.Spec.Volumes, volume)
@@ -116,10 +139,6 @@ func (j *JobWrapper) WithVolume(volume corev1.Volume) *JobWrapper {
 
 // WithEnvVar add env var to the container template.
 func (j *JobWrapper) WithEnvVar(envVar corev1.EnvVar) *JobWrapper {
-	for index := range j.Job.Spec.Template.Spec.InitContainers {
-		j.Job.Spec.Template.Spec.InitContainers[index].Env =
-			append(j.Job.Spec.Template.Spec.InitContainers[index].Env, envVar)
-	}
 	for index := range j.Job.Spec.Template.Spec.Containers {
 		j.Job.Spec.Template.Spec.Containers[index].Env =
 			append(j.Job.Spec.Template.Spec.Containers[index].Env, envVar)
@@ -129,10 +148,6 @@ func (j *JobWrapper) WithEnvVar(envVar corev1.EnvVar) *JobWrapper {
 
 // WithEnvVarIndexValue add env var to the container template with index value.
 func (j *JobWrapper) WithEnvVarIndexValue(name string) *JobWrapper {
-	for index := range j.Job.Spec.Template.Spec.InitContainers {
-		j.Job.Spec.Template.Spec.InitContainers[index].Env = append(j.Job.Spec.Template.Spec.InitContainers[index].Env,
-			corev1.EnvVar{Name: name, Value: strconv.Itoa(index)})
-	}
 	for index := range j.Job.Spec.Template.Spec.Containers {
 		j.Job.Spec.Template.Spec.Containers[index].Env = append(j.Job.Spec.Template.Spec.Containers[index].Env,
 			corev1.EnvVar{Name: name, Value: strconv.Itoa(index)})

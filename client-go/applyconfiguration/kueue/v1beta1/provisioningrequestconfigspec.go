@@ -22,7 +22,7 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// ProvisioningRequestConfigSpecApplyConfiguration represents an declarative configuration of the ProvisioningRequestConfigSpec type for use
+// ProvisioningRequestConfigSpecApplyConfiguration represents a declarative configuration of the ProvisioningRequestConfigSpec type for use
 // with apply.
 type ProvisioningRequestConfigSpecApplyConfiguration struct {
 	ProvisioningClassName *string                      `json:"provisioningClassName,omitempty"`
@@ -30,7 +30,7 @@ type ProvisioningRequestConfigSpecApplyConfiguration struct {
 	ManagedResources      []v1.ResourceName            `json:"managedResources,omitempty"`
 }
 
-// ProvisioningRequestConfigSpecApplyConfiguration constructs an declarative configuration of the ProvisioningRequestConfigSpec type for use with
+// ProvisioningRequestConfigSpecApplyConfiguration constructs a declarative configuration of the ProvisioningRequestConfigSpec type for use with
 // apply.
 func ProvisioningRequestConfigSpec() *ProvisioningRequestConfigSpecApplyConfiguration {
 	return &ProvisioningRequestConfigSpecApplyConfiguration{}

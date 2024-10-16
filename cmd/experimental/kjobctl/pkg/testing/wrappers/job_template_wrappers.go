@@ -47,19 +47,19 @@ func (j *JobTemplateWrapper) Obj() *v1alpha1.JobTemplate {
 
 // Label sets the label key and value.
 func (j *JobTemplateWrapper) Label(key, value string) *JobTemplateWrapper {
-	if j.Labels == nil {
-		j.Labels = make(map[string]string)
+	if j.Template.ObjectMeta.Labels == nil {
+		j.Template.ObjectMeta.Labels = make(map[string]string)
 	}
-	j.ObjectMeta.Labels[key] = value
+	j.Template.ObjectMeta.Labels[key] = value
 	return j
 }
 
 // Annotation sets the label key and value.
 func (j *JobTemplateWrapper) Annotation(key, value string) *JobTemplateWrapper {
-	if j.Annotations == nil {
-		j.Annotations = make(map[string]string)
+	if j.Template.ObjectMeta.Annotations == nil {
+		j.Template.ObjectMeta.Annotations = make(map[string]string)
 	}
-	j.ObjectMeta.Annotations[key] = value
+	j.Template.ObjectMeta.Annotations[key] = value
 	return j
 }
 

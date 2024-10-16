@@ -19,13 +19,16 @@ package create
 import (
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/kubectl/pkg/util/templates"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	createExample = `  # Create local queue 
-  kueuectl create localqueue my-local-queue -c my-cluster-queue`
+var (
+	createExample = templates.Examples(`
+		# Create local queue 
+  		kueuectl create localqueue my-local-queue -c my-cluster-queue
+	`)
 )
 
 func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {

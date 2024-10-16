@@ -32,12 +32,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
+	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 var (
@@ -71,42 +72,49 @@ var (
 )
 
 type builder interface {
-	build(ctx context.Context) ([]runtime.Object, error)
+	build(ctx context.Context) (rootObj runtime.Object, childObjs []runtime.Object, err error)
 }
 
 type Builder struct {
 	clientGetter     util.ClientGetter
 	kjobctlClientset versioned.Interface
 	k8sClientset     k8s.Interface
+	kueueClientset   kueueversioned.Interface
 
 	namespace   string
 	profileName string
 	modeName    v1alpha1.ApplicationProfileMode
 
-	command       []string
-	parallelism   *int32
-	completions   *int32
-	replicas      map[string]int
-	minReplicas   map[string]int
-	maxReplicas   map[string]int
-	requests      corev1.ResourceList
-	localQueue    string
-	rayCluster    string
-	script        string
-	array         string
-	cpusPerTask   *resource.Quantity
-	error         string
-	gpusPerTask   map[string]*resource.Quantity
-	input         string
-	jobName       string
-	memPerCPU     *resource.Quantity
-	memPerGPU     *resource.Quantity
-	memPerTask    *resource.Quantity
-	nodes         *int32
-	nTasks        *int32
-	output        string
-	partition     string
-	ignoreUnknown bool
+	command                  []string
+	parallelism              *int32
+	completions              *int32
+	replicas                 map[string]int
+	minReplicas              map[string]int
+	maxReplicas              map[string]int
+	requests                 corev1.ResourceList
+	localQueue               string
+	rayCluster               string
+	script                   string
+	array                    string
+	cpusPerTask              *resource.Quantity
+	error                    string
+	gpusPerTask              map[string]*resource.Quantity
+	input                    string
+	jobName                  string
+	memPerNode               *resource.Quantity
+	memPerCPU                *resource.Quantity
+	memPerGPU                *resource.Quantity
+	memPerTask               *resource.Quantity
+	nodes                    *int32
+	nTasks                   *int32
+	output                   string
+	partition                string
+	priority                 string
+	initImage                string
+	ignoreUnknown            bool
+	skipLocalQueueValidation bool
+	skipPriorityValidation   bool
+	changeDir                string
 
 	profile       *v1alpha1.ApplicationProfile
 	mode          *v1alpha1.SupportedMode
@@ -214,6 +222,11 @@ func (b *Builder) WithJobName(jobName string) *Builder {
 	return b
 }
 
+func (b *Builder) WithMemPerNode(memPerNode *resource.Quantity) *Builder {
+	b.memPerNode = memPerNode
+	return b
+}
+
 func (b *Builder) WithMemPerCPU(memPerCPU *resource.Quantity) *Builder {
 	b.memPerCPU = memPerCPU
 	return b
@@ -249,12 +262,37 @@ func (b *Builder) WithPartition(partition string) *Builder {
 	return b
 }
 
+func (b *Builder) WithPriority(priority string) *Builder {
+	b.priority = priority
+	return b
+}
+
+func (b *Builder) WithInitImage(initImage string) *Builder {
+	b.initImage = initImage
+	return b
+}
+
 func (b *Builder) WithIgnoreUnknown(ignoreUnknown bool) *Builder {
 	b.ignoreUnknown = ignoreUnknown
 	return b
 }
 
-func (b *Builder) validateGeneral() error {
+func (b *Builder) WithChangeDir(chdir string) *Builder {
+	b.changeDir = chdir
+	return b
+}
+
+func (b *Builder) WithSkipLocalQueueValidation(skip bool) *Builder {
+	b.skipLocalQueueValidation = skip
+	return b
+}
+
+func (b *Builder) WithSkipPriorityValidation(skip bool) *Builder {
+	b.skipPriorityValidation = skip
+	return b
+}
+
+func (b *Builder) validateGeneral(ctx context.Context) error {
 	if b.namespace == "" {
 		return noNamespaceSpecifiedErr
 	}
@@ -267,21 +305,19 @@ func (b *Builder) validateGeneral() error {
 		return noApplicationProfileModeSpecifiedErr
 	}
 
+	// check that local queue exists
+	if len(b.localQueue) != 0 && !b.skipLocalQueueValidation {
+		_, err := b.kueueClientset.KueueV1beta1().LocalQueues(b.namespace).Get(ctx, b.localQueue, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (b *Builder) complete(ctx context.Context) error {
 	var err error
-
-	b.kjobctlClientset, err = b.clientGetter.KjobctlClientset()
-	if err != nil {
-		return err
-	}
-
-	b.k8sClientset, err = b.clientGetter.K8sClientset()
-	if err != nil {
-		return err
-	}
 
 	b.profile, err = b.kjobctlClientset.KjobctlV1alpha1().ApplicationProfiles(b.namespace).Get(ctx, b.profileName, metav1.GetOptions{})
 	if err != nil {
@@ -298,12 +334,13 @@ func (b *Builder) complete(ctx context.Context) error {
 		return applicationProfileModeNotConfiguredErr
 	}
 
-	volumeBundlesList, err := b.kjobctlClientset.KjobctlV1alpha1().VolumeBundles(b.profile.Namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return err
+	for _, name := range b.profile.Spec.VolumeBundles {
+		volumeBundle, err := b.kjobctlClientset.KjobctlV1alpha1().VolumeBundles(b.profile.Namespace).Get(ctx, string(name), metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		b.volumeBundles = append(b.volumeBundles, *volumeBundle)
 	}
-
-	b.volumeBundles = volumeBundlesList.Items
 
 	return nil
 }
@@ -400,9 +437,13 @@ func (b *Builder) validateFlags() error {
 	return nil
 }
 
-func (b *Builder) Do(ctx context.Context) ([]runtime.Object, error) {
-	if err := b.validateGeneral(); err != nil {
-		return nil, err
+func (b *Builder) Do(ctx context.Context) (runtime.Object, []runtime.Object, error) {
+	if err := b.setClients(); err != nil {
+		return nil, nil, err
+	}
+
+	if err := b.validateGeneral(ctx); err != nil {
+		return nil, nil, err
 	}
 
 	var bImpl builder
@@ -421,18 +462,39 @@ func (b *Builder) Do(ctx context.Context) ([]runtime.Object, error) {
 	}
 
 	if bImpl == nil {
-		return nil, invalidApplicationProfileModeErr
+		return nil, nil, invalidApplicationProfileModeErr
 	}
 
 	if err := b.complete(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := b.validateFlags(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return bImpl.build(ctx)
+}
+
+func (b *Builder) setClients() error {
+	var err error
+
+	b.kjobctlClientset, err = b.clientGetter.KjobctlClientset()
+	if err != nil {
+		return err
+	}
+
+	b.k8sClientset, err = b.clientGetter.K8sClientset()
+	if err != nil {
+		return err
+	}
+
+	b.kueueClientset, err = b.clientGetter.KueueClientset()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {
@@ -449,6 +511,10 @@ func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.O
 
 	if b.profile != nil {
 		objectMeta.Labels[constants.ProfileLabel] = b.profile.Name
+	}
+
+	if b.mode != nil {
+		objectMeta.Labels[constants.ModeLabel] = string(b.mode.Name)
 	}
 
 	if len(b.localQueue) > 0 {

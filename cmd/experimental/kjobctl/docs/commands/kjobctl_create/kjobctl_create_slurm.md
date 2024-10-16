@@ -1,6 +1,6 @@
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->
 
 # kjobctl create slurm
@@ -12,16 +12,16 @@ The file is auto-generated from the Go source code of the component using the
 Create a slurm job
 
 ```
-kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--ignore-unknown-flags] --  [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--output FILENAME_PATTERN] [--error FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME] SCRIPT
+kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--ignore-unknown-flags] [--skip-priority-validation] --  [--array ARRAY] [--cpus-per-task QUANTITY] [--gpus-per-task QUANTITY] [--mem QUANTITY] [--mem-per-task QUANTITY] [--mem-per-cpu QUANTITY] [--mem-per-gpu QUANTITY] [--nodes COUNT] [--ntasks COUNT] [--output FILENAME_PATTERN] [--error FILENAME_PATTERN] [--input FILENAME_PATTERN] [--job-name NAME] [--partition NAME] [--priority NAME] SCRIPT
 ```
 
 
 ## Examples
 
 ```
-  # Create slurm 
+  # Create slurm
   kjobctl create slurm --profile my-application-profile -- \
-	--array 0-5 --nodes 3 --ntasks 1 ./script.sh
+  --array 0-5 --nodes 3 --ntasks 1 ./script.sh
 ```
 
 
@@ -71,6 +71,15 @@ kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEU
         </td>
     </tr>
     <tr>
+        <td colspan="2">--init-image string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;bash:5-alpine3.20&#34;</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>The image used for the init container.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">--localqueue string</td>
     </tr>
     <tr>
@@ -104,6 +113,24 @@ kjobctl create slurm --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEU
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--skip-localqueue-validation</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Skip local queue validation. Add local queue even if the queue does not exist.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--skip-priority-validation</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Skip workload priority class validation. Add priority class label even if the class does not exist.</p>
         </td>
     </tr>
     <tr>

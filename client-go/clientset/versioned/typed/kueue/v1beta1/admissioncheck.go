@@ -19,14 +19,11 @@ package v1beta1
 
 import (
 	"context"
-	json "encoding/json"
-	"fmt"
-	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	rest "k8s.io/client-go/rest"
+	gentype "k8s.io/client-go/gentype"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -42,6 +39,7 @@ type AdmissionChecksGetter interface {
 type AdmissionCheckInterface interface {
 	Create(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.CreateOptions) (*v1beta1.AdmissionCheck, error)
 	Update(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.UpdateOptions) (*v1beta1.AdmissionCheck, error)
+	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
 	UpdateStatus(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.UpdateOptions) (*v1beta1.AdmissionCheck, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
@@ -50,193 +48,25 @@ type AdmissionCheckInterface interface {
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.AdmissionCheck, err error)
 	Apply(ctx context.Context, admissionCheck *kueuev1beta1.AdmissionCheckApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.AdmissionCheck, err error)
+	// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
 	ApplyStatus(ctx context.Context, admissionCheck *kueuev1beta1.AdmissionCheckApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.AdmissionCheck, err error)
 	AdmissionCheckExpansion
 }
 
 // admissionChecks implements AdmissionCheckInterface
 type admissionChecks struct {
-	client rest.Interface
+	*gentype.ClientWithListAndApply[*v1beta1.AdmissionCheck, *v1beta1.AdmissionCheckList, *kueuev1beta1.AdmissionCheckApplyConfiguration]
 }
 
 // newAdmissionChecks returns a AdmissionChecks
 func newAdmissionChecks(c *KueueV1beta1Client) *admissionChecks {
 	return &admissionChecks{
-		client: c.RESTClient(),
+		gentype.NewClientWithListAndApply[*v1beta1.AdmissionCheck, *v1beta1.AdmissionCheckList, *kueuev1beta1.AdmissionCheckApplyConfiguration](
+			"admissionchecks",
+			c.RESTClient(),
+			scheme.ParameterCodec,
+			"",
+			func() *v1beta1.AdmissionCheck { return &v1beta1.AdmissionCheck{} },
+			func() *v1beta1.AdmissionCheckList { return &v1beta1.AdmissionCheckList{} }),
 	}
-}
-
-// Get takes name of the admissionCheck, and returns the corresponding admissionCheck object, and an error if there is any.
-func (c *admissionChecks) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.AdmissionCheck, err error) {
-	result = &v1beta1.AdmissionCheck{}
-	err = c.client.Get().
-		Resource("admissionchecks").
-		Name(name).
-		VersionedParams(&options, scheme.ParameterCodec).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// List takes label and field selectors, and returns the list of AdmissionChecks that match those selectors.
-func (c *admissionChecks) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.AdmissionCheckList, err error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	result = &v1beta1.AdmissionCheckList{}
-	err = c.client.Get().
-		Resource("admissionchecks").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Watch returns a watch.Interface that watches the requested admissionChecks.
-func (c *admissionChecks) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	opts.Watch = true
-	return c.client.Get().
-		Resource("admissionchecks").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Watch(ctx)
-}
-
-// Create takes the representation of a admissionCheck and creates it.  Returns the server's representation of the admissionCheck, and an error, if there is any.
-func (c *admissionChecks) Create(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.CreateOptions) (result *v1beta1.AdmissionCheck, err error) {
-	result = &v1beta1.AdmissionCheck{}
-	err = c.client.Post().
-		Resource("admissionchecks").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(admissionCheck).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Update takes the representation of a admissionCheck and updates it. Returns the server's representation of the admissionCheck, and an error, if there is any.
-func (c *admissionChecks) Update(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.UpdateOptions) (result *v1beta1.AdmissionCheck, err error) {
-	result = &v1beta1.AdmissionCheck{}
-	err = c.client.Put().
-		Resource("admissionchecks").
-		Name(admissionCheck.Name).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(admissionCheck).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *admissionChecks) UpdateStatus(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.UpdateOptions) (result *v1beta1.AdmissionCheck, err error) {
-	result = &v1beta1.AdmissionCheck{}
-	err = c.client.Put().
-		Resource("admissionchecks").
-		Name(admissionCheck.Name).
-		SubResource("status").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(admissionCheck).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Delete takes name of the admissionCheck and deletes it. Returns an error if one occurs.
-func (c *admissionChecks) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	return c.client.Delete().
-		Resource("admissionchecks").
-		Name(name).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *admissionChecks) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	var timeout time.Duration
-	if listOpts.TimeoutSeconds != nil {
-		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
-	}
-	return c.client.Delete().
-		Resource("admissionchecks").
-		VersionedParams(&listOpts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// Patch applies the patch and returns the patched admissionCheck.
-func (c *admissionChecks) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.AdmissionCheck, err error) {
-	result = &v1beta1.AdmissionCheck{}
-	err = c.client.Patch(pt).
-		Resource("admissionchecks").
-		Name(name).
-		SubResource(subresources...).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Apply takes the given apply declarative configuration, applies it and returns the applied admissionCheck.
-func (c *admissionChecks) Apply(ctx context.Context, admissionCheck *kueuev1beta1.AdmissionCheckApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.AdmissionCheck, err error) {
-	if admissionCheck == nil {
-		return nil, fmt.Errorf("admissionCheck provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(admissionCheck)
-	if err != nil {
-		return nil, err
-	}
-	name := admissionCheck.Name
-	if name == nil {
-		return nil, fmt.Errorf("admissionCheck.Name must be provided to Apply")
-	}
-	result = &v1beta1.AdmissionCheck{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Resource("admissionchecks").
-		Name(*name).
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// ApplyStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
-func (c *admissionChecks) ApplyStatus(ctx context.Context, admissionCheck *kueuev1beta1.AdmissionCheckApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.AdmissionCheck, err error) {
-	if admissionCheck == nil {
-		return nil, fmt.Errorf("admissionCheck provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(admissionCheck)
-	if err != nil {
-		return nil, err
-	}
-
-	name := admissionCheck.Name
-	if name == nil {
-		return nil, fmt.Errorf("admissionCheck.Name must be provided to Apply")
-	}
-
-	result = &v1beta1.AdmissionCheck{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Resource("admissionchecks").
-		Name(*name).
-		SubResource("status").
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
 }

@@ -20,6 +20,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	"sigs.k8s.io/jobset/pkg/util/collections"
 )
 
 // TestPodSpec is the default pod spec used for testing.
@@ -121,15 +122,27 @@ func (j *JobSetWrapper) Suspend(suspend bool) *JobSetWrapper {
 	return j
 }
 
+// Coordinator sets the Coordinator field on the JobSet spec.
+func (j *JobSetWrapper) Coordinator(coordinator *jobset.Coordinator) *JobSetWrapper {
+	j.JobSet.Spec.Coordinator = coordinator
+	return j
+}
+
 // NetworkSubdomain sets the value of JobSet.Network.Subdomain
 func (j *JobSetWrapper) NetworkSubdomain(val string) *JobSetWrapper {
 	j.JobSet.Spec.Network.Subdomain = val
 	return j
 }
 
-// EnableDNSHostnames sets the value of ReplicatedJob.Network.EnableDNSHostnames.
+// EnableDNSHostnames sets the value of JobSet.Network.EnableDNSHostnames.
 func (j *JobSetWrapper) EnableDNSHostnames(val bool) *JobSetWrapper {
 	j.JobSet.Spec.Network.EnableDNSHostnames = ptr.To(val)
+	return j
+}
+
+// PublishNotReadyAddresses sets the value of JobSet.Network.PublishNotReadyAddresses.
+func (j *JobSetWrapper) PublishNotReadyAddresses(val bool) *JobSetWrapper {
+	j.JobSet.Spec.Network.PublishNotReadyAddresses = ptr.To(val)
 	return j
 }
 
@@ -153,10 +166,21 @@ func (j *JobSetWrapper) FailedCondition(failedAt metav1.Time) *JobSetWrapper {
 	return j
 }
 
+// TerminalState sets the value of JobSet.Status.TerminalState.
+func (j *JobSetWrapper) TerminalState(terminalState jobset.JobSetConditionType) *JobSetWrapper {
+	j.Status.TerminalState = string(terminalState)
+	return j
+}
+
 func (j *JobSetWrapper) DeletionTimestamp(deletionTimestamp *metav1.Time) *JobSetWrapper {
 	j.ObjectMeta.DeletionTimestamp = deletionTimestamp
 	return j
 
+}
+
+func (j *JobSetWrapper) Finalizers(finalizers []string) *JobSetWrapper {
+	j.ObjectMeta.Finalizers = finalizers
+	return j
 }
 
 // ReplicatedJobWrapper wraps a ReplicatedJob.
@@ -219,6 +243,12 @@ func MakeJobTemplate(name, ns string) *JobTemplateWrapper {
 	}
 }
 
+// PodFailurePolicy sets the pod failure policy on the job template.
+func (j *JobTemplateWrapper) PodFailurePolicy(policy *batchv1.PodFailurePolicy) *JobTemplateWrapper {
+	j.Spec.PodFailurePolicy = policy
+	return j
+}
+
 // CompletionMode sets the value of job.spec.completionMode
 func (j *JobTemplateWrapper) CompletionMode(mode batchv1.CompletionMode) *JobTemplateWrapper {
 	j.Spec.CompletionMode = &mode
@@ -276,21 +306,36 @@ func (j *JobWrapper) Affinity(affinity *corev1.Affinity) *JobWrapper {
 	return j
 }
 
-// JobLabels sets the Job labels.
+// JobLabels merges the given labels to the existing Job labels.
+// Duplicate keys will be overwritten by the new annotations (given in the function
+// parameter).
 func (j *JobWrapper) JobLabels(labels map[string]string) *JobWrapper {
-	j.Labels = labels
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels = collections.MergeMaps(j.Labels, labels)
 	return j
 }
 
-// JobAnnotations sets the Job annotations.
+// JobAnnotations merges the given annotations to the existing Job annotations.
+// Duplicate keys will be overwritten by the new annotations (given in the function
+// parameter).
 func (j *JobWrapper) JobAnnotations(annotations map[string]string) *JobWrapper {
-	j.Annotations = annotations
+	if j.Annotations == nil {
+		j.Annotations = make(map[string]string)
+	}
+	j.Annotations = collections.MergeMaps(j.Annotations, annotations)
 	return j
 }
 
-// PodLabels sets the pod template spec labels.
+// PodLabels merges the given labels to the existing Pod labels.
+// Duplicate keys will be overwritten by the new annotations (given in the function
+// parameter).
 func (j *JobWrapper) PodLabels(labels map[string]string) *JobWrapper {
-	j.Spec.Template.Labels = labels
+	if j.Spec.Template.Labels == nil {
+		j.Spec.Template.Labels = make(map[string]string)
+	}
+	j.Spec.Template.Labels = collections.MergeMaps(j.Spec.Template.Labels, labels)
 	return j
 }
 
@@ -300,9 +345,14 @@ func (j *JobWrapper) Suspend(suspend bool) *JobWrapper {
 	return j
 }
 
-// PodAnnotations sets the pod template spec annotations.
+// PodAnnotations merges the given annotations to the existing Pod annotations.
+// Duplicate keys will be overwritten by the new annotations (given in the function
+// parameter).
 func (j *JobWrapper) PodAnnotations(annotations map[string]string) *JobWrapper {
-	j.Spec.Template.Annotations = annotations
+	if j.Spec.Template.Annotations == nil {
+		j.Spec.Template.Annotations = make(map[string]string)
+	}
+	j.Spec.Template.Annotations = collections.MergeMaps(j.Spec.Template.Annotations, annotations)
 	return j
 }
 
@@ -363,4 +413,63 @@ func (j *JobWrapper) NodeSelector(nodeSelector map[string]string) *JobWrapper {
 // Obj returns the wrapped Job.
 func (j *JobWrapper) Obj() *batchv1.Job {
 	return &j.Job
+}
+
+// PodWrapper wraps a Pod.
+type PodWrapper struct {
+	corev1.Pod
+}
+
+// MakePod creates a wrapper for a Pod.
+func MakePod(podName, ns string) *PodWrapper {
+	return &PodWrapper{
+		corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      podName,
+				Namespace: ns,
+			},
+			Spec: corev1.PodSpec{},
+		},
+	}
+}
+
+// AddAnnotation add a pod annotation.
+func (p *PodWrapper) AddAnnotation(key, value string) *PodWrapper {
+	p.ObjectMeta.Annotations[key] = value
+	return p
+}
+
+// AddLabel add a pod label.
+func (p *PodWrapper) AddLabel(key, value string) *PodWrapper {
+	p.ObjectMeta.Labels[key] = value
+	return p
+}
+
+// Annotations sets the pod annotations.
+func (p *PodWrapper) Annotations(annotations map[string]string) *PodWrapper {
+	p.ObjectMeta.Annotations = annotations
+	return p
+}
+
+// Labels sets the pod labels.
+func (p *PodWrapper) Labels(labels map[string]string) *PodWrapper {
+	p.ObjectMeta.Labels = labels
+	return p
+}
+
+// SetConditions sets the value of the pod.status.conditions.
+func (p *PodWrapper) SetConditions(conditions []corev1.PodCondition) *PodWrapper {
+	p.Status.Conditions = conditions
+	return p
+}
+
+// NodeSelector sets the value of the pod.spec.nodeSelector.
+func (p *PodWrapper) NodeSelector(nodeSelector map[string]string) *PodWrapper {
+	p.Spec.NodeSelector = nodeSelector
+	return p
+}
+
+// Obj returns the wrapped Pod.
+func (p *PodWrapper) Obj() corev1.Pod {
+	return p.Pod
 }

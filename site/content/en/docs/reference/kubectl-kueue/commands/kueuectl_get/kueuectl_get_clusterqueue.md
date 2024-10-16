@@ -7,13 +7,13 @@ no_list: false
 
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/hack/internal/tools/kueuectl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
 -->
 
 ## Synopsis
 
 
-Pass-through &#34;get  {clusterqueue [cq]}&#34; to kubectl
+Pass-through &#34;get clusterqueue&#34; to kubectl
 
 ```
 kueuectl get clusterqueue [flags]
@@ -219,5 +219,5 @@ kueuectl get clusterqueue [flags]
 
 ## See Also
 
-* [kueuectl get](../)	 - Pass-through &#34;get&#34; to kubectl
+* [kueuectl get](../)	 - Display a resource
 

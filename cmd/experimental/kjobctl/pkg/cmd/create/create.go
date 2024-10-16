@@ -40,6 +40,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/cmd/attach"
 	"k8s.io/kubectl/pkg/cmd/exec"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 
@@ -51,50 +52,14 @@ import (
 )
 
 const (
-	createJobExample = `  # Create job 
-  kjobctl create job \ 
-	--profile my-application-profile  \
-	--cmd "sleep 5" \
-	--parallelism 4 \
-	--completions 4 \ 
-	--request cpu=500m,ram=4Gi \
-	--localqueue my-local-queue-name`
-	createInteractiveExample = `  # Create interactive 
-  kjobctl create interactive \ 
-	--profile my-application-profile  \
-	--pod-running-timeout 30s \
-	--rm`
-	createRayJobLong = `Create a rayjob.
-
-KubeRay operator is required for RayJob.
-How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.`
-	createRayJobExample = `  # Create rayjob 
-  kjobctl create rayjob \ 
-	--profile my-application-profile  \
-	--cmd "python /home/ray/samples/sample_code.py" \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \ 
-	--max-replicas small-group=5 \ 
-	--localqueue my-local-queue-name`
-	createRayClusterLong = `Create a raycluster.
-
-KubeRay operator is required for RayCluster.
-How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.`
-	createRayClusterExample = `  # Create raycluster 
-  kjobctl create raycluster \ 
-	--profile my-application-profile  \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \ 
-	--max-replicas small-group=5 \ 
-	--localqueue my-local-queue-name`
-	createSlurmExample = `  # Create slurm 
-  kjobctl create slurm --profile my-application-profile -- \
-	--array 0-5 --nodes 3 --ntasks 1 ./script.sh`
-
-	profileFlagName           = "profile"
-	podRunningTimeoutFlagName = "pod-running-timeout"
-	removeFlagName            = "rm"
-	ignoreUnknownFlagName     = "ignore-unknown-flags"
+	profileFlagName                  = "profile"
+	podRunningTimeoutFlagName        = "pod-running-timeout"
+	removeFlagName                   = "rm"
+	ignoreUnknownFlagName            = "ignore-unknown-flags"
+	initImageFlagName                = "init-image"
+	skipLocalQueueValidationFlagName = "skip-localqueue-validation"
+	skipPriorityValidationFlagName   = "skip-priority-validation"
+	changeDirFlagName                = "chdir"
 
 	commandFlagName     = string(v1alpha1.CmdFlag)
 	parallelismFlagName = string(v1alpha1.ParallelismFlag)
@@ -108,6 +73,7 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	arrayFlagName       = string(v1alpha1.ArrayFlag)
 	cpusPerTaskFlagName = string(v1alpha1.CpusPerTaskFlag)
 	gpusPerTaskFlagName = string(v1alpha1.GpusPerTaskFlag)
+	memPerNodeFlagName  = string(v1alpha1.MemPerNodeFlag)
 	memPerTaskFlagName  = string(v1alpha1.MemPerTaskFlag)
 	memPerCPUFlagName   = string(v1alpha1.MemPerCPUFlag)
 	memPerGPUFlagName   = string(v1alpha1.MemPerGPUFlag)
@@ -118,6 +84,63 @@ How to install KubeRay operator you can find here https://ray-project.github.io/
 	inputFlagName       = string(v1alpha1.InputFlag)
 	jobNameFlagName     = string(v1alpha1.JobNameFlag)
 	partitionFlagName   = string(v1alpha1.PartitionFlag)
+	priorityFlagName    = string(v1alpha1.PriorityFlag)
+)
+
+var (
+	createJobExample = templates.Examples(`
+		# Create job 
+  		kjobctl create job \
+		--profile my-application-profile \
+		--cmd "sleep 5" \
+		--parallelism 4 \
+		--completions 4 \
+		--request cpu=500m,memory=4Gi \
+		--localqueue my-local-queue-name
+	`)
+	createInteractiveExample = templates.Examples(`
+		# Create interactive 
+	  	kjobctl create interactive \
+		--profile my-application-profile  \
+		--pod-running-timeout 30s \
+		--rm
+	`)
+	createRayJobLong = templates.LongDesc(`
+		Create a rayjob.
+
+		KubeRay operator is required for RayJob.
+		How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
+	`)
+	createRayJobExample = templates.Examples(`
+		# Create rayjob 
+  		kjobctl create rayjob \
+		--profile my-application-profile \
+		--cmd "python /home/ray/samples/sample_code.py" \
+		--replicas small-group=1 \
+		--min-replicas small-group=1 \
+		--max-replicas small-group=5 \
+		--localqueue my-local-queue-name
+	`)
+	createRayClusterLong = templates.LongDesc(`
+		Create a raycluster.
+
+		KubeRay operator is required for RayCluster.
+		How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
+	`)
+	createRayClusterExample = templates.Examples(`
+		# Create raycluster 
+  		kjobctl create raycluster \
+		--profile my-application-profile \
+		--replicas small-group=1 \
+		--min-replicas small-group=1 \
+		--max-replicas small-group=5 \
+		--localqueue my-local-queue-name
+	`)
+	createSlurmExample = templates.Examples(`
+		# Create slurm 
+		kjobctl create slurm --profile my-application-profile -- \
+		--array 0-5 --nodes 3 --ntasks 1 ./script.sh
+	`)
 )
 
 var (
@@ -138,34 +161,40 @@ type CreateOptions struct {
 	ProfileName          string
 	ModeName             v1alpha1.ApplicationProfileMode
 	Script               string
+	InitImage            string
 	PodRunningTimeout    time.Duration
 	RemoveInteractivePod bool
+	ChangeDir            string
 
 	SlurmFlagSet *pflag.FlagSet
 
-	Command       []string
-	Parallelism   *int32
-	Completions   *int32
-	Replicas      map[string]int
-	MinReplicas   map[string]int
-	MaxReplicas   map[string]int
-	Requests      corev1.ResourceList
-	LocalQueue    string
-	RayCluster    string
-	Array         string
-	CpusPerTask   *apiresource.Quantity
-	GpusPerTask   map[string]*apiresource.Quantity
-	MemPerTask    *apiresource.Quantity
-	MemPerCPU     *apiresource.Quantity
-	MemPerGPU     *apiresource.Quantity
-	Nodes         *int32
-	NTasks        *int32
-	Output        string
-	Error         string
-	Input         string
-	JobName       string
-	Partition     string
-	IgnoreUnknown bool
+	Command                  []string
+	Parallelism              *int32
+	Completions              *int32
+	Replicas                 map[string]int
+	MinReplicas              map[string]int
+	MaxReplicas              map[string]int
+	Requests                 corev1.ResourceList
+	LocalQueue               string
+	RayCluster               string
+	Array                    string
+	CpusPerTask              *apiresource.Quantity
+	GpusPerTask              map[string]*apiresource.Quantity
+	MemPerNode               *apiresource.Quantity
+	MemPerTask               *apiresource.Quantity
+	MemPerCPU                *apiresource.Quantity
+	MemPerGPU                *apiresource.Quantity
+	Nodes                    *int32
+	NTasks                   *int32
+	Output                   string
+	Error                    string
+	Input                    string
+	JobName                  string
+	Partition                string
+	Priority                 string
+	IgnoreUnknown            bool
+	SkipLocalQueueValidation bool
+	SkipPriorityValidation   bool
 
 	UserSpecifiedCommand     string
 	UserSpecifiedParallelism int32
@@ -173,6 +202,7 @@ type CreateOptions struct {
 	UserSpecifiedRequest     map[string]string
 	UserSpecifiedCpusPerTask string
 	UserSpecifiedGpusPerTask string
+	UserSpecifiedMemPerNode  string
 	UserSpecifiedMemPerTask  string
 	UserSpecifiedMemPerCPU   string
 	UserSpecifiedMemPerGPU   string
@@ -296,10 +326,12 @@ var createModeSubcommands = map[string]modeSubcommand{
 		ModeName: v1alpha1.SlurmMode,
 		Setup: func(clientGetter util.ClientGetter, subcmd *cobra.Command, o *CreateOptions) {
 			subcmd.Use += " [--ignore-unknown-flags]" +
+				" [--skip-priority-validation]" +
 				" -- " +
 				" [--array ARRAY]" +
 				" [--cpus-per-task QUANTITY]" +
 				" [--gpus-per-task QUANTITY]" +
+				" [--mem QUANTITY]" +
 				" [--mem-per-task QUANTITY]" +
 				" [--mem-per-cpu QUANTITY]" +
 				" [--mem-per-gpu QUANTITY]" +
@@ -310,6 +342,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 				" [--input FILENAME_PATTERN]" +
 				" [--job-name NAME]" +
 				" [--partition NAME]" +
+				" [--priority NAME]" +
 				" SCRIPT"
 
 			subcmd.Short = "Create a slurm job"
@@ -318,6 +351,10 @@ var createModeSubcommands = map[string]modeSubcommand{
 
 			subcmd.Flags().BoolVar(&o.IgnoreUnknown, ignoreUnknownFlagName, false,
 				"Ignore all the unsupported flags in the bash script.")
+			subcmd.Flags().StringVar(&o.InitImage, initImageFlagName, "bash:5-alpine3.20",
+				"The image used for the init container.")
+			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
+				"Skip workload priority class validation. Add priority class label even if the class does not exist.")
 
 			o.SlurmFlagSet = pflag.NewFlagSet("slurm", pflag.ExitOnError)
 			o.SlurmFlagSet.StringVarP(&o.Array, arrayFlagName, "a", "",
@@ -330,6 +367,8 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"How much cpus a container inside a pod requires.")
 			o.SlurmFlagSet.StringVar(&o.UserSpecifiedGpusPerTask, gpusPerTaskFlagName, "",
 				"How much gpus a container inside a pod requires.")
+			o.SlurmFlagSet.StringVar(&o.UserSpecifiedMemPerNode, memPerNodeFlagName, "",
+				"How much memory a pod requires.")
 			o.SlurmFlagSet.StringVar(&o.UserSpecifiedMemPerTask, memPerTaskFlagName, "",
 				"How much memory a container requires.")
 			o.SlurmFlagSet.StringVar(&o.UserSpecifiedMemPerCPU, memPerCPUFlagName, "",
@@ -350,6 +389,10 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"What is the job name.")
 			o.SlurmFlagSet.StringVar(&o.Partition, partitionFlagName, "",
 				"Local queue name.")
+			o.SlurmFlagSet.StringVar(&o.Priority, priorityFlagName, "",
+				"Apply priority for the entire workload.")
+			o.SlurmFlagSet.StringVarP(&o.ChangeDir, changeDirFlagName, "D", "",
+				"Change directory before executing the script.")
 		},
 	},
 }
@@ -373,7 +416,8 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 		subcmd := &cobra.Command{
 			Use: modeName +
 				" --profile APPLICATION_PROFILE_NAME" +
-				" [--localqueue LOCAL_QUEUE_NAME]",
+				" [--localqueue LOCAL_QUEUE_NAME]" +
+				" [--skip-localqueue-validation]",
 			DisableFlagsInUseLine: true,
 			Args:                  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -394,6 +438,8 @@ func NewCreateCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStr
 			"Application profile contains a template (with defaults set) for running a specific type of application.")
 		subcmd.Flags().StringVar(&o.LocalQueue, localQueueFlagName, "",
 			"Kueue localqueue name which is associated with the resource.")
+		subcmd.Flags().BoolVar(&o.SkipLocalQueueValidation, skipLocalQueueValidationFlagName, false,
+			"Skip local queue validation. Add local queue even if the queue does not exist.")
 
 		modeSubcommand.Setup(clientGetter, subcmd, o)
 
@@ -481,11 +527,19 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 	}
 
 	if o.SlurmFlagSet.Changed(gpusPerTaskFlagName) {
-		gpusPerTask, err := parser.GpusFlag(gpusPerTaskFlagName)
+		gpusPerTask, err := parser.GpusFlag(o.UserSpecifiedGpusPerTask)
 		if err != nil {
-			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedCpusPerTask, err)
+			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedGpusPerTask, err)
 		}
 		o.GpusPerTask = gpusPerTask
+	}
+
+	if o.SlurmFlagSet.Changed(memPerNodeFlagName) {
+		quantity, err := apiresource.ParseQuantity(o.UserSpecifiedMemPerNode)
+		if err != nil {
+			return fmt.Errorf("cannot parse '%s': %w", o.UserSpecifiedMemPerNode, err)
+		}
+		o.MemPerNode = &quantity
 	}
 
 	if o.SlurmFlagSet.Changed(memPerTaskFlagName) {
@@ -555,7 +609,7 @@ func (o *CreateOptions) Complete(clientGetter util.ClientGetter, cmd *cobra.Comm
 }
 
 func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter, runTime time.Time) error {
-	objs, err := builder.NewBuilder(clientGetter, runTime).
+	rootObj, childObjs, err := builder.NewBuilder(clientGetter, runTime).
 		WithNamespace(o.Namespace).
 		WithProfileName(o.ProfileName).
 		WithModeName(o.ModeName).
@@ -572,6 +626,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithArray(o.Array).
 		WithCpusPerTask(o.CpusPerTask).
 		WithGpusPerTask(o.GpusPerTask).
+		WithMemPerNode(o.MemPerNode).
 		WithMemPerTask(o.MemPerTask).
 		WithMemPerCPU(o.MemPerCPU).
 		WithMemPerGPU(o.MemPerGPU).
@@ -582,35 +637,52 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithInput(o.Input).
 		WithJobName(o.JobName).
 		WithPartition(o.Partition).
+		WithPriority(o.Priority).
+		WithInitImage(o.InitImage).
 		WithIgnoreUnknown(o.IgnoreUnknown).
+		WithSkipLocalQueueValidation(o.SkipLocalQueueValidation).
+		WithSkipPriorityValidation(o.SkipPriorityValidation).
+		WithChangeDir(o.ChangeDir).
 		Do(ctx)
 	if err != nil {
 		return err
 	}
 
-	for _, obj := range objs {
-		if o.DryRunStrategy != util.DryRunClient {
-			obj, err = o.createObject(ctx, clientGetter, obj)
-			if err != nil {
-				return err
-			}
-		}
-
-		err = o.PrintObj(obj, o.Out)
+	if o.DryRunStrategy != util.DryRunClient {
+		rootObj, err = o.createObject(ctx, clientGetter, rootObj, nil)
 		if err != nil {
 			return err
 		}
 	}
 
-	if o.ModeName == v1alpha1.InteractiveMode {
-		pod := objs[0].(*corev1.Pod)
+	err = o.PrintObj(rootObj, o.Out)
+	if err != nil {
+		return err
+	}
+
+	for i := range childObjs {
+		if o.DryRunStrategy != util.DryRunClient {
+			childObjs[i], err = o.createObject(ctx, clientGetter, childObjs[i], rootObj)
+			if err != nil {
+				return err
+			}
+		}
+
+		err = o.PrintObj(childObjs[i], o.Out)
+		if err != nil {
+			return err
+		}
+	}
+
+	if o.DryRunStrategy == util.DryRunNone && o.ModeName == v1alpha1.InteractiveMode {
+		pod := rootObj.(*corev1.Pod)
 		return o.RunInteractivePod(ctx, clientGetter, pod.Name)
 	}
 
 	return nil
 }
 
-func (o *CreateOptions) createObject(ctx context.Context, clientGetter util.ClientGetter, obj runtime.Object) (runtime.Object, error) {
+func (o *CreateOptions) createObject(ctx context.Context, clientGetter util.ClientGetter, obj runtime.Object, owner runtime.Object) (runtime.Object, error) {
 	options := metav1.CreateOptions{}
 	if o.DryRunStrategy == util.DryRunServer {
 		options.DryRun = []string{metav1.DryRunAll}
@@ -633,20 +705,34 @@ func (o *CreateOptions) createObject(ctx context.Context, clientGetter util.Clie
 	}
 	gvr := mapping.Resource
 
-	unstructured := &unstructured.Unstructured{}
-	unstructured.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	unstructuredObj := &unstructured.Unstructured{}
+	unstructuredObj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 	if err != nil {
 		return nil, err
 	}
 
-	unstructured, err = dynamicClient.Resource(gvr).Namespace(o.Namespace).Create(ctx, unstructured, options)
+	if owner != nil {
+		unstructuredOwner := &unstructured.Unstructured{}
+		unstructuredOwner.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(owner)
+		if err != nil {
+			return nil, err
+		}
+		unstructuredObj.SetOwnerReferences(append(unstructuredOwner.GetOwnerReferences(), metav1.OwnerReference{
+			APIVersion: unstructuredOwner.GetAPIVersion(),
+			Kind:       unstructuredOwner.GetKind(),
+			Name:       unstructuredOwner.GetName(),
+			UID:        unstructuredOwner.GetUID(),
+		}))
+	}
+
+	unstructuredObj, err = dynamicClient.Resource(gvr).Namespace(o.Namespace).Create(ctx, unstructuredObj, options)
 	if err != nil {
 		return nil, err
 	}
 
 	createdObj := obj.DeepCopyObject()
 
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured.UnstructuredContent(), createdObj)
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), createdObj)
 	if err != nil {
 		return nil, err
 	}

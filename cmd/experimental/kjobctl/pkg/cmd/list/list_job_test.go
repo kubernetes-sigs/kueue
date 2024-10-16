@@ -32,6 +32,7 @@ import (
 	kubetesting "k8s.io/client-go/testing"
 	testingclock "k8s.io/utils/clock/testing"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
@@ -52,6 +53,7 @@ func TestJobCmd(t *testing.T) {
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", "ns1").
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -72,11 +74,39 @@ func TestJobCmd(t *testing.T) {
 j1     profile1   lq1           3/3           60m        60m
 `,
 		},
+		"should print only Job mode jobs": {
+			ns: "ns1",
+			objs: []runtime.Object{
+				wrappers.MakeJob("j1", "ns1").
+					Profile("profile1").
+					Mode(v1alpha1.JobMode).
+					LocalQueue("lq1").
+					Completions(3).
+					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Succeeded(3).
+					Obj(),
+				wrappers.MakeJob("j2", "ns2").
+					LocalQueue("lq2").
+					Mode(v1alpha1.SlurmMode).
+					Completions(3).
+					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Succeeded(3).
+					Obj(),
+			},
+			wantOut: `NAME   PROFILE    LOCAL QUEUE   COMPLETIONS   DURATION   AGE
+j1     profile1   lq1           3/3           60m        60m
+`,
+		},
 		"should print job list with namespace filter": {
 			ns: "ns1",
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", "ns1").
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -86,6 +116,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", "ns2").
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -103,6 +134,7 @@ j1     profile1   lq1           3/3           60m        60m
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -112,6 +144,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -129,6 +162,7 @@ j1     profile1   lq1           3/3           60m        60m
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -138,6 +172,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -155,6 +190,7 @@ j1     profile1   lq1           3/3           60m        60m
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					LocalQueue("lq1").
 					Completions(3).
@@ -165,6 +201,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq2").
 					LocalQueue("lq2").
 					Completions(3).
@@ -183,6 +220,7 @@ j1     profile1   lq1           3/3           60m        60m
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -192,6 +230,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq2").
 					LocalQueue("lq2").
 					Completions(3).
@@ -210,6 +249,7 @@ j1     profile1   lq1           3/3           60m        60m
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					Label("foo", "bar").
 					Completions(3).
@@ -220,6 +260,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -237,6 +278,7 @@ j1     profile1   lq1           3/3           60m        60m
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					Label("foo", "bar").
 					Completions(3).
@@ -247,6 +289,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -264,6 +307,7 @@ j1     profile1   lq1           3/3           60m        60m
 			objs: []runtime.Object{
 				wrappers.MakeJob("j1", metav1.NamespaceDefault).
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -273,6 +317,7 @@ j1     profile1   lq1           3/3           60m        60m
 					Obj(),
 				wrappers.MakeJob("j2", metav1.NamespaceDefault).
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq2").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).

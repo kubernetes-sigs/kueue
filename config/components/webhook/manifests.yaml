@@ -10,6 +10,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-apps-v1-deployment
+  failurePolicy: Fail
+  name: mdeployment.kb.io
+  rules:
+  - apiGroups:
+    - apps
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - deployments
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-batch-v1-job
   failurePolicy: Fail
   name: mjob.kb.io
@@ -219,25 +238,6 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-apps-v1-deployment
-  failurePolicy: Fail
-  name: mdeployment.kb.io
-  rules:
-  - apiGroups:
-    - apps
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    resources:
-    - deployments
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
       path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
   failurePolicy: Fail
   name: mclusterqueue.kb.io
@@ -295,6 +295,26 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: validating-webhook-configuration
 webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-apps-v1-deployment
+  failurePolicy: Fail
+  name: vdeployment.kb.io
+  rules:
+  - apiGroups:
+    - apps
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - deployments
+  sideEffects: None
 - admissionReviewVersions:
   - v1
   clientConfig:
@@ -521,26 +541,6 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-apps-v1-deployment
-  failurePolicy: Fail
-  name: vdeployment.kb.io
-  rules:
-  - apiGroups:
-    - apps
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - deployments
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
       path: /validate-kueue-x-k8s-io-v1beta1-clusterqueue
   failurePolicy: Fail
   name: vclusterqueue.kb.io
@@ -554,6 +554,26 @@ webhooks:
     - UPDATE
     resources:
     - clusterqueues
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kueue-x-k8s-io-v1alpha1-cohort
+  failurePolicy: Fail
+  name: vcohort.kb.io
+  rules:
+  - apiGroups:
+    - kueue.x-k8s.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - cohorts
   sideEffects: None
 - admissionReviewVersions:
   - v1

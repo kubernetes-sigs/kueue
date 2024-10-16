@@ -20,6 +20,14 @@ patches:
           values:
             - kube-system
             - kueue-system
+    - name: mdeployment.kb.io
+      namespaceSelector:
+        matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kueue-system
 - patch: |-
     apiVersion: admissionregistration.k8s.io/v1
     kind: ValidatingWebhookConfiguration
@@ -27,6 +35,14 @@ patches:
       name: validating-webhook-configuration
     webhooks:
     - name: vpod.kb.io
+      namespaceSelector:
+        matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+          - kube-system
+          - kueue-system
+    - name: vdeployment.kb.io
       namespaceSelector:
         matchExpressions:
         - key: kubernetes.io/metadata.name

@@ -388,6 +388,7 @@ func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *s
 	options := ctrl.Options{
 		Scheme: scheme,
 		Controller: crconfig.Controller{
+			SkipNameValidation: ptr.To(true),
 			GroupKindConcurrency: map[string]int{
 				kueue.GroupVersion.WithKind("Workload").GroupKind().String(): 5,
 			},

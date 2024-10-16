@@ -21,14 +21,14 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// RequeueStateApplyConfiguration represents an declarative configuration of the RequeueState type for use
+// RequeueStateApplyConfiguration represents a declarative configuration of the RequeueState type for use
 // with apply.
 type RequeueStateApplyConfiguration struct {
 	Count     *int32   `json:"count,omitempty"`
 	RequeueAt *v1.Time `json:"requeueAt,omitempty"`
 }
 
-// RequeueStateApplyConfiguration constructs an declarative configuration of the RequeueState type for use with
+// RequeueStateApplyConfiguration constructs a declarative configuration of the RequeueState type for use with
 // apply.
 func RequeueState() *RequeueStateApplyConfiguration {
 	return &RequeueStateApplyConfiguration{}

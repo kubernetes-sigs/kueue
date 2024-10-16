@@ -26,9 +26,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/utils/clock"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type listInteractivePrinter struct {

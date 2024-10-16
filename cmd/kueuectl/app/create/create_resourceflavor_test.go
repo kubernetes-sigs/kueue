@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 )
 
@@ -249,6 +250,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 		"shouldn't create resource flavor with dry-run client": {
 			rfName:  "rf",
 			args:    []string{"--dry-run", "client"},
+			wantRf:  &v1beta1.ResourceFlavor{},
 			wantOut: "resourceflavor.kueue.x-k8s.io/rf created (client dry run)\n",
 		},
 		"should create resource flavor": {
@@ -322,9 +324,10 @@ func TestResourceFlavorCmd(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tf := cmdtesting.NewTestClientGetter()
+			clientset := fake.NewSimpleClientset()
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 
-			cmd := NewResourceFlavorCmd(tf, streams)
+			cmd := NewResourceFlavorCmd(tcg, streams)
 			cmd.SetOut(out)
 			cmd.SetErr(outErr)
 			cmd.SetArgs(append([]string{tc.rfName}, tc.args...))
@@ -355,7 +358,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
 
-			gotRf, err := tf.KueueClientset.KueueV1beta1().ResourceFlavors().Get(context.Background(), tc.rfName, metav1.GetOptions{})
+			gotRf, err := clientset.KueueV1beta1().ResourceFlavors().Get(context.Background(), tc.rfName, metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				t.Error(err)
 				return

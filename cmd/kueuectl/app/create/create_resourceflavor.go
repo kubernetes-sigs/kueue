@@ -30,6 +30,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -37,22 +38,24 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	rfLong    = `Create a resource flavor with the given name.`
-	rfExample = `  # Create a resource flavor 
-  kueuectl create resourceflavor my-resource-flavor
+var (
+	rfLong    = templates.LongDesc(`Create a resource flavor with the given name.`)
+	rfExample = templates.Examples(`  
+		# Create a resource flavor 
+  		kueuectl create resourceflavor my-resource-flavor
 
-  # Create a resource flavor with labels
-  kueuectl create resourceflavor my-resource-flavor \
-	--node-labels beta.kubernetes.io/arch=arm64,beta.kubernetes.io/os=linux
+  		# Create a resource flavor with labels
+		kueuectl create resourceflavor my-resource-flavor \
+		--node-labels beta.kubernetes.io/arch=arm64,beta.kubernetes.io/os=linux
 
-# Create a resource flavor with node taints
-  kueuectl create resourceflavor my-resource-flavor \
-	--node-taints key1=value:NoSchedule,key2:NoExecute
+		# Create a resource flavor with node taints
+  		kueuectl create resourceflavor my-resource-flavor \
+		--node-taints key1=value:NoSchedule,key2:NoExecute
 
-# Create a resource flavor with tolerations
-  kueuectl create resourceflavor my-resource-flavor \
-	--tolerations key1=value:NoSchedule,key2:NoExecute,key3=value,key4,:PreferNoSchedule`
+		# Create a resource flavor with tolerations
+  		kueuectl create resourceflavor my-resource-flavor \
+		--tolerations key1=value:NoSchedule,key2:NoExecute,key3=value,key4,:PreferNoSchedule
+	`)
 	nodeLabelsFlagName  = "node-labels"
 	nodeTaintsFlagName  = "node-taints"
 	tolerationsFlagName = "tolerations"

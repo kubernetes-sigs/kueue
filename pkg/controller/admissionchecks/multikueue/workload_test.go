@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -61,7 +60,7 @@ func TestWlReconcile(t *testing.T) {
 
 	baseWorkloadBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
-	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueuealpha.MultiKueueControllerName)
+	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		reconcileFor             string
@@ -105,14 +104,14 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			worker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -238,7 +237,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.Clone().Obj()},
@@ -261,7 +260,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{*baseJobBuilder.Clone().Obj()},
@@ -295,7 +294,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			wantError: errFake,
@@ -312,7 +311,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -327,13 +326,13 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 
 			wantWorker2Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -402,7 +401,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -428,14 +427,14 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -457,7 +456,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			useSecondWorker: true,
@@ -483,14 +482,14 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -521,7 +520,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -544,7 +543,7 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -583,7 +582,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -604,7 +603,7 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -642,7 +641,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -667,7 +666,7 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -707,7 +706,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -732,7 +731,7 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -774,7 +773,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -906,7 +905,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -935,7 +934,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					QuotaReservedTime(time.Now().Add(-time.Hour)). // one hour ago
 					Obj(),
@@ -948,7 +947,7 @@ func TestWlReconcile(t *testing.T) {
 			useSecondWorker: true,
 			worker2Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					QuotaReservedTime(time.Now().Add(-time.Minute)). // one minute ago
 					Obj(),
@@ -974,7 +973,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -988,7 +987,7 @@ func TestWlReconcile(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, !tc.withoutJobManagedBy)()
+			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, !tc.withoutJobManagedBy)
 			managerBuilder, ctx := getClientBuilder()
 			managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
@@ -1001,8 +1000,8 @@ func TestWlReconcile(t *testing.T) {
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
 			managerBuilder = managerBuilder.WithObjects(
 				utiltesting.MakeMultiKueueConfig("config1").Clusters(workerClusters...).Obj(),
-				utiltesting.MakeAdmissionCheck("ac1").ControllerName(kueuealpha.MultiKueueControllerName).
-					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
+				utiltesting.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			)
 

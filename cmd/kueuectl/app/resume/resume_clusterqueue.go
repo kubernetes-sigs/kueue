@@ -25,6 +25,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,10 +36,12 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	cqLong    = `Resumes the previously held ClusterQueue.`
-	cqExample = `  # Resume the clusterqueue
-  kueuectl resume clusterqueue my-clusterqueue`
+var (
+	cqLong    = templates.LongDesc(`Resumes the previously held ClusterQueue.`)
+	cqExample = templates.Examples(`
+		# Resume the clusterqueue
+  		kueuectl resume clusterqueue my-clusterqueue
+	`)
 )
 
 type ClusterQueueOptions struct {

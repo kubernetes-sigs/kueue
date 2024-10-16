@@ -1,6 +1,6 @@
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->
 
 # kjobctl list interactive
@@ -21,7 +21,7 @@ kjobctl list interactive [--profile PROFILE_NAME] [--localqueue LOCALQUEUE_NAME]
 ```
   # List Interactive
   kjobctl list interactive
-
+  
   # List Interactive with profile filter
   kjobctl list interactive --profile my-profile
 ```

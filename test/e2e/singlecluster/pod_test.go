@@ -93,7 +93,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("should admit group that fits", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(util.E2eTestSleepImage, []string{"1ms"}).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("Should only admit a complete group", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(util.E2eTestSleepImage, []string{"1ms"}).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(3)
@@ -190,7 +190,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			groupName := "group"
 			group := podtesting.MakePod(groupName, ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(util.E2eTestSleepImage, []string{"1ms"}).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
@@ -255,8 +255,8 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					var p corev1.Pod
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
 					g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(testing.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				expectPodFinalized(ctx, k8sClient, client.ObjectKeyFromObject(group[0]))
 			})
 
 			ginkgo.By("Excess pod is deleted", func() {
@@ -305,7 +305,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			group := podtesting.MakePod("group", ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(util.E2eTestSleepImage, []string{"1ms"}).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -376,7 +376,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("should allow to schedule a group of diverse pods", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(util.E2eTestSleepImage, []string{"1ms"}).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "3").
 				MakeGroup(2)
@@ -433,7 +433,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			defaultPriorityGroup := podtesting.MakePod("default-priority-group", ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"-termination-code=1", "10m"}).
+				Image(util.E2eTestSleepImage, []string{"-termination-code=1", "10m"}).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "2").
@@ -458,7 +458,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			highPriorityGroup := podtesting.MakePod("high-priority-group", ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Image(util.E2eTestSleepImage, []string{"1ms"}).
 				Queue(lq.Name).
 				PriorityClass("high").
 				Request(corev1.ResourceCPU, "1").
@@ -562,6 +562,20 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 	})
 })
+
+func expectPodFinalized(ctx context.Context, k8sClient client.Client, pKey client.ObjectKey) {
+	gomega.EventuallyWithOffset(1, func() error {
+		var p corev1.Pod
+		err := k8sClient.Get(ctx, pKey, &p)
+		if client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		if err != nil || len(p.Finalizers) == 0 {
+			return nil
+		}
+		return fmt.Errorf("pod %s is not finalized yet", pKey)
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
 
 func expectWorkloadFinalized(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
 	gomega.EventuallyWithOffset(1, func() error {

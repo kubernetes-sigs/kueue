@@ -19,6 +19,7 @@ package describe
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/duration"
 	describehelper "k8s.io/kubectl/pkg/describe"
+	"k8s.io/utils/ptr"
 )
 
 // ResourceDescriber generates output for the named resource or an error
@@ -39,7 +41,7 @@ type ResourceDescriber interface {
 	Describe(object *unstructured.Unstructured) (output string, err error)
 }
 
-// NewResourceDescriber Describer returns a Describer for displaying the specified RESTMapping type or an error.
+// NewResourceDescriber returns a Describer for displaying the specified RESTMapping type or an error.
 func NewResourceDescriber(mapping *meta.RESTMapping) (ResourceDescriber, error) {
 	if describer, ok := DescriberFor(mapping.GroupVersionKind.GroupKind()); ok {
 		return describer, nil
@@ -52,9 +54,11 @@ func NewResourceDescriber(mapping *meta.RESTMapping) (ResourceDescriber, error) 
 // Kubernetes types.
 func DescriberFor(kind schema.GroupKind) (ResourceDescriber, bool) {
 	describers := map[schema.GroupKind]ResourceDescriber{
-		{Group: batchv1.GroupName, Kind: "Job"}:           &JobDescriber{},
-		{Group: corev1.GroupName, Kind: "Pod"}:            &PodDescriber{},
-		{Group: rayv1.GroupVersion.Group, Kind: "RayJob"}: &RayJobDescriber{},
+		{Group: batchv1.GroupName, Kind: "Job"}:               &JobDescriber{},
+		{Group: corev1.GroupName, Kind: "Pod"}:                &PodDescriber{},
+		{Group: rayv1.GroupVersion.Group, Kind: "RayJob"}:     &RayJobDescriber{},
+		{Group: rayv1.GroupVersion.Group, Kind: "RayCluster"}: &RayClusterDescriber{},
+		{Group: corev1.GroupName, Kind: "ConfigMap"}:          &ConfigMapDescriber{},
 	}
 
 	f, ok := describers[kind]
@@ -220,6 +224,111 @@ func describeRayJob(rayJob *rayv1.RayJob) (string, error) {
 		w.Write(IndentLevelOne, "Desired GPU:\t%s\n", rayJob.Status.RayClusterStatus.DesiredGPU.String())
 		w.Write(IndentLevelOne, "Desired Memory:\t%s\n", rayJob.Status.RayClusterStatus.DesiredMemory.String())
 		w.Write(IndentLevelOne, "Desired TPU:\t%s\n", rayJob.Status.RayClusterStatus.DesiredTPU.String())
+
+		return nil
+	})
+}
+
+// RayClusterDescriber generates information about a ray cluster.
+type RayClusterDescriber struct{}
+
+func (d *RayClusterDescriber) Describe(object *unstructured.Unstructured) (string, error) {
+	rayCluster := &rayv1.RayCluster{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), rayCluster)
+	if err != nil {
+		return "", err
+	}
+
+	return describeRayCluster(rayCluster)
+}
+
+func describeRayCluster(rayCluster *rayv1.RayCluster) (string, error) {
+	return tabbedString(func(out io.Writer) error {
+		w := describehelper.NewPrefixWriter(out)
+
+		w.Write(IndentLevelZero, "Name:\t%s\n", rayCluster.Name)
+		w.Write(IndentLevelZero, "Namespace:\t%s\n", rayCluster.Namespace)
+
+		printLabelsMultiline(w, "Labels", rayCluster.Labels)
+
+		w.Write(IndentLevelZero, "Suspend:\t%t\n", ptr.Deref(rayCluster.Spec.Suspend, false))
+		w.Write(IndentLevelZero, "State:\t%s\n", string(rayCluster.Status.State))
+		if len(rayCluster.Status.Reason) > 0 {
+			w.Write(IndentLevelZero, "Reason:\t%s\n", rayCluster.Status.Reason)
+		}
+
+		w.Write(IndentLevelZero, "Desired CPU:\t%s\n", rayCluster.Status.DesiredCPU.String())
+		w.Write(IndentLevelZero, "Desired GPU:\t%s\n", rayCluster.Status.DesiredGPU.String())
+		w.Write(IndentLevelZero, "Desired Memory:\t%s\n", rayCluster.Status.DesiredMemory.String())
+		w.Write(IndentLevelZero, "Desired TPU:\t%s\n", rayCluster.Status.DesiredTPU.String())
+
+		w.Write(IndentLevelZero, "Ready Worker Replicas:\t%d\n", rayCluster.Status.ReadyWorkerReplicas)
+		w.Write(IndentLevelZero, "Available Worker Replicas:\t%d\n", rayCluster.Status.AvailableWorkerReplicas)
+		w.Write(IndentLevelZero, "Desired Worker Replicas:\t%d\n", rayCluster.Status.DesiredWorkerReplicas)
+		w.Write(IndentLevelZero, "Min Worker Replicas:\t%d\n", rayCluster.Status.MinWorkerReplicas)
+		w.Write(IndentLevelZero, "Max Worker Replicas:\t%d\n", rayCluster.Status.MaxWorkerReplicas)
+
+		w.Write(IndentLevelZero, "Head Group:\n")
+		headGroupWriter := describehelper.NewNestedPrefixWriter(w, 1)
+		printLabelsMultiline(headGroupWriter, "Start Params", rayCluster.Spec.HeadGroupSpec.RayStartParams)
+		describePodTemplate(&rayCluster.Spec.HeadGroupSpec.Template, headGroupWriter)
+
+		w.Write(IndentLevelZero, "Worker Groups:\n")
+		for _, wg := range rayCluster.Spec.WorkerGroupSpecs {
+			w.Write(IndentLevelOne, fmt.Sprintf("%s:\n", wg.GroupName))
+			workerGroupWriter := describehelper.NewNestedPrefixWriter(w, 2)
+			if wg.Replicas != nil {
+				workerGroupWriter.Write(IndentLevelZero, "Replicas:\t%d\n", *wg.Replicas)
+			}
+			if wg.MinReplicas != nil {
+				workerGroupWriter.Write(IndentLevelZero, "Min Replicas:\t%d\n", *wg.MinReplicas)
+			}
+			if wg.MaxReplicas != nil {
+				workerGroupWriter.Write(IndentLevelZero, "Max Replicas:\t%d\n", *wg.MaxReplicas)
+			}
+			printLabelsMultiline(workerGroupWriter, "Start Params", wg.RayStartParams)
+			describePodTemplate(&wg.Template, workerGroupWriter)
+		}
+
+		return nil
+	})
+}
+
+// ConfigMapDescriber generates information about a configMap.
+type ConfigMapDescriber struct{}
+
+func (d *ConfigMapDescriber) Describe(object *unstructured.Unstructured) (string, error) {
+	configMap := &corev1.ConfigMap{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), configMap)
+	if err != nil {
+		return "", err
+	}
+
+	return describeConfigMap(configMap)
+}
+
+func describeConfigMap(configMap *corev1.ConfigMap) (string, error) {
+	return tabbedString(func(out io.Writer) error {
+		w := describehelper.NewPrefixWriter(out)
+
+		w.Write(IndentLevelZero, "Name:\t%s\n", configMap.Name)
+		w.Write(IndentLevelZero, "Namespace:\t%s\n", configMap.Namespace)
+		printLabelsMultiline(w, "Labels", configMap.Labels)
+
+		w.Write(IndentLevelZero, "\nData\n====\n")
+		sortedKeys := sortMapKeys(configMap.Data)
+		for _, k := range sortedKeys {
+			w.Write(IndentLevelZero, "%s:\n----\n", k)
+			w.Write(IndentLevelZero, "%s\n", configMap.Data[k])
+			w.Write(IndentLevelZero, "\n")
+		}
+
+		w.Write(IndentLevelZero, "\nBinaryData\n====\n")
+		sortedKeys = sortMapKeys(configMap.BinaryData)
+		for _, k := range sortedKeys {
+			w.Write(IndentLevelZero, "%s: %s bytes\n", k, strconv.Itoa(len(configMap.BinaryData[k])))
+		}
+		w.Write(IndentLevelZero, "\n")
 
 		return nil
 	})

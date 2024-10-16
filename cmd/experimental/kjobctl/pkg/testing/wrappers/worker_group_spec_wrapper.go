@@ -86,3 +86,9 @@ func (w *WorkerGroupSpecWrapper) MaxReplicas(maxReplicas int32) *WorkerGroupSpec
 	w.WorkerGroupSpec.MaxReplicas = &maxReplicas
 	return w
 }
+
+// RayStartParams set rayStartParams on WorkerGroupSpec.
+func (w *WorkerGroupSpecWrapper) RayStartParams(rayStartParams map[string]string) *WorkerGroupSpecWrapper {
+	w.WorkerGroupSpec.RayStartParams = rayStartParams
+	return w
+}

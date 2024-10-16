@@ -37,13 +37,24 @@ func newCohort(name string) *cohort {
 	}
 }
 
-func (c *cohort) updateCohort(apiCohort *kueuealpha.Cohort) {
+func (c *cohort) updateCohort(cycleChecker hierarchy.CycleChecker, apiCohort *kueuealpha.Cohort, oldParent *cohort) error {
 	c.resourceNode.Quotas = createResourceQuotas(apiCohort.Spec.ResourceGroups)
-	updateCohortResourceNode(c)
+	if oldParent != nil && oldParent != c.Parent() {
+		// ignore error when old Cohort has cycle.
+		_ = updateCohortTreeResources(oldParent, cycleChecker)
+	}
+	return updateCohortTreeResources(c, cycleChecker)
 }
 
 func (c *cohort) GetName() string {
 	return c.Name
+}
+
+func (c *cohort) getRootUnsafe() *cohort {
+	if !c.HasParent() {
+		return c
+	}
+	return c.Parent().getRootUnsafe()
 }
 
 // implements hierarchicalResourceNode interface.
@@ -53,5 +64,11 @@ func (c *cohort) getResourceNode() ResourceNode {
 }
 
 func (c *cohort) parentHRN() hierarchicalResourceNode {
+	return c.Parent()
+}
+
+// implement hierarchy.CycleCheckable interface
+
+func (c *cohort) CCParent() hierarchy.CycleCheckable {
 	return c.Parent()
 }

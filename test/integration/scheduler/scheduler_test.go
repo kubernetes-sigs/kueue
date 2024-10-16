@@ -29,12 +29,14 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -229,7 +231,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 		})
 
-		ginkgo.It("Should admit workloads as they fit in their ClusterQueue", func() {
+		ginkgo.It("Should admit workloads as they fit in their ClusterQueue", framework.SlowSpec, func() {
 			ginkgo.By("checking the first prod workload gets admitted")
 			prodWl1 := testing.MakeWorkload("prod-wl1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodWl1)).Should(gomega.Succeed())
@@ -1407,6 +1409,142 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
+	ginkgo.When("Cohort provides resources directly", func() {
+		var (
+			cq     *kueue.ClusterQueue
+			cohort *kueuealpha.Cohort
+			wl     *kueue.Workload
+		)
+
+		ginkgo.BeforeEach(func() {
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		})
+
+		ginkgo.It("Should admit workload using resources borrowed from cohort", func() {
+			cq = testing.MakeClusterQueue("clusterqueue").
+				Cohort("cohort").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			queue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+			ginkgo.By("workload not admitted when Cohort doesn't provide any resources")
+			wl = testing.MakeWorkload("wl", ns.Name).Queue(queue.Name).
+				Request(corev1.ResourceCPU, "10").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
+
+			ginkgo.By("workload not admitted when Cohort provides too few resources")
+			cohort = testing.MakeCohort("cohort").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cohort)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
+
+			ginkgo.By("workload admitted when Cohort updated to provide sufficient resources")
+			gomega.Eventually(func() error {
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: cohort.Name}, cohort)
+				cohort.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("10")
+				return k8sClient.Update(ctx, cohort)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			expectAdmission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
+		})
+
+		ginkgo.It("Should admit workload when cq switches into cohort with capacity", func() {
+			cq = testing.MakeClusterQueue("clusterqueue").
+				Cohort("impecunious-cohort").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			queue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+			ginkgo.By("workload not admitted")
+			wl = testing.MakeWorkload("wl", ns.Name).Queue(queue.Name).
+				Request(corev1.ResourceCPU, "10").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
+
+			ginkgo.By("cohort created")
+			cohort = testing.MakeCohort("cohort").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cohort)).Should(gomega.Succeed())
+
+			ginkgo.By("cq switches and workload admitted")
+			gomega.Eventually(func() error {
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: cq.Name}, cq)
+				cq.Spec.Cohort = "cohort"
+				return k8sClient.Update(ctx, cq)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			expectAdmission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
+		})
+		ginkgo.It("Long distance resource allows workload to be scheduled", func() {
+			cq = testing.MakeClusterQueue("cq").
+				Cohort("left").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			queue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+			ginkgo.By("cohorts created")
+			cohortRight := testing.MakeCohort("left").Parent("root").Obj()
+			cohortLeft := testing.MakeCohort("right").Parent("root").Obj()
+			gomega.Expect(k8sClient.Create(ctx, cohortLeft)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, cohortRight)).Should(gomega.Succeed())
+
+			//         root
+			//        /    \
+			//      left    right
+			//     /
+			//    cq
+			ginkgo.By("workload not admitted")
+			wl = testing.MakeWorkload("wl", ns.Name).Queue(queue.Name).
+				Request(corev1.ResourceCPU, "10").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
+
+			//         root
+			//        /    \
+			//      left    right
+			//     /           \
+			//    cq            bank
+			ginkgo.By("cohort with resources created and workload admitted")
+			cohortBank := testing.MakeCohort("bank").Parent("right").
+				ResourceGroup(
+					testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").FlavorQuotas,
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cohortBank)).Should(gomega.Succeed())
+			expectAdmission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
+		})
+	})
+
 	ginkgo.When("Using cohorts for sharing with LendingLimit", func() {
 		var (
 			prodCQ *kueue.ClusterQueue
@@ -2334,7 +2472,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
-						Message: "couldn't assign flavors to pod set main: insufficient unused quota in cohort for memory in flavor on-demand, 2Gi more needed",
+						Message: "couldn't assign flavors to pod set main: insufficient unused quota in cohort for memory in flavor on-demand, 1Gi more needed",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

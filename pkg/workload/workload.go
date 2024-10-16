@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
@@ -78,7 +79,6 @@ func Status(w *kueue.Workload) string {
 
 type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int
-	CohortGeneration       int64
 	ClusterQueueGeneration int64
 }
 
@@ -100,7 +100,6 @@ func WithExcludedResourcePrefixes(n []string) InfoOption {
 func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
 	c := AssignmentClusterQueueState{
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
-		CohortGeneration:       s.CohortGeneration,
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
 	}
 	for ps, flavorIdx := range s.LastTriedFlavorIdx {
@@ -170,9 +169,11 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 		Flavors:  maps.Clone(psr.Flavors),
 	}
 
-	scaleDown(ret.Requests, int64(ret.Count))
-	scaleUp(ret.Requests, int64(newCount))
-	ret.Count = newCount
+	if psr.Count != 0 && psr.Count != newCount {
+		scaleDown(ret.Requests, int64(ret.Count))
+		scaleUp(ret.Requests, int64(newCount))
+		ret.Count = newCount
+	}
 	return ret
 }
 
@@ -256,21 +257,15 @@ func QueueKey(w *kueue.Workload) string {
 }
 
 func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
-	ret := make(map[string]int32, len(wl.Status.ReclaimablePods))
-	for i := range wl.Status.ReclaimablePods {
-		reclaimInfo := &wl.Status.ReclaimablePods[i]
-		ret[reclaimInfo.Name] = reclaimInfo.Count
-	}
-	return ret
+	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (string, int32) {
+		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
+	})
 }
 
 func podSetsCounts(wl *kueue.Workload) map[string]int32 {
-	ret := make(map[string]int32, len(wl.Spec.PodSets))
-	for i := range wl.Spec.PodSets {
-		ps := &wl.Spec.PodSets[i]
-		ret[ps.Name] = ps.Count
-	}
-	return ret
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (string, int32) {
+		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
+	})
 }
 
 func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
@@ -318,12 +313,15 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			Requests: resources.NewRequests(psa.ResourceUsage),
 		}
 
-		if count := currentCounts[psa.Name]; count != setRes.Count {
+		// If countAfterReclaim is lower then the admission count indicates that
+		// additional pods are marked as reclaimable, and the consumption should be scaled down.
+		if countAfterReclaim := currentCounts[psa.Name]; countAfterReclaim < setRes.Count {
 			scaleDown(setRes.Requests, int64(setRes.Count))
-			scaleUp(setRes.Requests, int64(count))
-			setRes.Count = count
+			scaleUp(setRes.Requests, int64(countAfterReclaim))
+			setRes.Count = countAfterReclaim
 		}
-
+		// Otherwise if countAfterReclaim is higher it means that the podSet was partially admitted
+		// and the count should be preserved.
 		res = append(res, setRes)
 	}
 	return res
@@ -570,18 +568,9 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	if len(a) != len(b) {
 		return false
 	}
-
-	mb := make(map[string]int32, len(b))
-	for i := range b {
-		mb[b[i].Name] = b[i].Count
-	}
-
-	for i := range a {
-		if bCount, found := mb[a[i].Name]; !found || bCount != a[i].Count {
-			return false
-		}
-	}
-	return true
+	ma := utilslices.ToMap(a, func(i int) (string, int32) { return a[i].Name, a[i].Count })
+	mb := utilslices.ToMap(b, func(i int) (string, int32) { return b[i].Name, b[i].Count })
+	return maps.Equal(ma, mb)
 }
 
 // IsAdmitted returns true if the workload is admitted.

@@ -237,7 +237,8 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		if !c.reqIsNeeded(wl, prc) {
 			continue
 		}
-		if ac := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName); ac != nil && ac.State == kueue.CheckStateReady {
+		ac := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName)
+		if ac != nil && ac.State == kueue.CheckStateReady {
 			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
 			continue
 		}
@@ -302,6 +303,11 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			}
 
 			if err := c.client.Create(ctx, req); err != nil {
+				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
+				ac.Message = api.TruncateConditionMessage(msg)
+				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac)
+
+				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 				return nil, err
 			}
 			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)
@@ -613,7 +619,7 @@ type acHandler struct {
 
 var _ handler.EventHandler = (*acHandler)(nil)
 
-func (a *acHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (a *acHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	ac, isAc := event.Object.(*kueue.AdmissionCheck)
 	if !isAc {
 		return
@@ -627,7 +633,7 @@ func (a *acHandler) Create(ctx context.Context, event event.CreateEvent, q workq
 	}
 }
 
-func (a *acHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (a *acHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldAc, isOldAc := event.ObjectOld.(*kueue.AdmissionCheck)
 	newAc, isNewAc := event.ObjectNew.(*kueue.AdmissionCheck)
 	if !isNewAc || !isOldAc {
@@ -642,7 +648,7 @@ func (a *acHandler) Update(ctx context.Context, event event.UpdateEvent, q workq
 	}
 }
 
-func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	ac, isAc := event.Object.(*kueue.AdmissionCheck)
 	if !isAc {
 		return
@@ -656,11 +662,11 @@ func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workq
 	}
 }
 
-func (a *acHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (a *acHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	// nothing to do for now
 }
 
-func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q workqueue.RateLimitingInterface) error {
+func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	list := &kueue.WorkloadList{}
 	if err := a.client.List(ctx, list, client.MatchingFields{WorkloadsWithAdmissionCheckKey: check}); client.IgnoreNotFound(err) != nil {
 		return err
@@ -682,12 +688,12 @@ func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q
 
 type prcHandler struct {
 	client            client.Client
-	acHandlerOverride func(ctx context.Context, config string, q workqueue.RateLimitingInterface) error
+	acHandlerOverride func(ctx context.Context, config string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error
 }
 
 var _ handler.EventHandler = (*prcHandler)(nil)
 
-func (p *prcHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (p *prcHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	prc, isPRC := event.Object.(*kueue.ProvisioningRequestConfig)
 	if !isPRC {
 		return
@@ -698,7 +704,7 @@ func (p *prcHandler) Create(ctx context.Context, event event.CreateEvent, q work
 	}
 }
 
-func (p *prcHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (p *prcHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldPRC, isOldPRC := event.ObjectOld.(*kueue.ProvisioningRequestConfig)
 	newPRC, isNewPRC := event.ObjectNew.(*kueue.ProvisioningRequestConfig)
 	if !isNewPRC || !isOldPRC {
@@ -713,7 +719,7 @@ func (p *prcHandler) Update(ctx context.Context, event event.UpdateEvent, q work
 	}
 }
 
-func (p *prcHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (p *prcHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	prc, isPRC := event.Object.(*kueue.ProvisioningRequestConfig)
 	if !isPRC {
 		return
@@ -724,11 +730,11 @@ func (p *prcHandler) Delete(ctx context.Context, event event.DeleteEvent, q work
 	}
 }
 
-func (p *prcHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (p *prcHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	// nothing to do for now
 }
 
-func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string, q workqueue.RateLimitingInterface) error {
+func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	list := &kueue.AdmissionCheckList{}
 	if err := p.client.List(ctx, list, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); client.IgnoreNotFound(err) != nil {
 		return err
@@ -760,6 +766,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		acHandlerOverride: ach.reconcileWorkloadsUsing,
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
+		Named("provisioning-workload").
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.ProvisioningRequest{}).
 		Watches(&kueue.AdmissionCheck{}, ach).
@@ -778,6 +785,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("provisioning-admissioncheck").
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.ProvisioningRequestConfig{}, prcACh).
 		Complete(acReconciler)

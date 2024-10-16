@@ -21,7 +21,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// PodSetUpdateApplyConfiguration represents an declarative configuration of the PodSetUpdate type for use
+// PodSetUpdateApplyConfiguration represents a declarative configuration of the PodSetUpdate type for use
 // with apply.
 type PodSetUpdateApplyConfiguration struct {
 	Name         *string           `json:"name,omitempty"`
@@ -31,7 +31,7 @@ type PodSetUpdateApplyConfiguration struct {
 	Tolerations  []v1.Toleration   `json:"tolerations,omitempty"`
 }
 
-// PodSetUpdateApplyConfiguration constructs an declarative configuration of the PodSetUpdate type for use with
+// PodSetUpdateApplyConfiguration constructs a declarative configuration of the PodSetUpdate type for use with
 // apply.
 func PodSetUpdate() *PodSetUpdateApplyConfiguration {
 	return &PodSetUpdateApplyConfiguration{}

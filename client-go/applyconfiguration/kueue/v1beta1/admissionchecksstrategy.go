@@ -17,13 +17,13 @@ limitations under the License.
 
 package v1beta1
 
-// AdmissionChecksStrategyApplyConfiguration represents an declarative configuration of the AdmissionChecksStrategy type for use
+// AdmissionChecksStrategyApplyConfiguration represents a declarative configuration of the AdmissionChecksStrategy type for use
 // with apply.
 type AdmissionChecksStrategyApplyConfiguration struct {
 	AdmissionChecks []AdmissionCheckStrategyRuleApplyConfiguration `json:"admissionChecks,omitempty"`
 }
 
-// AdmissionChecksStrategyApplyConfiguration constructs an declarative configuration of the AdmissionChecksStrategy type for use with
+// AdmissionChecksStrategyApplyConfiguration constructs a declarative configuration of the AdmissionChecksStrategy type for use with
 // apply.
 func AdmissionChecksStrategy() *AdmissionChecksStrategyApplyConfiguration {
 	return &AdmissionChecksStrategyApplyConfiguration{}

@@ -27,17 +27,21 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/client-go/kubernetes/scheme"
 	batchv1 "k8s.io/client-go/kubernetes/typed/batch/v1"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
-const (
-	jobExample = `  # Delete Job 
-  kjobctl delete job my-application-profile-job-k2wzd`
+var (
+	jobExample = templates.Examples(`
+		# Delete Job 
+  		kjobctl delete job my-application-profile-job-k2wzd
+	`)
 )
 
 type JobOptions struct {
@@ -72,7 +76,7 @@ func NewJobCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStream
 		Short:                 "Delete Job",
 		Example:               jobExample,
 		Args:                  cobra.MinimumNArgs(1),
-		ValidArgsFunction:     completion.JobNameFunc(clientGetter),
+		ValidArgsFunction:     completion.JobNameFunc(clientGetter, v1alpha1.JobMode),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 
@@ -147,6 +151,11 @@ func (o *JobOptions) Run(ctx context.Context) error {
 		}
 		if _, ok := job.Labels[constants.ProfileLabel]; !ok {
 			fmt.Fprintf(o.ErrOut, "jobs.batch \"%s\" not created via kjob\n", job.Name)
+			continue
+		}
+		if job.Labels[constants.ModeLabel] != string(v1alpha1.JobMode) {
+			fmt.Fprintf(o.ErrOut, "jobs.batch \"%s\" created in \"%s\" mode. Switch to the correct mode to delete it\n",
+				job.Name, job.Labels[constants.ModeLabel])
 			continue
 		}
 

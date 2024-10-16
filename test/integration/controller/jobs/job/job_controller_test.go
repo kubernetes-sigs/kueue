@@ -27,9 +27,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -60,17 +60,13 @@ const (
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			CRDPath: crdPath,
-		}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+		fwk.StartManager(ctx, cfg, managerSetup(
 			jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
 		))
 	})
 	ginkgo.AfterAll(func() {
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	var (
@@ -92,7 +88,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("Should reconcile workload and job for all jobs", func() {
+	ginkgo.It("Should reconcile workload and job for all jobs", framework.SlowSpec, func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")
 		priorityClass := testing.MakePriorityClass(priorityClassName).
 			PriorityValue(int32(priorityValue)).Obj()
@@ -170,26 +166,25 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			},
 			Spec: *createdWorkload.Spec.DeepCopy(),
 		}
-		gomega.Expect(ctrl.SetControllerReference(createdJob, secondWl, scheme.Scheme)).Should(gomega.Succeed())
+		gomega.Expect(ctrl.SetControllerReference(createdJob, secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 		secondWl.Spec.PodSets[0].Count += 1
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
-		gomega.Eventually(func() error {
-			wl := &kueue.Workload{}
-			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
-			return k8sClient.Get(ctx, key, wl)
-		}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, secondWl, false)
 		// check the original wl is still there
 		gomega.Consistently(func() error {
 			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", workload.Key(secondWl)))
+			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", workload.Key(secondWl)), lookupKey)
 			return ok
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
 		onDemandFlavor := testing.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		})
 		spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
 		clusterQueue := testing.MakeClusterQueue("cluster-queue").
@@ -210,7 +205,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			return !*createdJob.Spec.Suspend
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
+			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
 			return ok
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector).Should(gomega.HaveLen(1))
@@ -240,7 +235,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				len(createdJob.Spec.Template.Spec.NodeSelector) == 0
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()))
+			ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
 			return ok
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
@@ -383,6 +378,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			ginkgo.By("Create a resource flavor")
 			defaultFlavor := testing.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			})
 
 			ginkgo.By("creating the parent job")
 			parentJob := testingjob.MakeJob(parentJobName, ns.Name).Obj()
@@ -836,7 +834,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 })
 
-var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	type podsReadyTestSpec struct {
 		beforeJobStatus *batchv1.JobStatus
 		beforeCondition *metav1.Condition
@@ -851,17 +849,13 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			CRDPath: crdPath,
-		}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true})))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true})))
 		ginkgo.By("Create a resource flavor")
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
 	})
 	ginkgo.AfterAll(func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -1098,7 +1092,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	)
 })
 
-var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -1112,14 +1106,10 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			CRDPath: crdPath,
-		}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerAndControllersSetup(true, nil))
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, nil))
 	})
 	ginkgo.AfterAll(func() {
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -1185,7 +1175,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 	})
 
-	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
+	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", framework.SlowSpec, func() {
 		ginkgo.By("creating localQueues")
 		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodLocalQ)).Should(gomega.Succeed())
@@ -1680,6 +1670,23 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			gomega.Expect(*wl.Spec.PodSets[0].MinCount).To(gomega.BeEquivalentTo(1))
 		})
 
+		ginkgo.By("checking the clusterqueue usage", func() {
+			updateCq := &kueue.ClusterQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), updateCq)).Should(gomega.Succeed())
+				g.Expect(updateCq.Status.FlavorsUsage).To(gomega.ContainElement(kueue.FlavorUsage{
+					Name: "on-demand",
+					Resources: []kueue.ResourceUsage{
+						{
+							Name:     corev1.ResourceCPU,
+							Total:    resource.MustParse("4"),
+							Borrowed: resource.MustParse("0"),
+						},
+					},
+				}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("delete the localQueue to prevent readmission", func() {
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, prodLocalQ)).Should(gomega.Succeed())
 		})
@@ -1920,21 +1927,17 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	)
 
 	ginkgo.JustBeforeEach(func() {
-		fwk = &framework.Framework{
-			CRDPath: crdPath,
-		}
-		cfg = fwk.Init()
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			Enable:         true,
 			BlockAdmission: ptr.To(true),
 			Timeout:        &metav1.Duration{Duration: util.TinyTimeout},
 			RequeuingStrategy: &configapi.RequeuingStrategy{
 				Timestamp:          ptr.To(configapi.EvictionTimestamp),
-				BackoffBaseSeconds: ptr.To[int32](backoffBaseSeconds),
+				BackoffBaseSeconds: ptr.To(backoffBaseSeconds),
 				BackoffLimitCount:  backoffLimitCount,
 			},
 		}
-		ctx, k8sClient = fwk.RunManager(cfg, managerAndControllersSetup(
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(
 			false,
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
@@ -1958,7 +1961,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("long backoffBaseSeconds", func() {

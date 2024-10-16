@@ -133,7 +133,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-	if err := cqImpl.updateClusterQueue(cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
+	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
 
@@ -375,7 +375,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	}
 	oldParent := cqImpl.Parent()
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
-	if err := cqImpl.updateClusterQueue(cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
+	if err := cqImpl.updateClusterQueue(c.hm.CycleChecker, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
 	for _, qImpl := range cqImpl.localQueues {
@@ -398,23 +398,25 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	metrics.ClearCacheMetrics(cq.Name)
 }
 
-func (c *Cache) AddCohort(apiCohort *kueuealpha.Cohort) {
+func (c *Cache) AddOrUpdateCohort(apiCohort *kueuealpha.Cohort) error {
 	c.Lock()
 	defer c.Unlock()
-	cohort := newCohort(apiCohort.Name)
-	c.hm.AddCohort(cohort)
-	cohort.updateCohort(apiCohort)
+	c.hm.AddCohort(apiCohort.Name)
+	cohort := c.hm.Cohorts[apiCohort.Name]
+	oldParent := cohort.Parent()
+	c.hm.UpdateCohortEdge(apiCohort.Name, apiCohort.Spec.Parent)
+	return cohort.updateCohort(c.hm.CycleChecker, apiCohort, oldParent)
 }
 
-func (c *Cache) DeleteCohort(apiCohort *kueuealpha.Cohort) {
+func (c *Cache) DeleteCohort(cohortName string) {
 	c.Lock()
 	defer c.Unlock()
-	c.hm.DeleteCohort(apiCohort.Name)
+	c.hm.DeleteCohort(cohortName)
 
 	// If the cohort still exists after deletion, it means
 	// that it has one or more children referencing it.
 	// We need to run update algorithm.
-	if cohort, ok := c.hm.Cohorts[apiCohort.Name]; ok {
+	if cohort, ok := c.hm.Cohorts[cohortName]; ok {
 		updateCohortResourceNode(cohort)
 	}
 }

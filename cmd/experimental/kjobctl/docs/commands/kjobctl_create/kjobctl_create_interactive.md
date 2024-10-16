@@ -1,6 +1,6 @@
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->
 
 # kjobctl create interactive
@@ -12,18 +12,18 @@ The file is auto-generated from the Go source code of the component using the
 Create an interactive shell
 
 ```
-kjobctl create interactive --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--pod-running-timeout DURATION] [--rm]
+kjobctl create interactive --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--pod-running-timeout DURATION] [--rm]
 ```
 
 
 ## Examples
 
 ```
-  # Create interactive 
-  kjobctl create interactive \ 
-	--profile my-application-profile  \
-	--pod-running-timeout 30s \
-	--rm
+  # Create interactive
+  kjobctl create interactive \
+  --profile my-application-profile  \
+  --pod-running-timeout 30s \
+  --rm
 ```
 
 
@@ -133,6 +133,15 @@ kjobctl create interactive --profile APPLICATION_PROFILE_NAME [--localqueue LOCA
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>If true, keep the managedFields when printing objects in JSON or YAML format.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--skip-localqueue-validation</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Skip local queue validation. Add local queue even if the queue does not exist.</p>
         </td>
     </tr>
     <tr>

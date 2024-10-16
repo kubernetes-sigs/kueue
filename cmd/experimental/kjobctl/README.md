@@ -9,7 +9,7 @@ Read the [overview](docs/_index.md) to learn more.
 ## Getting Started
 
 ### Prerequisites
-- go version v1.22.6+
+- go version v1.23+
 - kubectl version v1.27+.
 - Access to a Kubernetes v1.27+ cluster.
 

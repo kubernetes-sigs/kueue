@@ -18,14 +18,16 @@ package util
 
 import (
 	rayversioned "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
 	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
+
 	kjobctlversioned "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
 type ClientGetter interface {
@@ -57,6 +59,7 @@ func (cg *clientGetterImpl) K8sClientset() (k8s.Interface, error) {
 		return nil, err
 	}
 
+	config.ContentType = runtime.ContentTypeProtobuf
 	clientset, err := k8s.NewForConfig(config)
 	if err != nil {
 		return nil, err

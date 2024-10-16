@@ -21,14 +21,14 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// BorrowWithinCohortApplyConfiguration represents an declarative configuration of the BorrowWithinCohort type for use
+// BorrowWithinCohortApplyConfiguration represents a declarative configuration of the BorrowWithinCohort type for use
 // with apply.
 type BorrowWithinCohortApplyConfiguration struct {
 	Policy               *v1beta1.BorrowWithinCohortPolicy `json:"policy,omitempty"`
 	MaxPriorityThreshold *int32                            `json:"maxPriorityThreshold,omitempty"`
 }
 
-// BorrowWithinCohortApplyConfiguration constructs an declarative configuration of the BorrowWithinCohort type for use with
+// BorrowWithinCohortApplyConfiguration constructs a declarative configuration of the BorrowWithinCohort type for use with
 // apply.
 func BorrowWithinCohort() *BorrowWithinCohortApplyConfiguration {
 	return &BorrowWithinCohortApplyConfiguration{}

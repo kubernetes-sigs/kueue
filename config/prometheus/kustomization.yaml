@@ -6,11 +6,11 @@ namePrefix: kueue-
 resources:
 - ../components/prometheus
 
-commonLabels:
-  control-plane: controller-manager
-
 labels:
   - pairs:    
       app.kubernetes.io/name: kueue
       app.kubernetes.io/component: controller
     includeTemplates: true
+  - pairs:
+      control-plane: controller-manager
+    includeSelectors: true

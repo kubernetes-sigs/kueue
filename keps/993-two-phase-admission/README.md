@@ -17,6 +17,7 @@
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [Deprecation](#deprecation)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -154,12 +155,6 @@ type AdmissionCheckSpec struct {
 	// not a K8S pod or deployment name. Cannot be empty. 
 	ControllerName string `json:"controllerName"`
 
-	// How long to keep the workload suspended 
-	// after a failed check (after it transitioned to False).
-	// After that the check state goes to "Unknown".
-	// The default is 15 min. 
-	RetryDelayMinutes *int64 `json:"retryDelayMinutes,omitempty"`
-
 	// A reference to the additional parameters for the check. 
 	Parameters *AdmissionCheckParametersReference `json:"parameters,omitempty"`
 
@@ -276,6 +271,16 @@ The tests should cover:
 * Transition from `Prechecked` to `Admitted` with 0 AdmissionChecks.
 
 ### Graduation Criteria
+
+#### Deprecation
+
+We deprecate the RetryDelayMinutes, and going to remove it in feature versions of the API.
+
+First iteration (0.8):
+  - deprecate the RetryDelayMinutes field on API.
+
+Second iteration (v1beta2):
+  - remove the RetryDelayMinutes field from AdmissionCheckSpec object on bumping the API version.
 
 ## Implementation History
 

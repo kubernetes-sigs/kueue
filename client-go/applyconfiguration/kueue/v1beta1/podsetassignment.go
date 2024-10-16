@@ -22,7 +22,7 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// PodSetAssignmentApplyConfiguration represents an declarative configuration of the PodSetAssignment type for use
+// PodSetAssignmentApplyConfiguration represents a declarative configuration of the PodSetAssignment type for use
 // with apply.
 type PodSetAssignmentApplyConfiguration struct {
 	Name          *string                                             `json:"name,omitempty"`
@@ -31,7 +31,7 @@ type PodSetAssignmentApplyConfiguration struct {
 	Count         *int32                                              `json:"count,omitempty"`
 }
 
-// PodSetAssignmentApplyConfiguration constructs an declarative configuration of the PodSetAssignment type for use with
+// PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with
 // apply.
 func PodSetAssignment() *PodSetAssignmentApplyConfiguration {
 	return &PodSetAssignmentApplyConfiguration{}

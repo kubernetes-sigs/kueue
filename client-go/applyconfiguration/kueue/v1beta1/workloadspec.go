@@ -17,7 +17,7 @@ limitations under the License.
 
 package v1beta1
 
-// WorkloadSpecApplyConfiguration represents an declarative configuration of the WorkloadSpec type for use
+// WorkloadSpecApplyConfiguration represents a declarative configuration of the WorkloadSpec type for use
 // with apply.
 type WorkloadSpecApplyConfiguration struct {
 	PodSets             []PodSetApplyConfiguration `json:"podSets,omitempty"`
@@ -28,7 +28,7 @@ type WorkloadSpecApplyConfiguration struct {
 	Active              *bool                      `json:"active,omitempty"`
 }
 
-// WorkloadSpecApplyConfiguration constructs an declarative configuration of the WorkloadSpec type for use with
+// WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
 // apply.
 func WorkloadSpec() *WorkloadSpecApplyConfiguration {
 	return &WorkloadSpecApplyConfiguration{}

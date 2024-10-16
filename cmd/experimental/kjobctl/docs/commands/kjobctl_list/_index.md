@@ -1,6 +1,6 @@
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->
 
 # kjobctl list
@@ -15,7 +15,7 @@ Display resources
 ## Examples
 
 ```
-  # List Job 
+  # List Job
   kjobctl list job
 ```
 
@@ -224,4 +224,5 @@ Display resources
 * [kjobctl list job](kjobctl_list_job.md)	 - List Job
 * [kjobctl list raycluster](kjobctl_list_raycluster.md)	 - List RayCluster
 * [kjobctl list rayjob](kjobctl_list_rayjob.md)	 - List RayJob
+* [kjobctl list slurm](kjobctl_list_slurm.md)	 - List Slurm
 

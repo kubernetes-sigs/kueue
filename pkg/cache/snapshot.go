@@ -24,12 +24,13 @@ import (
 	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Snapshot struct {
-	ClusterQueues            map[string]*ClusterQueueSnapshot
+	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[string]
 }
@@ -51,12 +52,10 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
-	cohorts := make(map[string]*CohortSnapshot)
 	for name, cq := range s.ClusterQueues {
 		cohortName := "<none>"
-		if cq.Cohort != nil {
-			cohortName = cq.Cohort.Name
-			cohorts[cohortName] = cq.Cohort
+		if cq.HasParent() {
+			cohortName = cq.Parent().Name
 		}
 
 		log.Info("Found ClusterQueue",
@@ -67,7 +66,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 			"workloads", utilmaps.Keys(cq.Workloads),
 		)
 	}
-	for name, cohort := range cohorts {
+	for name, cohort := range s.Cohorts {
 		log.Info("Found cohort",
 			"cohort", name,
 			"resources", cohort.ResourceNode.SubtreeQuota,
@@ -81,30 +80,40 @@ func (c *Cache) Snapshot() Snapshot {
 	defer c.RUnlock()
 
 	snap := Snapshot{
-		ClusterQueues:            make(map[string]*ClusterQueueSnapshot, len(c.hm.ClusterQueues)),
+		Manager:                  hierarchy.NewManager(newCohortSnapshot),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[string](),
 	}
+	for _, cohort := range c.hm.Cohorts {
+		if c.hm.CycleChecker.HasCycle(cohort) {
+			continue
+		}
+		snap.AddCohort(cohort.Name)
+		snap.Cohorts[cohort.Name].ResourceNode = cohort.resourceNode.Clone()
+		if cohort.HasParent() {
+			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
+		}
+	}
 	for _, cq := range c.hm.ClusterQueues {
-		if !cq.Active() {
+		if !cq.Active() || (cq.HasParent() && c.hm.CycleChecker.HasCycle(cq.Parent())) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
-		snap.ClusterQueues[cq.Name] = cq.snapshot()
+		snap.AddClusterQueue(snapshotClusterQueue(cq))
+		if cq.HasParent() {
+			snap.UpdateClusterQueueEdge(cq.Name, cq.Parent().Name)
+		}
 	}
 	for name, rf := range c.resourceFlavors {
 		// Shallow copy is enough
 		snap.ResourceFlavors[name] = rf
 	}
-	for _, cohort := range c.hm.Cohorts {
-		cohort.snapshotInto(snap.ClusterQueues)
-	}
 	return snap
 }
 
-// snapshot creates a copy of ClusterQueue that includes references to immutable
-// objects and deep copies of changing ones. A reference to the cohort is not included.
-func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
+// snapshotClusterQueue creates a copy of ClusterQueue that includes
+// references to immutable objects and deep copies of changing ones.
+func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 	cc := &ClusterQueueSnapshot{
 		Name:                          c.Name,
 		ResourceGroups:                make([]ResourceGroup, len(c.ResourceGroups)),
@@ -124,19 +133,9 @@ func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
 	return cc
 }
 
-func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
-	cohortSnap := &CohortSnapshot{
-		Name:         c.Name,
-		Members:      make(sets.Set[*ClusterQueueSnapshot], len(c.ChildCQs())),
-		ResourceNode: c.resourceNode.Clone(),
-	}
-	cohortSnap.AllocatableResourceGeneration = 0
-	for _, cq := range c.ChildCQs() {
-		if cq.Active() {
-			cqSnap := cqs[cq.Name]
-			cqSnap.Cohort = cohortSnap
-			cohortSnap.Members.Insert(cqSnap)
-			cohortSnap.AllocatableResourceGeneration += cqSnap.AllocatableResourceGeneration
-		}
+func newCohortSnapshot(name string) *CohortSnapshot {
+	return &CohortSnapshot{
+		Name:   name,
+		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot, *CohortSnapshot](),
 	}
 }

@@ -1,6 +1,6 @@
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->
 
 # kjobctl delete
@@ -15,16 +15,16 @@ Delete resources
 ## Examples
 
 ```
-  # Delete interactive shell 
+  # Delete interactive shell
   kjobctl delete interactive my-application-profile-interactive-k2wzd
-
-  # Delete Job 
+  
+  # Delete Job
   kjobctl delete job my-application-profile-job-k2wzd
-
-  # Delete RayJob 
+  
+  # Delete RayJob
   kjobctl delete rayjob my-application-profile-rayjob-k2wzd
-
-  # Delete RayCluster 
+  
+  # Delete RayCluster
   kjobctl delete raycluster my-application-profile-raycluster-k2wzd
 ```
 
@@ -233,4 +233,5 @@ Delete resources
 * [kjobctl delete job](kjobctl_delete_job.md)	 - Delete Job
 * [kjobctl delete raycluster](kjobctl_delete_raycluster.md)	 - Delete RayCluster
 * [kjobctl delete rayjob](kjobctl_delete_rayjob.md)	 - Delete RayJob
+* [kjobctl delete slurm](kjobctl_delete_slurm.md)	 - Delete Slurm
 

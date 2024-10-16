@@ -21,7 +21,7 @@ Note that the minimum requirement training-operator version is v1.7.0.
 You can [modify kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include PaddleJobs as an allowed workload.
 
 {{% alert title="Note" color="primary" %}}
-In order to use Training Operator you need to restart Kueue after the installation.
+In order to use Training Operator, prior to v0.8.1, you need to restart Kueue after the installation.
 You can do it by running: `kubectl delete pods -lcontrol-plane=controller-manager -nkueue-system`.
 {{% /alert %}}
 

@@ -17,14 +17,14 @@ limitations under the License.
 
 package v1beta1
 
-// ClusterQueuePendingWorkloadApplyConfiguration represents an declarative configuration of the ClusterQueuePendingWorkload type for use
+// ClusterQueuePendingWorkloadApplyConfiguration represents a declarative configuration of the ClusterQueuePendingWorkload type for use
 // with apply.
 type ClusterQueuePendingWorkloadApplyConfiguration struct {
 	Name      *string `json:"name,omitempty"`
 	Namespace *string `json:"namespace,omitempty"`
 }
 
-// ClusterQueuePendingWorkloadApplyConfiguration constructs an declarative configuration of the ClusterQueuePendingWorkload type for use with
+// ClusterQueuePendingWorkloadApplyConfiguration constructs a declarative configuration of the ClusterQueuePendingWorkload type for use with
 // apply.
 func ClusterQueuePendingWorkload() *ClusterQueuePendingWorkloadApplyConfiguration {
 	return &ClusterQueuePendingWorkloadApplyConfiguration{}

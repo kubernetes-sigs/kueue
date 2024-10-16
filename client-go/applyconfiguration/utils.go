@@ -18,34 +18,23 @@ limitations under the License.
 package applyconfiguration
 
 import (
+	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
-	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	testing "k8s.io/client-go/testing"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	visibilityv1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
-	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1alpha1"
+	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
+	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
-	applyconfigurationvisibilityv1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1alpha1"
+	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1alpha1"
+	applyconfigurationvisibilityv1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1beta1"
 )
 
 // ForKind returns an apply configuration type for the given GroupVersionKind, or nil if no
 // apply configuration type exists for the given GroupVersionKind.
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
-	// Group=kueue.x-k8s.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithKind("KubeConfig"):
-		return &kueuev1alpha1.KubeConfigApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueCluster"):
-		return &kueuev1alpha1.MultiKueueClusterApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueClusterSpec"):
-		return &kueuev1alpha1.MultiKueueClusterSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueClusterStatus"):
-		return &kueuev1alpha1.MultiKueueClusterStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueConfig"):
-		return &kueuev1alpha1.MultiKueueConfigApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueConfigSpec"):
-		return &kueuev1alpha1.MultiKueueConfigSpecApplyConfiguration{}
-
-		// Group=kueue.x-k8s.io, Version=v1beta1
+	// Group=kueue.x-k8s.io, Version=v1beta1
 	case v1beta1.SchemeGroupVersion.WithKind("Admission"):
 		return &kueuev1beta1.AdmissionApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheck"):
@@ -86,6 +75,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.FlavorQuotasApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorUsage"):
 		return &kueuev1beta1.FlavorUsageApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("KubeConfig"):
+		return &kueuev1beta1.KubeConfigApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueue"):
 		return &kueuev1beta1.LocalQueueApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueFlavorUsage"):
@@ -96,6 +87,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.LocalQueueSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueStatus"):
 		return &kueuev1beta1.LocalQueueStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueCluster"):
+		return &kueuev1beta1.MultiKueueClusterApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueClusterSpec"):
+		return &kueuev1beta1.MultiKueueClusterSpecApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueClusterStatus"):
+		return &kueuev1beta1.MultiKueueClusterStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueConfig"):
+		return &kueuev1beta1.MultiKueueConfigApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueConfigSpec"):
+		return &kueuev1beta1.MultiKueueConfigSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("PodSet"):
 		return &kueuev1beta1.PodSetApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("PodSetAssignment"):
@@ -130,15 +131,29 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.WorkloadStatusApplyConfiguration{}
 
 		// Group=visibility.kueue.x-k8s.io, Version=v1alpha1
-	case visibilityv1alpha1.SchemeGroupVersion.WithKind("ClusterQueue"):
-		return &applyconfigurationvisibilityv1alpha1.ClusterQueueApplyConfiguration{}
-	case visibilityv1alpha1.SchemeGroupVersion.WithKind("LocalQueue"):
-		return &applyconfigurationvisibilityv1alpha1.LocalQueueApplyConfiguration{}
-	case visibilityv1alpha1.SchemeGroupVersion.WithKind("PendingWorkload"):
-		return &applyconfigurationvisibilityv1alpha1.PendingWorkloadApplyConfiguration{}
-	case visibilityv1alpha1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
-		return &applyconfigurationvisibilityv1alpha1.PendingWorkloadsSummaryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ClusterQueue"):
+		return &visibilityv1alpha1.ClusterQueueApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LocalQueue"):
+		return &visibilityv1alpha1.LocalQueueApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PendingWorkload"):
+		return &visibilityv1alpha1.PendingWorkloadApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
+		return &visibilityv1alpha1.PendingWorkloadsSummaryApplyConfiguration{}
+
+		// Group=visibility.kueue.x-k8s.io, Version=v1beta1
+	case visibilityv1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
+		return &applyconfigurationvisibilityv1beta1.ClusterQueueApplyConfiguration{}
+	case visibilityv1beta1.SchemeGroupVersion.WithKind("LocalQueue"):
+		return &applyconfigurationvisibilityv1beta1.LocalQueueApplyConfiguration{}
+	case visibilityv1beta1.SchemeGroupVersion.WithKind("PendingWorkload"):
+		return &applyconfigurationvisibilityv1beta1.PendingWorkloadApplyConfiguration{}
+	case visibilityv1beta1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
+		return &applyconfigurationvisibilityv1beta1.PendingWorkloadsSummaryApplyConfiguration{}
 
 	}
 	return nil
+}
+
+func NewTypeConverter(scheme *runtime.Scheme) *testing.TypeConverter {
+	return &testing.TypeConverter{Scheme: scheme, TypeResolver: internal.Parser()}
 }

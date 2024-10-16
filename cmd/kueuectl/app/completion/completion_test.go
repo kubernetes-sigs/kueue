@@ -67,26 +67,24 @@ func TestWorkloadNameCompletionFunc(t *testing.T) {
 			wantNames:     []string{"wl2"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
-		"shouldn't return workload names because only one argument can be passed": {
+		"should filter workload names": {
 			objs: []runtime.Object{
 				utiltesting.MakeWorkload("wl1", metav1.NamespaceDefault).Active(true).Obj(),
 				utiltesting.MakeWorkload("wl2", metav1.NamespaceDefault).Active(false).Obj(),
 			},
 			args:          []string{"wl2"},
+			wantNames:     []string{"wl1"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			tf := cmdtesting.NewTestClientGetter()
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
 			if len(tc.ns) > 0 {
-				tf.WithNamespace(tc.ns)
+				tcg.WithNamespace(tc.ns)
 			}
 
-			clientset := fake.NewSimpleClientset(tc.objs...)
-			tf.KueueClientset = clientset
-
-			complFn := WorkloadNameFunc(tf, tc.status)
+			complFn := WorkloadNameFunc(tcg, tc.status)
 			names, directive := complFn(&cobra.Command{}, tc.args, tc.toComplete)
 			if diff := cmp.Diff(tc.wantNames, names); diff != "" {
 				t.Errorf("Unexpected names (-want/+got)\n%s", diff)
@@ -150,15 +148,12 @@ func TestClusterQueueNameCompletionFunc(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			tf := cmdtesting.NewTestClientGetter()
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
 			if len(tc.ns) > 0 {
-				tf.WithNamespace(tc.ns)
+				tcg.WithNamespace(tc.ns)
 			}
 
-			clientset := fake.NewSimpleClientset(tc.objs...)
-			tf.KueueClientset = clientset
-
-			complFn := ClusterQueueNameFunc(tf, tc.status)
+			complFn := ClusterQueueNameFunc(tcg, tc.status)
 			names, directive := complFn(&cobra.Command{}, tc.args, tc.toComplete)
 			if diff := cmp.Diff(tc.wantNames, names); diff != "" {
 				t.Errorf("Unexpected names (-want/+got)\n%s", diff)
@@ -221,15 +216,12 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			tf := cmdtesting.NewTestClientGetter()
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
 			if len(tc.ns) > 0 {
-				tf.WithNamespace(tc.ns)
+				tcg.WithNamespace(tc.ns)
 			}
 
-			clientset := fake.NewSimpleClientset(tc.objs...)
-			tf.KueueClientset = clientset
-
-			complFn := LocalQueueNameFunc(tf, tc.status)
+			complFn := LocalQueueNameFunc(tcg, tc.status)
 			names, directive := complFn(&cobra.Command{}, tc.args, tc.toComplete)
 			if diff := cmp.Diff(tc.wantNames, names); diff != "" {
 				t.Errorf("Unexpected names (-want/+got)\n%s", diff)

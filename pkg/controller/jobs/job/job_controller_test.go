@@ -33,10 +33,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -416,6 +418,8 @@ func TestReconciler(t *testing.T) {
 		PriorityValue(200)
 
 	cases := map[string]struct {
+		enableTopologyAwareScheduling bool
+
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
 		workloads         []kueue.Workload
@@ -426,6 +430,36 @@ func TestReconciler(t *testing.T) {
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
+		"PodSet label and Workload annotation are set when Job is starting; TopologyAwareScheduling enabled": {
+			enableTopologyAwareScheduling: true,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				PodLabel(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+				PodAnnotation(kueuealpha.WorkloadAnnotation, "wl").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Admitted(true).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
+		},
 		"when workload is created, it has its owner ProvReq annotations": {
 			job: *baseJobWrapper.Clone().
 				SetAnnotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
@@ -2713,6 +2747,7 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {

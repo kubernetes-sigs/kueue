@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,10 +37,15 @@ import (
 )
 
 var (
-	gvk = kubeflow.SchemeGroupVersionKind
+	gvk = kfmpi.SchemeGroupVersionKind
 
 	FrameworkName = "kubeflow.org/mpijob"
+
+	SetupMPIJobWebhook = jobframework.BaseWebhookFactory(NewJob(), fromObject)
 )
+
+// +kubebuilder:webhook:path=/mutate-kubeflow-org-v2beta1-mpijob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create,versions=v2beta1,name=mmpijob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kubeflow-org-v2beta1-mpijob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create;update,versions=v2beta1,name=vmpijob.kb.io,admissionReviewVersions=v1
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
@@ -48,16 +53,17 @@ func init() {
 		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupMPIJobWebhook,
-		JobType:                &kubeflow.MPIJob{},
-		AddToScheme:            kubeflow.AddToScheme,
+		JobType:                &kfmpi.MPIJob{},
+		AddToScheme:            kfmpi.AddToScheme,
 		IsManagingObjectsOwner: isMPIJob,
+		MultiKueueAdapter:      &multikueueAdapter{},
 	}))
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -72,20 +78,20 @@ func NewJob() jobframework.GenericJob {
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
 func isMPIJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org/v2")
+	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, kfmpi.SchemeGroupVersion.Group)
 }
 
-type MPIJob kubeflow.MPIJob
+type MPIJob kfmpi.MPIJob
 
 var _ jobframework.GenericJob = (*MPIJob)(nil)
 var _ jobframework.JobWithPriorityClass = (*MPIJob)(nil)
 
 func (j *MPIJob) Object() client.Object {
-	return (*kubeflow.MPIJob)(j)
+	return (*kfmpi.MPIJob)(j)
 }
 
-func fromObject(o runtime.Object) *MPIJob {
-	return (*MPIJob)(o.(*kubeflow.MPIJob))
+func fromObject(o runtime.Object) jobframework.GenericJob {
+	return (*MPIJob)(o.(*kfmpi.MPIJob))
 }
 
 func (j *MPIJob) IsSuspended() bool {
@@ -110,7 +116,7 @@ func (j *MPIJob) GVK() schema.GroupVersionKind {
 }
 
 func (j *MPIJob) PodLabelSelector() string {
-	return fmt.Sprintf("%s=%s,%s=%s", kubeflow.JobNameLabel, j.Name, kubeflow.OperatorNameLabel, kubeflow.OperatorName)
+	return fmt.Sprintf("%s=%s,%s=%s", kfmpi.JobNameLabel, j.Name, kfmpi.OperatorNameLabel, kfmpi.OperatorName)
 }
 
 func (j *MPIJob) PodSets() []kueue.PodSet {
@@ -160,8 +166,8 @@ func (j *MPIJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 
 func (j *MPIJob) Finished() (message string, success, finished bool) {
 	for _, c := range j.Status.Conditions {
-		if (c.Type == kubeflow.JobSucceeded || c.Type == kubeflow.JobFailed) && c.Status == corev1.ConditionTrue {
-			return c.Message, c.Type != kubeflow.JobFailed, true
+		if (c.Type == kfmpi.JobSucceeded || c.Type == kfmpi.JobFailed) && c.Status == corev1.ConditionTrue {
+			return c.Message, c.Type != kfmpi.JobFailed, true
 		}
 	}
 
@@ -178,9 +184,9 @@ func (j *MPIJob) Finished() (message string, success, finished bool) {
 func (j *MPIJob) PriorityClass() string {
 	if j.Spec.RunPolicy.SchedulingPolicy != nil && len(j.Spec.RunPolicy.SchedulingPolicy.PriorityClass) != 0 {
 		return j.Spec.RunPolicy.SchedulingPolicy.PriorityClass
-	} else if l := j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher]; l != nil && len(l.Template.Spec.PriorityClassName) != 0 {
+	} else if l := j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher]; l != nil && len(l.Template.Spec.PriorityClassName) != 0 {
 		return l.Template.Spec.PriorityClassName
-	} else if w := j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker]; w != nil && len(w.Template.Spec.PriorityClassName) != 0 {
+	} else if w := j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker]; w != nil && len(w.Template.Spec.PriorityClassName) != 0 {
 		return w.Template.Spec.PriorityClassName
 	}
 	return ""
@@ -188,7 +194,7 @@ func (j *MPIJob) PriorityClass() string {
 
 func (j *MPIJob) PodsReady() bool {
 	for _, c := range j.Status.Conditions {
-		if c.Type == kubeflow.JobRunning && c.Status == corev1.ConditionTrue {
+		if c.Type == kfmpi.JobRunning && c.Status == corev1.ConditionTrue {
 			return true
 		}
 	}
@@ -199,18 +205,18 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
-func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType {
-	var result []kubeflow.MPIReplicaType
-	if _, ok := jobSpec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher]; ok {
-		result = append(result, kubeflow.MPIReplicaTypeLauncher)
+func orderedReplicaTypes(jobSpec *kfmpi.MPIJobSpec) []kfmpi.MPIReplicaType {
+	var result []kfmpi.MPIReplicaType
+	if _, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher]; ok {
+		result = append(result, kfmpi.MPIReplicaTypeLauncher)
 	}
-	if _, ok := jobSpec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker]; ok {
-		result = append(result, kubeflow.MPIReplicaTypeWorker)
+	if _, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker]; ok {
+		result = append(result, kfmpi.MPIReplicaTypeWorker)
 	}
 	return result
 }
 
-func podsCount(jobSpec *kubeflow.MPIJobSpec, mpiReplicaType kubeflow.MPIReplicaType) int32 {
+func podsCount(jobSpec *kfmpi.MPIJobSpec, mpiReplicaType kfmpi.MPIReplicaType) int32 {
 	return ptr.Deref(jobSpec.MPIReplicaSpecs[mpiReplicaType].Replicas, 1)
 }
 

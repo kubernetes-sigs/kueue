@@ -1,0 +1,64 @@
+---
+apiVersion: kjobctl.x-k8s.io/v1alpha1
+kind: ApplicationProfile
+metadata:
+  name: slurm-profile
+  namespace: default
+spec:
+  supportedModes:
+    - name: Slurm
+      template: slurm-template
+  volumeBundles: ["slurm-volume-bundle"]
+---
+apiVersion: kjobctl.x-k8s.io/v1alpha1
+kind: JobTemplate
+metadata:
+  name: slurm-template
+  namespace: default
+template:
+  spec:
+    parallelism: 3
+    completions: 3
+    completionMode: Indexed
+    template:
+      spec:
+        containers:
+          - name: sample-container
+            image: python:3-slim
+        restartPolicy: OnFailure
+---
+apiVersion: kjobctl.x-k8s.io/v1alpha1
+kind: VolumeBundle
+metadata:
+  name: slurm-volume-bundle
+  namespace: default
+spec:
+  volumes:
+    - name: slurm-code-sample
+      configMap:
+        name: slurm-code-sample
+        items:
+          - key: sample_code.py
+            path: sample_code.py
+  containerVolumeMounts:
+    - name: slurm-code-sample
+      mountPath: /home/slurm/samples
+  envVars:
+    - name: ENTRYPOINT_PATH
+      value: /home/slurm/samples
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slurm-code-sample
+  namespace: default
+data:
+  sample_code.py: |
+    import time
+
+    print('start at ' + time.strftime('%H:%M:%S'))
+
+    print('sleep for 10 seconds ...')
+    time.sleep(10)
+
+    print('stop at ' + time.strftime('%H:%M:%S'))

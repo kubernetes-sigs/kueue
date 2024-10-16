@@ -1,0 +1,19 @@
+# This overlay builds the APF components for Kubernetes version 1.28 to be used in combination
+# with other overlays.
+
+resources:
+- ../default/
+
+patches:
+  - target:
+      kind: FlowSchema
+    patch: |
+      - op: replace
+        path: /apiVersion
+        value: flowcontrol.apiserver.k8s.io/v1beta3
+  - target:
+      kind: PriorityLevelConfiguration
+    patch: |
+      - op: replace
+        path: /apiVersion
+        value: flowcontrol.apiserver.k8s.io/v1beta3

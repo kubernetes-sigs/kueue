@@ -23,11 +23,13 @@ SRC_CRD_DIR=config/components/crd/bases
 SRC_RBAC_DIR=config/components/rbac
 SRC_WEBHOOK_DIR=config/components/webhook
 SRC_VISIBILITY_DIR=config/components/visibility
+SRC_VISIBILITY_APF_DIR=config/components/visibility-apf
 
 DEST_CRD_DIR=charts/kueue/templates/crd
 DEST_RBAC_DIR=charts/kueue/templates/rbac
 DEST_WEBHOOK_DIR=charts/kueue/templates/webhook
 DEST_VISIBILITY_DIR=charts/kueue/templates/visibility
+DEST_VISIBILITY_APF_DIR=charts/kueue/templates/visibility-apf
 
 YQ=./bin/yq
 SED=${SED:-/usr/bin/sed}
@@ -48,6 +50,8 @@ find $SRC_RBAC_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_RBAC_D
 find $SRC_WEBHOOK_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_WEBHOOK_DIR \;
 # shellcheck disable=SC2086
 find $SRC_VISIBILITY_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_VISIBILITY_DIR \;
+# shellcheck disable=SC2086
+find $SRC_VISIBILITY_APF_DIR -name "*.yaml" $EXCLUDE_FILES_ARGS -exec cp "{}" $DEST_VISIBILITY_APF_DIR \;
 $YQ -N -s '.kind' ${DEST_WEBHOOK_DIR}/manifests.yaml
 rm ${DEST_WEBHOOK_DIR}/manifests.yaml
 files=("MutatingWebhookConfiguration.yml" "ValidatingWebhookConfiguration.yml")
@@ -97,6 +101,8 @@ EOF
 
 search_webhook_pod_mutate="        path: /mutate--v1-pod"
 search_webhook_pod_validate="        path: /validate--v1-pod"
+search_webhook_deployment_mutate="        path: /mutate-apps-v1-deployment"
+search_webhook_deployment_validate="        path: /validate-apps-v1-deployment"
 search_mutate_webhook_annotations='  name: '\''{{ include "kueue.fullname" . }}-mutating-webhook-configuration'\'''
 search_validate_webhook_annotations='  name: '\''{{ include "kueue.fullname" . }}-validating-webhook-configuration'\'''
 add_webhook_line=$(
@@ -153,6 +159,41 @@ add_webhook_pod_validate=$(
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+EOF
+)
+
+add_webhook_deployment_mutate=$(
+  cat <<'EOF'
+    {{- if has "deployment" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
+    name: mdeployment.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+EOF
+)
+add_webhook_deployment_validate=$(
+  cat <<'EOF'
+    {{- if has "deployment" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
+    name: vdeployment.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
 EOF
 )
 
@@ -257,6 +298,14 @@ for output_file in "${new_files[@]}"; do
       count=$((count+2))
       echo "$add_webhook_pod_validate" >>"$output_file"
     fi
+    if [[ $line == "$search_webhook_deployment_mutate" ]]; then
+      count=$((count+2))
+      echo "$add_webhook_deployment_mutate" >>"$output_file"
+    fi
+    if [[ $line == "$search_webhook_deployment_validate" ]]; then
+      count=$((count+2))
+      echo "$add_webhook_deployment_validate" >>"$output_file"
+    fi
   done < "$input_file"
   rm "$input_file"
 done
@@ -270,9 +319,9 @@ rm ${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml ${DEST_WEBHOOK_DIR}/Vali
 
 # Add visibility files, replace names, namespaces in helm format
 for output_file in "${DEST_VISIBILITY_DIR}"/*.yaml; do
-  # The name of the v1alpha1.visibility.kueue.x-k8s.io APIService needs to remain unchanged.
+  # The name of the v1alpha1.visibility.kueue.x-k8s.io and v1beta1.visibility.kueue.x-k8s.io APIService needs to remain unchanged.
   if [ "$(< "$output_file" $YQ '.metadata | has("name")')" = "true" ] &&
-    [ "$(< "$output_file" $YQ '.metadata.name | (. == "v1alpha1*")')" = "false" ]; then
+    [ "$(< "$output_file" $YQ '.metadata.name | (. == "v1alpha1*" or . == "v1beta1*")')" = "false" ]; then
     $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   fi
   # The namespace of the visibility-server-auth-reader rolebinding needs to remain unchanged.
@@ -295,13 +344,20 @@ for output_file in "${DEST_VISIBILITY_DIR}"/*.yaml; do
   selector:
   {{- include "kueue.selectorLabels" . | nindent 4 }}
 EOT
-    fi
-    $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
+  fi
+  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
+done
 
+# Replace flowcontrol version on visibility-apf directory
+for output_file in "${DEST_VISIBILITY_APF_DIR}"/*.yaml; do
+  $YQ -N -i '.apiVersion = "flowcontrol.apiserver.k8s.io/{{ and (eq .Capabilities.KubeVersion.Major \"1\") (eq .Capabilities.KubeVersion.Minor \"28\") | ternary \"v1beta3\" \"v1\" }}"' "$output_file"
+  $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
+  $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' "$output_file"
+  $SED -i '/^metadata:.*/a\  labels:\n  {{- include "kueue.labels" . | nindent 4 }}' "$output_file"
   {
-  echo '{{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}'
-  cat "$output_file"
-  echo "{{- end }}"
+    echo '{{- if .Values.enableVisibilityAPF }}'
+    cat "$output_file"
+    echo "{{- end }}"
   } > "${output_file}.tmp"
   mv "${output_file}.tmp" "${output_file}"
 done

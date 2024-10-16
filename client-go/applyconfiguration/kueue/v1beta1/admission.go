@@ -21,14 +21,14 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// AdmissionApplyConfiguration represents an declarative configuration of the Admission type for use
+// AdmissionApplyConfiguration represents a declarative configuration of the Admission type for use
 // with apply.
 type AdmissionApplyConfiguration struct {
 	ClusterQueue      *v1beta1.ClusterQueueReference       `json:"clusterQueue,omitempty"`
 	PodSetAssignments []PodSetAssignmentApplyConfiguration `json:"podSetAssignments,omitempty"`
 }
 
-// AdmissionApplyConfiguration constructs an declarative configuration of the Admission type for use with
+// AdmissionApplyConfiguration constructs a declarative configuration of the Admission type for use with
 // apply.
 func Admission() *AdmissionApplyConfiguration {
 	return &AdmissionApplyConfiguration{}

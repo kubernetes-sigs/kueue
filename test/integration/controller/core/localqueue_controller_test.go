@@ -49,12 +49,11 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
+
 	ginkgo.AfterAll(func() {
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -166,7 +165,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 	})
 
-	ginkgo.It("Should update status when workloads are created", func() {
+	ginkgo.It("Should update status when workloads are created", framework.SlowSpec, func() {
 		ginkgo.By("Creating resourceFlavors")
 		for _, rf := range resourceFlavors {
 			gomega.Expect(k8sClient.Create(ctx, &rf)).To(gomega.Succeed())

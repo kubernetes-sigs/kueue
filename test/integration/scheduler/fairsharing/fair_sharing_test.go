@@ -18,7 +18,6 @@ package fairsharing
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -32,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqShared, true)
 		})
 
-		ginkgo.It("Admits workloads respecting fair share", func() {
+		ginkgo.It("Admits workloads respecting fair share", framework.SlowSpec, func() {
 			ginkgo.By("Saturating cq-a")
 
 			aWorkloads := make([]*kueue.Workload, 10)
@@ -115,8 +115,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueWeightedShareMetric(cqShared, 0)
 
 			ginkgo.By("Creating newer workloads in cq-b")
-			// Ensure workloads in cqB have a newer timestamp.
-			time.Sleep(time.Second)
+			util.WaitForNextSecondAfterCreation(aWorkloads[len(aWorkloads)-1])
 			bWorkloads := make([]*kueue.Workload, 5)
 			for i := range bWorkloads {
 				bWorkloads[i] = testing.MakeWorkload(fmt.Sprintf("b-%d", i), ns.Name).
@@ -236,7 +235,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, cqC)).To(gomega.Succeed())
 		})
 
-		ginkgo.It("Admits workloads respecting fair share", func() {
+		ginkgo.It("Admits workloads respecting fair share", framework.SlowSpec, func() {
 			ginkgo.By("Saturating cq-a")
 
 			aWorkloads := make([]*kueue.Workload, 10)

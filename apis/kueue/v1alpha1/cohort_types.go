@@ -62,12 +62,6 @@ type CohortSpec struct {
 	ResourceGroups []kueuebeta.ResourceGroup `json:"resourceGroups,omitempty"`
 }
 
-const (
-	// Condition indicating that a Cohort is correctly configured,
-	// for example, there is no cycle.
-	CohortActive = "Active"
-)
-
 // CohortStatus defines the observed state of Cohort
 type CohortStatus struct {
 
@@ -82,7 +76,9 @@ type CohortStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster
 
-// Cohort is the Schema for the cohorts API
+// Cohort is the Schema for the cohorts API. Using Hierarchical
+// Cohorts (any Cohort which has a parent) with Fair Sharing
+// results in undefined behavior in 0.9
 type Cohort struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

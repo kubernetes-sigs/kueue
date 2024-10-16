@@ -192,6 +192,78 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"admitted with reclaim and increased reclaim": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				ReserveQuota(
+					utiltesting.MakeAdmission("").
+						Assignment(corev1.ResourceCPU, "f1", "30m").
+						Assignment(corev1.ResourceMemory, "f1", "30Ki").
+						AssignmentPodCount(3).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  "main",
+						Count: 3,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    2 * 10,
+							corev1.ResourceMemory: 2 * 10 * 1024,
+						},
+						Count: 2,
+					},
+				},
+			},
+		},
+		"partially admitted": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				ReserveQuota(
+					utiltesting.MakeAdmission("").
+						Assignment(corev1.ResourceCPU, "f1", "30m").
+						Assignment(corev1.ResourceMemory, "f1", "30Ki").
+						AssignmentPodCount(3).
+						Obj(),
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    3 * 10,
+							corev1.ResourceMemory: 3 * 10 * 1024,
+						},
+						Count: 3,
+					},
+				},
+			},
+		},
 		"filterResources": {
 			workload: *utiltesting.MakeWorkload("", "").
 				Request(corev1.ResourceCPU, "10m").

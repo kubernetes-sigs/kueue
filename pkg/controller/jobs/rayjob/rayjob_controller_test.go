@@ -268,3 +268,78 @@ func TestNodeSelectors(t *testing.T) {
 		})
 	}
 }
+
+func Test_RayJobFinished(t *testing.T) {
+	testcases := []struct {
+		name             string
+		status           rayv1.RayJobStatus
+		expectedSuccess  bool
+		expectedFinished bool
+	}{
+		{
+			name: "jobStatus=Running, jobDeploymentStatus=Running",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusRunning,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+			},
+			expectedSuccess:  false,
+			expectedFinished: false,
+		},
+		{
+			name: "jobStatus=Succeeded, jobDeploymentStatus=Complete",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusSucceeded,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+			},
+			expectedSuccess:  true,
+			expectedFinished: true,
+		},
+		{
+			name: "jobStatus=Failed, jobDeploymentStatus=Complete",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusFailed,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+			},
+			expectedSuccess:  false,
+			expectedFinished: true,
+		},
+		{
+			name: "jobStatus=Failed, jobDeploymentStatus=Failed",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusFailed,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
+			},
+			expectedSuccess:  false,
+			expectedFinished: true,
+		},
+		{
+			name: "jobStatus=Running, jobDeploymentStatus=Failed (when activeDeadlineSeconds is exceeded)",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusRunning,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
+			},
+			expectedSuccess:  false,
+			expectedFinished: true,
+		},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			rayJob := testingrayutil.MakeJob("job", "ns").Obj()
+			rayJob.Status = testcase.status
+
+			_, success, finished := ((*RayJob)(rayJob)).Finished()
+			if success != testcase.expectedSuccess {
+				t.Logf("actual success: %v", success)
+				t.Logf("expected success: %v", testcase.expectedSuccess)
+				t.Error("unexpected result for 'success'")
+			}
+
+			if finished != testcase.expectedFinished {
+				t.Logf("actual finished: %v", finished)
+				t.Logf("expected finished: %v", testcase.expectedFinished)
+				t.Error("unexpected result for 'finished'")
+			}
+		})
+	}
+}

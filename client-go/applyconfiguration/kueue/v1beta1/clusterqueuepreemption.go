@@ -21,7 +21,7 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// ClusterQueuePreemptionApplyConfiguration represents an declarative configuration of the ClusterQueuePreemption type for use
+// ClusterQueuePreemptionApplyConfiguration represents a declarative configuration of the ClusterQueuePreemption type for use
 // with apply.
 type ClusterQueuePreemptionApplyConfiguration struct {
 	ReclaimWithinCohort *v1beta1.PreemptionPolicy             `json:"reclaimWithinCohort,omitempty"`
@@ -29,7 +29,7 @@ type ClusterQueuePreemptionApplyConfiguration struct {
 	WithinClusterQueue  *v1beta1.PreemptionPolicy             `json:"withinClusterQueue,omitempty"`
 }
 
-// ClusterQueuePreemptionApplyConfiguration constructs an declarative configuration of the ClusterQueuePreemption type for use with
+// ClusterQueuePreemptionApplyConfiguration constructs a declarative configuration of the ClusterQueuePreemption type for use with
 // apply.
 func ClusterQueuePreemption() *ClusterQueuePreemptionApplyConfiguration {
 	return &ClusterQueuePreemptionApplyConfiguration{}

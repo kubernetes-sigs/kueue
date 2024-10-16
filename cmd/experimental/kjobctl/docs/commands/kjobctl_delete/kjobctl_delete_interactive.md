@@ -1,6 +1,6 @@
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->
 
 # kjobctl delete interactive
@@ -19,7 +19,7 @@ kjobctl delete interactive NAME [--cascade STRATEGY] [--dry-run STRATEGY]
 ## Examples
 
 ```
-  # Delete interactive shell 
+  # Delete interactive shell
   kjobctl delete interactive my-application-profile-interactive-k2wzd
 ```
 

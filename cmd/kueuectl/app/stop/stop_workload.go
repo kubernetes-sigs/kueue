@@ -19,6 +19,7 @@ package stop
 import (
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
@@ -26,12 +27,16 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	wlLong = `Puts the given Workload on hold. The Workload will not be admitted and 
+var (
+	wlLong = templates.LongDesc(`
+Puts the given Workload on hold. The Workload will not be admitted and
 if it is already admitted it will be put back to queue just as if it 
-was preempted (using .spec.active field).`
-	wlExample = `  # Stop the workload 
-  kueuectl stop workload my-workload`
+was preempted (using .spec.active field).
+`)
+	wlExample = templates.Examples(`
+		# Stop the workload 
+		kueuectl stop workload my-workload
+	`)
 )
 
 func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {

@@ -40,6 +40,7 @@ type ParsedSlurmFlags struct {
 	Array       string
 	CpusPerTask *resource.Quantity
 	GpusPerTask map[string]*resource.Quantity
+	MemPerNode  *resource.Quantity
 	MemPerTask  *resource.Quantity
 	MemPerCPU   *resource.Quantity
 	MemPerGPU   *resource.Quantity
@@ -96,6 +97,12 @@ func SlurmFlags(script string, ignoreUnknown bool) (ParsedSlurmFlags, error) {
 			flags.Input = val
 		case "J", string(v1alpha1.JobNameFlag):
 			flags.JobName = val
+		case string(v1alpha1.MemPerNodeFlag):
+			memPerNode, err := resource.ParseQuantity(val)
+			if err != nil {
+				return flags, fmt.Errorf("cannot parse '%s': %w", val, err)
+			}
+			flags.MemPerNode = ptr.To(memPerNode)
 		case string(v1alpha1.MemPerCPUFlag):
 			memPerCPU, err := resource.ParseQuantity(val)
 			if err != nil {

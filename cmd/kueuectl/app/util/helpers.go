@@ -16,23 +16,9 @@ limitations under the License.
 
 package util
 
-import (
-	"github.com/spf13/cobra"
-	"k8s.io/klog/v2"
-)
+import "github.com/spf13/cobra"
 
-func FlagString(cmd *cobra.Command, flag string) string {
-	s, err := cmd.Flags().GetString(flag)
-	if err != nil {
-		klog.Fatalf("error accessing flag %s for command %s: %v", flag, cmd.Name(), err)
-	}
-	return s
-}
-
-func FlagStringArray(cmd *cobra.Command, flag string) []string {
-	s, err := cmd.Flags().GetStringArray(flag)
-	if err != nil {
-		klog.Fatalf("error accessing flag %s for command %s: %v", flag, cmd.Name(), err)
-	}
-	return s
+func AddAllNamespacesFlagVar(cmd *cobra.Command, p *bool) {
+	cmd.Flags().BoolVarP(p, "all-namespaces", "A", false,
+		"If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.")
 }

@@ -29,8 +29,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
-
 	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
+
 	kjobctlversioned "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
 	kjobctlfake "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
@@ -135,12 +135,12 @@ func (cg *TestClientGetter) DynamicClient() (dynamic.Interface, error) {
 	return cg.dynamicClient, nil
 }
 
-func (f *TestClientGetter) NewResourceBuilder() *resource.Builder {
+func (cg *TestClientGetter) NewResourceBuilder() *resource.Builder {
 	return resource.NewFakeBuilder(
 		func(version schema.GroupVersion) (resource.RESTClient, error) {
-			return f.restClient, nil
+			return cg.restClient, nil
 		},
-		f.ToRESTMapper,
+		cg.ToRESTMapper,
 		func() (restmapper.CategoryExpander, error) {
 			return resource.FakeCategoryExpander, nil
 		},

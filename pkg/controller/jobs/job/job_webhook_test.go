@@ -32,7 +32,6 @@ import (
 	fakeclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -314,6 +313,7 @@ func TestValidateUpdate(t *testing.T) {
 				Parallelism(4).
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "3").
+				SetAnnotation(StoppingAnnotation, "true").
 				Obj(),
 			newJob: testingutil.MakeJob("job", "default").
 				Parallelism(5).
@@ -400,6 +400,36 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		{
+			name: "can update the kueue.x-k8s.io/job-min-parallelism  annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				Obj(),
+			wantErr: nil,
+		},
+		{
+			name: "validates kueue.x-k8s.io/job-min-parallelism annotation value (bad format)",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "NaN").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
+			},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -459,12 +489,12 @@ func TestDefault(t *testing.T) {
 					Obj(),
 			},
 			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
+				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
 			want: testingutil.MakeJob("job", "default").
 				Queue("local-queue").
-				ManagedBy(v1alpha1.MultiKueueControllerName).
+				ManagedBy(kueue.MultiKueueControllerName).
 				Obj(),
 			multiKueueEnabled:                      true,
 			multiKueueBatchJobWithManagedByEnabled: true,
@@ -486,7 +516,7 @@ func TestDefault(t *testing.T) {
 					Obj(),
 			},
 			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
+				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
 			want: testingutil.MakeJob("job", "default").
@@ -510,8 +540,8 @@ func TestDefault(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)()
-			defer features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, tc.multiKueueBatchJobWithManagedByEnabled)()
+			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
+			features.SetFeatureGateDuringTest(t, features.MultiKueueBatchJobWithManagedBy, tc.multiKueueBatchJobWithManagedByEnabled)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 

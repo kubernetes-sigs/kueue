@@ -2,7 +2,7 @@ title: Two Stage Admission Process
 kep-number: 993
 authors:
   - "@mwielgus"
-status: draft
+status: implementable
 creation-date: 2023-07-18
 reviewers:
   - "@kerthcet"
@@ -16,7 +16,7 @@ stage: beta
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.5"
+latest-milestone: "v0.8"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:

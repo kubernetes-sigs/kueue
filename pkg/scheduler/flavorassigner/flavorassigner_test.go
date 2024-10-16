@@ -1925,7 +1925,7 @@ func TestAssignFlavors(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			if tc.disableLendingLimit {
-				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
+				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
 			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
@@ -1954,11 +1954,11 @@ func TestAssignFlavors(t *testing.T) {
 			}
 
 			if tc.cohortResources != nil {
-				if clusterQueue.Cohort == nil {
+				if !clusterQueue.HasParent() {
 					t.Fatalf("Test case has cohort resources, but cluster queue doesn't have cohort")
 				}
-				clusterQueue.Cohort.ResourceNode.Usage = tc.cohortResources.usage
-				clusterQueue.Cohort.ResourceNode.SubtreeQuota = tc.cohortResources.requestableResources
+				clusterQueue.Parent().ResourceNode.Usage = tc.cohortResources.usage
+				clusterQueue.Parent().ResourceNode.SubtreeQuota = tc.cohortResources.requestableResources
 			}
 			clusterQueue.ResourceNode.Usage = tc.clusterQueueUsage
 
@@ -2269,26 +2269,7 @@ func TestLastAssignmentOutdated(t *testing.T) {
 					},
 				},
 				cq: &cache.ClusterQueueSnapshot{
-					Cohort:                        nil,
 					AllocatableResourceGeneration: 1,
-				},
-			},
-			want: true,
-		},
-		{
-			name: "Cohort allocatableResourceIncreasedGen increased",
-			args: args{
-				wl: &workload.Info{
-					LastAssignment: &workload.AssignmentClusterQueueState{
-						ClusterQueueGeneration: 0,
-						CohortGeneration:       0,
-					},
-				},
-				cq: &cache.ClusterQueueSnapshot{
-					Cohort: &cache.CohortSnapshot{
-						AllocatableResourceGeneration: 1,
-					},
-					AllocatableResourceGeneration: 0,
 				},
 			},
 			want: true,
@@ -2299,13 +2280,9 @@ func TestLastAssignmentOutdated(t *testing.T) {
 				wl: &workload.Info{
 					LastAssignment: &workload.AssignmentClusterQueueState{
 						ClusterQueueGeneration: 0,
-						CohortGeneration:       0,
 					},
 				},
 				cq: &cache.ClusterQueueSnapshot{
-					Cohort: &cache.CohortSnapshot{
-						AllocatableResourceGeneration: 0,
-					},
 					AllocatableResourceGeneration: 0,
 				},
 			},

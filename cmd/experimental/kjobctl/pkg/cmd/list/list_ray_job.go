@@ -27,20 +27,23 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-const (
-	rayJobExample = `  # List RayJob
-  kjobctl list rayjob
+var (
+	rayJobExample = templates.Examples(`
+		# List RayJob
+  		kjobctl list rayjob
   
-  # List RayJob with profile filter
-  kjobctl list rayjob --profile my-profile`
+  		# List RayJob with profile filter
+  		kjobctl list rayjob --profile my-profile
+	`)
 )
 
 type RayJobOptions struct {

@@ -19,6 +19,7 @@ package resume
 import (
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
@@ -26,10 +27,12 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	wlLong    = `Resumes the Workload, allowing its admission according to regular ClusterQueue rules.`
-	wlExample = `  # Resume the workload 
-  kueuectl resume workload my-workload`
+var (
+	wlLong    = templates.LongDesc(`Resumes the Workload, allowing its admission according to regular ClusterQueue rules.`)
+	wlExample = templates.Examples(`
+		# Resume the workload 
+  		kueuectl resume workload my-workload
+	`)
 )
 
 func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOStreams) *cobra.Command {

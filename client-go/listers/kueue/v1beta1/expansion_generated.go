@@ -33,6 +33,14 @@ type LocalQueueListerExpansion interface{}
 // LocalQueueNamespaceLister.
 type LocalQueueNamespaceListerExpansion interface{}
 
+// MultiKueueClusterListerExpansion allows custom methods to be added to
+// MultiKueueClusterLister.
+type MultiKueueClusterListerExpansion interface{}
+
+// MultiKueueConfigListerExpansion allows custom methods to be added to
+// MultiKueueConfigLister.
+type MultiKueueConfigListerExpansion interface{}
+
 // ProvisioningRequestConfigListerExpansion allows custom methods to be added to
 // ProvisioningRequestConfigLister.
 type ProvisioningRequestConfigListerExpansion interface{}

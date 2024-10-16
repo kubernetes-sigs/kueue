@@ -1,5 +1,9 @@
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.30.0
+ENVTEST_K8S_VERSION = 1.31.0
+
+ifeq ($(shell uname),Darwin)
+    GOFLAGS ?= -ldflags=-extldflags=-Wl,-ld_classic
+endif
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -59,7 +63,7 @@ artifacts: kustomize ## Generate release artifacts.
 	if [ -d artifacts ]; then rm -rf artifacts; fi
 	mkdir -p artifacts
 	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
-	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kjob PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/main.go
+	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kjob PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kjobctl/main.go
 
 ##@ Development
 
@@ -118,7 +122,7 @@ test: verify vet test-unit test-integration ## Run all tests.
 
 .PHONY: test-unit
 test-unit: gomod-download gotestsum embeded-manifest ## Run unit tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo embeded-manifest ray-operator-crd ## Run integration tests.
@@ -152,19 +156,17 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 .PHONY: kubectl-kjob
 kubectl-kjob: embeded-manifest ## Build kubectl-kjob binary file to bin directory.
-	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kjob cmd/main.go
+	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kjob cmd/kjobctl/main.go
 
 .PHONY: kjobctl-docs
 kjobctl-docs: ## Build kjobctl-docs binary file to bin directory.
-	cd $(PROJECT_DIR)/hack/tools && \
-	go mod download && \
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kjobctl-docs ./kjobctl-docs/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kjobctl-docs ./cmd/kjobctl-docs/main.go
 
 .PHONY: generate-kjobctl-docs
 generate-kjobctl-docs: kjobctl-docs ## Generate kjobctl docs.
 	rm -Rf $(PROJECT_DIR)/docs/commands/*
 	$(PROJECT_DIR)/bin/kjobctl-docs \
-		$(PROJECT_DIR)/hack/tools/kjobctl-docs/templates \
+		$(PROJECT_DIR)/cmd/kjobctl-docs/templates \
 		$(PROJECT_DIR)/docs/commands
 
 ##@ Dependencies

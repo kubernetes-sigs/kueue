@@ -26,7 +26,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -36,12 +35,11 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
+
 	ginkgo.AfterAll(func() {
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {

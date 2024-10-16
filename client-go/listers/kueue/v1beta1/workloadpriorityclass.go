@@ -18,8 +18,8 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/listers"
 	"k8s.io/client-go/tools/cache"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -38,30 +38,10 @@ type WorkloadPriorityClassLister interface {
 
 // workloadPriorityClassLister implements the WorkloadPriorityClassLister interface.
 type workloadPriorityClassLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*v1beta1.WorkloadPriorityClass]
 }
 
 // NewWorkloadPriorityClassLister returns a new WorkloadPriorityClassLister.
 func NewWorkloadPriorityClassLister(indexer cache.Indexer) WorkloadPriorityClassLister {
-	return &workloadPriorityClassLister{indexer: indexer}
-}
-
-// List lists all WorkloadPriorityClasses in the indexer.
-func (s *workloadPriorityClassLister) List(selector labels.Selector) (ret []*v1beta1.WorkloadPriorityClass, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.WorkloadPriorityClass))
-	})
-	return ret, err
-}
-
-// Get retrieves the WorkloadPriorityClass from the index for a given name.
-func (s *workloadPriorityClassLister) Get(name string) (*v1beta1.WorkloadPriorityClass, error) {
-	obj, exists, err := s.indexer.GetByKey(name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1beta1.Resource("workloadpriorityclass"), name)
-	}
-	return obj.(*v1beta1.WorkloadPriorityClass), nil
+	return &workloadPriorityClassLister{listers.New[*v1beta1.WorkloadPriorityClass](indexer, v1beta1.Resource("workloadpriorityclass"))}
 }

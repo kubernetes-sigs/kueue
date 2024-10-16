@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -30,7 +31,6 @@ import (
 
 type ClusterQueueSnapshot struct {
 	Name              string
-	Cohort            *CohortSnapshot
 	ResourceGroups    []ResourceGroup
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
@@ -48,6 +48,7 @@ type ClusterQueueSnapshot struct {
 	AllocatableResourceGeneration int64
 
 	ResourceNode ResourceNode
+	hierarchy.ClusterQueue[*CohortSnapshot]
 }
 
 // RGByResource returns the ResourceGroup which contains capacity
@@ -96,9 +97,10 @@ func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val in
 
 // Available returns the current capacity available, before preempting
 // any workloads. Includes local capacity and capacity borrowed from
-// Cohort.
+// Cohort. When the ClusterQueue/Cohort is in debt, Available
+// will return 0.
 func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) int64 {
-	return available(c, fr, true)
+	return max(0, available(c, fr, true))
 }
 
 // PotentialAvailable returns the largest workload this ClusterQueue could
@@ -108,16 +110,8 @@ func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) i
 	return potentialAvailable(c, fr)
 }
 
-func (c *ClusterQueueSnapshot) Parent() *CohortSnapshot {
-	return c.Cohort
-}
-
 // The methods below implement several interfaces. See
 // dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
-
-func (c *ClusterQueueSnapshot) HasParent() bool {
-	return c.Cohort != nil
-}
 
 func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
 	return &c.FairWeight
@@ -133,6 +127,10 @@ func (c *ClusterQueueSnapshot) resourceGroups() []ResourceGroup {
 
 func (c *ClusterQueueSnapshot) parentResources() ResourceNode {
 	return c.Parent().ResourceNode
+}
+
+func (c *ClusterQueueSnapshot) GetName() string {
+	return c.Name
 }
 
 // The methods below implement hierarchicalResourceNode interface.

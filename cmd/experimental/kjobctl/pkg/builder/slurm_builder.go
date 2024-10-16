@@ -17,7 +17,9 @@ limitations under the License.
 package builder
 
 import (
+	"bytes"
 	"context"
+	"embed"
 	"errors"
 	"fmt"
 	"math"
@@ -25,6 +27,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"text/template"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -33,15 +36,27 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+	kueue "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
 )
 
+//go:embed templates/slurm_*
+var slurmTemplates embed.FS
+
 const (
-	slurmScriptFilename     = "script"
-	slurmEntrypointFilename = "entrypoint.sh"
-	slurmPath               = "/slurm"
+	// Note that the first job ID will always be 1.
+	slurmArrayJobID = 1
+
+	slurmScriptsPath            = "/slurm/scripts"
+	slurmInitEntrypointFilename = "init-entrypoint.sh"
+	slurmEntrypointFilename     = "entrypoint.sh"
+	slurmScriptFilename         = "script"
+
+	slurmEnvsPath          = "/slurm/env"
+	slurmSbatchEnvFilename = "sbatch.env"
+	slurmSlurmEnvFilename  = "slurm.env"
 
 	//# \\ - Do not process any of the replacement symbols.
 	//# %% - The character "%".
@@ -81,23 +96,48 @@ var (
 	noScriptSpecifiedErr = errors.New("no script specified")
 )
 
+var (
+	slurmInitEntrypointFilenamePath = fmt.Sprintf("%s/%s", slurmScriptsPath, slurmInitEntrypointFilename)
+	slurmEntrypointFilenamePath     = fmt.Sprintf("%s/%s", slurmScriptsPath, slurmEntrypointFilename)
+	slurmScriptFilenamePath         = fmt.Sprintf("%s/%s", slurmScriptsPath, slurmScriptFilename)
+)
+
 type slurmBuilder struct {
 	*Builder
 
+	objectName      string
 	scriptContent   string
+	template        *template.Template
 	arrayIndexes    parser.ArrayIndexes
 	cpusOnNode      *resource.Quantity
 	cpusPerGpu      *resource.Quantity
 	totalMemPerNode *resource.Quantity
-	totalGpus       int
+	totalGpus       *resource.Quantity
 }
 
 var _ builder = (*slurmBuilder)(nil)
 
-func (b *slurmBuilder) validateGeneral() error {
+func (b *slurmBuilder) validateGeneral(ctx context.Context) error {
 	if len(b.script) == 0 {
 		return noScriptSpecifiedErr
 	}
+
+	if b.memPerCPU != nil && b.cpusPerTask == nil {
+		return noCpusPerTaskSpecifiedErr
+	}
+
+	if b.memPerGPU != nil && b.gpusPerTask == nil {
+		return noGpusPerTaskSpecifiedErr
+	}
+
+	// check that priority class exists
+	if len(b.priority) != 0 && !b.skipPriorityValidation {
+		_, err := b.kueueClientset.KueueV1beta1().WorkloadPriorityClasses().Get(ctx, b.priority, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -107,6 +147,12 @@ func (b *slurmBuilder) complete() error {
 		return err
 	}
 	b.scriptContent = string(content)
+
+	t, err := template.ParseFS(slurmTemplates, "templates/*")
+	if err != nil {
+		return err
+	}
+	b.template = t
 
 	if err := b.getSbatchEnvs(); err != nil {
 		return err
@@ -132,11 +178,14 @@ func (b *slurmBuilder) complete() error {
 		}
 	}
 
+	b.objectName = b.generatePrefixName() + utilrand.String(5)
+
 	return nil
 }
 
 func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
 	flags := map[string]bool{
+		string(v1alpha1.MemPerNodeFlag): b.memPerNode != nil,
 		string(v1alpha1.MemPerTaskFlag): b.memPerTask != nil,
 		string(v1alpha1.MemPerCPUFlag):  b.memPerCPU != nil,
 		string(v1alpha1.MemPerGPUFlag):  b.memPerGPU != nil,
@@ -164,84 +213,114 @@ func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
 	return nil
 }
 
-func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
-	if err := b.validateGeneral(); err != nil {
-		return nil, err
+func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Object, error) {
+	if err := b.validateGeneral(ctx); err != nil {
+		return nil, nil, err
 	}
 
 	if err := b.complete(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	template, err := b.kjobctlClientset.KjobctlV1alpha1().JobTemplates(b.profile.Namespace).
 		Get(ctx, string(b.mode.Template), metav1.GetOptions{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
+	objectMeta := b.buildObjectMeta(template.Template.ObjectMeta)
+	objectMeta.GenerateName = ""
+	objectMeta.Name = b.objectName
+
 	job := &batchv1.Job{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Job",
-			APIVersion: "batch/v1",
-		},
-		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
+		TypeMeta:   metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"},
+		ObjectMeta: objectMeta,
 		Spec:       template.Template.Spec,
 	}
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
+	job.Spec.Template.Spec.Subdomain = b.objectName
 
-	objectName := b.generatePrefixName() + utilrand.String(5)
-	job.ObjectMeta.GenerateName = ""
-	job.ObjectMeta.Name = objectName
-
-	configMap := &corev1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "ConfigMap",
-			APIVersion: "v1",
-		},
-		ObjectMeta: b.buildObjectMeta(template.ObjectMeta),
-		Data: map[string]string{
-			slurmEntrypointFilename: b.buildEntrypointScript(),
-			slurmScriptFilename:     b.scriptContent,
-		},
+	if len(b.priority) != 0 {
+		job.Labels[kueue.WorkloadPriorityClassLabel] = b.priority
 	}
-	configMap.ObjectMeta.GenerateName = ""
-	configMap.ObjectMeta.Name = objectName
 
 	b.buildPodSpecVolumesAndEnv(&job.Spec.Template.Spec)
-	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, corev1.Volume{
-		Name: configMap.Name,
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: configMap.Name,
-				},
-				Items: []corev1.KeyToPath{
-					{
-						Key:  slurmEntrypointFilename,
-						Path: slurmEntrypointFilename,
+	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes,
+		corev1.Volume{
+			Name: "slurm-scripts",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: b.objectName,
 					},
-					{
-						Key:  slurmScriptFilename,
-						Path: slurmScriptFilename,
-						Mode: ptr.To[int32](0755),
+					Items: []corev1.KeyToPath{
+						{
+							Key:  slurmInitEntrypointFilename,
+							Path: slurmInitEntrypointFilename,
+						},
+						{
+							Key:  slurmEntrypointFilename,
+							Path: slurmEntrypointFilename,
+						},
+						{
+							Key:  slurmScriptFilename,
+							Path: slurmScriptFilename,
+							Mode: ptr.To[int32](0755),
+						},
 					},
 				},
 			},
 		},
+		corev1.Volume{
+			Name: "slurm-env",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+	)
+
+	job.Spec.Template.Spec.InitContainers = append(job.Spec.Template.Spec.InitContainers, corev1.Container{
+		Name:    "slurm-init-env",
+		Image:   b.initImage,
+		Command: []string{"bash", slurmInitEntrypointFilenamePath},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "slurm-scripts",
+				MountPath: slurmScriptsPath,
+			},
+			{
+				Name:      "slurm-env",
+				MountPath: slurmEnvsPath,
+			},
+		},
 	})
 
-	gpusPerTask, err := resource.ParseQuantity("0")
-	if err != nil {
-		return nil, errors.New("error initializing gpus counter")
-	}
+	var totalGPUsPerTask resource.Quantity
 	for _, number := range b.gpusPerTask {
-		gpusPerTask.Add(*number)
+		totalGPUsPerTask.Add(*number)
 	}
 
+	var memPerCPU, memPerGPU, memPerContainer resource.Quantity
+	if b.memPerCPU != nil && b.cpusPerTask != nil {
+		memPerCPU = *b.memPerCPU
+		memPerCPU.Mul(b.cpusPerTask.Value())
+	}
+
+	if b.memPerGPU != nil && b.gpusPerTask != nil {
+		memPerGPU = *b.memPerGPU
+		memPerGPU.Mul(totalGPUsPerTask.Value())
+	}
+
+	if b.memPerNode != nil {
+		mem := b.memPerNode.MilliValue() / int64(len(job.Spec.Template.Spec.Containers))
+		memPerContainer = *resource.NewMilliQuantity(mem, b.memPerNode.Format)
+	}
+
+	var totalCpus, totalGpus, totalMem resource.Quantity
 	for i := range job.Spec.Template.Spec.Containers {
 		container := &job.Spec.Template.Spec.Containers[i]
 
-		container.Command = []string{"bash", fmt.Sprintf("%s/entrypoint.sh", slurmPath)}
+		container.Command = []string{"bash", slurmEntrypointFilenamePath}
 
 		var requests corev1.ResourceList
 		if b.requests != nil {
@@ -252,38 +331,54 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 
 		if b.cpusPerTask != nil {
 			requests[corev1.ResourceCPU] = *b.cpusPerTask
+			totalCpus.Add(*b.cpusPerTask)
 		}
 
 		if b.gpusPerTask != nil {
 			for name, number := range b.gpusPerTask {
 				requests[corev1.ResourceName(name)] = *number
 			}
+			totalGpus.Add(totalGPUsPerTask)
 		}
 
 		if b.memPerTask != nil {
 			requests[corev1.ResourceMemory] = *b.memPerTask
+			totalMem.Add(*b.memPerTask)
 		}
 
-		if b.memPerCPU != nil && b.cpusPerTask != nil {
-			memPerCPU := *b.memPerCPU
-			memPerCPU.Mul(b.cpusPerTask.Value())
+		if !memPerCPU.IsZero() {
 			requests[corev1.ResourceMemory] = memPerCPU
+			totalMem.Add(memPerCPU)
 		}
 
-		if b.memPerGPU != nil && b.gpusPerTask != nil {
-			memPerGpu := *b.memPerGPU
-			memPerGpu.Mul(gpusPerTask.Value())
-			requests[corev1.ResourceMemory] = memPerGpu
+		if !memPerGPU.IsZero() {
+			requests[corev1.ResourceMemory] = memPerGPU
+			totalMem.Add(memPerGPU)
 		}
 
 		if len(requests) > 0 {
-			container.Resources.Requests = b.requests
+			container.Resources.Requests = requests
 		}
 
-		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
-			Name:      configMap.Name,
-			MountPath: slurmPath,
-		})
+		limits := corev1.ResourceList{}
+		if !memPerContainer.IsZero() {
+			limits[corev1.ResourceMemory] = memPerContainer
+		}
+
+		if len(limits) > 0 {
+			container.Resources.Limits = limits
+		}
+
+		container.VolumeMounts = append(container.VolumeMounts,
+			corev1.VolumeMount{
+				Name:      "slurm-scripts",
+				MountPath: slurmScriptsPath,
+			},
+			corev1.VolumeMount{
+				Name:      "slurm-env",
+				MountPath: slurmEnvsPath,
+			},
+		)
 	}
 
 	nTasks := ptr.Deref(b.nTasks, 1)
@@ -293,13 +388,31 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 	job.Spec.Parallelism = b.nodes
 
 	if nTasks > 1 {
+		replicatedContainer := job.Spec.Template.Spec.Containers[0]
 		for i := 1; i < int(nTasks); i++ {
-			job.Spec.Template.Spec.Containers = append(job.Spec.Template.Spec.Containers, job.Spec.Template.Spec.Containers[0])
+			job.Spec.Template.Spec.Containers = append(job.Spec.Template.Spec.Containers, replicatedContainer)
+
+			if b.cpusPerTask != nil {
+				totalCpus.Add(*b.cpusPerTask)
+			}
+
+			if !memPerCPU.IsZero() {
+				totalMem.Add(memPerCPU)
+			}
+
+			if !memPerGPU.IsZero() {
+				totalMem.Add(memPerGPU)
+			}
 		}
 
-		for i := range nTasks {
+		for i, j := 0, 0; i <= int(nTasks); i++ {
+			if job.Spec.Template.Spec.Containers[i].Name != replicatedContainer.Name {
+				continue
+			}
+
 			job.Spec.Template.Spec.Containers[i].Name =
-				fmt.Sprintf("%s-%d", job.Spec.Template.Spec.Containers[i].Name, i)
+				fmt.Sprintf("%s-%d", job.Spec.Template.Spec.Containers[i].Name, j)
+			j++
 		}
 	}
 
@@ -314,27 +427,62 @@ func (b *slurmBuilder) build(ctx context.Context) ([]runtime.Object, error) {
 		job.Spec.Parallelism = b.nodes
 	}
 
-	if b.cpusPerTask != nil {
-		b.cpusOnNode = ptr.To(b.cpusPerTask.DeepCopy())
-		b.cpusOnNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
+	if !totalCpus.IsZero() {
+		b.cpusOnNode = &totalCpus
 	}
 
-	if b.memPerCPU != nil {
-		b.totalMemPerNode = ptr.To(b.memPerCPU.DeepCopy())
-		b.totalMemPerNode.Mul(int64(len(job.Spec.Template.Spec.Containers)))
+	if !totalGpus.IsZero() {
+		b.totalGpus = &totalGpus
 	}
 
-	totalGpus := gpusPerTask
-	totalTasks := int64(len(job.Spec.Template.Spec.Containers))
-	totalGpus.Mul(totalTasks)
-	b.totalGpus = int(totalGpus.Value())
-
-	if b.totalGpus > 0 {
-		cpusPerGpu := b.cpusOnNode.Value() / int64(b.totalGpus)
-		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, resource.DecimalSI)
+	if b.memPerNode != nil {
+		b.totalMemPerNode = b.memPerNode
+	} else if !totalMem.IsZero() {
+		b.totalMemPerNode = &totalMem
 	}
 
-	return []runtime.Object{job, configMap}, nil
+	if b.cpusOnNode != nil && b.totalGpus != nil && !totalGpus.IsZero() {
+		cpusPerGpu := totalCpus.MilliValue() / totalGpus.MilliValue()
+		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, b.cpusOnNode.Format)
+	}
+
+	envEntrypointScript, err := b.buildInitEntrypointScript()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	entrypointScript, err := b.buildEntrypointScript()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	configMap := &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
+		Data: map[string]string{
+			slurmInitEntrypointFilename: envEntrypointScript,
+			slurmEntrypointFilename:     entrypointScript,
+			slurmScriptFilename:         b.scriptContent,
+		},
+	}
+	configMap.ObjectMeta.GenerateName = ""
+	configMap.ObjectMeta.Name = b.objectName
+
+	service := &corev1.Service{
+		TypeMeta:   metav1.TypeMeta{Kind: "Service", APIVersion: "v1"},
+		ObjectMeta: objectMeta,
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "None",
+			Selector: map[string]string{
+				"job-name": b.objectName,
+			},
+		},
+	}
+
+	return job, []runtime.Object{configMap, service}, nil
 }
 
 func (b *slurmBuilder) buildIndexesMap() map[int32][]int32 {
@@ -355,7 +503,49 @@ func (b *slurmBuilder) buildIndexesMap() map[int32][]int32 {
 	return indexMap
 }
 
-func (b *slurmBuilder) buildEntrypointScript() string {
+type slurmInitEntrypointScript struct {
+	ArrayIndexes string
+
+	EnvsPath          string
+	SbatchEnvFilename string
+	SlurmEnvFilename  string
+
+	SbatchArrayIndex  string
+	SbatchGPUsPerTask string
+	SbatchMemPerCPU   string
+	SbatchMemPerGPU   string
+	SbatchOutput      string
+	SbatchError       string
+	SbatchInput       string
+	SbatchJobName     string
+	SbatchPartition   string
+
+	SlurmArrayJobID     int32
+	SlurmArrayTaskCount int32
+	SlurmArrayTaskMax   int32
+	SlurmArrayTaskMin   int32
+	SlurmTasksPerNode   int32
+	SlurmCPUsPerTask    string
+	SlurmCPUsOnNode     string
+	SlurmJobCPUsPerNode string
+	SlurmCPUsPerGPU     string
+	SlurmMemPerCPU      string
+	SlurmMemPerGPU      string
+	SlurmMemPerNode     string
+	SlurmGPUs           string
+	SlurmNTasks         int32
+	SlurmNTasksPerNode  int32
+	SlurmNProcs         int32
+	SlurmNNodes         int32
+	SlurmSubmitDir      string
+	SlurmJobNodeList    string
+	SlurmJobFirstNode   string
+}
+
+func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
+	nTasks := ptr.Deref(b.nTasks, 1)
+	nodes := ptr.Deref(b.nodes, 1)
+
 	indexesMap := b.buildIndexesMap()
 	keyValues := make([]string, 0, len(indexesMap))
 	for key, value := range indexesMap {
@@ -368,52 +558,6 @@ func (b *slurmBuilder) buildEntrypointScript() string {
 
 	slices.Sort(keyValues)
 
-	return fmt.Sprintf(`#!/usr/bin/bash
-
-set -o errexit
-set -o nounset
-set -o pipefail
-
-# External variables
-# JOB_COMPLETION_INDEX  - completion index of the job.
-# JOB_CONTAINER_INDEX   - container index in the container template.
-
-# ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
-declare -A array_indexes=(%[1]s) 	# Requires bash v4+
-
-container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
-container_indexes=(${container_indexes//,/ })
-
-if [[ ! -v container_indexes[${JOB_CONTAINER_INDEX}] ]];
-then
-	exit 0
-fi
-
-%[2]s
-
-%[3]s
-
-export SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * SLURM_TASKS_PER_NODE + JOB_CONTAINER_INDEX + SLURM_ARRAY_JOB_ID ))   # The Job ID.
-export SLURM_JOBID=$SLURM_JOB_ID                                                                                    # Deprecated. Same as $SLURM_JOB_ID
-export SLURM_ARRAY_TASK_ID=${container_indexes[${JOB_CONTAINER_INDEX}]}												# Task ID.
-
-%[4]s
-
-input_file=$(unmask_filename "$SBATCH_INPUT")
-output_file=$(unmask_filename "$SBATCH_OUTPUT")
-error_path=$(unmask_filename "$SBATCH_ERROR")
-
-%[5]s
-`,
-		strings.Join(keyValues, " "), // %[1]s
-		b.buildSbatchVariables(),     // %[2]s
-		b.buildSlurmVariables(),      // %[3]s
-		unmaskFilenameFunction,       // %[4]s
-		b.buildEntrypointCommand(),   // %[5]s
-	)
-}
-
-func (b *slurmBuilder) buildSbatchVariables() string {
 	var gpusPerTask, memPerCPU, memPerGPU string
 	if b.gpusPerTask != nil {
 		gpus := make([]string, 0)
@@ -429,68 +573,85 @@ func (b *slurmBuilder) buildSbatchVariables() string {
 		memPerGPU = b.memPerGPU.String()
 	}
 
-	return fmt.Sprintf(`SBATCH_ARRAY_INX=%[1]s
-SBATCH_GPUS_PER_TASK=%[2]s
-SBATCH_MEM_PER_CPU=%[3]s
-SBATCH_MEM_PER_GPU=%[4]s
-SBATCH_OUTPUT=%[5]s
-SBATCH_ERROR=%[6]s
-SBATCH_INPUT=%[7]s
-SBATCH_JOB_NAME=%[8]s
-SBATCH_PARTITION=%[9]s`,
-		b.array,     // %[1]s
-		gpusPerTask, // %[2]s
-		memPerCPU,   // %[3]s
-		memPerGPU,   // %[4]s
-		b.output,    // %[5]s
-		b.error,     // %[6]s
-		b.input,     // %[7]s
-		b.jobName,   // %[8]s
-		b.partition, // %[9]s
-	)
+	nodeList := make([]string, nodes)
+	for i := int32(0); i < nodes; i++ {
+		nodeList[i] = fmt.Sprintf("%s-%d.%s", b.objectName, i, b.objectName)
+	}
+
+	scriptValues := slurmInitEntrypointScript{
+		ArrayIndexes: strings.Join(keyValues, " "),
+
+		EnvsPath:          slurmEnvsPath,
+		SbatchEnvFilename: slurmSbatchEnvFilename,
+		SlurmEnvFilename:  slurmSlurmEnvFilename,
+
+		SbatchArrayIndex:  b.array,
+		SbatchGPUsPerTask: gpusPerTask,
+		SbatchMemPerCPU:   memPerCPU,
+		SbatchMemPerGPU:   memPerGPU,
+		SbatchOutput:      b.output,
+		SbatchError:       b.error,
+		SbatchInput:       b.input,
+		SbatchJobName:     b.jobName,
+		SbatchPartition:   b.partition,
+
+		SlurmArrayJobID:     slurmArrayJobID,
+		SlurmArrayTaskCount: int32(b.arrayIndexes.Count()),
+		SlurmArrayTaskMax:   b.arrayIndexes.Max(),
+		SlurmArrayTaskMin:   b.arrayIndexes.Min(),
+		SlurmTasksPerNode:   nTasks,
+		SlurmCPUsPerTask:    getValueOrEmpty(b.cpusPerTask),
+		SlurmCPUsOnNode:     getValueOrEmpty(b.cpusOnNode),
+		SlurmJobCPUsPerNode: getValueOrEmpty(b.cpusOnNode),
+		SlurmCPUsPerGPU:     getValueOrEmpty(b.cpusPerGpu),
+		SlurmMemPerCPU:      getValueOrEmpty(b.memPerCPU),
+		SlurmMemPerGPU:      getValueOrEmpty(b.memPerGPU),
+		SlurmMemPerNode:     getValueOrEmpty(b.totalMemPerNode),
+		SlurmGPUs:           getValueOrEmpty(b.totalGpus),
+		SlurmNTasks:         nTasks,
+		SlurmNTasksPerNode:  nTasks,
+		SlurmNProcs:         nTasks,
+		SlurmNNodes:         nodes,
+		SlurmSubmitDir:      slurmScriptsPath,
+		SlurmJobNodeList:    strings.Join(nodeList, ","),
+		SlurmJobFirstNode:   nodeList[0],
+	}
+
+	var script bytes.Buffer
+
+	if err := b.template.ExecuteTemplate(&script, "slurm_init_entrypoint_script.sh.tmpl", scriptValues); err != nil {
+		return "", err
+	}
+
+	return script.String(), nil
 }
 
-func (b *slurmBuilder) buildSlurmVariables() string {
-	nTasks := ptr.Deref(b.nTasks, 1)
-	nodes := ptr.Deref(b.nodes, 1)
+type slurmEntrypointScript struct {
+	EnvsPath               string
+	SbatchEnvFilename      string
+	SlurmEnvFilename       string
+	UnmaskFilenameFunction string
+	ChangeDir              string
+	BuildEntrypointCommand string
+}
 
-	return fmt.Sprintf(`export SLURM_ARRAY_JOB_ID=%[1]d       		# Job array’s master job ID number.
-export SLURM_ARRAY_TASK_COUNT=%[2]d  		# Total number of tasks in a job array.
-export SLURM_ARRAY_TASK_MAX=%[3]d    		# Job array’s maximum ID (index) number.
-export SLURM_ARRAY_TASK_MIN=%[4]d    		# Job array’s minimum ID (index) number.
-export SLURM_TASKS_PER_NODE=%[5]d    		# Number of tasks to be initiated on each node.
-export SLURM_CPUS_PER_TASK=%[6]s       		# Number of CPUs per task.
-export SLURM_CPUS_ON_NODE=%[7]s        		# Number of CPUs on the allocated node (actually pod).
-export SLURM_JOB_CPUS_PER_NODE=%[8]s   		# Count of processors available to the job on this node.
-export SLURM_CPUS_PER_GPU=%[9]s        		# Number of CPUs requested per allocated GPU.
-export SLURM_MEM_PER_CPU=%[10]s         	# Memory per CPU. Same as --mem-per-cpu .
-export SLURM_MEM_PER_GPU=%[11]s         	# Memory per GPU.
-export SLURM_MEM_PER_NODE=%[12]s        	# Memory per node. Same as --mem.
-export SLURM_GPUS=%[13]d                	# Number of GPUs requested (in total).
-export SLURM_NTASKS=%[14]d              	# Same as -n, –ntasks. The number of tasks.
-export SLURM_NTASKS_PER_NODE=%[15]d  		# Number of tasks requested per node.
-export SLURM_NPROCS=$SLURM_NTASKS       	# Same as -n, --ntasks. See $SLURM_NTASKS.
-export SLURM_NNODES=%[16]d            		# Total number of nodes (actually pods) in the job’s resource allocation.
-export SLURM_SUBMIT_DIR=%[17]s        		# The path of the job submission directory.
-export SLURM_SUBMIT_HOST=$HOSTNAME       	# The hostname of the node used for job submission.`,
-		1,                                  // %[1]d
-		b.arrayIndexes.Count(),             // %[2]d
-		b.arrayIndexes.Max(),               // %[3]d
-		b.arrayIndexes.Min(),               // %[4]d
-		nTasks,                             // %[5]d
-		getValueOrEmpty(b.cpusPerTask),     // %[6]s
-		getValueOrEmpty(b.cpusOnNode),      // %[7]s
-		getValueOrEmpty(b.cpusOnNode),      // %[8]s
-		getValueOrEmpty(b.cpusPerGpu),      // %[9]s
-		getValueOrEmpty(b.memPerCPU),       // %[10]s
-		getValueOrEmpty(b.memPerGPU),       // %[11]s
-		getValueOrEmpty(b.totalMemPerNode), // %[12]s
-		b.totalGpus,                        // %[13]s
-		nTasks,                             // %[14]d
-		nTasks,                             // %[15]d
-		nodes,                              // %[16]d
-		slurmPath,                          // %[17]s
-	)
+func (b *slurmBuilder) buildEntrypointScript() (string, error) {
+	scriptValues := slurmEntrypointScript{
+		EnvsPath:               slurmEnvsPath,
+		SbatchEnvFilename:      slurmSbatchEnvFilename,
+		SlurmEnvFilename:       slurmSlurmEnvFilename,
+		UnmaskFilenameFunction: unmaskFilenameFunction,
+		ChangeDir:              b.changeDir,
+		BuildEntrypointCommand: b.buildEntrypointCommand(),
+	}
+
+	var script bytes.Buffer
+
+	if err := b.template.ExecuteTemplate(&script, "slurm_entrypoint_script.sh.tmpl", scriptValues); err != nil {
+		return "", err
+	}
+
+	return script.String(), nil
 }
 
 func getValueOrEmpty(ptr *resource.Quantity) string {
@@ -504,9 +665,7 @@ func getValueOrEmpty(ptr *resource.Quantity) string {
 func (b *slurmBuilder) buildEntrypointCommand() string {
 	strBuilder := strings.Builder{}
 
-	strBuilder.WriteString(slurmPath)
-	strBuilder.WriteByte('/')
-	strBuilder.WriteString(slurmScriptFilename)
+	strBuilder.WriteString(slurmScriptFilenamePath)
 
 	if b.input != "" {
 		strBuilder.WriteString(" <$input_file")
@@ -535,6 +694,16 @@ func (b *slurmBuilder) getSbatchEnvs() error {
 				return fmt.Errorf("cannot parse '%s': %w", env, err)
 			}
 			b.gpusPerTask = val
+		}
+	}
+
+	if b.memPerNode == nil {
+		if env, ok := os.LookupEnv("SBATCH_MEM_PER_NODE"); ok {
+			val, err := resource.ParseQuantity(env)
+			if err != nil {
+				return fmt.Errorf("cannot parse '%s': %w", env, err)
+			}
+			b.memPerNode = ptr.To(val)
 		}
 	}
 
@@ -597,6 +766,10 @@ func (b *slurmBuilder) replaceScriptFlags() error {
 
 	if b.gpusPerTask == nil {
 		b.gpusPerTask = scriptFlags.GpusPerTask
+	}
+
+	if b.memPerNode == nil {
+		b.memPerNode = scriptFlags.MemPerNode
 	}
 
 	if b.memPerTask == nil {

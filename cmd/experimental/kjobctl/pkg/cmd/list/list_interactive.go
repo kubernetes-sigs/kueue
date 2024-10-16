@@ -27,20 +27,23 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/client-go/kubernetes/scheme"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-const (
-	interactiveExample = `  # List Interactive
-  kjobctl list interactive
+var (
+	interactiveExample = templates.Examples(`
+		# List Interactive
+  		kjobctl list interactive
 
-  # List Interactive with profile filter
-  kjobctl list interactive --profile my-profile`
+  		# List Interactive with profile filter
+  		kjobctl list interactive --profile my-profile
+	`)
 )
 
 type InteractiveOptions struct {

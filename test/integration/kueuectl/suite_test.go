@@ -60,7 +60,8 @@ func TestKueuectl(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
 	cfg = fwk.Init()
-	ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
+	ctx, k8sClient = fwk.SetupClient(cfg)
+	fwk.StartManager(ctx, cfg, managerSetup)
 
 	kassetsPath = os.Getenv("KUBEBUILDER_ASSETS")
 	kueuectlPath = path.Join(os.Getenv("KUEUE_BIN"), "kubectl-kueue")

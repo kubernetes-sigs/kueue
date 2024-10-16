@@ -40,22 +40,24 @@ var rayjobtemplatesKind = v1alpha1.SchemeGroupVersion.WithKind("RayJobTemplate")
 
 // Get takes name of the rayJobTemplate, and returns the corresponding rayJobTemplate object, and an error if there is any.
 func (c *FakeRayJobTemplates) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.RayJobTemplate, err error) {
+	emptyResult := &v1alpha1.RayJobTemplate{}
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(rayjobtemplatesResource, c.ns, name), &v1alpha1.RayJobTemplate{})
+		Invokes(testing.NewGetActionWithOptions(rayjobtemplatesResource, c.ns, name, options), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.RayJobTemplate), err
 }
 
 // List takes label and field selectors, and returns the list of RayJobTemplates that match those selectors.
 func (c *FakeRayJobTemplates) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.RayJobTemplateList, err error) {
+	emptyResult := &v1alpha1.RayJobTemplateList{}
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(rayjobtemplatesResource, rayjobtemplatesKind, c.ns, opts), &v1alpha1.RayJobTemplateList{})
+		Invokes(testing.NewListActionWithOptions(rayjobtemplatesResource, rayjobtemplatesKind, c.ns, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 
 	label, _, _ := testing.ExtractFromListOptions(opts)
@@ -74,28 +76,30 @@ func (c *FakeRayJobTemplates) List(ctx context.Context, opts v1.ListOptions) (re
 // Watch returns a watch.Interface that watches the requested rayJobTemplates.
 func (c *FakeRayJobTemplates) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(rayjobtemplatesResource, c.ns, opts))
+		InvokesWatch(testing.NewWatchActionWithOptions(rayjobtemplatesResource, c.ns, opts))
 
 }
 
 // Create takes the representation of a rayJobTemplate and creates it.  Returns the server's representation of the rayJobTemplate, and an error, if there is any.
 func (c *FakeRayJobTemplates) Create(ctx context.Context, rayJobTemplate *v1alpha1.RayJobTemplate, opts v1.CreateOptions) (result *v1alpha1.RayJobTemplate, err error) {
+	emptyResult := &v1alpha1.RayJobTemplate{}
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(rayjobtemplatesResource, c.ns, rayJobTemplate), &v1alpha1.RayJobTemplate{})
+		Invokes(testing.NewCreateActionWithOptions(rayjobtemplatesResource, c.ns, rayJobTemplate, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.RayJobTemplate), err
 }
 
 // Update takes the representation of a rayJobTemplate and updates it. Returns the server's representation of the rayJobTemplate, and an error, if there is any.
 func (c *FakeRayJobTemplates) Update(ctx context.Context, rayJobTemplate *v1alpha1.RayJobTemplate, opts v1.UpdateOptions) (result *v1alpha1.RayJobTemplate, err error) {
+	emptyResult := &v1alpha1.RayJobTemplate{}
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(rayjobtemplatesResource, c.ns, rayJobTemplate), &v1alpha1.RayJobTemplate{})
+		Invokes(testing.NewUpdateActionWithOptions(rayjobtemplatesResource, c.ns, rayJobTemplate, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.RayJobTemplate), err
 }
@@ -110,7 +114,7 @@ func (c *FakeRayJobTemplates) Delete(ctx context.Context, name string, opts v1.D
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeRayJobTemplates) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(rayjobtemplatesResource, c.ns, listOpts)
+	action := testing.NewDeleteCollectionActionWithOptions(rayjobtemplatesResource, c.ns, opts, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1alpha1.RayJobTemplateList{})
 	return err
@@ -118,11 +122,12 @@ func (c *FakeRayJobTemplates) DeleteCollection(ctx context.Context, opts v1.Dele
 
 // Patch applies the patch and returns the patched rayJobTemplate.
 func (c *FakeRayJobTemplates) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.RayJobTemplate, err error) {
+	emptyResult := &v1alpha1.RayJobTemplate{}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(rayjobtemplatesResource, c.ns, name, pt, data, subresources...), &v1alpha1.RayJobTemplate{})
+		Invokes(testing.NewPatchSubresourceActionWithOptions(rayjobtemplatesResource, c.ns, name, pt, data, opts, subresources...), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.RayJobTemplate), err
 }

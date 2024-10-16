@@ -19,19 +19,22 @@ package printcrds
 import (
 	"bytes"
 	"compress/gzip"
-	_ "embed"
 	"io"
 
 	"github.com/spf13/cobra"
+	"k8s.io/kubectl/pkg/util/templates"
+
+	_ "embed"
 )
 
-const (
-	crdsExample = `  # Install or update the kjobctl CRDs 
-  kjobctl printcrds | kubectl apply --server-side -f -
+var (
+	crdsExample = templates.Examples(`
+		# Install or update the kjobctl CRDs 
+  		kjobctl printcrds | kubectl apply --server-side -f -
 
-  # Remove the kjobctl CRDs
-  kjobctl printcrds | kubectl delete --ignore-not-found=true -f -
-  `
+		# Remove the kjobctl CRDs
+  		kjobctl printcrds | kubectl delete --ignore-not-found=true -f -
+	`)
 )
 
 //go:embed embed/manifest.gz

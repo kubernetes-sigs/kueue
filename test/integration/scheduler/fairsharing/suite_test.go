@@ -60,7 +60,8 @@ var _ = ginkgo.BeforeSuite(func() {
 		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
 	}
 	cfg = fwk.Init()
-	ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup)
+	ctx, k8sClient = fwk.SetupClient(cfg)
+	fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 })
 
 var _ = ginkgo.AfterSuite(func() {

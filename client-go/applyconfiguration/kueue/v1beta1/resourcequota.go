@@ -22,7 +22,7 @@ import (
 	resource "k8s.io/apimachinery/pkg/api/resource"
 )
 
-// ResourceQuotaApplyConfiguration represents an declarative configuration of the ResourceQuota type for use
+// ResourceQuotaApplyConfiguration represents a declarative configuration of the ResourceQuota type for use
 // with apply.
 type ResourceQuotaApplyConfiguration struct {
 	Name           *v1.ResourceName   `json:"name,omitempty"`
@@ -31,7 +31,7 @@ type ResourceQuotaApplyConfiguration struct {
 	LendingLimit   *resource.Quantity `json:"lendingLimit,omitempty"`
 }
 
-// ResourceQuotaApplyConfiguration constructs an declarative configuration of the ResourceQuota type for use with
+// ResourceQuotaApplyConfiguration constructs a declarative configuration of the ResourceQuota type for use with
 // apply.
 func ResourceQuota() *ResourceQuotaApplyConfiguration {
 	return &ResourceQuotaApplyConfiguration{}

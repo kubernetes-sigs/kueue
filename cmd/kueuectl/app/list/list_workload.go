@@ -31,11 +31,12 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
@@ -44,10 +45,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const (
-	wlLong    = `Lists Workloads that match the provided criteria.`
-	wlExample = `  # List Workload 
-  kueuectl list workload`
+var (
+	wlLong    = templates.LongDesc(`Lists Workloads that match the provided criteria.`)
+	wlExample = templates.Examples(`
+		# List Workload 
+  		kueuectl list workload
+	`)
 )
 
 const (
@@ -112,7 +115,7 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 
 	o.PrintFlags.AddFlags(cmd)
 
-	addAllNamespacesFlagVar(cmd, &o.AllNamespaces)
+	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)
@@ -128,7 +131,10 @@ func NewWorkloadCmd(clientGetter util.ClientGetter, streams genericiooptions.IOS
 }
 
 func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
-	var statusesFlags = util.FlagStringArray(cmd, "status")
+	statusesFlags, err := cmd.Flags().GetStringArray("status")
+	if err != nil {
+		return nil, err
+	}
 
 	statuses := sets.New[int]()
 
@@ -424,11 +430,11 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *v1beta1.Workloa
 	return localQueues, nil
 }
 
-func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.WorkloadList, localQueues map[string]*v1beta1.LocalQueue) (map[string]*v1alpha1.PendingWorkload, error) {
+func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.WorkloadList, localQueues map[string]*v1beta1.LocalQueue) (map[string]*visibility.PendingWorkload, error) {
 	var err error
 
-	pendingWorkloads := make(map[string]*v1alpha1.PendingWorkload)
-	pendingWorkloadsSummaries := make(map[string]*v1alpha1.PendingWorkloadsSummary)
+	pendingWorkloads := make(map[string]*visibility.PendingWorkload)
+	pendingWorkloadsSummaries := make(map[string]*visibility.PendingWorkloadsSummary)
 
 	for _, wl := range list.Items {
 		if !workloadPending(&wl) {
@@ -445,7 +451,7 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *v1beta1.Wo
 		}
 		pendingWorkloadsSummary, ok := pendingWorkloadsSummaries[clusterQueueName]
 		if !ok {
-			pendingWorkloadsSummary, err = o.ClientSet.VisibilityV1alpha1().ClusterQueues().
+			pendingWorkloadsSummary, err = o.ClientSet.VisibilityV1beta1().ClusterQueues().
 				GetPendingWorkloadsSummary(ctx, clusterQueueName, metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				return nil, err

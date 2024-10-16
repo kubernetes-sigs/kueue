@@ -41,13 +41,12 @@ import (
 )
 
 var (
-	cfg         *rest.Config
-	k8sClient   client.Client
-	ctx         context.Context
-	fwk         *framework.Framework
-	crdPath     = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	mpiCrdPath  = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "mpi-operator")
-	webhookPath = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
+	cfg        *rest.Config
+	k8sClient  client.Client
+	ctx        context.Context
+	fwk        *framework.Framework
+	crdPath    = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
+	mpiCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "mpi-operator")
 )
 
 func TestAPIs(t *testing.T) {
@@ -57,6 +56,20 @@ func TestAPIs(t *testing.T) {
 		"MPIJob Controller Suite",
 	)
 }
+
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{
+		CRDPath:     crdPath,
+		DepCRDPaths: []string{mpiCrdPath},
+	}
+
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {

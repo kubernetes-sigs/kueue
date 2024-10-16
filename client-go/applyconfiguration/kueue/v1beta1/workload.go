@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// WorkloadApplyConfiguration represents an declarative configuration of the Workload type for use
+// WorkloadApplyConfiguration represents a declarative configuration of the Workload type for use
 // with apply.
 type WorkloadApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
@@ -32,7 +32,7 @@ type WorkloadApplyConfiguration struct {
 	Status                           *WorkloadStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// Workload constructs an declarative configuration of the Workload type for use with
+// Workload constructs a declarative configuration of the Workload type for use with
 // apply.
 func Workload(name, namespace string) *WorkloadApplyConfiguration {
 	b := &WorkloadApplyConfiguration{}
@@ -215,4 +215,10 @@ func (b *WorkloadApplyConfiguration) WithSpec(value *WorkloadSpecApplyConfigurat
 func (b *WorkloadApplyConfiguration) WithStatus(value *WorkloadStatusApplyConfiguration) *WorkloadApplyConfiguration {
 	b.Status = value
 	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *WorkloadApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }

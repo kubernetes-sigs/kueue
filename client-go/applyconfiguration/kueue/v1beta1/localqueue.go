@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// LocalQueueApplyConfiguration represents an declarative configuration of the LocalQueue type for use
+// LocalQueueApplyConfiguration represents a declarative configuration of the LocalQueue type for use
 // with apply.
 type LocalQueueApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
@@ -32,7 +32,7 @@ type LocalQueueApplyConfiguration struct {
 	Status                           *LocalQueueStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// LocalQueue constructs an declarative configuration of the LocalQueue type for use with
+// LocalQueue constructs a declarative configuration of the LocalQueue type for use with
 // apply.
 func LocalQueue(name, namespace string) *LocalQueueApplyConfiguration {
 	b := &LocalQueueApplyConfiguration{}
@@ -215,4 +215,10 @@ func (b *LocalQueueApplyConfiguration) WithSpec(value *LocalQueueSpecApplyConfig
 func (b *LocalQueueApplyConfiguration) WithStatus(value *LocalQueueStatusApplyConfiguration) *LocalQueueApplyConfiguration {
 	b.Status = value
 	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *LocalQueueApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }

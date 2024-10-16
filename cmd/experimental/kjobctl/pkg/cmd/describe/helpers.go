@@ -13,7 +13,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
 package describe
 
 import (
@@ -21,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,6 +68,10 @@ func resourceFor(mode string) string {
 		return "pod"
 	}
 
+	if strings.EqualFold(mode, string(v1alpha1.SlurmMode)) {
+		return "job"
+	}
+
 	return strings.ToLower(mode)
 }
 
@@ -93,6 +97,17 @@ func gvkFor(mapper meta.RESTMapper, resource string) (schema.GroupVersionKind, e
 	}
 
 	return gvk, err
+}
+
+func sortMapKeys[T any](m map[string]T) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	return keys
 }
 
 // below functions copied from https://github.com/kubernetes/kubectl/blob/master/pkg/describe/describe.go

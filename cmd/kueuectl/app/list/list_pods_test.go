@@ -31,9 +31,6 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
-
-	kueuecmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
-
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -45,8 +42,9 @@ import (
 	"k8s.io/cli-runtime/pkg/resource"
 	restfake "k8s.io/client-go/rest/fake"
 	"k8s.io/utils/strings/slices"
-
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+
+	kueuecmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 )
 
 type podTestCase struct {
@@ -747,10 +745,6 @@ valid-pod-1   1/1     Running   0          <unknown>
 				return m
 			}()
 
-			tf := kueuecmdtesting.NewTestClientGetter()
-			tf.WithNamespace(metav1.NamespaceDefault)
-			tf.WithRESTMapper(mapper)
-
 			scheme, err := buildTestRuntimeScheme()
 			if err != nil {
 				t.Errorf("Unexpected error\n%s", err)
@@ -758,12 +752,17 @@ valid-pod-1   1/1     Running   0          <unknown>
 
 			codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
 
-			tf.UnstructuredClient, err = mockRESTClient(codec, tc)
+			restClient, err := mockRESTClient(codec, tc)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			cmd := NewPodCmd(tf, streams)
+			tcg := kueuecmdtesting.NewTestClientGetter().
+				WithNamespace(metav1.NamespaceDefault).
+				WithRESTMapper(mapper).
+				WithRESTClient(restClient)
+
+			cmd := NewPodCmd(tcg, streams)
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

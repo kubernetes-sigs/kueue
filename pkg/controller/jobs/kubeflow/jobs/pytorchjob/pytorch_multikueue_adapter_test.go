@@ -26,11 +26,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
@@ -75,7 +74,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			wantWorkerPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 		},
@@ -86,7 +85,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			workerPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -102,7 +101,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			wantWorkerPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
@@ -111,7 +110,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			workerPyTorchJobs: []kftraining.PyTorchJob{
 				*pyTorchJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Label(kueuealpha.MultiKueueOriginLabel, "origin1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {

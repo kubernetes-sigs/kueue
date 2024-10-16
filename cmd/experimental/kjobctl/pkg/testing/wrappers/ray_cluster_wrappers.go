@@ -22,9 +22,10 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
 // RayClusterWrapper wraps a RayCluster.
@@ -63,6 +64,11 @@ func (j *RayClusterWrapper) CreationTimestamp(t time.Time) *RayClusterWrapper {
 // Profile sets the profile label.
 func (j *RayClusterWrapper) Profile(v string) *RayClusterWrapper {
 	return j.Label(constants.ProfileLabel, v)
+}
+
+// Mode sets the profile label.
+func (j *RayClusterWrapper) Mode(v v1alpha1.ApplicationProfileMode) *RayClusterWrapper {
+	return j.Label(constants.ModeLabel, string(v))
 }
 
 // LocalQueue sets the localqueue label.
@@ -106,6 +112,12 @@ func (j *RayClusterWrapper) DesiredWorkerReplicas(desiredWorkerReplicas int32) *
 	return j
 }
 
+// ReadyWorkerReplicas set ReadyWorkerReplicas.
+func (j *RayClusterWrapper) ReadyWorkerReplicas(readyWorkerReplicas int32) *RayClusterWrapper {
+	j.RayCluster.Status.ReadyWorkerReplicas = readyWorkerReplicas
+	return j
+}
+
 // AvailableWorkerReplicas set AvailableWorkerReplicas.
 func (j *RayClusterWrapper) AvailableWorkerReplicas(availableWorkerReplicas int32) *RayClusterWrapper {
 	j.RayCluster.Status.AvailableWorkerReplicas = availableWorkerReplicas
@@ -130,8 +142,32 @@ func (j *RayClusterWrapper) DesiredGPU(desiredGPU resource.Quantity) *RayCluster
 	return j
 }
 
+// DesiredTPU set DesiredTPU.
+func (j *RayClusterWrapper) DesiredTPU(desiredTPU resource.Quantity) *RayClusterWrapper {
+	j.RayCluster.Status.DesiredTPU = desiredTPU
+	return j
+}
+
+// MinWorkerReplicas set MinWorkerReplicas.
+func (j *RayClusterWrapper) MinWorkerReplicas(minWorkerReplicas int32) *RayClusterWrapper {
+	j.RayCluster.Status.MinWorkerReplicas = minWorkerReplicas
+	return j
+}
+
+// MaxWorkerReplicas set MaxWorkerReplicas.
+func (j *RayClusterWrapper) MaxWorkerReplicas(maxWorkerReplicas int32) *RayClusterWrapper {
+	j.RayCluster.Status.MaxWorkerReplicas = maxWorkerReplicas
+	return j
+}
+
 // State set State.
 func (j *RayClusterWrapper) State(state rayv1.ClusterState) *RayClusterWrapper {
 	j.RayCluster.Status.State = state
+	return j
+}
+
+// Reason set Reason.
+func (j *RayClusterWrapper) Reason(reason string) *RayClusterWrapper {
+	j.RayCluster.Status.Reason = reason
 	return j
 }

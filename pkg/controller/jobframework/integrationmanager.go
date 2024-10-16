@@ -56,6 +56,9 @@ type ReconcilerFactory func(client client.Client, record record.EventRecorder, o
 type IntegrationCallbacks struct {
 	// NewJob creates a new instance of job
 	NewJob func() GenericJob
+	// GVK holds the schema information for the job
+	// (this callback is optional)
+	GVK schema.GroupVersionKind
 	// NewReconciler creates a new reconciler
 	NewReconciler ReconcilerFactory
 	// SetupWebhook sets up the framework's webhook with the controllers manager
@@ -265,11 +268,19 @@ func GetIntegration(name string) (IntegrationCallbacks, bool) {
 func GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, bool) {
 	for _, name := range manager.getList() {
 		integration, ok := GetIntegration(name)
-		if ok && gvk == integration.NewJob().GVK() {
+		if ok && matchingGVK(integration, gvk) {
 			return integration, true
 		}
 	}
 	return IntegrationCallbacks{}, false
+}
+
+func matchingGVK(integration IntegrationCallbacks, gvk schema.GroupVersionKind) bool {
+	if integration.NewJob != nil {
+		return gvk == integration.NewJob().GVK()
+	} else {
+		return gvk == integration.GVK
+	}
 }
 
 // GetIntegrationsList returns the list of currently registered frameworks.

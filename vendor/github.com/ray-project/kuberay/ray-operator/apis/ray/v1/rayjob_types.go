@@ -42,6 +42,7 @@ const (
 	JobDeploymentStatusSuspending   JobDeploymentStatus = "Suspending"
 	JobDeploymentStatusSuspended    JobDeploymentStatus = "Suspended"
 	JobDeploymentStatusRetrying     JobDeploymentStatus = "Retrying"
+	JobDeploymentStatusWaiting      JobDeploymentStatus = "Waiting"
 )
 
 // JobFailedReason indicates the reason the RayJob changes its JobDeploymentStatus to 'Failed'
@@ -58,6 +59,7 @@ type JobSubmissionMode string
 const (
 	K8sJobMode JobSubmissionMode = "K8sJobMode" // Submit job via Kubernetes Job
 	HTTPMode   JobSubmissionMode = "HTTPMode"   // Submit job via HTTP request
+	UserMode   JobSubmissionMode = "UserMode"   // Don't submit job in KubeRay. Instead, wait for user to submit job and provide the job submission ID
 )
 
 type SubmitterConfig struct {
@@ -86,7 +88,7 @@ type RayJobSpec struct {
 	SubmitterConfig *SubmitterConfig `json:"submitterConfig,omitempty"`
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	Entrypoint string `json:"entrypoint"`
+	Entrypoint string `json:"entrypoint,omitempty"`
 	// RuntimeEnvYAML represents the runtime environment configuration
 	// provided as a multi-line YAML string.
 	RuntimeEnvYAML string `json:"runtimeEnvYAML,omitempty"`

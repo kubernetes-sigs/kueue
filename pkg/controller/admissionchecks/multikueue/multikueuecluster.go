@@ -48,7 +48,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/maps"
@@ -186,7 +185,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) (
 
 func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList(), client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
+	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList(), client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
 		return err
 	}
@@ -241,7 +240,7 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.Name
 }
 
 func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
-	cluster := &kueuealpha.MultiKueueCluster{}
+	cluster := &kueue.MultiKueueCluster{}
 	if err := rc.localClient.Get(ctx, types.NamespacedName{Name: rc.clusterName}, cluster); err == nil {
 		rc.watchEndedCh <- event.GenericEvent{Object: cluster}
 	} else {
@@ -261,7 +260,7 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 	}
 
 	lst := &kueue.WorkloadList{}
-	err := rc.client.List(ctx, lst, client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
+	err := rc.client.List(ctx, lst, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
 		log.Error(err, "Listing remote workloads")
 		return
@@ -388,7 +387,7 @@ func (c *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) 
 }
 
 func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	cluster := &kueuealpha.MultiKueueCluster{}
+	cluster := &kueue.MultiKueueCluster{}
 	log := ctrl.LoggerFrom(ctx)
 
 	err := c.localClient.Get(ctx, req.NamespacedName, cluster)
@@ -425,8 +424,8 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	return reconcile.Result{}, c.updateStatus(ctx, cluster, true, "Active", "Connected")
 }
 
-func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueuealpha.KubeConfig) ([]byte, bool, error) {
-	if ref.LocationType == kueuealpha.SecretLocationType {
+func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeConfig) ([]byte, bool, error) {
+	if ref.LocationType == kueue.SecretLocationType {
 		return c.getKubeConfigFromSecret(ctx, ref.Location)
 	}
 	// Otherwise it's path
@@ -444,9 +443,9 @@ func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secret
 		return nil, !apierrors.IsNotFound(err), err
 	}
 
-	kconfigBytes, found := sec.Data[kueuealpha.MultiKueueConfigSecretKey]
+	kconfigBytes, found := sec.Data[kueue.MultiKueueConfigSecretKey]
 	if !found {
-		return nil, false, fmt.Errorf("key %q not found in secret %q", kueuealpha.MultiKueueConfigSecretKey, secretName)
+		return nil, false, fmt.Errorf("key %q not found in secret %q", kueue.MultiKueueConfigSecretKey, secretName)
 	}
 
 	return kconfigBytes, false, nil
@@ -457,9 +456,9 @@ func (c *clustersReconciler) getKubeConfigFromPath(path string) ([]byte, bool, e
 	return content, false, err
 }
 
-func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealpha.MultiKueueCluster, active bool, reason, message string) error {
+func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {
 	newCondition := metav1.Condition{
-		Type:               kueuealpha.MultiKueueClusterActive,
+		Type:               kueue.MultiKueueClusterActive,
 		Status:             metav1.ConditionFalse,
 		Reason:             reason,
 		Message:            message,
@@ -470,7 +469,7 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealp
 	}
 
 	// if the condition is up-to-date
-	oldCondition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueuealpha.MultiKueueClusterActive)
+	oldCondition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive)
 	if cmpConditionState(oldCondition, &newCondition) {
 		return nil
 	}
@@ -531,7 +530,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	syncHndl := handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: e.Object.GetName(),
 			}})
@@ -539,7 +538,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	fsWatcherHndl := handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			// batch the events
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
 				Name: e.Object.GetName(),
@@ -550,8 +549,8 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	filterLog := mgr.GetLogger().WithName("MultiKueueCluster filter")
 	filter := predicate.Funcs{
 		CreateFunc: func(ce event.CreateEvent) bool {
-			if cluster, isCluster := ce.Object.(*kueuealpha.MultiKueueCluster); isCluster {
-				if cluster.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+			if cluster, isCluster := ce.Object.(*kueue.MultiKueueCluster); isCluster {
+				if cluster.Spec.KubeConfig.LocationType == kueue.PathLocationType {
 					err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.KubeConfig.Location)
 					if err != nil {
 						filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(cluster))
@@ -561,20 +560,20 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 			return true
 		},
 		UpdateFunc: func(ue event.UpdateEvent) bool {
-			clusterNew, isClusterNew := ue.ObjectNew.(*kueuealpha.MultiKueueCluster)
-			clusterOld, isClusterOld := ue.ObjectOld.(*kueuealpha.MultiKueueCluster)
+			clusterNew, isClusterNew := ue.ObjectNew.(*kueue.MultiKueueCluster)
+			clusterOld, isClusterOld := ue.ObjectOld.(*kueue.MultiKueueCluster)
 			if !isClusterNew || !isClusterOld {
 				return true
 			}
 
-			if clusterNew.Spec.KubeConfig.LocationType == kueuealpha.SecretLocationType && clusterOld.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+			if clusterNew.Spec.KubeConfig.LocationType == kueue.SecretLocationType && clusterOld.Spec.KubeConfig.LocationType == kueue.PathLocationType {
 				err := c.fsWatcher.Remove(clusterOld.Name)
 				if err != nil {
 					filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(clusterOld))
 				}
 			}
 
-			if clusterNew.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+			if clusterNew.Spec.KubeConfig.LocationType == kueue.PathLocationType {
 				err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.KubeConfig.Location)
 				if err != nil {
 					filterLog.Error(err, "AddOrUpdate FS watch", "cluster", klog.KObj(clusterNew))
@@ -583,8 +582,8 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 			return true
 		},
 		DeleteFunc: func(de event.DeleteEvent) bool {
-			if cluster, isCluster := de.Object.(*kueuealpha.MultiKueueCluster); isCluster {
-				if cluster.Spec.KubeConfig.LocationType == kueuealpha.PathLocationType {
+			if cluster, isCluster := de.Object.(*kueue.MultiKueueCluster); isCluster {
+				if cluster.Spec.KubeConfig.LocationType == kueue.PathLocationType {
 					err := c.fsWatcher.Remove(cluster.Name)
 					if err != nil {
 						filterLog.Error(err, "Remove FS watch", "cluster", klog.KObj(cluster))
@@ -596,10 +595,10 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueuealpha.MultiKueueCluster{}).
+		For(&kueue.MultiKueueCluster{}).
 		Watches(&corev1.Secret{}, &secretHandler{client: c.localClient}).
-		WatchesRawSource(&source.Channel{Source: c.watchEndedCh}, syncHndl).
-		WatchesRawSource(&source.Channel{Source: c.fsWatcher.reconcile}, fsWatcherHndl).
+		WatchesRawSource(source.Channel(c.watchEndedCh, syncHndl)).
+		WatchesRawSource(source.Channel(c.fsWatcher.reconcile, fsWatcherHndl)).
 		WithEventFilter(filter).
 		Complete(c)
 }
@@ -610,7 +609,7 @@ type secretHandler struct {
 
 var _ handler.EventHandler = (*secretHandler)(nil)
 
-func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	secret, isSecret := event.Object.(*corev1.Secret)
 	if !isSecret {
 		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on create event")
@@ -621,7 +620,7 @@ func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q w
 	}
 }
 
-func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	secret, isSecret := event.ObjectNew.(*corev1.Secret)
 	if !isSecret {
 		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on update event")
@@ -632,7 +631,7 @@ func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q w
 	}
 }
 
-func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	secret, isSecret := event.Object.(*corev1.Secret)
 	if !isSecret {
 		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on delete event")
@@ -643,7 +642,7 @@ func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q w
 	}
 }
 
-func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	secret, isSecret := event.Object.(*corev1.Secret)
 	if !isSecret {
 		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on generic event")
@@ -654,8 +653,8 @@ func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q
 	}
 }
 
-func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q workqueue.RateLimitingInterface) error {
-	users := &kueuealpha.MultiKueueClusterList{}
+func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+	users := &kueue.MultiKueueClusterList{}
 	if err := s.client.List(ctx, users, client.MatchingFields{UsingKubeConfigs: strings.Join([]string{secret.Namespace, secret.Name}, "/")}); err != nil {
 		return err
 	}

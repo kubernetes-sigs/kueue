@@ -1,6 +1,6 @@
 ---
 title: "Pending workloads in Status"
-date: 2023-09-27
+date: 2024-09-23
 weight: 3
 description: >
   Obtain the pending workloads in ClusterQueue and LocalQueue statuses.
@@ -28,7 +28,12 @@ QueueVisibility is an `Alpha` feature disabled by default, check the [Change the
 
 ## Monitor pending workloads
 
-{{< feature-state state="alpha" for_version="v0.5" >}}
+{{< feature-state state="deprecated" for_version="v0.9" >}}
+
+{{% alert title="Warning" color="warning" %}}
+This feature is deprecated and will be deleted on v1beta2. 
+Please use [Pending Workloads on-demand](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/) instead.
+{{% /alert %}}
 
 To install a simple setup of cluster queue, run the following command:
 

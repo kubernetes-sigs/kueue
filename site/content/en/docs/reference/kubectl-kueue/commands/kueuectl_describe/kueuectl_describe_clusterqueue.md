@@ -7,13 +7,13 @@ no_list: false
 
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/hack/internal/tools/kueuectl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
 -->
 
 ## Synopsis
 
 
-Pass-through &#34;describe  {clusterqueue [cq]}&#34; to kubectl
+Pass-through &#34;describe clusterqueue&#34; to kubectl
 
 ```
 kueuectl describe clusterqueue [flags]
@@ -219,5 +219,5 @@ kueuectl describe clusterqueue [flags]
 
 ## See Also
 
-* [kueuectl describe](../)	 - Pass-through &#34;describe&#34; to kubectl
+* [kueuectl describe](../)	 - Show details of a resource
 

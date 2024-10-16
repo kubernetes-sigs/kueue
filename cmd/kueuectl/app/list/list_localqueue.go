@@ -25,6 +25,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -34,12 +35,16 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	lqLong = `Lists LocalQueues that match the given criteria: point to a specific CQ, 
-being active/inactive, belonging to the specified namespace, matching 
-the label selector or the field selector.`
-	lqExample = `  # List LocalQueue
-  kueuectl list localqueue`
+var (
+	lqLong = templates.LongDesc(`
+		Lists LocalQueues that match the given criteria: point to a specific CQ, 
+		being active/inactive, belonging to the specified namespace, matching 
+		the label selector or the field selector.
+	`)
+	lqExample = templates.Examples(`
+		# List LocalQueue
+  		kueuectl list localqueue
+	`)
 )
 
 type LocalQueueOptions struct {
@@ -89,7 +94,7 @@ func NewLocalQueueCmd(clientGetter util.ClientGetter, streams genericiooptions.I
 
 	o.PrintFlags.AddFlags(cmd)
 
-	addAllNamespacesFlagVar(cmd, &o.AllNamespaces)
+	util.AddAllNamespacesFlagVar(cmd, &o.AllNamespaces)
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)

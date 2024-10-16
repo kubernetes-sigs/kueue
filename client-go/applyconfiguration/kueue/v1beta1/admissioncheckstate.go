@@ -22,7 +22,7 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// AdmissionCheckStateApplyConfiguration represents an declarative configuration of the AdmissionCheckState type for use
+// AdmissionCheckStateApplyConfiguration represents a declarative configuration of the AdmissionCheckState type for use
 // with apply.
 type AdmissionCheckStateApplyConfiguration struct {
 	Name               *string                          `json:"name,omitempty"`
@@ -32,7 +32,7 @@ type AdmissionCheckStateApplyConfiguration struct {
 	PodSetUpdates      []PodSetUpdateApplyConfiguration `json:"podSetUpdates,omitempty"`
 }
 
-// AdmissionCheckStateApplyConfiguration constructs an declarative configuration of the AdmissionCheckState type for use with
+// AdmissionCheckStateApplyConfiguration constructs a declarative configuration of the AdmissionCheckState type for use with
 // apply.
 func AdmissionCheckState() *AdmissionCheckStateApplyConfiguration {
 	return &AdmissionCheckStateApplyConfiguration{}

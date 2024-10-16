@@ -17,13 +17,13 @@ limitations under the License.
 
 package v1beta1
 
-// FairSharingStatusApplyConfiguration represents an declarative configuration of the FairSharingStatus type for use
+// FairSharingStatusApplyConfiguration represents a declarative configuration of the FairSharingStatus type for use
 // with apply.
 type FairSharingStatusApplyConfiguration struct {
 	WeightedShare *int64 `json:"weightedShare,omitempty"`
 }
 
-// FairSharingStatusApplyConfiguration constructs an declarative configuration of the FairSharingStatus type for use with
+// FairSharingStatusApplyConfiguration constructs a declarative configuration of the FairSharingStatus type for use with
 // apply.
 func FairSharingStatus() *FairSharingStatusApplyConfiguration {
 	return &FairSharingStatusApplyConfiguration{}

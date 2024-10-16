@@ -1,6 +1,6 @@
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->
 
 # kjobctl printcrds
@@ -19,12 +19,11 @@ kjobctl printcrds [flags]
 ## Examples
 
 ```
-  # Install or update the kjobctl CRDs 
+  # Install or update the kjobctl CRDs
   kjobctl printcrds | kubectl apply --server-side -f -
-
+  
   # Remove the kjobctl CRDs
   kjobctl printcrds | kubectl delete --ignore-not-found=true -f -
-  
 ```
 
 

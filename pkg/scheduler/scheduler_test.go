@@ -67,11 +67,11 @@ type multiplePreemptionsCompatibility int
 
 func (mode multiplePreemptionsCompatibility) runTest(baseName string, t *testing.T, f func(t *testing.T)) {
 	if mode == Both || mode == Legacy {
-		defer features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, false)()
+		features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, false)
 		t.Run(baseName+" LegacyMode", f)
 	}
 	if mode == Both || mode == MultiplePremptions {
-		defer features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, true)()
+		features.SetFeatureGateDuringTest(t, features.MultiplePreemptions, true)
 		t.Run(baseName+" MultiplePreemptionsMode", f)
 	}
 }
@@ -1230,6 +1230,46 @@ func TestSchedule(t *testing.T) {
 					Queue("main").
 					Priority(4).
 					PodSets(*utiltesting.MakePodSet("one", 20).
+						SetMinimumCount(10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("old", "eng-beta").
+					Priority(-4).
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta", "one").Assignment("example.com/gpu", "model-a", "10").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-beta/old": {
+					ClusterQueue: "eng-beta",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								"example.com/gpu": "model-a",
+							},
+							ResourceUsage: corev1.ResourceList{
+								"example.com/gpu": resource.MustParse("10"),
+							},
+							Count: ptr.To[int32](10),
+						},
+					},
+				},
+			},
+			wantPreempted: sets.New("eng-beta/old"),
+			wantLeft: map[string][]string{
+				"eng-beta": {"eng-beta/new"},
+			},
+		},
+		"partial admission single variable pod set, preempt with partial admission": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Priority(4).
+					PodSets(*utiltesting.MakePodSet("one", 30).
 						SetMinimumCount(10).
 						Request("example.com/gpu", "1").
 						Obj()).
@@ -2563,10 +2603,10 @@ func TestSchedule(t *testing.T) {
 		tc.multiplePreemptions.runTest(name, t, func(t *testing.T) {
 			metrics.AdmissionCyclePreemptionSkips.Reset()
 			if tc.disableLendingLimit {
-				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, false)()
+				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
 			if tc.disablePartialAdmission {
-				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)()
+				features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -2958,7 +2998,7 @@ func TestEntryOrdering(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Cleanup(features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting))
+			features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting)
 			sort.Sort(entryOrdering{
 				entries:          tc.input,
 				workloadOrdering: tc.workloadOrdering},

@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -129,7 +130,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
 		})
 
-		ginkgo.It("the workload should have appropriate AdditionalChecks added", func() {
+		ginkgo.It("the workload should have appropriate AdditionalChecks added", framework.SlowSpec, func() {
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue("queue").
 				Request(resourceGPU, "3").

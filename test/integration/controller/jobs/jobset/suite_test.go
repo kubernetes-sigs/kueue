@@ -46,7 +46,6 @@ var (
 	fwk           *framework.Framework
 	crdPath       = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
 	jobsetCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "jobset-operator")
-	webhookPath   = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
 )
 
 func TestAPIs(t *testing.T) {
@@ -56,6 +55,19 @@ func TestAPIs(t *testing.T) {
 		"JobSet Controller Suite",
 	)
 }
+
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{
+		CRDPath:     crdPath,
+		DepCRDPaths: []string{jobsetCrdPath},
+	}
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {

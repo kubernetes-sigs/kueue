@@ -19,14 +19,11 @@ package v1alpha1
 
 import (
 	"context"
-	json "encoding/json"
-	"fmt"
-	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	rest "k8s.io/client-go/rest"
+	gentype "k8s.io/client-go/gentype"
 	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1alpha1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -56,163 +53,27 @@ type LocalQueueInterface interface {
 
 // localQueues implements LocalQueueInterface
 type localQueues struct {
-	client rest.Interface
-	ns     string
+	*gentype.ClientWithListAndApply[*v1alpha1.LocalQueue, *v1alpha1.LocalQueueList, *visibilityv1alpha1.LocalQueueApplyConfiguration]
 }
 
 // newLocalQueues returns a LocalQueues
 func newLocalQueues(c *VisibilityV1alpha1Client, namespace string) *localQueues {
 	return &localQueues{
-		client: c.RESTClient(),
-		ns:     namespace,
+		gentype.NewClientWithListAndApply[*v1alpha1.LocalQueue, *v1alpha1.LocalQueueList, *visibilityv1alpha1.LocalQueueApplyConfiguration](
+			"localqueues",
+			c.RESTClient(),
+			scheme.ParameterCodec,
+			namespace,
+			func() *v1alpha1.LocalQueue { return &v1alpha1.LocalQueue{} },
+			func() *v1alpha1.LocalQueueList { return &v1alpha1.LocalQueueList{} }),
 	}
-}
-
-// Get takes name of the localQueue, and returns the corresponding localQueue object, and an error if there is any.
-func (c *localQueues) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.LocalQueue, err error) {
-	result = &v1alpha1.LocalQueue{}
-	err = c.client.Get().
-		Namespace(c.ns).
-		Resource("localqueues").
-		Name(name).
-		VersionedParams(&options, scheme.ParameterCodec).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// List takes label and field selectors, and returns the list of LocalQueues that match those selectors.
-func (c *localQueues) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.LocalQueueList, err error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	result = &v1alpha1.LocalQueueList{}
-	err = c.client.Get().
-		Namespace(c.ns).
-		Resource("localqueues").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Watch returns a watch.Interface that watches the requested localQueues.
-func (c *localQueues) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	opts.Watch = true
-	return c.client.Get().
-		Namespace(c.ns).
-		Resource("localqueues").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Watch(ctx)
-}
-
-// Create takes the representation of a localQueue and creates it.  Returns the server's representation of the localQueue, and an error, if there is any.
-func (c *localQueues) Create(ctx context.Context, localQueue *v1alpha1.LocalQueue, opts v1.CreateOptions) (result *v1alpha1.LocalQueue, err error) {
-	result = &v1alpha1.LocalQueue{}
-	err = c.client.Post().
-		Namespace(c.ns).
-		Resource("localqueues").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(localQueue).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Update takes the representation of a localQueue and updates it. Returns the server's representation of the localQueue, and an error, if there is any.
-func (c *localQueues) Update(ctx context.Context, localQueue *v1alpha1.LocalQueue, opts v1.UpdateOptions) (result *v1alpha1.LocalQueue, err error) {
-	result = &v1alpha1.LocalQueue{}
-	err = c.client.Put().
-		Namespace(c.ns).
-		Resource("localqueues").
-		Name(localQueue.Name).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(localQueue).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Delete takes name of the localQueue and deletes it. Returns an error if one occurs.
-func (c *localQueues) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	return c.client.Delete().
-		Namespace(c.ns).
-		Resource("localqueues").
-		Name(name).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *localQueues) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	var timeout time.Duration
-	if listOpts.TimeoutSeconds != nil {
-		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
-	}
-	return c.client.Delete().
-		Namespace(c.ns).
-		Resource("localqueues").
-		VersionedParams(&listOpts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// Patch applies the patch and returns the patched localQueue.
-func (c *localQueues) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.LocalQueue, err error) {
-	result = &v1alpha1.LocalQueue{}
-	err = c.client.Patch(pt).
-		Namespace(c.ns).
-		Resource("localqueues").
-		Name(name).
-		SubResource(subresources...).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Apply takes the given apply declarative configuration, applies it and returns the applied localQueue.
-func (c *localQueues) Apply(ctx context.Context, localQueue *visibilityv1alpha1.LocalQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1alpha1.LocalQueue, err error) {
-	if localQueue == nil {
-		return nil, fmt.Errorf("localQueue provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(localQueue)
-	if err != nil {
-		return nil, err
-	}
-	name := localQueue.Name
-	if name == nil {
-		return nil, fmt.Errorf("localQueue.Name must be provided to Apply")
-	}
-	result = &v1alpha1.LocalQueue{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
-		Resource("localqueues").
-		Name(*name).
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
 }
 
 // GetPendingWorkloadsSummary takes name of the localQueue, and returns the corresponding v1alpha1.PendingWorkloadsSummary object, and an error if there is any.
 func (c *localQueues) GetPendingWorkloadsSummary(ctx context.Context, localQueueName string, options v1.GetOptions) (result *v1alpha1.PendingWorkloadsSummary, err error) {
 	result = &v1alpha1.PendingWorkloadsSummary{}
-	err = c.client.Get().
-		Namespace(c.ns).
+	err = c.GetClient().Get().
+		Namespace(c.GetNamespace()).
 		Resource("localqueues").
 		Name(localQueueName).
 		SubResource("pendingworkloads").

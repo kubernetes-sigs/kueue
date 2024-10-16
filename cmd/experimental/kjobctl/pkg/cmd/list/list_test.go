@@ -32,6 +32,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	testingclock "k8s.io/utils/clock/testing"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
@@ -53,6 +54,7 @@ func TestListCmd(t *testing.T) {
 			k8sObjs: []runtime.Object{
 				wrappers.MakeJob("j1", "ns1").
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
@@ -62,6 +64,36 @@ func TestListCmd(t *testing.T) {
 					Obj(),
 				wrappers.MakeJob("j2", "ns2").
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
+					LocalQueue("lq1").
+					Completions(3).
+					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Succeeded(3).
+					Obj(),
+			},
+			wantOut: `NAMESPACE   NAME   PROFILE    LOCAL QUEUE   COMPLETIONS   DURATION   AGE
+ns1         j1     profile1   lq1           3/3           60m        60m
+ns2         j2     profile2   lq1           3/3           60m        60m
+`,
+		},
+		"should print slurm job list with all namespaces": {
+			args: []string{"slurm", "--all-namespaces"},
+			k8sObjs: []runtime.Object{
+				wrappers.MakeJob("j1", "ns1").
+					Profile("profile1").
+					Mode(v1alpha1.SlurmMode).
+					LocalQueue("lq1").
+					Completions(3).
+					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Succeeded(3).
+					Obj(),
+				wrappers.MakeJob("j2", "ns2").
+					Profile("profile2").
+					Mode(v1alpha1.SlurmMode).
 					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).

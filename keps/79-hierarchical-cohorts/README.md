@@ -9,6 +9,7 @@
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
+  - [Notes](#notes)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Test Plan](#test-plan)
@@ -90,6 +91,22 @@ borrow unused capacity from any of the organizations.
 
 With this proposal, the cohorts for organizations will set borrowingLimit to 0. Top level Cohort will 
 contain all of these Cohorts, plus the "special" ClusterQueue, with borrowingLimit set to infinity. 
+
+### Notes
+
+As Cohorts do not have finalizers, Cohort's deletion will be processed
+immediately. If this Cohort is referenced by any Cohorts or ClusterQueues, the
+deleted Cohort will still exist in Kueue, but will no longer provide any
+resources of its own nor have a parent Cohort.
+
+This immediate deletion could result the tree suddenly losing capacity, which,
+depending on configuration, may result in preemptions. Fixing this is
+not as simple as just adding finalizers - non-deletions (nodes changing parents
+or resources) may trigger this capacity loss as well.  We may consider
+preventing a node from making a change which would result invalid balances -
+perhaps by requiring cordoning or draining some part of the tree before the
+change is executed. This requires further consideration and will not be included
+in the initial implementation.
 
 ### Risks and Mitigations
 
@@ -246,4 +263,4 @@ and quotas it may be hard for users to keep them under control.
 
 ## Alternatives
 
-* https://github.com/kubernetes-sigs/kueue/pull/1093 - Hierarchical ClusterQueues. 
+* https://github.com/kubernetes-sigs/kueue/pull/1093 - Hierarchical ClusterQueues.

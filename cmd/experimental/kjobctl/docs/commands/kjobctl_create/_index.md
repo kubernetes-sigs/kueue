@@ -1,6 +1,6 @@
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->
 
 # kjobctl create
@@ -15,41 +15,41 @@ Create a task
 ## Examples
 
 ```
-  # Create job 
-  kjobctl create job \ 
-	--profile my-application-profile  \
-	--cmd &#34;sleep 5&#34; \
-	--parallelism 4 \
-	--completions 4 \ 
-	--request cpu=500m,ram=4Gi \
-	--localqueue my-local-queue-name
+  # Create job
+  kjobctl create job \
+  --profile my-application-profile \
+  --cmd "sleep 5" \
+  --parallelism 4 \
+  --completions 4 \
+  --request cpu=500m,memory=4Gi \
+  --localqueue my-local-queue-name
 
-  # Create interactive 
-  kjobctl create interactive \ 
-	--profile my-application-profile  \
-	--pod-running-timeout 30s \
-	--rm
+  # Create interactive
+  kjobctl create interactive \
+  --profile my-application-profile  \
+  --pod-running-timeout 30s \
+  --rm
 
-  # Create rayjob 
-  kjobctl create rayjob \ 
-	--profile my-application-profile  \
-	--cmd &#34;python /home/ray/samples/sample_code.py&#34; \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \ 
-	--max-replicas small-group=5 \ 
-	--localqueue my-local-queue-name
+  # Create rayjob
+  kjobctl create rayjob \
+  --profile my-application-profile \
+  --cmd "python /home/ray/samples/sample_code.py" \
+  --replicas small-group=1 \
+  --min-replicas small-group=1 \
+  --max-replicas small-group=5 \
+  --localqueue my-local-queue-name
 
-  # Create raycluster 
-  kjobctl create raycluster \ 
-	--profile my-application-profile  \
-	--replicas small-group=1 \
-	--min-replicas small-group=1 \ 
-	--max-replicas small-group=5 \ 
-	--localqueue my-local-queue-name
+  # Create raycluster
+  kjobctl create raycluster \
+  --profile my-application-profile \
+  --replicas small-group=1 \
+  --min-replicas small-group=1 \
+  --max-replicas small-group=5 \
+  --localqueue my-local-queue-name
 
-  # Create slurm 
+  # Create slurm
   kjobctl create slurm --profile my-application-profile -- \
-	--array 0-5 --nodes 3 --ntasks 1 ./script.sh
+  --array 0-5 --nodes 3 --ntasks 1 ./script.sh
 ```
 
 

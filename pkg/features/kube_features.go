@@ -39,6 +39,7 @@ const (
 	// owner: @stuton
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/168-pending-workloads-visibility
 	// alpha: v0.5
+	// Deprecated: v0.9
 	//
 	// Enables queue visibility.
 	QueueVisibility featuregate.Feature = "QueueVisibility"
@@ -60,6 +61,7 @@ const (
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/pull/1300
 	// alpha: v0.6
+	// beta: v0.9
 	//
 	// Enables Kueue visibility on demand
 	VisibilityOnDemand featuregate.Feature = "VisibilityOnDemand"
@@ -74,6 +76,7 @@ const (
 	// owner: @trasc
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	// alpha: v0.6
+	// beta: v0.9
 	//
 	// Enables MultiKueue support.
 	MultiKueue featuregate.Feature = "MultiKueue"
@@ -99,6 +102,13 @@ const (
 	// Enable more than one workload sharing flavors to preempt within a Cohort,
 	// as long as the preemption targets don't overlap.
 	MultiplePreemptions featuregate.Feature = "MultiplePreemptions"
+
+	// owner: @mimowo
+	// alpha: v0.9
+	//
+	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
+	// to put them on closely located nodes (e.g. within the same rack or block).
+	TopologyAwareScheduling featuregate.Feature = "TopologyAwareScheduling"
 )
 
 func init() {
@@ -116,16 +126,17 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	QueueVisibility:                 {Default: false, PreRelease: featuregate.Alpha},
 	FlavorFungibility:               {Default: true, PreRelease: featuregate.Beta},
 	ProvisioningACC:                 {Default: true, PreRelease: featuregate.Beta},
-	VisibilityOnDemand:              {Default: false, PreRelease: featuregate.Alpha},
+	VisibilityOnDemand:              {Default: true, PreRelease: featuregate.Beta},
 	PrioritySortingWithinCohort:     {Default: true, PreRelease: featuregate.Beta},
-	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
+	MultiKueue:                      {Default: true, PreRelease: featuregate.Beta},
 	LendingLimit:                    {Default: true, PreRelease: featuregate.Beta},
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
 	MultiplePreemptions:             {Default: true, PreRelease: featuregate.Beta},
+	TopologyAwareScheduling:         {Default: false, PreRelease: featuregate.Alpha},
 }
 
-func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {
-	return featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
+func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
+	featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
 }
 
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`

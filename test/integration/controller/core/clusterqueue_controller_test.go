@@ -84,12 +84,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
+
 	ginkgo.AfterAll(func() {
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -151,7 +150,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		})
 
-		ginkgo.It("Should update status and report metrics when workloads are assigned and finish", func() {
+		ginkgo.It("Should update status and report metrics when workloads are assigned and finish", framework.SlowSpec, func() {
 			workloads := []*kueue.Workload{
 				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
@@ -201,7 +200,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "FlavorNotFound",
-						Message: "Can't admit new workloads: FlavorNotFound",
+						Message: "Can't admit new workloads: references missing ResourceFlavor(s): [on-demand spot model-a model-b].",
 					},
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
@@ -384,7 +383,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "FlavorNotFound",
-						Message: "Can't admit new workloads: FlavorNotFound",
+						Message: "Can't admit new workloads: references missing ResourceFlavor(s): [on-demand spot model-a model-b].",
 					},
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
@@ -410,7 +409,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "FlavorNotFound",
-						Message: "Can't admit new workloads: FlavorNotFound",
+						Message: "Can't admit new workloads: references missing ResourceFlavor(s): [on-demand spot model-a model-b].",
 					},
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration, ignorePendingWorkloadsStatus))
@@ -418,7 +417,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 		})
 
-		ginkgo.It("Should update status when workloads have reclaimable pods", func() {
+		ginkgo.It("Should update status when workloads have reclaimable pods", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceFlavors", func() {
 				onDemandFlavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
 				gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
@@ -652,7 +651,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads: FlavorNotFound",
+					Message: "Can't admit new workloads: references missing ResourceFlavor(s): [arch-a arch-b].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -668,7 +667,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads: FlavorNotFound",
+					Message: "Can't admit new workloads: references missing ResourceFlavor(s): [arch-b].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -706,8 +705,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				{
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
-					Reason:  "CheckNotFoundOrInactive",
-					Message: "Can't admit new workloads: CheckNotFoundOrInactive",
+					Reason:  "AdmissionCheckNotFound",
+					Message: "Can't admit new workloads: references missing AdmissionCheck(s): [check1 check2].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -723,8 +722,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				{
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
-					Reason:  "CheckNotFoundOrInactive",
-					Message: "Can't admit new workloads: CheckNotFoundOrInactive",
+					Reason:  "AdmissionCheckNotFound",
+					Message: "Can't admit new workloads: references missing AdmissionCheck(s): [check2].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -739,8 +738,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				{
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
-					Reason:  "CheckNotFoundOrInactive",
-					Message: "Can't admit new workloads: CheckNotFoundOrInactive",
+					Reason:  "AdmissionCheckInactive",
+					Message: "Can't admit new workloads: references inactive AdmissionCheck(s): [check2].",
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -840,12 +839,11 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 		ginkgo.By("Enabling queue visibility feature", func() {
 			gomega.Expect(features.SetEnable(features.QueueVisibility, true)).To(gomega.Succeed())
 		})
-		fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
+
 	ginkgo.AfterAll(func() {
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -888,7 +886,7 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", func() {
+		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", framework.SlowSpec, func() {
 			const lowPrio, midLowerPrio, midHigherPrio, highPrio = 0, 10, 20, 100
 			workloadsFirstBatch := []*kueue.Workload{
 				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).Priority(highPrio).

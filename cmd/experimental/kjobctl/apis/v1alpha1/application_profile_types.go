@@ -55,6 +55,7 @@ const (
 	GpusPerTaskFlag Flag = "gpus-per-task"
 	InputFlag       Flag = "input"
 	JobNameFlag     Flag = "job-name"
+	MemPerNodeFlag  Flag = "mem"
 	MemPerCPUFlag   Flag = "mem-per-cpu"
 	MemPerGPUFlag   Flag = "mem-per-gpu"
 	MemPerTaskFlag  Flag = "mem-per-task"
@@ -62,6 +63,7 @@ const (
 	NTasksFlag      Flag = "ntasks"
 	OutputFlag      Flag = "output"
 	PartitionFlag   Flag = "partition"
+	PriorityFlag    Flag = "priority"
 )
 
 // TemplateReference is the name of the template.
@@ -83,6 +85,7 @@ type TemplateReference string
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('gpus-per-task' in self.requiredFlags) || self.name == 'Slurm'", message="gpus-per-task flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('input' in self.requiredFlags) || self.name == 'Slurm'", message="input flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('job-name' in self.requiredFlags) || self.name == 'Slurm'", message="job-name flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('mem' in self.requiredFlags) || self.name == 'Slurm'", message="mem flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('mem-per-cpu' in self.requiredFlags) || self.name == 'Slurm'", message="mem-per-cpu flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('mem-per-gpu' in self.requiredFlags) || self.name == 'Slurm'", message="mem-per-gpu flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('mem-per-task' in self.requiredFlags) || self.name == 'Slurm'", message="mem-per-task flag can be used only on Slurm mode"
@@ -90,6 +93,7 @@ type TemplateReference string
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('ntasks' in self.requiredFlags) || self.name == 'Slurm'", message="ntasks flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('output' in self.requiredFlags) || self.name == 'Slurm'", message="output flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('partition' in self.requiredFlags) || self.name == 'Slurm'", message="partition flag can be used only on Slurm mode"
+// +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || !('priority' in self.requiredFlags) || self.name == 'Slurm'", message="priority flag can be used only on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || !('parallelism' in self.requiredFlags)", message="parallelism flag can't be used on Slurm mode"
 // +kubebuilder:validation:XValidation:rule="!has(self.requiredFlags) || self.name != 'Slurm' || !('completions' in self.requiredFlags)", message="completions flag can't be used on Slurm mode"
 type SupportedMode struct {
@@ -118,14 +122,14 @@ type SupportedMode struct {
 	// The request flag used only for Interactive and Job modes.
 	// The cmd flag used only for Interactive, Job, and RayJob.
 	// If the raycluster flag are set, none of localqueue, replicas, min-replicas, or max-replicas can be set.
-	// For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem-per-cpu,
-	// mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue.
+	// For the Slurm mode, the possible values are: array, cpus-per-task, error, gpus-per-task, input, job-name, mem, mem-per-cpu,
+	// mem-per-gpu, mem-per-task, nodes, ntasks, output, partition, localqueue, priority.
 	//
 	// cmd and requests values are going to be added only to the first primary container.
 	//
 	// +optional
 	// +listType=set
-	// +kubebuilder:validation:MaxItems=12
+	// +kubebuilder:validation:MaxItems=13
 	RequiredFlags []Flag `json:"requiredFlags,omitempty"`
 }
 

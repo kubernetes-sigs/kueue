@@ -21,14 +21,14 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// FlavorQuotasApplyConfiguration represents an declarative configuration of the FlavorQuotas type for use
+// FlavorQuotasApplyConfiguration represents a declarative configuration of the FlavorQuotas type for use
 // with apply.
 type FlavorQuotasApplyConfiguration struct {
 	Name      *v1beta1.ResourceFlavorReference  `json:"name,omitempty"`
 	Resources []ResourceQuotaApplyConfiguration `json:"resources,omitempty"`
 }
 
-// FlavorQuotasApplyConfiguration constructs an declarative configuration of the FlavorQuotas type for use with
+// FlavorQuotasApplyConfiguration constructs a declarative configuration of the FlavorQuotas type for use with
 // apply.
 func FlavorQuotas() *FlavorQuotasApplyConfiguration {
 	return &FlavorQuotasApplyConfiguration{}

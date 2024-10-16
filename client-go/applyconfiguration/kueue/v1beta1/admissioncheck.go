@@ -23,7 +23,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// AdmissionCheckApplyConfiguration represents an declarative configuration of the AdmissionCheck type for use
+// AdmissionCheckApplyConfiguration represents a declarative configuration of the AdmissionCheck type for use
 // with apply.
 type AdmissionCheckApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
@@ -32,7 +32,7 @@ type AdmissionCheckApplyConfiguration struct {
 	Status                           *AdmissionCheckStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// AdmissionCheck constructs an declarative configuration of the AdmissionCheck type for use with
+// AdmissionCheck constructs a declarative configuration of the AdmissionCheck type for use with
 // apply.
 func AdmissionCheck(name string) *AdmissionCheckApplyConfiguration {
 	b := &AdmissionCheckApplyConfiguration{}
@@ -214,4 +214,10 @@ func (b *AdmissionCheckApplyConfiguration) WithSpec(value *AdmissionCheckSpecApp
 func (b *AdmissionCheckApplyConfiguration) WithStatus(value *AdmissionCheckStatusApplyConfiguration) *AdmissionCheckApplyConfiguration {
 	b.Status = value
 	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *AdmissionCheckApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }

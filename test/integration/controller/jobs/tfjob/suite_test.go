@@ -45,7 +45,7 @@ var (
 	ctx               context.Context
 	fwk               *framework.Framework
 	crdPath           = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	tensorflowCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "training-operator")
+	tensorflowCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "training-operator-crds")
 )
 
 func TestAPIs(t *testing.T) {
@@ -55,6 +55,19 @@ func TestAPIs(t *testing.T) {
 		"TFJob Controller Suite",
 	)
 }
+
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{
+		CRDPath:     crdPath,
+		DepCRDPaths: []string{tensorflowCrdPath},
+	}
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {

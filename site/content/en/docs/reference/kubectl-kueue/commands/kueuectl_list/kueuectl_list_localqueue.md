@@ -7,15 +7,13 @@ no_list: false
 
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/hack/internal/tools/kueuectl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
 -->
 
 ## Synopsis
 
 
-Lists LocalQueues that match the given criteria: point to a specific CQ, 
-being active/inactive, belonging to the specified namespace, matching 
-the label selector or the field selector.
+Lists LocalQueues that match the given criteria: point to a specific CQ, being active/inactive, belonging to the specified namespace, matching the label selector or the field selector.
 
 ```
 kueuectl list localqueue [-–clusterqueue CLUSTER_QUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]

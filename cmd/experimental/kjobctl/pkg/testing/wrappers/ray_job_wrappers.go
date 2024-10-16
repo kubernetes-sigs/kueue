@@ -23,9 +23,10 @@ import (
 	rayutil "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
 
 // RayJobWrapper wraps a RayJob.
@@ -64,6 +65,11 @@ func (j *RayJobWrapper) CreationTimestamp(t time.Time) *RayJobWrapper {
 // Profile sets the profile label.
 func (j *RayJobWrapper) Profile(v string) *RayJobWrapper {
 	return j.Label(constants.ProfileLabel, v)
+}
+
+// Mode sets the profile label.
+func (j *RayJobWrapper) Mode(v v1alpha1.ApplicationProfileMode) *RayJobWrapper {
+	return j.Label(constants.ModeLabel, string(v))
 }
 
 // LocalQueue sets the localqueue label.

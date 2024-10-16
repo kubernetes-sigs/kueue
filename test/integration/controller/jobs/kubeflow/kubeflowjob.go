@@ -27,7 +27,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -106,7 +105,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		},
 		Spec: *createdWorkload.Spec.DeepCopy(),
 	}
-	gomega.Expect(ctrl.SetControllerReference(createdJob.Object(), secondWl, scheme.Scheme)).Should(gomega.Succeed())
+	gomega.Expect(ctrl.SetControllerReference(createdJob.Object(), secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 	secondWl.Spec.PodSets[0].Count += 1
 
 	gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
@@ -125,6 +124,10 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 	spotFlavor := testing.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 	gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
+	defer func() {
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
+	}()
 	clusterQueue := testing.MakeClusterQueue("cluster-queue").
 		ResourceGroup(
 			*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
@@ -140,7 +143,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		return !createdJob.IsSuspended()
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 	gomega.Eventually(func() bool {
-		ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
+		ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
 		return ok
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 	for _, psr := range podSetsResources {
@@ -167,7 +170,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 			len(createdJob.KFJobControl.ReplicaSpecs()[ReplicaTypeWorker].Template.Spec.NodeSelector) == 0
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 	gomega.Eventually(func() bool {
-		ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()))
+		ok, _ := testing.CheckEventRecordedFor(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()), lookupKey)
 		return ok
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 

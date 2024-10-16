@@ -26,7 +26,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -58,7 +58,7 @@ func TestSetupControllers(t *testing.T) {
 		"kubeflow.org/mpijob": {
 			NewReconciler:         testNewReconciler,
 			SetupWebhook:          testSetupWebhook,
-			JobType:               &kubeflow.MPIJob{},
+			JobType:               &kfmpi.MPIJob{},
 			SetupIndexes:          testSetupIndexes,
 			AddToScheme:           testAddToScheme,
 			CanSupportIntegration: testCanSupportIntegration,
@@ -98,7 +98,7 @@ func TestSetupControllers(t *testing.T) {
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
-				kubeflow.SchemeGroupVersionKind,
+				kfmpi.SchemeGroupVersionKind,
 			},
 			wantEnabledIntegrations: []string{"batch/job", "kubeflow.org/mpijob"},
 		},
@@ -117,7 +117,7 @@ func TestSetupControllers(t *testing.T) {
 			},
 			mapperGVKs: []schema.GroupVersionKind{
 				batchv1.SchemeGroupVersion.WithKind("Job"),
-				kubeflow.SchemeGroupVersionKind,
+				kfmpi.SchemeGroupVersionKind,
 				// Not including RayCluster
 			},
 			delayedGVKs: []*schema.GroupVersionKind{
@@ -137,7 +137,7 @@ func TestSetupControllers(t *testing.T) {
 			}
 
 			ctx, logger := utiltesting.ContextWithLog(t)
-			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kubeflow.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme).Build()
+			k8sClient := utiltesting.NewClientBuilder(jobset.AddToScheme, kfmpi.AddToScheme, kftraining.AddToScheme, rayv1.AddToScheme).Build()
 
 			mgrOpts := ctrlmgr.Options{
 				Scheme: k8sClient.Scheme(),
@@ -245,16 +245,16 @@ func TestSetupIndexes(t *testing.T) {
 		"kubeflow.org/mpijob is disabled in the configAPI": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("alpha-wl", testNamespace).
-					ControllerReference(kubeflow.SchemeGroupVersionKind, "alpha", "mpijob").
+					ControllerReference(kfmpi.SchemeGroupVersionKind, "alpha", "mpijob").
 					Obj(),
 				*utiltesting.MakeWorkload("beta-wl", testNamespace).
-					ControllerReference(kubeflow.SchemeGroupVersionKind, "beta", "mpijob").
+					ControllerReference(kfmpi.SchemeGroupVersionKind, "beta", "mpijob").
 					Obj(),
 			},
 			opts: []Option{
 				WithEnabledFrameworks([]string{"batch/job"}),
 			},
-			filter:                client.MatchingFields{GetOwnerKey(kubeflow.SchemeGroupVersionKind): "alpha"},
+			filter:                client.MatchingFields{GetOwnerKey(kfmpi.SchemeGroupVersionKind): "alpha"},
 			wantFieldMatcherError: true,
 		},
 	}

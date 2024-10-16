@@ -40,22 +40,24 @@ var applicationprofilesKind = v1alpha1.SchemeGroupVersion.WithKind("ApplicationP
 
 // Get takes name of the applicationProfile, and returns the corresponding applicationProfile object, and an error if there is any.
 func (c *FakeApplicationProfiles) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.ApplicationProfile, err error) {
+	emptyResult := &v1alpha1.ApplicationProfile{}
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(applicationprofilesResource, c.ns, name), &v1alpha1.ApplicationProfile{})
+		Invokes(testing.NewGetActionWithOptions(applicationprofilesResource, c.ns, name, options), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.ApplicationProfile), err
 }
 
 // List takes label and field selectors, and returns the list of ApplicationProfiles that match those selectors.
 func (c *FakeApplicationProfiles) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.ApplicationProfileList, err error) {
+	emptyResult := &v1alpha1.ApplicationProfileList{}
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(applicationprofilesResource, applicationprofilesKind, c.ns, opts), &v1alpha1.ApplicationProfileList{})
+		Invokes(testing.NewListActionWithOptions(applicationprofilesResource, applicationprofilesKind, c.ns, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 
 	label, _, _ := testing.ExtractFromListOptions(opts)
@@ -74,28 +76,30 @@ func (c *FakeApplicationProfiles) List(ctx context.Context, opts v1.ListOptions)
 // Watch returns a watch.Interface that watches the requested applicationProfiles.
 func (c *FakeApplicationProfiles) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(applicationprofilesResource, c.ns, opts))
+		InvokesWatch(testing.NewWatchActionWithOptions(applicationprofilesResource, c.ns, opts))
 
 }
 
 // Create takes the representation of a applicationProfile and creates it.  Returns the server's representation of the applicationProfile, and an error, if there is any.
 func (c *FakeApplicationProfiles) Create(ctx context.Context, applicationProfile *v1alpha1.ApplicationProfile, opts v1.CreateOptions) (result *v1alpha1.ApplicationProfile, err error) {
+	emptyResult := &v1alpha1.ApplicationProfile{}
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(applicationprofilesResource, c.ns, applicationProfile), &v1alpha1.ApplicationProfile{})
+		Invokes(testing.NewCreateActionWithOptions(applicationprofilesResource, c.ns, applicationProfile, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.ApplicationProfile), err
 }
 
 // Update takes the representation of a applicationProfile and updates it. Returns the server's representation of the applicationProfile, and an error, if there is any.
 func (c *FakeApplicationProfiles) Update(ctx context.Context, applicationProfile *v1alpha1.ApplicationProfile, opts v1.UpdateOptions) (result *v1alpha1.ApplicationProfile, err error) {
+	emptyResult := &v1alpha1.ApplicationProfile{}
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(applicationprofilesResource, c.ns, applicationProfile), &v1alpha1.ApplicationProfile{})
+		Invokes(testing.NewUpdateActionWithOptions(applicationprofilesResource, c.ns, applicationProfile, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.ApplicationProfile), err
 }
@@ -110,7 +114,7 @@ func (c *FakeApplicationProfiles) Delete(ctx context.Context, name string, opts 
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeApplicationProfiles) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(applicationprofilesResource, c.ns, listOpts)
+	action := testing.NewDeleteCollectionActionWithOptions(applicationprofilesResource, c.ns, opts, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1alpha1.ApplicationProfileList{})
 	return err
@@ -118,11 +122,12 @@ func (c *FakeApplicationProfiles) DeleteCollection(ctx context.Context, opts v1.
 
 // Patch applies the patch and returns the patched applicationProfile.
 func (c *FakeApplicationProfiles) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.ApplicationProfile, err error) {
+	emptyResult := &v1alpha1.ApplicationProfile{}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(applicationprofilesResource, c.ns, name, pt, data, subresources...), &v1alpha1.ApplicationProfile{})
+		Invokes(testing.NewPatchSubresourceActionWithOptions(applicationprofilesResource, c.ns, name, pt, data, opts, subresources...), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.ApplicationProfile), err
 }

@@ -7,13 +7,13 @@ no_list: false
 
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/hack/internal/tools/kueuectl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
 -->
 
 ## Synopsis
 
 
-Pass-through &#34;patch  {resourceflavor [rf]}&#34; to kubectl
+Pass-through &#34;patch resourceflavor&#34; to kubectl
 
 ```
 kueuectl patch resourceflavor [flags]
@@ -219,5 +219,5 @@ kueuectl patch resourceflavor [flags]
 
 ## See Also
 
-* [kueuectl patch](../)	 - Pass-through &#34;patch&#34; to kubectl
+* [kueuectl patch](../)	 - Update fields of a resource
 

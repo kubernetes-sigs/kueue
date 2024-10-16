@@ -106,11 +106,18 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 	return psFlavors
 }
 
+// TotalRequestsFor - returns the total quota needs of the wl, taking into account the potential
+// scaling needed in case of partial admission.
 func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourceQuantities {
 	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
+		// in case of partial admission scale down the quantity
+		aps := a.PodSets[i]
+		if aps.Count != ps.Count {
+			ps = *ps.ScaledTo(aps.Count)
+		}
 		for res, q := range ps.Requests {
-			flv := a.PodSets[i].Flavors[res].Name
+			flv := aps.Flavors[res].Name
 			usage[resources.FlavorResource{Flavor: flv, Resource: res}] += q
 		}
 	}
@@ -287,8 +294,7 @@ func New(wl *workload.Info, cq *cache.ClusterQueueSnapshot, resourceFlavors map[
 }
 
 func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueueSnapshot) bool {
-	return cq.AllocatableResourceGeneration > wl.LastAssignment.ClusterQueueGeneration ||
-		(cq.Cohort != nil && cq.Cohort.AllocatableResourceGeneration > wl.LastAssignment.CohortGeneration)
+	return cq.AllocatableResourceGeneration > wl.LastAssignment.ClusterQueueGeneration
 }
 
 // Assign assigns a flavor to each of the resources requested in each pod set.
@@ -301,12 +307,6 @@ func (a *FlavorAssigner) Assign(log logr.Logger, counts []int32) Assignment {
 			keysValues := []any{
 				"cq.AllocatableResourceGeneration", a.cq.AllocatableResourceGeneration,
 				"wl.LastAssignment.ClusterQueueGeneration", a.wl.LastAssignment.ClusterQueueGeneration,
-			}
-			if a.cq.Cohort != nil {
-				keysValues = append(keysValues,
-					"cq.Cohort.AllocatableResourceGeneration", a.cq.Cohort.AllocatableResourceGeneration,
-					"wl.LastAssignment.CohortGeneration", a.wl.LastAssignment.CohortGeneration,
-				)
 			}
 			logV.Info("Clearing Workload's last assignment because it was outdated", keysValues...)
 		}
@@ -330,12 +330,8 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodS
 		Usage:   make(resources.FlavorResourceQuantities),
 		LastState: workload.AssignmentClusterQueueState{
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
-			CohortGeneration:       0,
 			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
 		},
-	}
-	if a.cq.Cohort != nil {
-		assignment.LastState.CohortGeneration = a.cq.Cohort.AllocatableResourceGeneration
 	}
 
 	for i, podSet := range requests {
@@ -624,7 +620,7 @@ func (a *FlavorAssigner) fitsResourceQuota(log logr.Logger, fr resources.FlavorR
 
 	lackQuantity := resources.ResourceQuantity(fr.Resource, lack)
 	msg := fmt.Sprintf("insufficient unused quota in cohort for %s in flavor %s, %s more needed", fr.Resource, fr.Flavor, &lackQuantity)
-	if a.cq.Cohort == nil {
+	if !a.cq.HasParent() {
 		if mode == noFit {
 			msg = fmt.Sprintf("insufficient quota for %s in flavor %s in ClusterQueue", fr.Resource, fr.Flavor)
 		} else {

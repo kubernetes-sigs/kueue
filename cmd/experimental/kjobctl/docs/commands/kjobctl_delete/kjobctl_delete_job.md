@@ -1,6 +1,6 @@
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/hack/tools/kjobctl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kjobctl/cmd/kjobctl-docs).
 -->
 
 # kjobctl delete job
@@ -19,7 +19,7 @@ kjobctl delete job NAME [--cascade STRATEGY] [--dry-run STRATEGY]
 ## Examples
 
 ```
-  # Delete Job 
+  # Delete Job
   kjobctl delete job my-application-profile-job-k2wzd
 ```
 

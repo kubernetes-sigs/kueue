@@ -21,7 +21,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// PodSetApplyConfiguration represents an declarative configuration of the PodSet type for use
+// PodSetApplyConfiguration represents a declarative configuration of the PodSet type for use
 // with apply.
 type PodSetApplyConfiguration struct {
 	Name     *string             `json:"name,omitempty"`
@@ -30,7 +30,7 @@ type PodSetApplyConfiguration struct {
 	MinCount *int32              `json:"minCount,omitempty"`
 }
 
-// PodSetApplyConfiguration constructs an declarative configuration of the PodSet type for use with
+// PodSetApplyConfiguration constructs a declarative configuration of the PodSet type for use with
 // apply.
 func PodSet() *PodSetApplyConfiguration {
 	return &PodSetApplyConfiguration{}

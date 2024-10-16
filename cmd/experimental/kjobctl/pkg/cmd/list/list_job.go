@@ -27,20 +27,24 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/client-go/kubernetes/scheme"
 	batchv1 "k8s.io/client-go/kubernetes/typed/batch/v1"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/completion"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
-	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-const (
-	jobExample = `  # List Job
-  kjobctl list job
+var (
+	jobExample = templates.Examples(`
+		# List Job
+ 	 	kjobctl list job
   
-  # List Job with profile filter
-  kjobctl list job --profile my-profile`
+  		# List Job with profile filter
+  		kjobctl list job --profile my-profile
+	`)
 )
 
 type JobOptions struct {
@@ -165,6 +169,9 @@ func (o *JobOptions) Run(ctx context.Context) error {
 	} else {
 		opts.LabelSelector = constants.ProfileLabel
 	}
+
+	opts.LabelSelector = fmt.Sprintf("%s,%s=%s", opts.LabelSelector, constants.ModeLabel, v1alpha1.JobMode)
+
 	if len(o.LocalQueueFilter) > 0 {
 		opts.LabelSelector = fmt.Sprintf("%s,%s=%s", opts.LabelSelector, kueueconstants.QueueLabel, o.LocalQueueFilter)
 	}

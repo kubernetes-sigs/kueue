@@ -19,14 +19,11 @@ package v1beta1
 
 import (
 	"context"
-	json "encoding/json"
-	"fmt"
-	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	rest "k8s.io/client-go/rest"
+	gentype "k8s.io/client-go/gentype"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -42,6 +39,7 @@ type ClusterQueuesGetter interface {
 type ClusterQueueInterface interface {
 	Create(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.CreateOptions) (*v1beta1.ClusterQueue, error)
 	Update(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.UpdateOptions) (*v1beta1.ClusterQueue, error)
+	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
 	UpdateStatus(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.UpdateOptions) (*v1beta1.ClusterQueue, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
@@ -50,193 +48,25 @@ type ClusterQueueInterface interface {
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ClusterQueue, err error)
 	Apply(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error)
+	// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
 	ApplyStatus(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error)
 	ClusterQueueExpansion
 }
 
 // clusterQueues implements ClusterQueueInterface
 type clusterQueues struct {
-	client rest.Interface
+	*gentype.ClientWithListAndApply[*v1beta1.ClusterQueue, *v1beta1.ClusterQueueList, *kueuev1beta1.ClusterQueueApplyConfiguration]
 }
 
 // newClusterQueues returns a ClusterQueues
 func newClusterQueues(c *KueueV1beta1Client) *clusterQueues {
 	return &clusterQueues{
-		client: c.RESTClient(),
+		gentype.NewClientWithListAndApply[*v1beta1.ClusterQueue, *v1beta1.ClusterQueueList, *kueuev1beta1.ClusterQueueApplyConfiguration](
+			"clusterqueues",
+			c.RESTClient(),
+			scheme.ParameterCodec,
+			"",
+			func() *v1beta1.ClusterQueue { return &v1beta1.ClusterQueue{} },
+			func() *v1beta1.ClusterQueueList { return &v1beta1.ClusterQueueList{} }),
 	}
-}
-
-// Get takes name of the clusterQueue, and returns the corresponding clusterQueue object, and an error if there is any.
-func (c *clusterQueues) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.ClusterQueue, err error) {
-	result = &v1beta1.ClusterQueue{}
-	err = c.client.Get().
-		Resource("clusterqueues").
-		Name(name).
-		VersionedParams(&options, scheme.ParameterCodec).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// List takes label and field selectors, and returns the list of ClusterQueues that match those selectors.
-func (c *clusterQueues) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.ClusterQueueList, err error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	result = &v1beta1.ClusterQueueList{}
-	err = c.client.Get().
-		Resource("clusterqueues").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Watch returns a watch.Interface that watches the requested clusterQueues.
-func (c *clusterQueues) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	opts.Watch = true
-	return c.client.Get().
-		Resource("clusterqueues").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Watch(ctx)
-}
-
-// Create takes the representation of a clusterQueue and creates it.  Returns the server's representation of the clusterQueue, and an error, if there is any.
-func (c *clusterQueues) Create(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.CreateOptions) (result *v1beta1.ClusterQueue, err error) {
-	result = &v1beta1.ClusterQueue{}
-	err = c.client.Post().
-		Resource("clusterqueues").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(clusterQueue).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Update takes the representation of a clusterQueue and updates it. Returns the server's representation of the clusterQueue, and an error, if there is any.
-func (c *clusterQueues) Update(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.UpdateOptions) (result *v1beta1.ClusterQueue, err error) {
-	result = &v1beta1.ClusterQueue{}
-	err = c.client.Put().
-		Resource("clusterqueues").
-		Name(clusterQueue.Name).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(clusterQueue).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *clusterQueues) UpdateStatus(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.UpdateOptions) (result *v1beta1.ClusterQueue, err error) {
-	result = &v1beta1.ClusterQueue{}
-	err = c.client.Put().
-		Resource("clusterqueues").
-		Name(clusterQueue.Name).
-		SubResource("status").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(clusterQueue).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Delete takes name of the clusterQueue and deletes it. Returns an error if one occurs.
-func (c *clusterQueues) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	return c.client.Delete().
-		Resource("clusterqueues").
-		Name(name).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *clusterQueues) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	var timeout time.Duration
-	if listOpts.TimeoutSeconds != nil {
-		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
-	}
-	return c.client.Delete().
-		Resource("clusterqueues").
-		VersionedParams(&listOpts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// Patch applies the patch and returns the patched clusterQueue.
-func (c *clusterQueues) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ClusterQueue, err error) {
-	result = &v1beta1.ClusterQueue{}
-	err = c.client.Patch(pt).
-		Resource("clusterqueues").
-		Name(name).
-		SubResource(subresources...).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Apply takes the given apply declarative configuration, applies it and returns the applied clusterQueue.
-func (c *clusterQueues) Apply(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error) {
-	if clusterQueue == nil {
-		return nil, fmt.Errorf("clusterQueue provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(clusterQueue)
-	if err != nil {
-		return nil, err
-	}
-	name := clusterQueue.Name
-	if name == nil {
-		return nil, fmt.Errorf("clusterQueue.Name must be provided to Apply")
-	}
-	result = &v1beta1.ClusterQueue{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Resource("clusterqueues").
-		Name(*name).
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// ApplyStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
-func (c *clusterQueues) ApplyStatus(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error) {
-	if clusterQueue == nil {
-		return nil, fmt.Errorf("clusterQueue provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(clusterQueue)
-	if err != nil {
-		return nil, err
-	}
-
-	name := clusterQueue.Name
-	if name == nil {
-		return nil, fmt.Errorf("clusterQueue.Name must be provided to Apply")
-	}
-
-	result = &v1beta1.ClusterQueue{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Resource("clusterqueues").
-		Name(*name).
-		SubResource("status").
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
 }

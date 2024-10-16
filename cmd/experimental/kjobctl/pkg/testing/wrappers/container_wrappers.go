@@ -68,3 +68,15 @@ func (c *ContainerWrapper) WithVolumeMount(volumeMount corev1.VolumeMount) *Cont
 	c.Container.VolumeMounts = append(c.Container.VolumeMounts, volumeMount)
 	return c
 }
+
+// TTY set tty=true.
+func (c *ContainerWrapper) TTY() *ContainerWrapper {
+	c.Container.TTY = true
+	return c
+}
+
+// Stdin set stdin=true.
+func (c *ContainerWrapper) Stdin() *ContainerWrapper {
+	c.Container.Stdin = true
+	return c
+}

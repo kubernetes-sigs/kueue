@@ -17,6 +17,7 @@ limitations under the License.
 package completion
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -100,10 +101,6 @@ func UsersFunc(clientGetter util.ClientGetter) func(*cobra.Command, []string, st
 
 func WorkloadNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) > 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
 		clientSet, err := clientGetter.KueueClientSet()
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveError
@@ -129,9 +126,11 @@ func WorkloadNameFunc(clientGetter util.ClientGetter, activeStatus *bool) func(*
 			list.Items = filteredItems
 		}
 
-		validArgs := make([]string, len(list.Items))
-		for i, wl := range list.Items {
-			validArgs[i] = wl.Name
+		var validArgs []string
+		for _, wl := range list.Items {
+			if !slices.Contains(args, wl.Name) {
+				validArgs = append(validArgs, wl.Name)
+			}
 		}
 
 		return validArgs, cobra.ShellCompDirectiveNoFileComp

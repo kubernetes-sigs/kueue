@@ -53,6 +53,16 @@ func TestAPIs(t *testing.T) {
 	)
 }
 
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
+
 func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
