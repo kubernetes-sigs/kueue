@@ -42,8 +42,34 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		queue           *kueue.LocalQueue
 		clusterQueue    *kueue.ClusterQueue
 		resourceFlavors = []kueue.ResourceFlavor{
-			*testing.MakeResourceFlavor(flavorModelC).NodeLabel(resourceGPU.String(), flavorModelC).Obj(),
+			*testing.MakeResourceFlavor(flavorModelC).
+				NodeLabel(resourceGPU.String(), flavorModelC).
+				Taint(corev1.Taint{
+					Key:    "spot",
+					Value:  "true",
+					Effect: corev1.TaintEffectNoSchedule,
+				}).Obj(),
 			*testing.MakeResourceFlavor(flavorModelD).NodeLabel(resourceGPU.String(), flavorModelD).Obj(),
+		}
+		emptyUsage = []kueue.LocalQueueFlavorUsage{
+			{
+				Name: flavorModelC,
+				Resources: []kueue.LocalQueueResourceUsage{
+					{
+						Name:  resourceGPU,
+						Total: resource.MustParse("0"),
+					},
+				},
+			},
+			{
+				Name: flavorModelD,
+				Resources: []kueue.LocalQueueResourceUsage{
+					{
+						Name:  resourceGPU,
+						Total: resource.MustParse("0"),
+					},
+				},
+			},
 		}
 		ac *kueue.AdmissionCheck
 	)
@@ -107,27 +133,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
-		emptyUsage := []kueue.LocalQueueFlavorUsage{
-			{
-				Name: flavorModelC,
-				Resources: []kueue.LocalQueueResourceUsage{
-					{
-						Name:  resourceGPU,
-						Total: resource.MustParse("0"),
-					},
-				},
-			},
-			{
-				Name: flavorModelD,
-				Resources: []kueue.LocalQueueResourceUsage{
-					{
-						Name:  resourceGPU,
-						Total: resource.MustParse("0"),
-					},
-				},
-			},
-		}
-
 		ginkgo.By("Creating a clusterQueue")
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 		gomega.Eventually(func() kueue.LocalQueueStatus {
@@ -187,6 +192,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 					Name:       flavorModelC,
 					Resources:  []corev1.ResourceName{"example.com/gpu"},
 					NodeLabels: map[string]string{"example.com/gpu": "model-c"},
+					NodeTaints: []corev1.Taint{{Key: "spot", Value: "true", Effect: "NoSchedule"}},
 				},
 				{
 					Name:       flavorModelD,
@@ -250,27 +256,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
 		}
 
-		emptyUsage := []kueue.LocalQueueFlavorUsage{
-			{
-				Name: flavorModelC,
-				Resources: []kueue.LocalQueueResourceUsage{
-					{
-						Name:  resourceGPU,
-						Total: resource.MustParse("0"),
-					},
-				},
-			},
-			{
-				Name: flavorModelD,
-				Resources: []kueue.LocalQueueResourceUsage{
-					{
-						Name:  resourceGPU,
-						Total: resource.MustParse("0"),
-					},
-				},
-			},
-		}
-
 		gomega.Eventually(func() kueue.LocalQueueStatus {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
@@ -290,8 +275,17 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
 			Flavors: []kueue.LocalQueueFlavorStatus{
-				{Name: flavorModelC},
-				{Name: flavorModelD},
+				{
+					Name:       flavorModelC,
+					Resources:  []corev1.ResourceName{"example.com/gpu"},
+					NodeLabels: map[string]string{"example.com/gpu": "model-c"},
+					NodeTaints: []corev1.Taint{{Key: "spot", Value: "true", Effect: "NoSchedule"}},
+				},
+				{
+					Name:       flavorModelD,
+					Resources:  []corev1.ResourceName{"example.com/gpu"},
+					NodeLabels: map[string]string{"example.com/gpu": "model-d"},
+				},
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -344,8 +338,17 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			FlavorsReservation: fullUsage,
 			FlavorUsage:        emptyUsage,
 			Flavors: []kueue.LocalQueueFlavorStatus{
-				{Name: flavorModelC},
-				{Name: flavorModelD},
+				{
+					Name:       flavorModelC,
+					Resources:  []corev1.ResourceName{"example.com/gpu"},
+					NodeLabels: map[string]string{"example.com/gpu": "model-c"},
+					NodeTaints: []corev1.Taint{{Key: "spot", Value: "true", Effect: "NoSchedule"}},
+				},
+				{
+					Name:       flavorModelD,
+					Resources:  []corev1.ResourceName{"example.com/gpu"},
+					NodeLabels: map[string]string{"example.com/gpu": "model-d"},
+				},
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -373,8 +376,17 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			FlavorsReservation: fullUsage,
 			FlavorUsage:        fullUsage,
 			Flavors: []kueue.LocalQueueFlavorStatus{
-				{Name: flavorModelC},
-				{Name: flavorModelD},
+				{
+					Name:       flavorModelC,
+					Resources:  []corev1.ResourceName{"example.com/gpu"},
+					NodeLabels: map[string]string{"example.com/gpu": "model-c"},
+					NodeTaints: []corev1.Taint{{Key: "spot", Value: "true", Effect: "NoSchedule"}},
+				},
+				{
+					Name:       flavorModelD,
+					Resources:  []corev1.ResourceName{"example.com/gpu"},
+					NodeLabels: map[string]string{"example.com/gpu": "model-d"},
+				},
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -396,8 +408,17 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			FlavorsReservation: emptyUsage,
 			FlavorUsage:        emptyUsage,
 			Flavors: []kueue.LocalQueueFlavorStatus{
-				{Name: flavorModelC},
-				{Name: flavorModelD},
+				{
+					Name:       flavorModelC,
+					Resources:  []corev1.ResourceName{"example.com/gpu"},
+					NodeLabels: map[string]string{"example.com/gpu": "model-c"},
+					NodeTaints: []corev1.Taint{{Key: "spot", Value: "true", Effect: "NoSchedule"}},
+				},
+				{
+					Name:       flavorModelD,
+					Resources:  []corev1.ResourceName{"example.com/gpu"},
+					NodeLabels: map[string]string{"example.com/gpu": "model-d"},
+				},
 			},
 		}, util.IgnoreConditionTimestampsAndObservedGeneration))
 	})
