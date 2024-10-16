@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sleep-statefulset
+  labels:
+    app: sleep
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sleep
+  template:
+    metadata:
+      labels:
+        app: sleep
+    spec:
+      containers:
+        - name: sleep
+          image: "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0@sha256:8d91ddf9f145b66475efda1a1b52269be542292891b5de2a7fad944052bab6ea"
+          args:
+            - "5m"
+          resources:
+            requests:
+              cpu: "3"
+  serviceName: "sleep"

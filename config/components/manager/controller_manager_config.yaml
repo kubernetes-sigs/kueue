@@ -49,8 +49,9 @@ integrations:
   - "kubeflow.org/pytorchjob"
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
-#  - "pod"
-#  - "deployment"
+#  - "pod" (requires enabling pod integration)
+#  - "deployment" (requires enabling pod integration)
+#  - "statefulset" (requires enabling pod integration)
 #  externalFrameworks:
 #  - "Foo.v1.example.com"
 #  podOptions:

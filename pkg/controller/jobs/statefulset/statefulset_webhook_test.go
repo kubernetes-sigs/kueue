@@ -44,7 +44,7 @@ func TestDefault(t *testing.T) {
 				Replicas(10).
 				Queue("test-queue").
 				PodTemplateSpecQueue("test-queue").
-				PodTemplateSpecPodGroupNameLabel("", "", gvk).
+				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(10).
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
 				Obj(),
@@ -56,7 +56,7 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Queue("test-queue").
-				PodTemplateSpecPodGroupNameLabel("", "", gvk).
+				PodTemplateSpecPodGroupNameLabel("test-pod", "", gvk).
 				PodTemplateSpecPodGroupTotalCountAnnotation(1).
 				PodTemplateSpecQueue("test-queue").
 				PodTemplateSpecPodGroupFastAdmissionAnnotation(true).
