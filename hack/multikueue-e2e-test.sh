@@ -50,17 +50,25 @@ function startup {
             mkdir -p "$ARTIFACTS"
         fi
 	
-	KIND_VERSION=${E2E_KIND_VERSION/"kindest/node:v"/} 
-	MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind-${KIND_VERSION}.yaml"
-	if [ !  -f $MANAGER_KIND_CONFIG ]; then
-	    MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml"
-	fi
+        KIND_VERSION=${E2E_KIND_VERSION/"kindest/node:v"/}
+        MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind-${KIND_VERSION}.yaml"
+        if [ !  -f $MANAGER_KIND_CONFIG ]; then
+            MANAGER_KIND_CONFIG="${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml"
+        fi
 
-	echo "Using manager config: $MANAGER_KIND_CONFIG"
+	      cp "${SOURCE_DIR}/multikueue/manager-cluster.kind.yaml" "$ARTIFACTS"
 
-        cluster_create "$MANAGER_KIND_CLUSTER_NAME" "$MANAGER_KIND_CONFIG"
-        cluster_create $WORKER1_KIND_CLUSTER_NAME "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
-        cluster_create $WORKER2_KIND_CLUSTER_NAME "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
+        #Enable the JobManagedBy feature gates for k8s 1.30+ versions 
+        IFS=. read -r -a varr <<< "$KIND_VERSION"
+        minor=$(( varr[1] ))        
+        if [ "$minor" -ge 30 ]; then
+            echo "Enable JobManagedBy feature in manager's kind config"
+            $YQ e -i '.featureGates.JobManagedBy = true' "${ARTIFACTS}/manager-cluster.kind.yaml"
+        fi
+
+        cluster_create "$MANAGER_KIND_CLUSTER_NAME" "${ARTIFACTS}/manager-cluster.kind.yaml"
+        cluster_create "$WORKER1_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
+        cluster_create "$WORKER2_KIND_CLUSTER_NAME" "$SOURCE_DIR/multikueue/worker-cluster.kind.yaml"
     fi
 }
 
