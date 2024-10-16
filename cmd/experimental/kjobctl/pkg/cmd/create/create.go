@@ -351,7 +351,7 @@ var createModeSubcommands = map[string]modeSubcommand{
 
 			subcmd.Flags().BoolVar(&o.IgnoreUnknown, ignoreUnknownFlagName, false,
 				"Ignore all the unsupported flags in the bash script.")
-			subcmd.Flags().StringVar(&o.InitImage, initImageFlagName, "bash:5-alpine3.20",
+			subcmd.Flags().StringVar(&o.InitImage, initImageFlagName, "registry.k8s.io/busybox:1.27.2",
 				"The image used for the init container.")
 			subcmd.Flags().BoolVar(&o.SkipPriorityValidation, skipPriorityValidationFlagName, false,
 				"Skip workload priority class validation. Add priority class label even if the class does not exist.")

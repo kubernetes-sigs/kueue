@@ -724,8 +724,8 @@ func TestCreateCmd(t *testing.T) {
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
 							Subdomain("profile-slurm").
-							WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:5-alpine3.20").
-								Command("bash", "/slurm/scripts/init-entrypoint.sh").
+							WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "registry.k8s.io/busybox:1.27.2").
+								Command("sh", "/slurm/scripts/init-entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
 								Obj()).
@@ -778,7 +778,7 @@ func TestCreateCmd(t *testing.T) {
 							Mode(v1alpha1.SlurmMode).
 							Data(map[string]string{
 								"script": "#!/bin/bash\nsleep 300'",
-								"init-entrypoint.sh": `#!/usr/local/bin/bash
+								"init-entrypoint.sh": `#!/bin/sh
 
 set -o errexit
 set -o nounset
@@ -788,16 +788,14 @@ set -x
 # External variables
 # JOB_COMPLETION_INDEX  - completion index of the job.
 
-for i in {0..1}
+array_indexes="0"
+container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
+
+for i in $(seq 0 1)
 do
-  # ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
-	declare -A array_indexes=(["0"]="0") 	# Requires bash v4+
+  container_index=$(echo "$container_indexes" | awk -F',' -v idx="$i" '{print $((idx + 1))}')
 
-	container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
-	container_indexes=(${container_indexes//,/ })
-
-	if [[ ! -v container_indexes[$i] ]];
-	then
+	if [ -z "$container_index" ]; then
 		break
 	fi
 
@@ -837,9 +835,9 @@ SLURM_SUBMIT_DIR=/slurm/scripts
 SLURM_SUBMIT_HOST=$HOSTNAME
 SLURM_JOB_NODELIST=profile-slurm-0.profile-slurm
 SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
-SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
-SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
-SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
+SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
+SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
+SLURM_ARRAY_TASK_ID=$container_index
 EOF
 
 done
@@ -982,7 +980,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 							LocalQueue("lq1").
 							Subdomain("profile-slurm").
 							WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:latest").
-								Command("bash", "/slurm/scripts/init-entrypoint.sh").
+								Command("sh", "/slurm/scripts/init-entrypoint.sh").
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
 								Obj()).
@@ -1055,7 +1053,7 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 							LocalQueue("lq1").
 							Data(map[string]string{
 								"script": "#!/bin/bash\nsleep 300'",
-								"init-entrypoint.sh": `#!/usr/local/bin/bash
+								"init-entrypoint.sh": `#!/bin/sh
 
 set -o errexit
 set -o nounset
@@ -1065,16 +1063,14 @@ set -x
 # External variables
 # JOB_COMPLETION_INDEX  - completion index of the job.
 
-for i in {0..3}
+array_indexes="0,1,2;3,4,5;6,7,8;9,10,11;12,13,14;15,16,17;18,19,20;21,22,23;24,25"
+container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
+
+for i in $(seq 0 3)
 do
-  # ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
-	declare -A array_indexes=(["0"]="0,1,2" ["1"]="3,4,5" ["2"]="6,7,8" ["3"]="9,10,11" ["4"]="12,13,14" ["5"]="15,16,17" ["6"]="18,19,20" ["7"]="21,22,23" ["8"]="24,25") 	# Requires bash v4+
+  container_index=$(echo "$container_indexes" | awk -F',' -v idx="$i" '{print $((idx + 1))}')
 
-	container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
-	container_indexes=(${container_indexes//,/ })
-
-	if [[ ! -v container_indexes[$i] ]];
-	then
+	if [ -z "$container_index" ]; then
 		break
 	fi
 
@@ -1114,9 +1110,9 @@ SLURM_SUBMIT_DIR=/slurm/scripts
 SLURM_SUBMIT_HOST=$HOSTNAME
 SLURM_JOB_NODELIST=profile-slurm-fpxnj-0.profile-slurm-fpxnj,profile-slurm-fpxnj-1.profile-slurm-fpxnj
 SLURM_JOB_FIRST_NODE=profile-slurm-fpxnj-0.profile-slurm-fpxnj
-SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 3 + i + 1 ))
-SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 3 + i + 1 ))
-SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
+SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* 3 + $i + 1)
+SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* 3 + $i + 1)
+SLURM_ARRAY_TASK_ID=$container_index
 EOF
 
 done

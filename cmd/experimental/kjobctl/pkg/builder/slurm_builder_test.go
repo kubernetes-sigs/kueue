@@ -238,7 +238,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 				Mode(v1alpha1.SlurmMode).
 				Subdomain("profile-slurm").
 				WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:latest").
-					Command("bash", "/slurm/scripts/init-entrypoint.sh").
+					Command("sh", "/slurm/scripts/init-entrypoint.sh").
 					WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 					WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
 					Obj()).
@@ -282,7 +282,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 					Mode(v1alpha1.SlurmMode).
 					Data(map[string]string{
 						"script": "#!/bin/bash\nsleep 300'",
-						"init-entrypoint.sh": `#!/usr/local/bin/bash
+						"init-entrypoint.sh": `#!/bin/sh
 
 set -o errexit
 set -o nounset
@@ -292,16 +292,14 @@ set -x
 # External variables
 # JOB_COMPLETION_INDEX  - completion index of the job.
 
-for i in {0..1}
+array_indexes="1;2;3;4;5"
+container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
+
+for i in $(seq 0 1)
 do
-  # ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
-	declare -A array_indexes=(["0"]="1" ["1"]="2" ["2"]="3" ["3"]="4" ["4"]="5") 	# Requires bash v4+
+  container_index=$(echo "$container_indexes" | awk -F',' -v idx="$i" '{print $((idx + 1))}')
 
-	container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
-	container_indexes=(${container_indexes//,/ })
-
-	if [[ ! -v container_indexes[$i] ]];
-	then
+	if [ -z "$container_index" ]; then
 		break
 	fi
 
@@ -341,9 +339,9 @@ SLURM_SUBMIT_DIR=/slurm/scripts
 SLURM_SUBMIT_HOST=$HOSTNAME
 SLURM_JOB_NODELIST=profile-slurm-0.profile-slurm,profile-slurm-1.profile-slurm
 SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
-SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
-SLURM_JOBID=$(( JOB_COMPLETION_INDEX * 1 + i + 1 ))
-SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
+SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
+SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
+SLURM_ARRAY_TASK_ID=$container_index
 EOF
 
 done

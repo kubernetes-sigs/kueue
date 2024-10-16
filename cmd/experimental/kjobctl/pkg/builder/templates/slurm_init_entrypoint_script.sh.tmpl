@@ -1,4 +1,4 @@
-#!/usr/local/bin/bash
+#!/bin/sh
 
 set -o errexit
 set -o nounset
@@ -8,16 +8,14 @@ set -x
 # External variables
 # JOB_COMPLETION_INDEX  - completion index of the job.
 
-for i in {0..{{.SlurmNTasksPerNode}}}
+array_indexes="{{.ArrayIndexes}}"
+container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
+
+for i in $(seq 0 {{.SlurmNTasksPerNode}})
 do
-  # ["COMPLETION_INDEX"]="CONTAINER_INDEX_1,CONTAINER_INDEX_2"
-	declare -A array_indexes=({{.ArrayIndexes}}) 	# Requires bash v4+
+  container_index=$(echo "$container_indexes" | awk -F',' -v idx="$i" '{print $((idx + 1))}')
 
-	container_indexes=${array_indexes[${JOB_COMPLETION_INDEX}]}
-	container_indexes=(${container_indexes//,/ })
-
-	if [[ ! -v container_indexes[$i] ]];
-	then
+	if [ -z "$container_index" ]; then
 		break
 	fi
 
@@ -57,9 +55,9 @@ SLURM_SUBMIT_DIR={{.SlurmSubmitDir}}
 SLURM_SUBMIT_HOST=$HOSTNAME
 SLURM_JOB_NODELIST={{.SlurmJobNodeList}}
 SLURM_JOB_FIRST_NODE={{.SlurmJobFirstNode}}
-SLURM_JOB_ID=$(( JOB_COMPLETION_INDEX * {{.SlurmNTasksPerNode}} + i + {{.SlurmArrayJobID}} ))
-SLURM_JOBID=$(( JOB_COMPLETION_INDEX * {{.SlurmNTasksPerNode}} + i + {{.SlurmArrayJobID}} ))
-SLURM_ARRAY_TASK_ID=${container_indexes[$i]}
+SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* {{.SlurmNTasksPerNode}} + $i + 1)
+SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* {{.SlurmNTasksPerNode}} + $i + 1)
+SLURM_ARRAY_TASK_ID=$container_index
 EOF
 
 done
