@@ -169,7 +169,7 @@ var _ = ginkgo.Describe("JobSet", func() {
 						Replicas:    1,
 						Parallelism: 1,
 						Completions: 1,
-						Image:       "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
+						Image:       util.E2eTestSleepImage,
 						Args:        []string{"60s"},
 					},
 				).
