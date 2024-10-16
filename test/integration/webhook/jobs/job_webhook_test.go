@@ -97,19 +97,6 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 		createdJob.Spec.Suspend = ptr.To(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 	})
-
-	ginkgo.It("Should not succeed Job when kubernetes less than 1.27 and sync completions annotation is enabled for indexed jobs", func() {
-		if v := serverVersionFetcher.GetServerVersion(); v.AtLeast(kubeversion.KubeVersion1_27) {
-			ginkgo.Skip("Kubernetes version is not less then 1.27. Skip test...")
-		}
-		j := testingjob.MakeJob("job-without-queue-name", ns.Name).
-			Parallelism(5).
-			Completions(5).
-			SetAnnotation(job.JobCompletionsEqualParallelismAnnotation, "true").
-			Indexed(true).
-			Obj()
-		gomega.Expect(k8sClient.Create(ctx, j)).Should(testing.BeForbiddenError())
-	})
 })
 
 var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", ginkgo.Ordered, func() {

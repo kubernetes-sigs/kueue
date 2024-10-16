@@ -54,7 +54,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
-	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -89,7 +88,6 @@ var (
 	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest = errors.New("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
-	errPodNoSupportKubeVersion   = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
 	errPodGroupLabelsMismatch    = errors.New("constructing workload: pods have different label values")
 )
 
@@ -497,13 +495,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return nil
 }
 
-func CanSupportIntegration(opts ...jobframework.Option) (bool, error) {
-	options := jobframework.ProcessOptions(opts...)
-
-	v := options.KubeServerVersion.GetServerVersion()
-	if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
-		return false, fmt.Errorf("kubernetesVersion %q: %w", v.String(), errPodNoSupportKubeVersion)
-	}
+func CanSupportIntegration(_ ...jobframework.Option) (bool, error) {
 	return true, nil
 }
 
