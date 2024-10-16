@@ -73,6 +73,17 @@ Used on: [MultiKueue](/docs/concepts/multikueue/).
 The label key is used to track the creator of MultiKueue remote objects in Worker Cluster.
 
 
+### kueue.x-k8s.io/pod-group-fast-admission
+
+Type: Annotation
+
+Example: `kueue.x-k8s.io/pod-group-fast-admission: "true"`
+
+Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
+
+The annotation key is used to allow admitting a PodGroup as soon as the first pod in the group is created.
+
+
 ### kueue.x-k8s.io/pod-group-name
 
 Type: Label
