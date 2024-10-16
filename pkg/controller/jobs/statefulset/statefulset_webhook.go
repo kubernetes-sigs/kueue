@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -70,7 +71,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 		ss.Spec.Template.Labels[constants.QueueLabel] = cqLabel
 	}
 
-	podGroupName := jobframework.GetWorkloadNameForOwnerWithGVK("", "", gvk)
+	podGroupName := GetWorkloadName(ss.Name, ss.UID)
 	var podGroupReplicas int32 = 1
 	if ss.Spec.Replicas != nil {
 		podGroupReplicas = *ss.Spec.Replicas
@@ -131,4 +132,8 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 
 func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
+}
+
+func GetWorkloadName(statefulSetName string, statefulSetUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, statefulSetUID, gvk)
 }

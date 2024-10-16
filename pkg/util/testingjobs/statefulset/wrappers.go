@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -141,5 +142,23 @@ func (ss *StatefulSetWrapper) PodTemplateSpecPodGroupFastAdmissionAnnotation(ena
 func (ss *StatefulSetWrapper) Image(image string, args []string) *StatefulSetWrapper {
 	ss.Spec.Template.Spec.Containers[0].Image = image
 	ss.Spec.Template.Spec.Containers[0].Args = args
+	return ss
+}
+
+// Request adds a resource request to the default container.
+func (ss *StatefulSetWrapper) Request(r corev1.ResourceName, v string) *StatefulSetWrapper {
+	if ss.Spec.Template.Spec.Containers[0].Resources.Requests == nil {
+		ss.Spec.Template.Spec.Containers[0].Resources.Requests = corev1.ResourceList{}
+	}
+	ss.Spec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	return ss
+}
+
+// Limit adds a resource limit to the default container.
+func (ss *StatefulSetWrapper) Limit(r corev1.ResourceName, v string) *StatefulSetWrapper {
+	if ss.Spec.Template.Spec.Containers[0].Resources.Limits == nil {
+		ss.Spec.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
+	}
+	ss.Spec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return ss
 }

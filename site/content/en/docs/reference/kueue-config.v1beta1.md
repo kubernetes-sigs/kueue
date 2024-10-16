@@ -491,8 +491,8 @@ Possible options:</p>
 <li>&quot;kubeflow.org/tfjob&quot;</li>
 <li>&quot;kubeflow.org/xgboostjob&quot;</li>
 <li>&quot;pod&quot;</li>
-<li>&quot;deployment&quot;</li>
-<li>&quot;statefulset&quot;</li>
+<li>&quot;deployment&quot; (requires enabling pod integration)</li>
+<li>&quot;statefulset&quot; (requires enabling pod integration)</li>
 </ul>
 </td>
 </tr>
