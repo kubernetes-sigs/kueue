@@ -107,6 +107,7 @@ managerConfig:
       - "kubeflow.org/tfjob"
       - "kubeflow.org/xgboostjob"
     #  - "pod"
+    #  - "deployment"
     #  externalFrameworks:
     #  - "Foo.v1.example.com"
     #  podOptions:
