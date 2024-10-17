@@ -695,10 +695,10 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		return nil, errQNotFound
 	}
 
-	var flavors map[kueue.ResourceFlavorReference]kueue.LocalQueueFlavorStatus
+	var flavorsList []kueue.LocalQueueFlavorStatus
 
 	if features.Enabled(features.ExposeFlavorsInLocalQueue) {
-		flavors = make(map[kueue.ResourceFlavorReference]kueue.LocalQueueFlavorStatus)
+		flavors := make(map[kueue.ResourceFlavorReference]kueue.LocalQueueFlavorStatus)
 
 		resourcesInFlavor := make(map[kueue.ResourceFlavorReference]sets.Set[corev1.ResourceName])
 		for _, rg := range cqImpl.ResourceGroups {
@@ -723,6 +723,11 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 				flavors[rgFlavor] = flavor
 			}
 		}
+
+		flavorsList = maps.Values(flavors)
+		sort.Slice(flavorsList, func(i, j int) bool {
+			return flavorsList[i].Name < flavorsList[j].Name
+		})
 	}
 
 	return &LocalQueueUsageStats{
@@ -730,7 +735,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
-		Flavors:            maps.Values(flavors),
+		Flavors:            flavorsList,
 	}, nil
 }
 
