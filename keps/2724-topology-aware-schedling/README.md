@@ -43,6 +43,9 @@
   - [Use label for workload](#use-label-for-workload)
   - [Implement it in ClusterAutoscaler or kube-scheduler](#implement-it-in-clusterautoscaler-or-kube-scheduler)
   - [Support for ReplicatedJobs in JobSet](#support-for-replicatedjobs-in-jobset)
+  - [Workload API alternatives](#workload-api-alternatives)
+    - [Drop the topologyAssignment.levels field](#drop-the-topologyassignmentlevels-field)
+    - [Rename the topologyAssignment.domains.values field as levelValues](#rename-the-topologyassignmentdomainsvalues-field-as-levelvalues)
 <!-- /toc -->
 
 ## Summary
@@ -820,3 +823,44 @@ operates. This could significantly delay the delivery of the first version
 of the feature. As explained in the
 [comment](https://github.com/kubernetes-sigs/kueue/pull/2725#discussion_r1758513294)
 we prefer to start with the PodSet level as simpler.
+
+### Workload API alternatives
+
+#### Drop the topologyAssignment.levels field
+
+It was questioned during discussions (see [thread](https://github.com/kubernetes-sigs/kueue/pull/3237#discussion_r1802855787))
+that maybe we don't need the `topologyAssignment.levels` field as it contains
+information which could be obtained from the "live" Topology API via the
+ResourceFlavor API.
+
+**Reasons for discarding/deferring**
+
+* implementation cost, reading the information from the Topology API would
+  require lookup of the Topology API found via ResourceFlavor API. This would
+  probably need to cache the information.
+* the references between the "live" API objects can change since admission.
+  Also, the API objects can be mutated or deleted. For example, if the list of
+  levels in the topology API is changed since the admission time, then
+  TopologyUngater would construct invalid node selectors. Preventing this would
+  add complexity.
+* consistency with what we do for the [Flavors](https://github.com/kubernetes-sigs/kueue/blob/d9db44460c0b61532b3ca03c7f98ef935dd848ff/apis/kueue/v1beta1/workload_types.go#L98-L99)
+  as the full mapping between resources and flavors is stored at the moment of
+  admission, rather than reading resources from the "live" CQ API object.
+* the size of the field is limited by the number of levels (max 8 items).
+
+#### Rename the topologyAssignment.domains.values field as levelValues
+
+It was questioned during discussions (see [thread](https://github.com/kubernetes-sigs/kueue/pull/3237#discussion_r1802849888))
+that maybe we could rename the `values` field in `topologyAssignment.domains` as
+`levelValues`. The field `levelValues` could better express the intention that
+it specifies values for the keys in the `levels` field.
+
+**Reasons for discarding/deferring**
+
+* the longer field name would increase the size of the JSON serialization of the
+  API object, as the field name is repeated for each assigned topology domain.
+  For some setup (lowest hierarchy level specifying single node) we may have
+  tens of thousands of domains.
+* the field is on Workload API, which is generally not a user-facing API in
+  Kueue. Workload objects are meant for the internal mechanics of Kueue.
+* the intention of the field can be expressed in a comment.
