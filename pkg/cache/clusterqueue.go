@@ -34,6 +34,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -265,16 +266,29 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonAdmissionCheckInactive)
 			messages = append(messages, fmt.Sprintf("references inactive AdmissionCheck(s): %v", c.inactiveAdmissionChecks))
 		}
-		if len(c.multipleSingleInstanceControllersChecks) > 0 {
-			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
-			for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
-				messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
+		if features.Enabled(features.AdmissionCheckValidationRules) {
+			if len(c.multipleSingleInstanceControllersChecks) > 0 {
+				reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
+				for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
+					messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
+				}
 			}
-		}
 
-		if len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
-			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor)
-			messages = append(messages, fmt.Sprintf("AdmissionCheck(s): %v cannot be set at flavor level", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
+			if len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
+				reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor)
+				messages = append(messages, fmt.Sprintf("AdmissionCheck(s): %v cannot be set at flavor level", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
+			}
+		} else {
+			if len(c.multipleSingleInstanceControllersChecks) > 0 {
+				reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
+				messages = append(messages, "Cannot use mutliple MultiKueue AdmissionChecks on the same ClusterQueue")
+
+			}
+
+			if len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
+				reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor)
+				messages = append(messages, "MultiKueue AdmissionCheck cannot be specified per flavor")
+			}
 		}
 
 		if len(reasons) == 0 {
