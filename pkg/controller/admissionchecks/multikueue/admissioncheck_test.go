@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -36,8 +37,9 @@ func TestReconcile(t *testing.T) {
 		reconcileFor string
 		configs      []kueue.MultiKueueConfig
 
-		wantChecks []kueue.AdmissionCheck
-		wantError  error
+		wantChecks               []kueue.AdmissionCheck
+		wantError                error
+		acValidationRulesEnabled bool
 	}{
 		"missing admissioncheck": {
 			reconcileFor: "missing-ac",
@@ -66,6 +68,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+			acValidationRulesEnabled: true,
 		},
 		"unmanaged": {
 			reconcileFor: "ac1",
@@ -107,6 +110,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+			acValidationRulesEnabled: true,
 		},
 		"inactive cluster": {
 			reconcileFor: "ac1",
@@ -140,6 +144,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+			acValidationRulesEnabled: true,
 		},
 		"all clusters missing or inactive": {
 			reconcileFor: "ac1",
@@ -176,6 +181,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+			acValidationRulesEnabled: true,
 		},
 		"partially active": {
 			reconcileFor: "ac1",
@@ -212,6 +218,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+			acValidationRulesEnabled: true,
 		},
 		"active": {
 			reconcileFor: "ac1",
@@ -245,11 +252,46 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+			acValidationRulesEnabled: true,
+		},
+		"active AdmissionCheckValidationRules disabled": {
+			reconcileFor: "ac1",
+			checks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Generation(1).
+					Obj(),
+			},
+			configs: []kueue.MultiKueueConfig{
+				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+			},
+			clusters: []kueue.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").
+					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
+					Obj(),
+			},
+			wantChecks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Condition(metav1.Condition{
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Active",
+						Message:            `The admission check is active`,
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			if tc.acValidationRulesEnabled {
+				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, true)
+			}
 			builder, ctx := getClientBuilder()
 
 			builder = builder.WithLists(

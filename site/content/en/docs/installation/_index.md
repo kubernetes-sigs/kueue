@@ -256,6 +256,7 @@ The currently supported features are:
 | `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   |       |
 | `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   |       |
 | `ExposeFlavorsInLocalQueue`           | `true`  | Beta       | 0.9   |       |
+| `AdmissionCheckValidationRules`       | `false` | Alpha      | 0.9   | 0.9   |
 
 ## What's next
 
