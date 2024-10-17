@@ -75,6 +75,10 @@ type WorkloadSpec struct {
 	// Defaults to true
 	// +kubebuilder:default=true
 	Active *bool `json:"active,omitempty"`
+
+	// MaximumExecutionTime if provided, determines the maximum time the workload can be admitted
+	// before it's automatically deactivated.
+	MaximumExecutionTime *metav1.Duration `json:"maximumExecutionTime,omitempty"`
 }
 
 // PodSetTopologyRequest defines the topology request for a PodSet.
@@ -294,6 +298,11 @@ type WorkloadStatus struct {
 	// +patchMergeKey=name
 	// +kubebuilder:validation:MaxItems=8
 	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+
+	// AccumulatedPastAdmittedTime holds the total duration the workload spent in Admitted state
+	// in the previous `Admit` - `Evict` cycles.
+	// +optional
+	AccumulatedPastAdmittedTime *metav1.Duration `json:"AccumulatedPastAdmittedTime,omitempty"`
 }
 
 type RequeueState struct {
