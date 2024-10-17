@@ -63,7 +63,7 @@ search_cert_line="  annotations:"
 replace_cert_line=$(
   cat <<'EOF'
     {{- if .Values.enableCertManager }}
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ printf "%s-serving-cert" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
     {{- end }}
 EOF
 )
@@ -76,7 +76,7 @@ replace_webhook_line=$(
     webhook:
       clientConfig:
         service:
-          name: {{ include "kueue.fullname" . }}-webhook-service
+          name: {{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
           namespace: '{{ .Release.Namespace }}'
           path: /convert
       conversionReviewVersions:
@@ -103,8 +103,8 @@ search_webhook_pod_mutate="        path: /mutate--v1-pod"
 search_webhook_pod_validate="        path: /validate--v1-pod"
 search_webhook_deployment_mutate="        path: /mutate-apps-v1-deployment"
 search_webhook_deployment_validate="        path: /validate-apps-v1-deployment"
-search_mutate_webhook_annotations='  name: '\''{{ include "kueue.fullname" . }}-mutating-webhook-configuration'\'''
-search_validate_webhook_annotations='  name: '\''{{ include "kueue.fullname" . }}-validating-webhook-configuration'\'''
+search_mutate_webhook_annotations='  name: '\''{{ printf "%s-mutating-webhook-configuration" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'\'''
+search_validate_webhook_annotations='  name: '\''{{ printf "%s-validating-webhook-configuration" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'\'''
 add_webhook_line=$(
   cat <<'EOF'
 {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
@@ -114,7 +114,7 @@ add_annotations_line=$(
   cat <<'EOF'
   {{- if .Values.enableCertManager }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ printf "%s-serving-cert" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
   {{- end }}
   namespace: '{{ .Release.Namespace }}'
 EOF
