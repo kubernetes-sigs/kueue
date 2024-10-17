@@ -19,6 +19,7 @@ package v1beta1
 import (
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 )
@@ -372,6 +373,28 @@ type ClusterQueueVisibility struct {
 type Resources struct {
 	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
+
+	// Transformations defines how to transform PodSpec resources into Workload resource requests.
+	// This is intended to be a map with Input as the key (enforced by validation code)
+	Transformations []ResourceTransformation `json:"transformations,omitempty"`
+}
+
+type ResourceTransformationStrategy string
+
+const Retain ResourceTransformationStrategy = "Retain"
+const Replace ResourceTransformationStrategy = "Replace"
+
+type ResourceTransformation struct {
+	// Input is the name of the input resource.
+	Input corev1.ResourceName `json:"input"`
+
+	// Strategy specifies if the input resource should be replaced or retained.
+	// Defaults to Retain
+	Strategy *ResourceTransformationStrategy `json:"strategy,omitempty"`
+
+	// Outputs specifies the output resources and quantities per unit of input resource.
+	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
+	Outputs corev1.ResourceList `json:"outputs,omitempty"`
 }
 
 type PreemptionStrategy string

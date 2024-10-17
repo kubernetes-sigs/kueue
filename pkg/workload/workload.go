@@ -84,6 +84,7 @@ type AssignmentClusterQueueState struct {
 
 type InfoOptions struct {
 	excludedResourcePrefixes []string
+	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 }
 
 type InfoOption func(*InfoOptions)
@@ -94,6 +95,13 @@ var defaultOptions = InfoOptions{}
 func WithExcludedResourcePrefixes(n []string) InfoOption {
 	return func(o *InfoOptions) {
 		o.excludedResourcePrefixes = n
+	}
+}
+
+// WithResourceTransformations sets the resource transformations.
+func WithResourceTransformations(transforms []config.ResourceTransformation) InfoOption {
+	return func(o *InfoOptions) {
+		o.resourceTransformations = utilslices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
 	}
 }
 
@@ -189,10 +197,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w)
-	}
-	if len(options.excludedResourcePrefixes) > 0 {
-		dropExcludedResources(info.TotalRequests, options.excludedResourcePrefixes)
+		info.TotalRequests = totalRequestsFromPodSets(w, &options)
 	}
 	return info
 }
@@ -221,21 +226,53 @@ func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
 	return total
 }
 
-func dropExcludedResources(resources []PodSetResources, excludedPrefixes []string) {
-	for _, resource := range resources {
-		for requestKey := range resource.Requests {
-			exclude := false
-			for _, excludedPrefix := range excludedPrefixes {
-				if strings.HasPrefix(string(requestKey), excludedPrefix) {
-					exclude = true
-					break
-				}
-			}
-			if exclude {
-				delete(resource.Requests, requestKey)
+func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string) corev1.ResourceList {
+	res := corev1.ResourceList{}
+	for inputName, inputQuantity := range input {
+		exclude := false
+		for _, excludedPrefix := range excludedPrefixes {
+			if strings.HasPrefix(string(inputName), excludedPrefix) {
+				exclude = true
+				break
 			}
 		}
+		if !exclude {
+			res[inputName] = inputQuantity
+		}
 	}
+	return res
+}
+
+func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
+	match := false
+	for resourceName := range input {
+		if _, ok := transforms[resourceName]; ok {
+			match = true
+			break
+		}
+	}
+	if !match {
+		return input
+	}
+	output := make(corev1.ResourceList)
+	for inputName, inputQuantity := range input {
+		if mapping, ok := transforms[inputName]; ok {
+			for outputName, baseFactor := range mapping.Outputs {
+				outputQuantity := baseFactor.DeepCopy()
+				outputQuantity.Mul(inputQuantity.Value())
+				if accumulated, ok := output[outputName]; ok {
+					outputQuantity.Add(accumulated)
+				}
+				output[outputName] = outputQuantity
+			}
+			if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
+				output[inputName] = inputQuantity
+			}
+		} else {
+			output[inputName] = inputQuantity
+		}
+	}
+	return output
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
@@ -279,7 +316,7 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
+func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
@@ -291,7 +328,12 @@ func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 			Name:  ps.Name,
 			Count: count,
 		}
-		setRes.Requests = resources.NewRequests(limitrange.TotalRequests(&ps.Template.Spec))
+		specRequests := limitrange.TotalRequests(&ps.Template.Spec)
+		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
+		if features.Enabled(features.ConfigurableResourceTransformations) {
+			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
+		}
+		setRes.Requests = resources.NewRequests(effectiveRequests)
 		scaleUp(setRes.Requests, int64(count))
 		res = append(res, setRes)
 	}
@@ -495,6 +537,35 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
+// PropagateResourceRequests synchronizes w.Status.ResourceRequests to
+// with info.TotalRequests if the feature gate is enabled and returns true if w was updated
+func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
+	if !features.Enabled(features.WorkloadResourceRequestsSummary) {
+		return false
+	}
+	if len(w.Status.ResourceRequests) == len(info.TotalRequests) {
+		match := true
+		for idx := range w.Status.ResourceRequests {
+			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
+				!maps.Equal(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return false
+		}
+	}
+
+	res := make([]kueue.PodSetRequest, len(info.TotalRequests))
+	for idx := range info.TotalRequests {
+		res[idx].Name = info.TotalRequests[idx].Name
+		res[idx].Resources = info.TotalRequests[idx].Requests.ToResourceList()
+	}
+	w.Status.ResourceRequests = res
+	return true
+}
+
 // AdmissionStatusPatch creates a new object based on the input workload that contains
 // the admission and related conditions. The object can be used in Server-Side-Apply.
 // If strict is true, resourceVersion will be part of the patch.
@@ -502,6 +573,14 @@ func AdmissionStatusPatch(w *kueue.Workload, strict bool) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
+	if wlCopy.Status.Admission != nil {
+		// Clear ResourceRequests; Assignment.PodSetAssignment[].ResourceUsage supercedes it
+		wlCopy.Status.ResourceRequests = []kueue.PodSetRequest{}
+	} else {
+		for _, rr := range w.Status.ResourceRequests {
+			wlCopy.Status.ResourceRequests = append(wlCopy.Status.ResourceRequests, *rr.DeepCopy())
+		}
+	}
 	for _, conditionName := range admissionManagedConditions {
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())

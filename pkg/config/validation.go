@@ -57,6 +57,7 @@ var (
 	fsPreemptionStrategiesPath        = field.NewPath("fairSharing", "preemptionStrategies")
 	internalCertManagementPath        = field.NewPath("internalCertManagement")
 	queueVisibilityPath               = field.NewPath("queueVisibility")
+	resourceTransformationPath        = field.NewPath("resources", "transformations")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -67,6 +68,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateMultiKueue(c)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
+	allErrs = append(allErrs, validateResourceTransformations(c)...)
 	return allErrs
 }
 
@@ -274,6 +276,28 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 		}
 		if !validStrategy {
 			allErrs = append(allErrs, field.NotSupported(fsPreemptionStrategiesPath, fs.PreemptionStrategies, validStrategySetsStr))
+		}
+	}
+	return allErrs
+}
+
+func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
+	res := c.Resources
+	if res == nil {
+		return nil
+	}
+	var allErrs field.ErrorList
+	seenKeys := make(sets.Set[corev1.ResourceName])
+	for idx, transform := range res.Transformations {
+		strategy := ptr.Deref(transform.Strategy, "")
+		if !(strategy == configapi.Retain || strategy == configapi.Replace) {
+			allErrs = append(allErrs, field.NotSupported(resourceTransformationPath.Index(idx).Child("strategy"),
+				transform.Strategy, []configapi.ResourceTransformationStrategy{configapi.Retain, configapi.Replace}))
+		}
+		if seenKeys.Has(transform.Input) {
+			allErrs = append(allErrs, field.Duplicate(resourceTransformationPath.Index(idx).Child("input"), transform.Input))
+		} else {
+			seenKeys.Insert(transform.Input)
 		}
 	}
 	return allErrs

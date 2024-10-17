@@ -109,6 +109,22 @@ const (
 	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
 	// to put them on closely located nodes (e.g. within the same rack or block).
 	TopologyAwareScheduling featuregate.Feature = "TopologyAwareScheduling"
+
+	// owner: @dgrove-oss
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
+	// alpha: v0.9
+	//
+	// Enable applying configurable resource transformations when computing
+	// the resource requests of a Workload
+	ConfigurableResourceTransformations featuregate.Feature = "ConfigurableResourceTransformations"
+
+	// owner: @dgrove-oss
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
+	// alpha: v0.9
+	//
+	// Summarize the resource requests of non-admitted Workloads in Workload.Status.resourceRequest
+	// to improve observability
+	WorkloadResourceRequestsSummary featuregate.Feature = "WorkloadResourceRequestsSummary"
 )
 
 func init() {
@@ -122,17 +138,19 @@ func init() {
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	PartialAdmission:                {Default: true, PreRelease: featuregate.Beta},
-	QueueVisibility:                 {Default: false, PreRelease: featuregate.Alpha},
-	FlavorFungibility:               {Default: true, PreRelease: featuregate.Beta},
-	ProvisioningACC:                 {Default: true, PreRelease: featuregate.Beta},
-	VisibilityOnDemand:              {Default: true, PreRelease: featuregate.Beta},
-	PrioritySortingWithinCohort:     {Default: true, PreRelease: featuregate.Beta},
-	MultiKueue:                      {Default: true, PreRelease: featuregate.Beta},
-	LendingLimit:                    {Default: true, PreRelease: featuregate.Beta},
-	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
-	MultiplePreemptions:             {Default: true, PreRelease: featuregate.Beta},
-	TopologyAwareScheduling:         {Default: false, PreRelease: featuregate.Alpha},
+	PartialAdmission:                    {Default: true, PreRelease: featuregate.Beta},
+	QueueVisibility:                     {Default: false, PreRelease: featuregate.Alpha},
+	FlavorFungibility:                   {Default: true, PreRelease: featuregate.Beta},
+	ProvisioningACC:                     {Default: true, PreRelease: featuregate.Beta},
+	VisibilityOnDemand:                  {Default: true, PreRelease: featuregate.Beta},
+	PrioritySortingWithinCohort:         {Default: true, PreRelease: featuregate.Beta},
+	MultiKueue:                          {Default: true, PreRelease: featuregate.Beta},
+	LendingLimit:                        {Default: true, PreRelease: featuregate.Beta},
+	MultiKueueBatchJobWithManagedBy:     {Default: false, PreRelease: featuregate.Alpha},
+	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.Beta},
+	TopologyAwareScheduling:             {Default: false, PreRelease: featuregate.Alpha},
+	ConfigurableResourceTransformations: {Default: false, PreRelease: featuregate.Alpha},
+	WorkloadResourceRequestsSummary:     {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

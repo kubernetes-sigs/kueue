@@ -43,7 +43,7 @@ a ClusterQueue.
 Kueue currently performs a direct and mostly non-configurable mapping of the resource
 requests/limits of a Job into the resource requests of the Job's Workload.
 The only supported configuration is the ability to ignore resources that match
-a global `execludedResourcePrefixes` list.
+a global `excludeResourcePrefixes` list.
 This direct mapping results in two significant limitations that limit the expressivity
 of Kueue's resource and quota mechanisms:
 1. Only resources that are explicitly listed in a Jobs requests/limits can
@@ -271,7 +271,7 @@ the `spot` flavor to cost fewer credits than when allocated from the `on-demand`
 Since Kueue's workload.Info struct is already a well-defined
 place where resource filtering is being applied to compute the effective resource
 request from a Workload's PodSpec, the core of the implementation is
-straightforward and follows from how `excludedResourcePrefixes` are already processed.
+straightforward and follows from how `excludeResourcePrefixes` are already processed.
 
 The non-trivial design issues are how to configure the transformations,
 the possible granularity of that configuration, and how to maximize observability
@@ -523,9 +523,9 @@ Status:
     Reason:                Pending
     Status:                False
     Type:                  QuotaReserved
-  ResourceRequests:
+  Resource Requests:
     Name: main
-    Resource Request:
+    Resources:
       Cpu:                             1
       example.com/accelerator-memory:  20G
       Memory:                          97656250Ki
@@ -560,14 +560,22 @@ tests against it.
 
 ### Graduation Criteria
 
+We should implement additional verification to flag overlaps between `resources.excludeResourcePrefixes`
+and `resources.transformations`.  The implementation applies the exclusions before
+the transformations, so if a resource both matches an exclusion prefix and is an input resource
+to a transformation the transformation will never apply.  This could be detected when validating
+the configuration and reported as a configuration error.
+
 ## Implementation History
+
+2024-09-30: KEP Merged
 
 ## Drawbacks
 
 Adds an additional dimension of configuration that needs to be documented
 and maintained.
 
-The existing `excludedResoucePrefixes` already meant that Kueue's
+The existing `excludeResoucePrefixes` already meant that Kueue's
 view of a Workload's resource request diverged from that of the
 Kubernetes scheduler. However, this KEP allows significantly larger
 divergences which puts additional pressure on ensuring the transformed
