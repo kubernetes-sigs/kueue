@@ -593,6 +593,95 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 		})
+
+		ginkgo.It("The transformed resources should be used as request values but resourceRequests is not created", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurableResourceTransformations, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadResourceRequestsSummary, false)
+			var wl2 *kueue.Workload
+			ginkgo.By("Create and wait for workload admission", func() {
+				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+				wl = testing.MakeWorkload("one", ns.Name).
+					Queue(localQueue.Name).
+					Request(pseudoCPU, "1").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+				gomega.Eventually(func() bool {
+					read := kueue.Workload{}
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
+						return false
+					}
+					return workload.HasQuotaReservation(&read)
+				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			})
+
+			ginkgo.By("Check queue resource consumption", func() {
+				gomega.Eventually(func(g gomega.Gomega) kueue.ClusterQueueStatus {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+					return updatedCQ.Status
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+					PendingWorkloads:   0,
+					ReservingWorkloads: 1,
+					FlavorsReservation: []kueue.FlavorUsage{{
+						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+						Resources: []kueue.ResourceUsage{{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("2"), // conversionBaseFactor is 2
+						}},
+					}},
+				}, ignoreCqCondition, ignoreInClusterQueueStatus))
+			})
+
+			ginkgo.By("Check podSets spec", func() {
+				wlRead := kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
+				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
+			})
+
+			ginkgo.By("Create a pending workload and validate resourceRequests is not created", func() {
+				wl2 = testing.MakeWorkload("two", ns.Name).
+					Queue(localQueue.Name).
+					Request(pseudoCPU, "2").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+				wl2Read := kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &wl2Read)).To(gomega.Succeed())
+				gomega.Expect(wl2Read.Status.ResourceRequests).To(gomega.BeNil())
+			})
+		})
+
+		ginkgo.It("When the feature is disabled, the resources are not transformed", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurableResourceTransformations, false)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadResourceRequestsSummary, true)
+			ginkgo.By("Create inadmissable workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+				wl = testing.MakeWorkload("one", ns.Name).
+					Queue(localQueue.Name).
+					Request(pseudoCPU, "1").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+				gomega.Consistently(func() bool {
+					read := kueue.Workload{}
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
+						return false
+					}
+					return workload.HasQuotaReservation(&read)
+				}, util.ConsistentDuration, util.Interval).Should(gomega.BeFalse())
+			})
+
+			ginkgo.By("Verify resourceRequests is not transformed", func() {
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+				read := kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+				gomega.Expect(equality.Semantic.DeepEqual(read.Status.ResourceRequests, []kueue.PodSetRequest{{
+					Name:      "main",
+					Resources: corev1.ResourceList{pseudoCPU: resource.MustParse("1")}},
+				})).To(gomega.BeTrue())
+			})
+		})
 	})
 
 	ginkgo.When("RuntimeClass is defined and change", func() {
