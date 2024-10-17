@@ -498,14 +498,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					Request(pseudoCPU, "1").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-
-				gomega.Eventually(func() bool {
-					read := kueue.Workload{}
-					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
-						return false
-					}
-					return workload.HasQuotaReservation(&read)
-				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
 			})
 
 			ginkgo.By("Check queue resource consumption", func() {
@@ -606,13 +599,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-				gomega.Eventually(func() bool {
-					read := kueue.Workload{}
-					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
-						return false
-					}
-					return workload.HasQuotaReservation(&read)
-				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
 			})
 
 			ginkgo.By("Check queue resource consumption", func() {
