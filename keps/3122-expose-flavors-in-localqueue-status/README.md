@@ -27,7 +27,7 @@
 ## Summary
 
 This KEP introduces a new status field in LocalQueue, allowing users to see
-all currently available ResourceFlavors in the LocalQueue.
+all currently available ResourceFlavors for the LocalQueue.
 
 ## Motivation
 
@@ -79,6 +79,8 @@ Create `LocalQueueFlavorStatus` API object:
 ```go
 type LocalQueueFlavorStatus struct {
   // name of the flavor.
+  // +required
+  // +kubebuilder:validation:Required
   Name ResourceFlavorReference `json:"name"`
   
   // resources used in the flavor.

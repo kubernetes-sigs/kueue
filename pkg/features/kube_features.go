@@ -114,7 +114,7 @@ const (
 	// beta: v0.9
 	//
 	// Enable the Flavors status field in the LocalQueue, allowing users to view
-	// all currently available ResourceFlavors in the LocalQueue.
+	// all currently available ResourceFlavors for the LocalQueue.
 	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
 )
 

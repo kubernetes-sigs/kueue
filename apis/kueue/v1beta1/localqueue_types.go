@@ -50,6 +50,8 @@ type ClusterQueueReference string
 
 type LocalQueueFlavorStatus struct {
 	// name of the flavor.
+	// +required
+	// +kubebuilder:validation:Required
 	Name ResourceFlavorReference `json:"name"`
 
 	// resources used in the flavor.
