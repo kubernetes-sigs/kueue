@@ -109,6 +109,13 @@ const (
 	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
 	// to put them on closely located nodes (e.g. within the same rack or block).
 	TopologyAwareScheduling featuregate.Feature = "TopologyAwareScheduling"
+
+	// owner: @mbobrovskyi
+	// beta: v0.9
+	//
+	// Enable the Flavors status field in the LocalQueue, allowing users to view
+	// all currently available ResourceFlavors for the LocalQueue.
+	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
 )
 
 func init() {
@@ -133,6 +140,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
 	MultiplePreemptions:             {Default: true, PreRelease: featuregate.Beta},
 	TopologyAwareScheduling:         {Default: false, PreRelease: featuregate.Alpha},
+	ExposeFlavorsInLocalQueue:       {Default: true, PreRelease: featuregate.Beta},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

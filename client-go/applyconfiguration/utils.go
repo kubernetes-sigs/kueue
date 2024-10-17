@@ -89,6 +89,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.KubeConfigApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueue"):
 		return &kueuev1beta1.LocalQueueApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueFlavorStatus"):
+		return &kueuev1beta1.LocalQueueFlavorStatusApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueFlavorUsage"):
 		return &kueuev1beta1.LocalQueueFlavorUsageApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueResourceUsage"):

@@ -196,6 +196,78 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              flavors:
+                description: flavors lists all currently available ResourceFlavors
+                  in specified ClusterQueue.
+                items:
+                  properties:
+                    name:
+                      description: name of the flavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    nodeLabels:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        nodeLabels are labels that associate the ResourceFlavor with Nodes that
+                        have the same labels.
+                      maxProperties: 8
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    nodeTaints:
+                      description: |-
+                        nodeTaints are taints that the nodes associated with this ResourceFlavor
+                        have.
+                      items:
+                        description: |-
+                          The node this Taint is attached to has the "effect" on
+                          any pod that does not tolerate the Taint.
+                        properties:
+                          effect:
+                            description: |-
+                              Required. The effect of the taint on pods
+                              that do not tolerate the taint.
+                              Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                            type: string
+                          key:
+                            description: Required. The taint key to be applied to
+                              a node.
+                            type: string
+                          timeAdded:
+                            description: |-
+                              TimeAdded represents the time at which the taint was added.
+                              It is only written for NoExecute taints.
+                            format: date-time
+                            type: string
+                          value:
+                            description: The taint value corresponding to the taint
+                              key.
+                            type: string
+                        required:
+                        - effect
+                        - key
+                        type: object
+                      maxItems: 8
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    resources:
+                      description: resources used in the flavor.
+                      items:
+                        description: ResourceName is the name identifying various
+                          resources in a ResourceList.
+                        type: string
+                      maxItems: 16
+                      type: array
+                      x-kubernetes-list-type: set
+                  required:
+                  - name
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               flavorsReservation:
                 description: |-
                   flavorsReservation are the reserved quotas, by flavor currently in use by the
