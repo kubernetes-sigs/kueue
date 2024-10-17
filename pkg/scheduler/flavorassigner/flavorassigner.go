@@ -174,6 +174,8 @@ type PodSetAssignment struct {
 	Status   *Status
 	Requests corev1.ResourceList
 	Count    int32
+
+	TopologyAssignment *kueue.TopologyAssignment
 }
 
 // RepresentativeMode calculates the representative mode for this assignment as
@@ -202,10 +204,11 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		flavors[res] = flvAssignment.Name
 	}
 	return kueue.PodSetAssignment{
-		Name:          psa.Name,
-		Flavors:       flavors,
-		ResourceUsage: psa.Requests,
-		Count:         ptr.To(psa.Count),
+		Name:               psa.Name,
+		Flavors:            flavors,
+		ResourceUsage:      psa.Requests,
+		Count:              ptr.To(psa.Count),
+		TopologyAssignment: psa.TopologyAssignment.DeepCopy(),
 	}
 }
 
@@ -312,19 +315,19 @@ func (a *FlavorAssigner) Assign(log logr.Logger, counts []int32) Assignment {
 		}
 		a.wl.LastAssignment = nil
 	}
-
-	if len(counts) == 0 {
-		return a.assignFlavors(log, a.wl.TotalRequests)
-	}
-
-	currentResources := make([]workload.PodSetResources, len(a.wl.TotalRequests))
-	for i := range a.wl.TotalRequests {
-		currentResources[i] = *a.wl.TotalRequests[i].ScaledTo(counts[i])
-	}
-	return a.assignFlavors(log, currentResources)
+	return a.assignFlavors(log, counts)
 }
 
-func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodSetResources) Assignment {
+func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignment {
+	var requests []workload.PodSetResources
+	if len(counts) == 0 {
+		requests = a.wl.TotalRequests
+	} else {
+		requests = make([]workload.PodSetResources, len(a.wl.TotalRequests))
+		for i := range a.wl.TotalRequests {
+			requests[i] = *a.wl.TotalRequests[i].ScaledTo(counts[i])
+		}
+	}
 	assignment := Assignment{
 		PodSets: make([]PodSetAssignment, 0, len(requests)),
 		Usage:   make(resources.FlavorResourceQuantities),
@@ -359,6 +362,11 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodS
 				break
 			}
 			psAssignment.append(flavors, status)
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			if a.wl.Obj.Spec.PodSets[i].TopologyRequest != nil {
+				assignTopology(log, &psAssignment, a.cq, a.wl.TotalRequests[i], &a.wl.Obj.Spec.PodSets[i])
+			}
 		}
 
 		assignment.append(podSet.Requests, &psAssignment)
