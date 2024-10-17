@@ -171,3 +171,8 @@ func (j *RayClusterWrapper) Reason(reason string) *RayClusterWrapper {
 	j.RayCluster.Status.Reason = reason
 	return j
 }
+
+// Priority sets the workload priority class label.
+func (j *RayClusterWrapper) Priority(v string) *RayClusterWrapper {
+	return j.Label(kueueconstants.WorkloadPriorityClassLabel, v)
+}
