@@ -390,7 +390,7 @@ type ResourceTransformation struct {
 
 	// Strategy specifies if the input resource should be replaced or retained.
 	// Defaults to Retain
-	Strategy *ResourceTransformationStrategy `json:"strategy"`
+	Strategy *ResourceTransformationStrategy `json:"strategy,omitempty"`
 
 	// Outputs specifies the output resources and quantities per unit of input resource.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
