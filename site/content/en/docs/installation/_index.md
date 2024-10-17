@@ -253,6 +253,7 @@ The currently supported features are:
 | `MultiplePreemptions`             | `false` | Alpha      | 0.8   | 0.8   |
 | `MultiplePreemptions`             | `true`  | Beta       | 0.9   |       |
 | `TopologyAwareScheduling`         | `false` | Alpha      | 0.9   |       |
+| `AdmissionCheckValidationRules`   | `false` | Alpha      | 0.9   |       |
 
 ## What's next
 

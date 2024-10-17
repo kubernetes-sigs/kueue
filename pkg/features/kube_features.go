@@ -109,6 +109,13 @@ const (
 	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
 	// to put them on closely located nodes (e.g. within the same rack or block).
 	TopologyAwareScheduling featuregate.Feature = "TopologyAwareScheduling"
+
+	// owner: @mszadkow
+	// alpha: v0.9
+	// Deprecated: v0.10
+	//
+	// Enable additional AdmissionCheck validation rules that will appear in status conditions.
+	AdmissionCheckValidationRules featuregate.Feature = "AdmissionCheckValidationRules"
 )
 
 func init() {
@@ -133,6 +140,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
 	MultiplePreemptions:             {Default: true, PreRelease: featuregate.Beta},
 	TopologyAwareScheduling:         {Default: false, PreRelease: featuregate.Alpha},
+	AdmissionCheckValidationRules:   {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
