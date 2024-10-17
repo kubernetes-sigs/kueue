@@ -736,3 +736,17 @@ func NewTestingLogger(writer io.Writer, level int) logr.Logger {
 func WaitForNextSecondAfterCreation(obj client.Object) {
 	time.Sleep(time.Until(obj.GetCreationTimestamp().Add(time.Second)))
 }
+
+func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		readCq := &kueue.ClusterQueue{}
+		var inactive []string
+		for _, cq := range cqs {
+			err := c.Get(ctx, client.ObjectKeyFromObject(cq), readCq)
+			if err != nil || !apimeta.IsStatusConditionTrue(readCq.Status.Conditions, kueue.ClusterQueueActive) {
+				inactive = append(inactive, cq.Name)
+			}
+		}
+		g.Expect(inactive).To(gomega.BeEmpty(), "clusterqueue(s) %v are not active")
+	}, Timeout, Interval).Should(gomega.Succeed())
+}

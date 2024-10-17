@@ -136,10 +136,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				AdmissionChecks(ac.Name).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-				g.Expect(apimeta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
