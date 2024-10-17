@@ -4,7 +4,7 @@ kind: Role
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-leader-election-role'
+  name: '{{ printf "%s-leader-election-role" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 rules:
   - apiGroups:
       - ""

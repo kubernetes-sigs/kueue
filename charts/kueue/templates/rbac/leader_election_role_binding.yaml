@@ -3,12 +3,12 @@ kind: RoleBinding
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-leader-election-rolebinding'
+  name: '{{ printf "%s-leader-election-rolebinding" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: '{{ include "kueue.fullname" . }}-leader-election-role'
+  name: '{{ printf "%s-leader-election-role" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 subjects:
   - kind: ServiceAccount
-    name: '{{ include "kueue.fullname" . }}-controller-manager'
+    name: '{{ printf "%s-controller-manager" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
     namespace: '{{ .Release.Namespace }}'

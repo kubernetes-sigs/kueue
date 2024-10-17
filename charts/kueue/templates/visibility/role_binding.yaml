@@ -3,7 +3,7 @@ kind: RoleBinding
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-visibility-server-auth-reader'
+  name: '{{ printf "%s-visibility-server-auth-reader" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
   namespace: kube-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io

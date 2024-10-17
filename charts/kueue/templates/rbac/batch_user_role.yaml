@@ -4,7 +4,7 @@ kind: ClusterRole
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-batch-user-role'
+  name: '{{ printf "%s-batch-user-role" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 aggregationRule:
   clusterRoleSelectors:
     - matchLabels:

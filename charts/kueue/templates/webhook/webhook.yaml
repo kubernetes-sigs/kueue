@@ -4,10 +4,10 @@ kind: MutatingWebhookConfiguration
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-mutating-webhook-configuration'
+  name: '{{ printf "%s-mutating-webhook-configuration" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
   {{- if .Values.enableCertManager }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ printf "%s-serving-cert" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
   {{- end }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
@@ -15,7 +15,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-apps-v1-deployment
     {{- if has "deployment" $integrationsConfig.frameworks }}
@@ -45,7 +45,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-batch-v1-job
     failurePolicy: Fail
@@ -64,7 +64,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-jobset-x-k8s-io-v1alpha2-jobset
     failurePolicy: Fail
@@ -83,7 +83,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-mxjob
     failurePolicy: Fail
@@ -102,7 +102,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-paddlejob
     failurePolicy: Fail
@@ -121,7 +121,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-pytorchjob
     failurePolicy: Fail
@@ -140,7 +140,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-tfjob
     failurePolicy: Fail
@@ -159,7 +159,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-xgboostjob
     failurePolicy: Fail
@@ -178,7 +178,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v2beta1-mpijob
     failurePolicy: Fail
@@ -197,7 +197,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate--v1-pod
     {{- if has "pod" $integrationsConfig.frameworks }}
@@ -231,7 +231,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-ray-io-v1-raycluster
     failurePolicy: Fail
@@ -250,7 +250,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-ray-io-v1-rayjob
     failurePolicy: Fail
@@ -269,7 +269,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
     failurePolicy: Fail
@@ -288,7 +288,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kueue-x-k8s-io-v1beta1-resourceflavor
     failurePolicy: Fail
@@ -307,7 +307,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /mutate-kueue-x-k8s-io-v1beta1-workload
     failurePolicy: Fail
@@ -328,10 +328,10 @@ kind: ValidatingWebhookConfiguration
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-validating-webhook-configuration'
+  name: '{{ printf "%s-validating-webhook-configuration" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
   {{- if .Values.enableCertManager }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ printf "%s-serving-cert" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
   {{- end }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
@@ -339,7 +339,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-apps-v1-deployment
     {{- if has "deployment" $integrationsConfig.frameworks }}
@@ -370,7 +370,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-batch-v1-job
     failurePolicy: Fail
@@ -390,7 +390,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-jobset-x-k8s-io-v1alpha2-jobset
     failurePolicy: Fail
@@ -410,7 +410,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-mxjob
     failurePolicy: Fail
@@ -430,7 +430,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-paddlejob
     failurePolicy: Fail
@@ -450,7 +450,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-pytorchjob
     failurePolicy: Fail
@@ -470,7 +470,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-tfjob
     failurePolicy: Fail
@@ -490,7 +490,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v1-xgboostjob
     failurePolicy: Fail
@@ -510,7 +510,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kubeflow-org-v2beta1-mpijob
     failurePolicy: Fail
@@ -530,7 +530,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate--v1-pod
     {{- if has "pod" $integrationsConfig.frameworks }}
@@ -565,7 +565,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-ray-io-v1-raycluster
     failurePolicy: Fail
@@ -585,7 +585,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-ray-io-v1-rayjob
     failurePolicy: Fail
@@ -605,7 +605,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kueue-x-k8s-io-v1beta1-clusterqueue
     failurePolicy: Fail
@@ -625,7 +625,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kueue-x-k8s-io-v1alpha1-cohort
     failurePolicy: Fail
@@ -645,7 +645,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kueue-x-k8s-io-v1beta1-resourceflavor
     failurePolicy: Fail
@@ -665,7 +665,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        name: '{{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
         namespace: '{{ .Release.Namespace }}'
         path: /validate-kueue-x-k8s-io-v1beta1-workload
     failurePolicy: Fail

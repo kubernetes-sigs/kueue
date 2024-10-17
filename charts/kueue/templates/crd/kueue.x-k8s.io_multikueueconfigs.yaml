@@ -6,7 +6,7 @@ metadata:
   {{- include "kueue.labels" . | nindent 4 }}
   annotations:
     {{- if .Values.enableCertManager }}
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ printf "%s-serving-cert" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
     {{- end }}
     controller-gen.kubebuilder.io/version: v0.16.4
   name: multikueueconfigs.kueue.x-k8s.io
@@ -16,7 +16,7 @@ spec:
     webhook:
       clientConfig:
         service:
-          name: {{ include "kueue.fullname" . }}-webhook-service
+          name: {{ printf "%s-webhook-service" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
           namespace: '{{ .Release.Namespace }}'
           path: /convert
       conversionReviewVersions:

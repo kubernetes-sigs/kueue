@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "kueue.fullname" . }}-prometheus-k8s
+  name: {{ printf "%s-prometheus-k8s" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
   namespace: '{{ .Release.Namespace }}'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
@@ -37,14 +37,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "kueue.fullname" . }}-prometheus-k8s
+  name: {{ printf "%s-prometheus-k8s" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
   namespace: '{{ .Release.Namespace }}'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: '{{ include "kueue.fullname" . }}-prometheus-k8s'
+  name: '{{ printf "%s-prometheus-k8s" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 subjects:
 - kind: ServiceAccount
   name: prometheus-k8s

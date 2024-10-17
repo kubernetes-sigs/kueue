@@ -2,7 +2,7 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ include "kueue.fullname" . }}-controller-manager-metrics-monitor
+  name: {{ printf "%s-controller-manager-metrics-monitor" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
   namespace: '{{ .Release.Namespace }}'

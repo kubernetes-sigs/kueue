@@ -3,7 +3,7 @@ kind: ClusterRole
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-proxy-role'
+  name: '{{ printf "%s-proxy-role" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 rules:
   - apiGroups:
       - authentication.k8s.io

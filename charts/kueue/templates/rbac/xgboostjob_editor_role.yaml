@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: '{{ include "kueue.fullname" . }}-xgboostjob-editor-role'
+  name: '{{ printf "%s-xgboostjob-editor-role" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
     rbac.kueue.x-k8s.io/batch-admin: "true"

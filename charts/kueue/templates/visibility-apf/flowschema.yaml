@@ -4,7 +4,7 @@ kind: FlowSchema
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-visibility'
+  name: '{{ printf "%s-visibility" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
   namespace: '{{ .Release.Namespace }}'
 spec:
   distinguisherMethod:
