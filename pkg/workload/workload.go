@@ -538,8 +538,11 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 }
 
 // PropagateResouceRequests synchronizes w.Status.ResourceRequests to
-// with info.TotalRequests and returns true if w was updated
+// with info.TotalRequests if the feature gate is enabled and returns true if w was updated
 func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
+	if !features.Enabled(features.WorkloadResourceRequestsSummary) {
+		return false
+	}
 	if len(w.Status.ResourceRequests) == len(info.TotalRequests) {
 		match := true
 		for idx := range w.Status.ResourceRequests {

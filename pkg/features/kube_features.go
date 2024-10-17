@@ -117,6 +117,14 @@ const (
 	// Enable applying configurable resource transformations when computing
 	// the resource requests of a Workload
 	ConfigurableResourceTransformations featuregate.Feature = "ConfigurableResourceTransformations"
+
+	// owner: @dgrove-oss
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
+	// alpha: v0.9
+	//
+	// Summarize the resource requests of non-admitted Workloads in Workload.Status.resourceRequest
+	// to improve observability
+	WorkloadResourceRequestsSummary featuregate.Feature = "WorkloadResourceRequestsSummary"
 )
 
 func init() {
@@ -142,6 +150,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.Beta},
 	TopologyAwareScheduling:             {Default: false, PreRelease: featuregate.Alpha},
 	ConfigurableResourceTransformations: {Default: false, PreRelease: featuregate.Alpha},
+	WorkloadResourceRequestsSummary:     {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

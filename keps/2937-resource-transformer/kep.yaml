@@ -27,4 +27,5 @@ milestone:
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
   - name: ConfigurableResourceTransformations
+  - name: WorkloadResourceRequestsSummary
 disable-supported: true

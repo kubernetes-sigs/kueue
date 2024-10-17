@@ -489,6 +489,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.It("The transformed resources should be used as request values", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurableResourceTransformations, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadResourceRequestsSummary, true)
 			var wl2 *kueue.Workload
 			ginkgo.By("Create and wait for workload admission", func() {
 				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
