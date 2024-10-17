@@ -608,7 +608,6 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	// If there is no matching workload and the job is running, suspend it.
 	if match == nil && !job.IsSuspended() {
-		log.V(2).Info("job with no matching workload, suspending")
 		var w *kueue.Workload
 		if len(toDelete) == 1 {
 			// The job may have been modified and hence the existing workload
@@ -618,6 +617,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 
 		if _, _, finished := job.Finished(); !finished {
+			log.V(2).Info("job with no matching workload, suspending")
 			var msg string
 			if w == nil {
 				msg = "Missing Workload; unable to restore pod templates"

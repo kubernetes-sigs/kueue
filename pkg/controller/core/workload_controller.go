@@ -71,6 +71,7 @@ type waitForPodsReadyConfig struct {
 type options struct {
 	watchers               []WorkloadUpdateWatcher
 	waitForPodsReadyConfig *waitForPodsReadyConfig
+	objectRetention        *metav1.Duration
 }
 
 // Option configures the reconciler.
@@ -90,6 +91,13 @@ func WithWorkloadUpdateWatchers(value ...WorkloadUpdateWatcher) Option {
 	}
 }
 
+// WithWorkloadObjectRetention allows to specify retention for workload resources
+func WithWorkloadObjectRetention(value *metav1.Duration) Option {
+	return func(o *options) {
+		o.objectRetention = value
+	}
+}
+
 var defaultOptions = options{}
 
 type WorkloadUpdateWatcher interface {
@@ -106,6 +114,7 @@ type WorkloadReconciler struct {
 	waitForPodsReady *waitForPodsReadyConfig
 	recorder         record.EventRecorder
 	clock            clock.Clock
+	objectRetention  *metav1.Duration
 }
 
 func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
@@ -123,6 +132,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 		waitForPodsReady: options.waitForPodsReadyConfig,
 		recorder:         recorder,
 		clock:            realClock,
+		objectRetention:  options.objectRetention,
 	}
 }
 
@@ -144,11 +154,29 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log.V(2).Info("Reconciling Workload")
 
 	if len(wl.ObjectMeta.OwnerReferences) == 0 && !wl.DeletionTimestamp.IsZero() {
+		// manual deletion triggered by the user
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, &wl)
 	}
 
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-		return ctrl.Result{}, nil
+	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
+	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
+		if r.objectRetention == nil  {
+			return ctrl.Result{}, nil
+		}
+		now := r.clock.Now()
+		expirationTime := finishedCond.LastTransitionTime.Add(r.objectRetention.Duration)
+		if now.After(expirationTime) {
+			log.V(2).Info("Deleting workload because it has finished and the retention period has elapsed", "retention", r.objectRetention.Duration)
+			if err := r.client.Delete(ctx, &wl); err != nil {
+				log.Error(err, "Failed to delete workload from the API server")
+				return ctrl.Result{}, fmt.Errorf("deleting workflow from the API server: %w", err)
+			}
+			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Deleted", "Deleted finished workload due to elapsed retention:  %v", workload.Key(&wl))
+		} else {
+			remainingTime := expirationTime.Sub(now)
+			log.V(2).Info("Requeueing workload for deletion after retention period", "remainingTime", remainingTime)
+			return ctrl.Result{RequeueAfter: remainingTime}, nil
+		}
 	}
 
 	if workload.IsActive(&wl) {

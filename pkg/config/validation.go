@@ -57,6 +57,7 @@ var (
 	fsPreemptionStrategiesPath        = field.NewPath("fairSharing", "preemptionStrategies")
 	internalCertManagementPath        = field.NewPath("internalCertManagement")
 	queueVisibilityPath               = field.NewPath("queueVisibility")
+	objectRetentionPoliciesPath       = field.NewPath("objectRetentionPolicies")
 )
 
 func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
@@ -67,6 +68,7 @@ func validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateMultiKueue(c)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
+	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	return allErrs
 }
 
@@ -274,6 +276,19 @@ func validateFairSharing(c *configapi.Configuration) field.ErrorList {
 		}
 		if !validStrategy {
 			allErrs = append(allErrs, field.NotSupported(fsPreemptionStrategiesPath, fs.PreemptionStrategies, validStrategySetsStr))
+		}
+	}
+	return allErrs
+}
+
+func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+
+	rr := c.ObjectRetentionPolicies
+	if rr != nil {
+		if rr.FinishedWorkloadRetention != nil && rr.FinishedWorkloadRetention.Duration < 0 {
+			allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesPath.Child("finishedWorkloadRetention"),
+				c.ObjectRetentionPolicies.FinishedWorkloadRetention, constants.IsNegativeErrorMsg))
 		}
 	}
 	return allErrs
