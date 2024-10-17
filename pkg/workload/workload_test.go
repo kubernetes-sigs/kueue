@@ -302,7 +302,7 @@ func TestNewInfo(t *testing.T) {
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
-					Strategy: "Replace",
+					Strategy: ptr.To(config.Replace),
 					Outputs: corev1.ResourceList{
 						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("5Ki"),
 						corev1.ResourceName("example.com/credits"):            resource.MustParse("10"),
@@ -310,7 +310,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:    corev1.ResourceName("nvidia.com/mig-2g.10gb"),
-					Strategy: "Replace",
+					Strategy: ptr.To(config.Replace),
 					Outputs: corev1.ResourceList{
 						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("10Ki"),
 						corev1.ResourceName("example.com/credits"):            resource.MustParse("15"),
@@ -318,7 +318,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:    corev1.ResourceName("nvidia.com/gpu"),
-					Strategy: "Retain",
+					Strategy: ptr.To(config.Retain),
 					Outputs: corev1.ResourceList{
 						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("40Ki"),
 						corev1.ResourceName("example.com/credits"):            resource.MustParse("100"),

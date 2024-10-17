@@ -1658,7 +1658,7 @@ cloud.provider.com/topology-rack: rack-2</li>
    <p>name is the name of the podSet. It should match one of the names in .spec.podSets.</p>
 </td>
 </tr>
-<tr><td><code>resources</code> <B>[Required]</B><br/>
+<tr><td><code>resources</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
 <td>

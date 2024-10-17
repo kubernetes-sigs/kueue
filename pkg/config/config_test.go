@@ -899,7 +899,7 @@ webhook:
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
-							Strategy: "Replace",
+							Strategy: ptr.To(configapi.Replace),
 							Outputs: corev1.ResourceList{
 								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("5Gi"),
 								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("10"),
@@ -907,7 +907,7 @@ webhook:
 						},
 						{
 							Input:    corev1.ResourceName("nvidia.com/mig-2g.10gb"),
-							Strategy: "Replace",
+							Strategy: ptr.To(configapi.Replace),
 							Outputs: corev1.ResourceList{
 								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("10Gi"),
 								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("15"),
@@ -915,7 +915,7 @@ webhook:
 						},
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: "Retain",
+							Strategy: ptr.To(configapi.Retain),
 							Outputs: corev1.ResourceList{
 								corev1.ResourceName("example.com/credits"): resourcev1.MustParse("1"),
 							},

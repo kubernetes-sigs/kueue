@@ -561,14 +561,14 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"invalid .resources.transformations": {
+		"invalid .resources.transformations.strategy": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: "invalid",
+							Strategy: ptr.To(configapi.ResourceTransformationStrategy("invalid")),
 						},
 					},
 				},
@@ -580,6 +580,35 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+
+		"invalid .resources.transformations.inputs": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: ptr.To(configapi.Retain),
+						},
+						{
+							Input:    corev1.ResourceMemory,
+							Strategy: ptr.To(configapi.Retain),
+						},
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: ptr.To(configapi.Retain),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "resources.transformations[2].input",
+				},
+			},
+		},
+
 		"valid .resources.transformations": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -587,11 +616,11 @@ func TestValidate(t *testing.T) {
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: configapi.Retain,
+							Strategy: ptr.To(configapi.Retain),
 						},
 						{
 							Input:    corev1.ResourceMemory,
-							Strategy: configapi.Replace,
+							Strategy: ptr.To(configapi.Replace),
 						},
 					},
 				},

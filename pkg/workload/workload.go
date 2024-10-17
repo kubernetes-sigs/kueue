@@ -265,7 +265,7 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 				}
 				output[outputName] = outputQuantity
 			}
-			if mapping.Strategy == config.Retain {
+			if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
 				output[inputName] = inputQuantity
 			}
 		} else {
@@ -537,7 +537,7 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
-// PropagateResouceRequests synchronizes w.Status.ResourceRequests to
+// PropagateResourceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests if the feature gate is enabled and returns true if w was updated
 func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 	if !features.Enabled(features.WorkloadResourceRequestsSummary) {

@@ -197,8 +197,8 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	if cfg.Resources != nil {
 		for idx := range cfg.Resources.Transformations {
-			if cfg.Resources.Transformations[idx].Strategy == "" {
-				cfg.Resources.Transformations[idx].Strategy = DefaultResourceTransformationStrategy
+			if ptr.Deref(cfg.Resources.Transformations[idx].Strategy, "") == "" {
+				cfg.Resources.Transformations[idx].Strategy = ptr.To(DefaultResourceTransformationStrategy)
 			}
 		}
 	}

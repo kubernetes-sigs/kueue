@@ -375,9 +375,7 @@ type Resources struct {
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 
 	// Transformations defines how to transform PodSpec resources into Workload resource requests.
-	// +listType=map
-	// +listMapKey=input
-	// +optional
+	// This is intended to be a map with Input as the key (enforced by validation code)
 	Transformations []ResourceTransformation `json:"transformations,omitempty"`
 }
 
@@ -391,11 +389,11 @@ type ResourceTransformation struct {
 	Input corev1.ResourceName `json:"input"`
 
 	// Strategy specifies if the input resource should be replaced or retained.
-	// +optional
-	// Defaults to Retain.
-	Strategy ResourceTransformationStrategy `json:"strategy"`
+	// Defaults to Retain
+	Strategy *ResourceTransformationStrategy `json:"strategy"`
 
 	// Outputs specifies the output resources and quantities per unit of input resource.
+	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
 }
 

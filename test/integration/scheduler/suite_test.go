@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -77,7 +78,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	transformations := []config.ResourceTransformation{
 		{
 			Input:    corev1.ResourceName(pseudoCPU),
-			Strategy: config.Replace,
+			Strategy: ptr.To(config.Replace),
 			Outputs:  corev1.ResourceList{corev1.ResourceCPU: resourcev1.MustParse("2")},
 		},
 	}

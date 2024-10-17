@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
@@ -576,6 +577,36 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				FairSharing: &FairSharing{
 					Enable:               true,
 					PreemptionStrategies: []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare},
+				},
+			},
+		},
+		"resources.transformations strategy": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				Resources: &Resources{
+					Transformations: []ResourceTransformation{
+						{Input: corev1.ResourceCPU},
+						{Input: corev1.ResourceMemory, Strategy: ptr.To(Replace)},
+					},
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
+				Resources: &Resources{
+					Transformations: []ResourceTransformation{
+						{Input: corev1.ResourceCPU, Strategy: ptr.To(Retain)},
+						{Input: corev1.ResourceMemory, Strategy: ptr.To(Replace)},
+					},
 				},
 			},
 		},
