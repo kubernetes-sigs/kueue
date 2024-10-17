@@ -665,7 +665,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 				gomega.Consistently(func(g gomega.Gomega) bool {
 					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeded())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
 					return workload.HasQuotaReservation(&read)
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeFalse())
 			})
