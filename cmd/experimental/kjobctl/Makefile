@@ -40,6 +40,12 @@ INTEGRATION_TARGET ?= $(PROJECT_DIR)/test/integration/...
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+# For local testing, we should allow user to use different kind cluster name
+# Default will delete default kind cluster
+KIND_CLUSTER_NAME ?= kind
+E2E_KIND_VERSION ?= kindest/node:v1.31.0
+K8S_VERSION = $(E2E_KIND_VERSION:kindest/node:v%=%)
+
 ##@ General
 
 # The help target prints out all targets with their descriptions organized
@@ -131,6 +137,12 @@ test-integration: gomod-download envtest ginkgo embeded-manifest ray-operator-cr
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	$(GINKGO) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit-integration.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
+CREATE_KIND_CLUSTER ?= true
+.PHONY: test-e2e
+test-e2e: kind
+	@echo Running e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" GINKGO_ARGS="$(GINKGO_ARGS)" ./hack/e2e-test.sh
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -185,6 +197,7 @@ ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}
 GOLANGCI_LINT_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint)
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
 GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 
 ## Tool Binaries
 KUBECTL ?= kubectl
@@ -222,6 +235,11 @@ gotestsum: ## Download gotestsum locally if necessary.
 .PHONY: ginkgo
 ginkgo: ## Download ginkgo locally if necessary.
 	$(call go-install-tool,$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo,$(GINKGO_VERSION))
+
+KIND = $(PROJECT_DIR)/bin/kind
+.PHONY: kind
+kind: ## Download kind locally if necessary.
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@$(KIND_VERSION)
 
 ##@ External CRDs
 
