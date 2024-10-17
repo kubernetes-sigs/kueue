@@ -187,6 +187,10 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Cq)).Should(gomega.Succeed())
 		worker2Lq = utiltesting.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
 		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Lq)).Should(gomega.Succeed())
+
+		ginkgo.By("Disabling AdmissionCheckValidationRules feature", func() {
+			gomega.Expect(features.SetEnable(features.AdmissionCheckValidationRules, false)).To(gomega.Succeed())
+		})
 	})
 
 	ginkgo.AfterEach(func() {
@@ -203,7 +207,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultikueueSecret1, true)
 		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultikueueSecret2, true)
 	})
-	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by secret", func() {
+	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by secret, AdmissionCheckValidationRules disabled", func() {
 		ac := utiltesting.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
@@ -223,18 +227,6 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 							Status:  metav1.ConditionFalse,
 							Reason:  "BadConfig",
 							Message: `Cannot load the AdmissionChecks parameters: MultiKueueConfig.kueue.x-k8s.io "testing-config" not found`,
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.AdmissionChecksSingleInstanceInClusterQueue,
-							Status:  metav1.ConditionTrue,
-							Reason:  multikueue.SingleInstanceReason,
-							Message: multikueue.SingleInstanceMessage,
-						}, util.IgnoreConditionTimestampsAndObservedGeneration),
-						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.FlavorIndependentAdmissionCheck,
-							Status:  metav1.ConditionTrue,
-							Reason:  multikueue.FlavorIndependentCheckReason,
-							Message: multikueue.FlavorIndependentCheckMessage,
 						}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -348,6 +340,9 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 	})
 
 	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by file", func() {
+		ginkgo.By("Enabling AdmissionCheckValidationRules feature", func() {
+			gomega.Expect(features.SetEnable(features.AdmissionCheckValidationRules, true)).To(gomega.Succeed())
+		})
 		ac := utiltesting.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").

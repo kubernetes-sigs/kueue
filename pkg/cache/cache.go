@@ -36,6 +36,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -240,11 +241,19 @@ func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] 
 func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
 	c.Lock()
 	defer c.Unlock()
+
+	// TBD: This might not be needed, but we could keep it for readability
+	// because SingleInstanceInClusterQueue and FlavorIndependent will be false if AdmissionCheckValidationRules is off
+	singleInstanceInClusterQueue, flavorIndependent := false, false
+	if features.Enabled(features.AdmissionCheckValidationRules) {
+		singleInstanceInClusterQueue = apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue)
+		flavorIndependent = apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck)
+	}
 	c.admissionChecks[ac.Name] = AdmissionCheck{
 		Active:                       apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
 		Controller:                   ac.Spec.ControllerName,
-		SingleInstanceInClusterQueue: apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue),
-		FlavorIndependent:            apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck),
+		SingleInstanceInClusterQueue: singleInstanceInClusterQueue,
+		FlavorIndependent:            flavorIndependent,
 	}
 
 	return c.updateClusterQueues()
