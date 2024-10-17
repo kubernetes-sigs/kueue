@@ -40,9 +40,10 @@ import (
 
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
-		workload    kueue.Workload
-		infoOptions []InfoOption
-		wantInfo    Info
+		workload                            kueue.Workload
+		infoOptions                         []InfoOption
+		wantInfo                            Info
+		configurableResourceTransformations bool
 	}{
 		"pending": {
 			workload: *utiltesting.MakeWorkload("", "").
@@ -348,11 +349,12 @@ func TestNewInfo(t *testing.T) {
 					},
 				},
 			},
+			configurableResourceTransformations: true,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ConfigurableResourceTransformations, true)
+			features.SetFeatureGateDuringTest(t, features.ConfigurableResourceTransformations, tc.configurableResourceTransformations)
 			info := NewInfo(&tc.workload, tc.infoOptions...)
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
