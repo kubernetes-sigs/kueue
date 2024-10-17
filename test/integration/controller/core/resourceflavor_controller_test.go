@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -69,14 +68,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 
 			ginkgo.By("Wait for the queue to become active", func() {
-				gomega.Eventually(func() bool {
-					var cq kueue.ClusterQueue
-					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)
-					if err != nil {
-						return false
-					}
-					return apimeta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive)
-				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 			})
 		})
 
