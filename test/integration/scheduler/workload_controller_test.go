@@ -509,8 +509,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			})
 
 			ginkgo.By("Check queue resource consumption", func() {
-				gomega.Eventually(func() kueue.ClusterQueueStatus {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) kueue.ClusterQueueStatus {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:   0,
@@ -559,8 +559,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			})
 
 			ginkgo.By("Check queue resource consumption", func() {
-				gomega.Eventually(func() kueue.ClusterQueueStatus {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) kueue.ClusterQueueStatus {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:   0,
@@ -577,8 +577,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 			ginkgo.By("After all workloads are finished cluster queue state is clean", func() {
 				util.FinishWorkloads(ctx, k8sClient, wl2)
-				gomega.Eventually(func() kueue.ClusterQueueStatus {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) kueue.ClusterQueueStatus {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:   0,
