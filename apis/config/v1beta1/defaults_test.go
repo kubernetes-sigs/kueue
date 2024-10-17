@@ -604,7 +604,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:       defaultMultiKueue,
 				Resources: &Resources{
 					Transformations: []ResourceTransformation{
-						{Input: corev1.ResourceCPU, Strategy: ptr.To(Retain)},
+						{Input: corev1.ResourceCPU, Strategy: ptr.To(DefaultResourceTransformationStrategy)},
 						{Input: corev1.ResourceMemory, Strategy: ptr.To(Replace)},
 					},
 				},
