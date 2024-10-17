@@ -322,7 +322,8 @@ type Integrations struct {
 	//  - "kubeflow.org/tfjob"
 	//  - "kubeflow.org/xgboostjob"
 	//  - "pod"
-	//  - "deployment"
+	//  - "deployment" (requires enabling pod integration)
+	//  - "statefulset" (requires enabling pod integration)
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
