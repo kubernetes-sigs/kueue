@@ -695,8 +695,11 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		return nil, errQNotFound
 	}
 
-	flavors := make(map[kueue.ResourceFlavorReference]kueue.LocalQueueFlavorStatus)
+	var flavors map[kueue.ResourceFlavorReference]kueue.LocalQueueFlavorStatus
+
 	if features.Enabled(features.ExposeFlavorsInLocalQueue) {
+		flavors = make(map[kueue.ResourceFlavorReference]kueue.LocalQueueFlavorStatus)
+
 		resourcesInFlavor := make(map[kueue.ResourceFlavorReference]sets.Set[corev1.ResourceName])
 		for _, rg := range cqImpl.ResourceGroups {
 			for _, rgFlavor := range rg.Flavors {
