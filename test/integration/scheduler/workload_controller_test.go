@@ -663,7 +663,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-				gomega.Consistently(func() bool {
+				gomega.Consistently(func(g gomega.Gomega) bool {
 					read := kueue.Workload{}
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
