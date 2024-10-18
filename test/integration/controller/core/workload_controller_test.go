@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -424,6 +425,40 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			}, util.Timeout, util.Interval).Should(gomega.Equal(updatedPriority))
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
 			gomega.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+		})
+	})
+
+	ginkgo.When("the workload has a maximum execution time set", func() {
+		ginkgo.It("should deactivate the workload when the time expires", func() {
+			// due time rounding in conditions, the workload will stay admitted
+			// for a time between maxExecutionTime - 1s and maxExecutionTime
+			maxExecTime := 2 * time.Second
+			wl := testing.MakeWorkload("wl", ns.Name).
+				Queue("lq").
+				MaximumExecutionTime(maxExecTime).
+				Obj()
+			key := client.ObjectKeyFromObject(wl)
+			ginkgo.By("creating the workload and reserving its quota", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				admission := testing.MakeAdmission("cq").Obj()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("waiting for the workload to be admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("waiting for the workload to be deactivated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+				}, maxExecTime, util.Interval).Should(gomega.Succeed())
+			})
 		})
 	})
 })

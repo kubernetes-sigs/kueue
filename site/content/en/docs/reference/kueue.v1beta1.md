@@ -2355,6 +2355,14 @@ Possible values are:</p>
 <p>Defaults to true</p>
 </td>
 </tr>
+<tr><td><code>maximumExecutionTime</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>MaximumExecutionTime if provided, determines the maximum time the workload can be admitted
+before it's automatically deactivated.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
