@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	"sigs.k8s.io/kueue/cmd/experimental/demo-acc/internal/controller"
 	// +kubebuilder:scaffold:imports
@@ -46,6 +47,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kueueapi.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }
