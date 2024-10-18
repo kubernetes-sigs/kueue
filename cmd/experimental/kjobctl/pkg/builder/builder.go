@@ -325,6 +325,14 @@ func (b *Builder) validateGeneral(ctx context.Context) error {
 		}
 	}
 
+	// check that priority class exists
+	if len(b.priority) != 0 && !b.skipPriorityValidation {
+		_, err := b.kueueClientset.KueueV1beta1().WorkloadPriorityClasses().Get(ctx, b.priority, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -531,6 +539,10 @@ func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.O
 
 	if len(b.localQueue) > 0 {
 		objectMeta.Labels[kueueconstants.QueueLabel] = b.localQueue
+	}
+
+	if len(b.priority) != 0 {
+		objectMeta.Labels[kueueconstants.WorkloadPriorityClassLabel] = b.priority
 	}
 
 	return objectMeta
