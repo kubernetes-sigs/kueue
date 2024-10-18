@@ -107,6 +107,8 @@ type Cache struct {
 	fairSharingEnabled  bool
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
+
+	tasCache TASCache
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -123,6 +125,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		workloadInfoOptions: options.workloadInfoOptions,
 		fairSharingEnabled:  options.fairSharingEnabled,
 		hm:                  hierarchy.NewManager[*clusterQueue, *cohort](newCohort),
+		tasCache:            NewTASCache(client),
 	}
 	c.podsReadyCond.L = &c.RWMutex
 	return c
@@ -138,6 +141,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*clusterQueue, error) {
 		workloadInfoOptions: c.workloadInfoOptions,
 		AdmittedUsage:       make(resources.FlavorResourceQuantities),
 		resourceNode:        NewResourceNode(),
+		tasCache:            &c.tasCache,
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(cq.Name, cq.Spec.Cohort)
@@ -221,6 +225,22 @@ func (c *Cache) updateClusterQueues() sets.Set[string] {
 		}
 	}
 	return cqs
+}
+
+func (c *Cache) GetActiveClusterQueues() sets.Set[string] {
+	c.Lock()
+	defer c.Unlock()
+	cqs := sets.New[string]()
+	for _, cq := range c.hm.ClusterQueues {
+		if cq.Status == active {
+			cqs.Insert(cq.Name)
+		}
+	}
+	return cqs
+}
+
+func (c *Cache) GetTASCache() *TASCache {
+	return &c.tasCache
 }
 
 func (c *Cache) AddOrUpdateResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] {
