@@ -41,7 +41,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -695,18 +694,16 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		return nil, errQNotFound
 	}
 
-	var flavorsList []kueue.LocalQueueFlavorStatus
+	var flavors []kueue.LocalQueueFlavorStatus
 
 	if features.Enabled(features.ExposeFlavorsInLocalQueue) {
-		flavors := make(map[kueue.ResourceFlavorReference]kueue.LocalQueueFlavorStatus)
-
-		resourcesInFlavor := make(map[kueue.ResourceFlavorReference]sets.Set[corev1.ResourceName])
+		resourcesInFlavor := make(map[kueue.ResourceFlavorReference][]corev1.ResourceName)
 		for _, rg := range cqImpl.ResourceGroups {
 			for _, rgFlavor := range rg.Flavors {
 				if _, ok := resourcesInFlavor[rgFlavor]; !ok {
-					resourcesInFlavor[rgFlavor] = sets.New[corev1.ResourceName]()
+					resourcesInFlavor[rgFlavor] = make([]corev1.ResourceName, 0, len(rg.CoveredResources))
 				}
-				resourcesInFlavor[rgFlavor].Insert(rg.CoveredResources.UnsortedList()...)
+				resourcesInFlavor[rgFlavor] = append(resourcesInFlavor[rgFlavor], sets.List(rg.CoveredResources)...)
 			}
 		}
 
@@ -714,20 +711,15 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 			for _, rgFlavor := range rg.Flavors {
 				flavor := kueue.LocalQueueFlavorStatus{Name: rgFlavor}
 				if rif, ok := resourcesInFlavor[rgFlavor]; ok {
-					flavor.Resources = sets.List(rif)
+					flavor.Resources = append(flavor.Resources, rif...)
 				}
 				if rf, ok := c.resourceFlavors[rgFlavor]; ok {
 					flavor.NodeLabels = rf.Spec.NodeLabels
 					flavor.NodeTaints = rf.Spec.NodeTaints
 				}
-				flavors[rgFlavor] = flavor
+				flavors = append(flavors, flavor)
 			}
 		}
-
-		flavorsList = maps.Values(flavors)
-		sort.Slice(flavorsList, func(i, j int) bool {
-			return flavorsList[i].Name < flavorsList[j].Name
-		})
 	}
 
 	return &LocalQueueUsageStats{
@@ -735,7 +727,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
-		Flavors:            flavorsList,
+		Flavors:            flavors,
 	}, nil
 }
 
