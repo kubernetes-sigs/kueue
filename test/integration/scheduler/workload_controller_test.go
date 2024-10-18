@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -362,7 +361,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			ginkgo.By("Check podSets spec", func() {
 				wlRead := kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
+				gomega.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo(wlRead.Spec.PodSets))
 			})
 		})
 		ginkgo.It("Should not use the range defined requests, if provided by the workload", func() {
@@ -404,7 +403,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			ginkgo.By("Check podSets spec", func() {
 				wlRead := kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
+				gomega.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo(wlRead.Spec.PodSets))
 			})
 		})
 	})
@@ -465,7 +464,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			ginkgo.By("Check podSets spec", func() {
 				wlRead := kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
+				gomega.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo(wlRead.Spec.PodSets))
 			})
 		})
 	})
@@ -521,7 +520,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			ginkgo.By("Check podSets spec", func() {
 				wlRead := kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
+				gomega.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo(wlRead.Spec.PodSets))
 			})
 
 			ginkgo.By("Create a pending workload and validate its resourceRequests", func() {
@@ -534,10 +533,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 				wl2Read := kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &wl2Read)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(wl2Read.Status.ResourceRequests, []kueue.PodSetRequest{{
+				gomega.Expect(wl2Read.Status.ResourceRequests).Should(gomega.BeComparableTo([]kueue.PodSetRequest{{
 					Name:      "main",
 					Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
-				})).To(gomega.BeTrue())
+				}))
 			})
 
 			ginkgo.By("Finishing the first workload causes the second one to be admitted", func() {
@@ -622,7 +621,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			ginkgo.By("Check podSets spec", func() {
 				wlRead := kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
+				gomega.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo(wlRead.Spec.PodSets))
 			})
 
 			ginkgo.By("Create a pending workload and validate resourceRequests is not created", func() {
@@ -661,10 +660,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 				read := kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(read.Status.ResourceRequests, []kueue.PodSetRequest{{
+				gomega.Expect(read.Status.ResourceRequests).Should(gomega.BeComparableTo([]kueue.PodSetRequest{{
 					Name:      "main",
-					Resources: corev1.ResourceList{pseudoCPU: resource.MustParse("1")}},
-				})).To(gomega.BeTrue())
+					Resources: corev1.ResourceList{pseudoCPU: resource.MustParse("1")},
+				}}))
 			})
 		})
 	})
