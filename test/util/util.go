@@ -740,13 +740,11 @@ func WaitForNextSecondAfterCreation(obj client.Object) {
 func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		readCq := &kueue.ClusterQueue{}
-		var inactive []string
 		for _, cq := range cqs {
-			err := c.Get(ctx, client.ObjectKeyFromObject(cq), readCq)
-			if err != nil || !apimeta.IsStatusConditionTrue(readCq.Status.Conditions, kueue.ClusterQueueActive) {
-				inactive = append(inactive, cq.Name)
-			}
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(cq), readCq)).To(gomega.Succeed())
+			cond := apimeta.FindStatusCondition(readCq.Status.Conditions, kueue.ClusterQueueActive)
+			g.Expect(cond).NotTo(gomega.BeNil(), "no %q condition found in %q cq status", kueue.ClusterQueueActive, cq.Name)
+			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "%q is not active status: %q message: %q", cq.Name, cond.Status, cond.Message)
 		}
-		g.Expect(inactive).To(gomega.BeEmpty(), "clusterqueue(s) %v are not active")
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
