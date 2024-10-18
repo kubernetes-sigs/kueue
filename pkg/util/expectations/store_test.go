@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package pod
+package expectations
 
 import (
 	"testing"
@@ -47,7 +47,7 @@ func TestExpectations(t *testing.T) {
 			uids: []types.UID{"a", "b", "c", "x", "y", "z"},
 		},
 	}
-	expectations := newUIDExpectations("test")
+	expectations := NewStore("test")
 	err := parallelize.Until(ctx, len(initial), func(i int) error {
 		e := initial[i]
 		expectations.ExpectUIDs(log, e.key, e.uids)

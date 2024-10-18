@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package pod
+package expectations
 
 import (
 	"sync"
@@ -26,22 +26,22 @@ import (
 
 type uids = sets.Set[types.UID]
 
-// expectationsStore contains UIDs for which we are waiting to observe some change through event handlers.
-type expectationsStore struct {
+// Store contains UIDs for which we are waiting to observe some change through event handlers.
+type Store struct {
 	sync.Mutex
 	name string
 
 	store map[types.NamespacedName]uids
 }
 
-func newUIDExpectations(name string) *expectationsStore {
-	return &expectationsStore{
+func NewStore(name string) *Store {
+	return &Store{
 		name:  name,
 		store: make(map[types.NamespacedName]uids),
 	}
 }
 
-func (e *expectationsStore) ExpectUIDs(log logr.Logger, key types.NamespacedName, uids []types.UID) {
+func (e *Store) ExpectUIDs(log logr.Logger, key types.NamespacedName, uids []types.UID) {
 	log.V(3).Info("Expecting UIDs", "store", e.name, "key", key, "uids", uids)
 	expectedUIDs := sets.New[types.UID](uids...)
 	e.Lock()
@@ -55,7 +55,7 @@ func (e *expectationsStore) ExpectUIDs(log logr.Logger, key types.NamespacedName
 	}
 }
 
-func (e *expectationsStore) ObservedUID(log logr.Logger, key types.NamespacedName, uid types.UID) {
+func (e *Store) ObservedUID(log logr.Logger, key types.NamespacedName, uid types.UID) {
 	log.V(3).Info("Observed UID", "store", e.name, "key", key, "uid", uid)
 	e.Lock()
 	defer e.Unlock()
@@ -72,7 +72,7 @@ func (e *expectationsStore) ObservedUID(log logr.Logger, key types.NamespacedNam
 	}
 }
 
-func (e *expectationsStore) Satisfied(log logr.Logger, key types.NamespacedName) bool {
+func (e *Store) Satisfied(log logr.Logger, key types.NamespacedName) bool {
 	e.Lock()
 	_, found := e.store[key]
 	e.Unlock()
