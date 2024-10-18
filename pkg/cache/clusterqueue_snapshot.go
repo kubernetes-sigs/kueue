@@ -49,6 +49,8 @@ type ClusterQueueSnapshot struct {
 
 	ResourceNode ResourceNode
 	hierarchy.ClusterQueue[*CohortSnapshot]
+
+	TASFlavorSnapshots map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
 }
 
 // RGByResource returns the ResourceGroup which contains capacity
