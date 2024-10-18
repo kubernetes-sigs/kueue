@@ -26,7 +26,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -63,6 +65,8 @@ func TestFromAssignment(t *testing.T) {
 		Obj()
 
 	cases := map[string]struct {
+		enableTopologyAwareScheduling bool
+
 		assignment   *kueue.PodSetAssignment
 		defaultCount int32
 		flavors      []kueue.ResourceFlavor
@@ -163,10 +167,73 @@ func TestFromAssignment(t *testing.T) {
 				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
 			},
 		},
+		"with topology assignment; TopologyAwareScheduling enabled - scheduling gate added": {
+			enableTopologyAwareScheduling: true,
+			assignment: &kueue.PodSetAssignment{
+				Name: "name",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+				},
+				TopologyAssignment: &kueue.TopologyAssignment{
+					Levels: []string{"cloud.com/rack"},
+					Domains: []kueue.TopologyDomainAssignment{
+						{
+							Values: []string{"rack1"},
+							Count:  4,
+						},
+					},
+				},
+			},
+			defaultCount: 4,
+			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},
+			wantInfo: PodSetInfo{
+				Name:  "name",
+				Count: 4,
+				NodeSelector: map[string]string{
+					"f1l1": "f1v1",
+					"f1l2": "f1v2",
+				},
+				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{
+						Name: kueuealpha.TopologySchedulingGate,
+					},
+				},
+			},
+		},
+		"with topology assignment; TopologyAwareScheduling disabled - no scheduling gate added": {
+			assignment: &kueue.PodSetAssignment{
+				Name: "name",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+				},
+				TopologyAssignment: &kueue.TopologyAssignment{
+					Levels: []string{"cloud.com/rack"},
+					Domains: []kueue.TopologyDomainAssignment{
+						{
+							Values: []string{"rack1"},
+							Count:  4,
+						},
+					},
+				},
+			},
+			defaultCount: 4,
+			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},
+			wantInfo: PodSetInfo{
+				Name:  "name",
+				Count: 4,
+				NodeSelector: map[string]string{
+					"f1l1": "f1v1",
+					"f1l2": "f1v2",
+				},
+				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.TODO()
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			client := utiltesting.NewClientBuilder().WithLists(&kueue.ResourceFlavorList{Items: tc.flavors}).Build()
 
 			gotInfo, gotError := FromAssignment(ctx, client, tc.assignment, tc.defaultCount)
@@ -194,6 +261,9 @@ func TestMergeRestore(t *testing.T) {
 			Operator: corev1.TolerationOpEqual,
 			Value:    "t0v",
 			Effect:   corev1.TaintEffectNoSchedule,
+		}).
+		SchedulingGates(corev1.PodSchedulingGate{
+			Name: "example.com/gate",
 		}).
 		Obj()
 
@@ -228,6 +298,11 @@ func TestMergeRestore(t *testing.T) {
 						Effect:   corev1.TaintEffectNoSchedule,
 					},
 				},
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{
+						Name: "example.com/gate2",
+					},
+				},
 			},
 			wantPodSet: utiltesting.MakePodSet("", 1).
 				NodeSelector(map[string]string{"ns0": "ns0v", "ns1": "ns1v"}).
@@ -244,6 +319,11 @@ func TestMergeRestore(t *testing.T) {
 					Operator: corev1.TolerationOpEqual,
 					Value:    "t1v",
 					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}, corev1.PodSchedulingGate{
+					Name: "example.com/gate2",
 				}).
 				Obj(),
 			wantRestoreChanges: true,
@@ -278,6 +358,43 @@ func TestMergeRestore(t *testing.T) {
 					Operator: corev1.TolerationOpEqual,
 					Value:    "t0v",
 					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}).
+				Obj(),
+			wantRestoreChanges: true,
+		},
+		"don't duplicate schedulingGate": {
+			podSet: basePodSet.DeepCopy(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					"a1": "a1v",
+				},
+				Labels: map[string]string{
+					"l1": "l1v",
+				},
+				NodeSelector: map[string]string{
+					"ns1": "ns1v",
+				},
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{
+						Name: "example.com/gate",
+					},
+				},
+			},
+			wantPodSet: utiltesting.MakePodSet("", 1).
+				NodeSelector(map[string]string{"ns0": "ns0v", "ns1": "ns1v"}).
+				Labels(map[string]string{"l0": "l0v", "l1": "l1v"}).
+				Annotations(map[string]string{"a0": "a0v", "a1": "a1v"}).
+				Toleration(corev1.Toleration{
+					Key:      "t0",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "t0v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
 				}).
 				Obj(),
 			wantRestoreChanges: true,
