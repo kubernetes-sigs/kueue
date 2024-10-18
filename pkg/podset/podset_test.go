@@ -16,7 +16,6 @@ limitations under the License.
 package podset
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -26,7 +25,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -63,6 +64,8 @@ func TestFromAssignment(t *testing.T) {
 		Obj()
 
 	cases := map[string]struct {
+		enableTopologyAwareScheduling bool
+
 		assignment   *kueue.PodSetAssignment
 		defaultCount int32
 		flavors      []kueue.ResourceFlavor
@@ -163,10 +166,73 @@ func TestFromAssignment(t *testing.T) {
 				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
 			},
 		},
+		"with topology assignment; TopologyAwareScheduling enabled - scheduling gate added": {
+			enableTopologyAwareScheduling: true,
+			assignment: &kueue.PodSetAssignment{
+				Name: "name",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+				},
+				TopologyAssignment: &kueue.TopologyAssignment{
+					Levels: []string{"cloud.com/rack"},
+					Domains: []kueue.TopologyDomainAssignment{
+						{
+							Values: []string{"rack1"},
+							Count:  4,
+						},
+					},
+				},
+			},
+			defaultCount: 4,
+			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},
+			wantInfo: PodSetInfo{
+				Name:  "name",
+				Count: 4,
+				NodeSelector: map[string]string{
+					"f1l1": "f1v1",
+					"f1l2": "f1v2",
+				},
+				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{
+						Name: kueuealpha.TopologySchedulingGate,
+					},
+				},
+			},
+		},
+		"with topology assignment; TopologyAwareScheduling disabled - no scheduling gate added": {
+			assignment: &kueue.PodSetAssignment{
+				Name: "name",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+				},
+				TopologyAssignment: &kueue.TopologyAssignment{
+					Levels: []string{"cloud.com/rack"},
+					Domains: []kueue.TopologyDomainAssignment{
+						{
+							Values: []string{"rack1"},
+							Count:  4,
+						},
+					},
+				},
+			},
+			defaultCount: 4,
+			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},
+			wantInfo: PodSetInfo{
+				Name:  "name",
+				Count: 4,
+				NodeSelector: map[string]string{
+					"f1l1": "f1v1",
+					"f1l2": "f1v2",
+				},
+				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx := context.TODO()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			client := utiltesting.NewClientBuilder().WithLists(&kueue.ResourceFlavorList{Items: tc.flavors}).Build()
 
 			gotInfo, gotError := FromAssignment(ctx, client, tc.assignment, tc.defaultCount)
@@ -308,6 +374,59 @@ func TestMergeRestore(t *testing.T) {
 				},
 			},
 			wantError: true,
+		},
+		"podset with scheduling gate; empty info": {
+			podSet: utiltesting.MakePodSet("", 1).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}).
+				Obj(),
+			wantPodSet: utiltesting.MakePodSet("", 1).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}).
+				Obj(),
+		},
+		"podset with scheduling gate; info re-adds the same": {
+			podSet: utiltesting.MakePodSet("", 1).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}).
+				Obj(),
+			info: PodSetInfo{
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{
+						Name: "example.com/gate",
+					},
+				},
+			},
+			wantPodSet: utiltesting.MakePodSet("", 1).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}).
+				Obj(),
+		},
+		"podset with scheduling gate; info adds another": {
+			podSet: utiltesting.MakePodSet("", 1).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}).
+				Obj(),
+			info: PodSetInfo{
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{
+						Name: "example.com/gate2",
+					},
+				},
+			},
+			wantPodSet: utiltesting.MakePodSet("", 1).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}, corev1.PodSchedulingGate{
+					Name: "example.com/gate2",
+				}).
+				Obj(),
+			wantRestoreChanges: true,
 		},
 	}
 
