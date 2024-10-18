@@ -46,6 +46,7 @@
   - [Workload API alternatives](#workload-api-alternatives)
     - [Drop the topologyAssignment.levels field](#drop-the-topologyassignmentlevels-field)
     - [Rename the topologyAssignment.domains.values field as levelValues](#rename-the-topologyassignmentdomainsvalues-field-as-levelvalues)
+  - [Drop dedicated TAS label](#drop-dedicated-tas-label)
 <!-- /toc -->
 
 ## Summary
@@ -564,6 +565,11 @@ const (
   // of the PodSet of the admitted Workload corresponding to the PodTemplate.
   // The label is set when starting the Job, and removed on stopping the Job.
   PodSetLabel = "kueue.x-k8s.io/podset"
+
+  // TASLabel is a label set on the Job's PodTemplate to indicate that the
+  // PodSet is admitted using TopologyAwareScheduling, and all Pods created
+  // from the Job's PodTemplate also have the label.
+  TASLabel = "kueue.x-k8s.io/tas"
 )
 ```
 
@@ -686,6 +692,7 @@ The new validations which are for MVP, but likely will be relaxed in the future:
   ReplicatedJob level (see [Story 2](#story-2))
 - re-evaluate the need to support for "preferred/required" preferences at the
   Workload level (see [Story 3](#story-3))
+- re-evaluate the need for the `kueue.x-k8s.io/tas`
 
 #### Stable
 
@@ -864,3 +871,18 @@ it specifies values for the keys in the `levels` field.
 * the field is on Workload API, which is generally not a user-facing API in
   Kueue. Workload objects are meant for the internal mechanics of Kueue.
 * the intention of the field can be expressed in a comment.
+
+### Drop dedicated TAS label
+
+We could reduce the API surface by dropping the TAS label. The label is going
+to be used in two places:
+1. in TopologyUngater to quickly skip non-TAS pods in the events handler
+2. when accounting for usage from Pods to quickly list only non-TAS pods
+
+However, it was pointed out in discussions that the use case could probably be
+fulfilled with a dedicated indexed virtual field.
+
+**Reasons for discarding/deferring**
+
+Increased code complexity which could defer the 0.9 release for the Alpha
+version. We will re-evaluate the need for the label before the Beta release.
