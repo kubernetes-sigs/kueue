@@ -93,6 +93,7 @@ TL;DR;
 * extend ClusterQueueSpec with the list of checks.
 * add extra conditions to Workload status.
 * introduce new CRD, AdmissionCheck.
+* introduce new field to Kueue's Configuration, AdmissionCheckRetryStrategy`
 
 Details:
 
@@ -102,7 +103,7 @@ workload. The design of AdmissionChecks is similar to IngressClass
 - it allows passing additional parameters, specific to particular checks
 that need to be performed. 
 
-```
+```golang
 // ClusterQueueSpec defines the desired state of ClusterQueue.
 type ClusterQueueSpec struct {
 [...]
@@ -187,6 +188,29 @@ type AdmissionCheckParametersReference struct {
 	// Name is the name of the resource being referenced.
 	Name string `json:"name"`
 }
+
+// Configuration is the Schema for the kueueconfigurations API
+type Configuration struct {
+	...
+	// admissionCheckRetryStrategy defines strategy for retrying AdmissionChecks
+	// +optional
+	AdmissionCheckRetryStrategy *AdmissionCheckRetryStrategy `json:admissionCheckRetryStrategy, omitempty`
+}
+
+type AdmissionCheckRetryStrategy struct {
+	// defaultRequeuingStrategy defines default requeueing strategy for AdmissionChecks
+	//
+	// Default values are:
+	//
+	// defaultRequeuingStrategyAC:
+	//	timestamp: Eviction
+	//	backoffLimitCount: 5
+	//	backoffBaseSeconds: 60
+	//	backoffMaxSeconds: 600
+	//
+	// +listType=map
+	DefaultRequeuingStrategy *RequeuingStrategy `json:defaultRequeuingStrategy`
+}
 ```
 
 For every workload that is put to a ClusterQueue that has AdmissionChecks
@@ -232,8 +256,10 @@ are still valid (check quota/preemptions/reclamation) and admit the workload (do
 newly identified preemptions, if needed), setting the `Admitted`
 condition to True.
 
-If any check is switched to "False", with reason "Reject" or "Retry", the workload is either
-completely rejected or switched back to suspend state (with retry delay).
+If any check is switched to `Retry` state, the Workload will be requeued or deactivated, with respect to the `AdmissionCheckRetryStrategy.defaultRequeuingStrategy` defined in Kueue's global Configuration. If the Workload is requeued, controller should update Workload's
+`.status.requeueState` accordingly. If the limit of number of retries has been surpassed, the controller will mark the check as `Rejected`,
+which will result with eviction and deactivation of the Workload.
+
 Setting reason to BookQuotaRequired (while keeping condition as "Unknown")
 means that some other, external quota is reached
 and Kueue should try to preempt some workloads, before the check can
