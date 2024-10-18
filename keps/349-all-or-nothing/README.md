@@ -24,6 +24,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
+    - [Story 2](#story-2)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -31,6 +32,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [PodsReady workload condition](#podsready-workload-condition)
   - [Waiting for PodsReady condition](#waiting-for-podsready-condition)
   - [Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)
+  - [Timeout on reaching the Admitted condition](#timeout-on-reaching-the-admitted-condition)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -76,6 +78,13 @@ large jobs may deadlock if there are issues with resource provisioning to
 match the configured cluster quota. The same pair of jobs could run to
 completion if their pods were scheduled sequentially.
 
+Another reason pods could not schedule is that there are some AdmissionChecks configured which are
+not satisfied for a long time for a Workload which already reserves the quota.
+
+For example, some users may use AdmissionCheck [atomic-scale-up ProvisioningRequest](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/proposals/provisioning-request.md#atomic-scale-upkubernetesio-class)
+to gate admission of Workload. If there is a stock out on the cloud provider side, the Workload may stay waiting for admission for
+an extended period of time, and we would like to help users to avoid that situation.
+
 <!--
 This section is for explicitly listing the motivation, goals, and non-goals of
 this KEP.  Describe why the change is important and the benefits to users. The
@@ -91,6 +100,7 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 unsuspended by Kueue
 - a timeout on getting the physical resources assigned by a Job since
 unsuspended by Kueue
+- a timeout on getting the physical resources  assigned to a Job by ProvisioningRequest
 
 <!--
 List the specific goals of the KEP. What is it trying to achieve? How will we
@@ -114,7 +124,15 @@ and make progress.
 We introduce a mechanism to ensure jobs get their physical resources
 assigned by avoiding concurrent scheduling of their pods. More precisely, we
 block admission of new workloads until the first batch of pods for the
-unsuspended job is scheduled. This behavior can be opted-in at the level of
+unsuspended job is scheduled. We also specify the timeout for the Workload to schedule,
+which prevents starvation of new workloads.
+
+Additionally, we introduce a second mechanism to timeout Kueue's AdmissionChecks.
+AdmissionChecks (especially ProvisioningRequest), face the same risk of getting stuck for 
+an extended period of time, for example, in case of quota fragmentation as described above.
+an extended period of time, for example, in case of quota fragmentation as described above.
+
+Both behaviors can be opted-in at the level of
 the Kueue configuration.
 
 <!--
@@ -146,6 +164,11 @@ the configured cluster queue quota and when the Jobs don't specify priorities
 My use case can be supported by enabling `waitForPodsReady` in the Kueue
 configuration.
 
+#### Story 2
+
+As a Kueue administrator I want to ensure that a Job doesn't allocate resources
+infinitely for Workloads awaiting for AdmissionChecks.
+
 ### Notes/Constraints/Caveats (Optional)
 
 <!--
@@ -160,9 +183,11 @@ This might be a good place to talk about core concepts and how they relate.
 If a workload fails to schedule its pods it could block admission of other
 workloads indefinitely.
 
-To mitigate this issue we introduce a timeout on reaching the `PodsReady`
+To mitigate this issue we introduce two timeouts on reaching the `PodsReady`
 condition by a workload since its job start (see:
-[Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)).
+[Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition))
+and [Timeout on AdmissionChecks](#timeout-on-reaching-the-admitted-condition).
+
 
 <!--
 What are the risks of this proposal, and how do we mitigate? Think broadly.
@@ -221,6 +246,28 @@ type WaitForPodsReady struct {
 	// subsequent jobs until the jobs reach the PodsReady=true condition.
 	// This setting is only honored when `Enable` is set to true.
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
+
+	// RequeuingStrategy defines the strategy for requeuing a Workload.
+	// +optional
+	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
+
+	// WaitForAdmissionChecks defines configuration for the WaitForAdmissionChecks feature,
+	// which is used to ensure that specific AdmissionCheck is ready within the specified time.
+	// If there is no specified configuration for an AdmissionCheck, there is no timeout for it.
+	// +listType=map
+	WaitForAdmissionChecks []WaitForAdmissionChecks
+}
+
+type WaitForAdmissionChecks struct {
+	// Name of the AdmissionCheck the configuration refers to
+	AdmissionCheck string
+
+	// Timeout defines the time for an AdmissionCheck to change its state from
+	// Pending to Ready. When the timeout is exceeded, the workload is
+	// evicted and requeued in the same cluster queue.
+	// Defaults to 10min.
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
 	// RequeuingStrategy defines the strategy for requeuing a Workload.
 	// +optional
@@ -319,6 +366,12 @@ is unsuspended (the time of unsuspending a job is marked by the Job's
 Controller suspends the Job corresponding to the workload and puts into the
 ClusterQueue's `inadmissibleWorkloads` list. The timeout is enforced only when
 `waitForPodsReady` is enabled.
+
+### Timeout on reaching the Admitted condition
+We introduce a timeout, defined in the `waitForPodsReady.waitForAdmissionChecks` field, on reaching the `Admitted` condition since the job
+has reserved quota (condition `QuotaReserevd`). When the timeout is exceeded workload gets requeued with a backoff time, configured
+in `.requeueingStrategy` field. If the timeout is exceeded multiple times with respect to `.requeueingStrategy` field. Workloads get
+evicted by deactivation. The timeout is configured per AdmissionCheck.
 
 ### Test Plan
 
