@@ -117,3 +117,102 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 ```
+
+## Implement the Workload reconciler
+
+In `internal/controller/workload_controller.go`:
+
+Import the kueue api and some helper packages:
+```go
+import (
+	"context"
+	"time"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+```
+
+As a demo logic the ACC will prevent workloads from being `Admitted` for one minute after their creation.
+
+Define some globals:
+
+```go
+const (
+	MakeReadyAfter = time.Minute
+	ReadyMessage   = "The workload is now ready"
+)
+```
+
+Update the reconciler's logic:
+
+```go
+func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	var wl kueueapi.Workload
+	err := r.Get(ctx, req.NamespacedName, &wl)
+	if err != nil {
+		// Ignore not found
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Ignore the workloads that don't have quota reservation or are finished
+	if !workload.HasQuotaReservation(&wl) || workload.IsFinished(&wl) {
+		return ctrl.Result{}, nil
+	}
+
+	// Get the states managed by demo-acc
+	managedStatesNames, err := admissioncheck.FilterForController(ctx, r.Client, wl.Status.AdmissionChecks, DemoACCName)
+
+	// Ignore if none are managed by demo-acc
+	if len(managedStatesNames) == 0 {
+		return ctrl.Result{}, nil
+	}
+
+	log.V(2).Info("Reconcile Workload")
+
+	//If we need to wait
+	if remaining := time.Until(wl.CreationTimestamp.Add(MakeReadyAfter)); remaining > 0 {
+		return ctrl.Result{RequeueAfter: remaining}, nil
+	}
+
+	// Mark the states 'Ready' if not done already
+	needsUpdate := false
+	wlPatch := workload.BaseSSAWorkload(&wl)
+	for _, name := range managedStatesNames {
+		if acs := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, name); acs.State != kueueapi.CheckStateReady {
+			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, kueueapi.AdmissionCheckState{
+				Name:    name,
+				State:   kueueapi.CheckStateReady,
+				Message: ReadyMessage,
+			})
+			needsUpdate = true
+		} else {
+			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
+		}
+	}
+	if needsUpdate {
+		return ctrl.Result{}, r.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(DemoACCName), client.ForceOwnership)
+	}
+
+	return ctrl.Result{}, nil
+}
+
+```
+
+Finally update `SetupWithManager` to be registered `For` Kueue's Workloads.
+
+```go
+func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&kueueapi.Workload{}).
+		Complete(r)
+}
+```
