@@ -48,6 +48,33 @@ type LocalQueueSpec struct {
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ClusterQueueReference string
 
+type LocalQueueFlavorStatus struct {
+	// name of the flavor.
+	// +required
+	// +kubebuilder:validation:Required
+	Name ResourceFlavorReference `json:"name"`
+
+	// resources used in the flavor.
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	Resources []corev1.ResourceName `json:"resources,omitempty"`
+
+	// nodeLabels are labels that associate the ResourceFlavor with Nodes that
+	// have the same labels.
+	// +mapType=atomic
+	// +kubebuilder:validation:MaxProperties=8
+	// +optional
+	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+
+	// nodeTaints are taints that the nodes associated with this ResourceFlavor
+	// have.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
+}
+
 // LocalQueueStatus defines the observed state of LocalQueue
 type LocalQueueStatus struct {
 	// PendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
@@ -88,6 +115,13 @@ type LocalQueueStatus struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
 	FlavorUsage []LocalQueueFlavorUsage `json:"flavorUsage"`
+
+	// flavors lists all currently available ResourceFlavors in specified ClusterQueue.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	Flavors []LocalQueueFlavorStatus `json:"flavors,omitempty"`
 }
 
 const (

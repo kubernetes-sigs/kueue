@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -36,6 +37,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -676,6 +678,7 @@ type LocalQueueUsageStats struct {
 	ReservingWorkloads int
 	AdmittedResources  []kueue.LocalQueueFlavorUsage
 	AdmittedWorkloads  int
+	Flavors            []kueue.LocalQueueFlavorStatus
 }
 
 func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {
@@ -691,11 +694,40 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		return nil, errQNotFound
 	}
 
+	var flavors []kueue.LocalQueueFlavorStatus
+
+	if features.Enabled(features.ExposeFlavorsInLocalQueue) {
+		resourcesInFlavor := make(map[kueue.ResourceFlavorReference][]corev1.ResourceName)
+		for _, rg := range cqImpl.ResourceGroups {
+			for _, rgFlavor := range rg.Flavors {
+				if _, ok := resourcesInFlavor[rgFlavor]; !ok {
+					resourcesInFlavor[rgFlavor] = make([]corev1.ResourceName, 0, len(rg.CoveredResources))
+				}
+				resourcesInFlavor[rgFlavor] = append(resourcesInFlavor[rgFlavor], sets.List(rg.CoveredResources)...)
+			}
+		}
+
+		for _, rg := range cqImpl.ResourceGroups {
+			for _, rgFlavor := range rg.Flavors {
+				flavor := kueue.LocalQueueFlavorStatus{Name: rgFlavor}
+				if rif, ok := resourcesInFlavor[rgFlavor]; ok {
+					flavor.Resources = append(flavor.Resources, rif...)
+				}
+				if rf, ok := c.resourceFlavors[rgFlavor]; ok {
+					flavor.NodeLabels = rf.Spec.NodeLabels
+					flavor.NodeTaints = rf.Spec.NodeTaints
+				}
+				flavors = append(flavors, flavor)
+			}
+		}
+	}
+
 	return &LocalQueueUsageStats{
 		ReservedResources:  filterLocalQueueUsage(qImpl.usage, cqImpl.ResourceGroups),
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
+		Flavors:            flavors,
 	}, nil
 }
 
