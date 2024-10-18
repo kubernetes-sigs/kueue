@@ -714,7 +714,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 			for _, rgFlavor := range rg.Flavors {
 				flavor := kueue.LocalQueueFlavorStatus{Name: rgFlavor}
 				if rif, ok := resourcesInFlavor[rgFlavor]; ok {
-					flavor.Resources = rif.UnsortedList()
+					flavor.Resources = sets.List(rif)
 				}
 				if rf, ok := c.resourceFlavors[rgFlavor]; ok {
 					flavor.NodeLabels = rf.Spec.NodeLabels
