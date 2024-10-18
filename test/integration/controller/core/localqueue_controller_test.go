@@ -124,18 +124,8 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		for _, rf := range resourceFlavors {
 			gomega.Expect(k8sClient.Create(ctx, &rf)).To(gomega.Succeed())
 		}
-		gomega.Eventually(func() []metav1.Condition {
-			var updatedCQ kueue.ClusterQueue
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
-			return updatedCQ.Status.Conditions
-		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
-			{
-				Type:    kueue.ClusterQueueActive,
-				Status:  metav1.ConditionTrue,
-				Reason:  "Ready",
-				Message: "Can admit new workloads",
-			},
-		}, util.IgnoreConditionTimestampsAndObservedGeneration))
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
 		gomega.Eventually(func() []metav1.Condition {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
