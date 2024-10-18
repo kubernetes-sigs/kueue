@@ -19,10 +19,17 @@ package controller
 import (
 	"context"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
+const (
+	DemoACCName = "experimental.kueue.x-k8s.io/demo-acc"
 )
 
 // AdmissionCheckReconciler reconciles a AdmissionCheck object
@@ -45,17 +52,39 @@ type AdmissionCheckReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
 func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	log := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var ac kueueapi.AdmissionCheck
+	err := r.Get(ctx, req.NamespacedName, &ac)
+	if err != nil {
+		// Ignore not found
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
+	// Ignore if not managed by demo-acc
+	if ac.Spec.ControllerName != DemoACCName {
+		return ctrl.Result{}, nil
+	}
+
+	// For now, we only want to set it active if not already done
+	log.V(2).Info("Reconcile AdmissionCheck")
+	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueueapi.AdmissionCheckActive) {
+		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+			Type:               kueueapi.AdmissionCheckActive,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Active",
+			Message:            "demo-acc is running",
+			ObservedGeneration: ac.Generation,
+		})
+		log.V(2).Info("Update Active condition")
+		return ctrl.Result{}, r.Status().Update(ctx, &ac)
+	}
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		// Uncomment the following line adding a pointer to an instance of the controlled resource as an argument
-		// For().
+		For(&kueueapi.AdmissionCheck{}).
 		Complete(r)
 }

@@ -36,3 +36,84 @@ make genetrate manifests
 ```
 
 Note: The generated `internal/controller/suite_test.go` is missing the "context" import it should be added.
+
+## Implement the AdmissionCheck reconciler
+
+Go get `kueue`
+
+```bash
+go get sigs.k8s.io/kueue@main
+```
+
+In `internal/controller/admissioncheck_controller.go`:
+
+Import the kueue api and some helper packages:
+
+```go
+import (
+	"context"
+
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+```
+
+Define the controller's name
+
+```go
+const (
+	DemoACCName = "experimental.kueue.x-k8s.io/demo-acc"
+)
+
+```
+
+Update the reconciler's logic to set active all ACs managed by this controller.
+
+```go
+func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	var ac kueueapi.AdmissionCheck
+	err := r.Get(ctx, req.NamespacedName, &ac)
+	if err != nil {
+		// Ignore not found
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Ignore if not managed by demo-acc
+	if ac.Spec.ControllerName != DemoACCName {
+		return ctrl.Result{}, nil
+	}
+
+	// For now, we only want to set it active if not already done
+	log.V(2).Info("Reconcile AdmissionCheck")
+	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueueapi.AdmissionCheckActive) {
+		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+			Type:               kueueapi.AdmissionCheckActive,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Active",
+			Message:            "demo-acc is running",
+			ObservedGeneration: ac.Generation,
+		})
+		log.V(2).Info("Update Active condition")
+		return ctrl.Result{}, r.Status().Update(ctx, &ac)
+	}
+	return ctrl.Result{}, nil
+}
+
+```
+
+Finally update `SetupWithManager` to be registered `For` Kueue's AdmissionChecks.
+
+```go
+func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&kueueapi.AdmissionCheck{}).
+		Complete(r)
+}
+```
