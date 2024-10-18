@@ -412,7 +412,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 			}
 		}
 
-		for i, j := 0, 0; i <= int(nTasks); i++ {
+		for i, j := 0, 0; i <= len(job.Spec.Template.Spec.Containers) && j < int(nTasks); i++ {
 			if job.Spec.Template.Spec.Containers[i].Name != replicatedContainer.Name {
 				continue
 			}
