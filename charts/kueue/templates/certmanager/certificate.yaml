@@ -2,7 +2,7 @@
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: {{ include "kueue.fullname" . }}-selfsigned-issuer
+  name: {{ printf "%s-selfsigned-issuer" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
   namespace: '{{ .Release.Namespace }}'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
@@ -12,16 +12,16 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ include "kueue.fullname" . }}-serving-cert
+  name: {{ printf "%s-serving-cert" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
   namespace: '{{ .Release.Namespace }}'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
 spec:
   dnsNames:
-  - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc'
-  - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+  - '{{ printf "%s-webhook-service.%s.svc" (include "kueue.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" }}'
+  - '{{ printf "%s-webhook-service.%s.svc.%s" (include "kueue.fullname" .) .Release.Namespace .Values.kubernetesClusterDomain | trunc 63 | trimSuffix "-" }}'
   issuerRef:
     kind: Issuer
-    name: {{ include "kueue.fullname" . }}-selfsigned-issuer
-  secretName: {{ include "kueue.fullname" . }}-webhook-server-cert
+    name: {{ printf "%s-selfsigned-issuer" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
+  secretName: {{ printf "%s-webhook-server-cert" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}

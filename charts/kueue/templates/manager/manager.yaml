@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "kueue.fullname" . }}-controller-manager
+  name: {{ printf "%s-controller-manager" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
   namespace: '{{ .Release.Namespace }}'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
@@ -82,7 +82,7 @@ spec:
         resources: {}
       securityContext:
         {{- toYaml .Values.controllerManager.manager.podSecurityContext | nindent 8 }}
-      serviceAccountName: {{ include "kueue.fullname" . }}-controller-manager
+      serviceAccountName: {{ printf "%s-controller-manager" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
       {{- with .Values.controllerManager.imagePullSecrets  }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -92,7 +92,7 @@ spec:
       - name: cert
         secret:
           defaultMode: 420
-          secretName: {{ include "kueue.fullname" . }}-webhook-server-cert
+          secretName: {{ printf "%s-webhook-server-cert" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
       - configMap:
-          name: {{ include "kueue.fullname" . }}-manager-config
+          name: {{ printf "%s-manager-config" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}
         name: manager-config
