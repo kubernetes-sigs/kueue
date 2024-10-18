@@ -30,7 +30,9 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
@@ -40,12 +42,13 @@ var (
 )
 
 type PodSetInfo struct {
-	Name         string
-	Count        int32
-	Annotations  map[string]string
-	Labels       map[string]string
-	NodeSelector map[string]string
-	Tolerations  []corev1.Toleration
+	Name            string
+	Count           int32
+	Annotations     map[string]string
+	Labels          map[string]string
+	NodeSelector    map[string]string
+	Tolerations     []corev1.Toleration
+	SchedulingGates []corev1.PodSchedulingGate
 }
 
 // FromAssignment returns a PodSetInfo based on the provided assignment and an error if unable
@@ -58,6 +61,11 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		Count:        ptr.Deref(assignment.Count, defaultCount),
 		Labels:       make(map[string]string),
 		Annotations:  make(map[string]string),
+	}
+	if features.Enabled(features.TopologyAwareScheduling) && assignment.TopologyAssignment != nil {
+		info.SchedulingGates = append(info.SchedulingGates, corev1.PodSchedulingGate{
+			Name: kueuealpha.TopologySchedulingGate,
+		})
 	}
 	for _, flvRef := range assignment.Flavors {
 		if processedFlvs.Has(flvRef) {
@@ -89,12 +97,13 @@ func FromUpdate(update *kueue.PodSetUpdate) PodSetInfo {
 // FromPodSet returns a PodSeeInfo based on the provided PodSet
 func FromPodSet(ps *kueue.PodSet) PodSetInfo {
 	return PodSetInfo{
-		Name:         ps.Name,
-		Count:        ps.Count,
-		Annotations:  maps.Clone(ps.Template.Annotations),
-		Labels:       maps.Clone(ps.Template.Labels),
-		NodeSelector: maps.Clone(ps.Template.Spec.NodeSelector),
-		Tolerations:  slices.Clone(ps.Template.Spec.Tolerations),
+		Name:            ps.Name,
+		Count:           ps.Count,
+		Annotations:     maps.Clone(ps.Template.Annotations),
+		Labels:          maps.Clone(ps.Template.Labels),
+		NodeSelector:    maps.Clone(ps.Template.Spec.NodeSelector),
+		Tolerations:     slices.Clone(ps.Template.Spec.Tolerations),
+		SchedulingGates: slices.Clone(ps.Template.Spec.SchedulingGates),
 	}
 }
 
@@ -118,6 +127,12 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 			podSetInfo.Tolerations = append(podSetInfo.Tolerations, t)
 		}
 	}
+	// make sure we don't duplicate schedulingGates
+	for _, t := range o.SchedulingGates {
+		if slices.Index(podSetInfo.SchedulingGates, t) == -1 {
+			podSetInfo.SchedulingGates = append(podSetInfo.SchedulingGates, t)
+		}
+	}
 	return nil
 }
 
@@ -135,10 +150,11 @@ func (podSetInfo *PodSetInfo) AddOrUpdateLabel(k, v string) {
 // It returns error if there is a conflict.
 func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
 	tmp := PodSetInfo{
-		Annotations:  meta.Annotations,
-		Labels:       meta.Labels,
-		NodeSelector: spec.NodeSelector,
-		Tolerations:  spec.Tolerations,
+		Annotations:     meta.Annotations,
+		Labels:          meta.Labels,
+		NodeSelector:    spec.NodeSelector,
+		Tolerations:     spec.Tolerations,
+		SchedulingGates: spec.SchedulingGates,
 	}
 	if err := tmp.Merge(info); err != nil {
 		return err
@@ -147,6 +163,7 @@ func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error
 	meta.Labels = tmp.Labels
 	spec.NodeSelector = tmp.NodeSelector
 	spec.Tolerations = tmp.Tolerations
+	spec.SchedulingGates = tmp.SchedulingGates
 	return nil
 }
 
@@ -168,6 +185,10 @@ func RestorePodSpec(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetIn
 	}
 	if !slices.Equal(spec.Tolerations, info.Tolerations) {
 		spec.Tolerations = slices.Clone(info.Tolerations)
+		changed = true
+	}
+	if !slices.Equal(spec.SchedulingGates, info.SchedulingGates) {
+		spec.SchedulingGates = slices.Clone(info.SchedulingGates)
 		changed = true
 	}
 	return changed
