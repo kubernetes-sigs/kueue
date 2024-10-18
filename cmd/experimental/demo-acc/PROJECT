@@ -4,7 +4,18 @@
 # More info: https://book.kubebuilder.io/reference/project-config.html
 domain: demo-acc.experimental.kueue.x-k8s.io
 layout:
-- go.kubebuilder.io/v4
+  - go.kubebuilder.io/v4
 projectName: demo-acc
 repo: sigs.k8s.io/kueue/cmd/experimental/demo-acc
+resources:
+  - controller: true
+    domain: x-k8s.io
+    group: kueue
+    kind: AdmissionCheck
+    version: v1beta1
+  - controller: true
+    domain: x-k8s.io
+    group: kueue
+    kind: Workload
+    version: v1beta1
 version: "3"
