@@ -28,10 +28,6 @@ import (
 
 const fetchServerVersionInterval = time.Minute * 10
 
-var (
-	KubeVersion1_27 = versionutil.MustParseSemantic("1.27.0")
-)
-
 type ServerVersionFetcher struct {
 	dc            discovery.DiscoveryInterface
 	ticker        *time.Ticker
