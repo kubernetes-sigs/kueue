@@ -12,7 +12,7 @@ The file is auto-generated from the Go source code of the component using the
 Create a job
 
 ```
-kjobctl create job --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--parallelism PARALLELISM] [--completions COMPLETIONS]
+kjobctl create job --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--priority NAME] [--skip-priority-validation] [--cmd COMMAND] [--request RESOURCE_NAME=QUANTITY] [--parallelism PARALLELISM] [--completions COMPLETIONS]
 ```
 
 
@@ -112,6 +112,15 @@ kjobctl create job --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_
         </td>
     </tr>
     <tr>
+        <td colspan="2">--priority string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Apply priority for the entire workload.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-p, --profile string</td>
     </tr>
     <tr>
@@ -145,6 +154,15 @@ kjobctl create job --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>Skip local queue validation. Add local queue even if the queue does not exist.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--skip-priority-validation</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Skip workload priority class validation. Add priority class label even if the class does not exist.</p>
         </td>
     </tr>
     <tr>

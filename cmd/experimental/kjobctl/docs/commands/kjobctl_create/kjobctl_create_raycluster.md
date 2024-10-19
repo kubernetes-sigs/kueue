@@ -14,7 +14,7 @@ Create a raycluster.
  KubeRay operator is required for RayCluster. How to install KubeRay operator you can find here https://ray-project.github.io/kuberay/deploy/installation/.
 
 ```
-kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
+kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL_QUEUE_NAME] [--skip-localqueue-validation] [--priority NAME] [--skip-priority-validation] [--replicas [WORKER_GROUP]=REPLICAS] [--min-replicas [WORKER_GROUP]=MIN_REPLICAS] [--max-replicas [WORKER_GROUP]=MAX_REPLICAS]
 ```
 
 
@@ -104,6 +104,15 @@ kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL
         </td>
     </tr>
     <tr>
+        <td colspan="2">--priority string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Apply priority for the entire workload.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-p, --profile string</td>
     </tr>
     <tr>
@@ -137,6 +146,15 @@ kjobctl create raycluster --profile APPLICATION_PROFILE_NAME [--localqueue LOCAL
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>Skip local queue validation. Add local queue even if the queue does not exist.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--skip-priority-validation</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Skip workload priority class validation. Add priority class label even if the class does not exist.</p>
         </td>
     </tr>
     <tr>
