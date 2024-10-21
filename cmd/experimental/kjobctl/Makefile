@@ -17,6 +17,15 @@ CGO_ENABLED ?= 0
 GO_CMD ?= go
 GO_FMT ?= gofmt
 
+GIT_TAG ?= $(shell git describe --tags --dirty --always)
+
+DOCKER_BUILDX_CMD ?= docker buildx
+IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
+STAGING_IMAGE_REGISTRY ?= us-central1-docker.pkg.dev/k8s-staging-images
+IMAGE_PROJECT ?= kjob
+IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)/$(IMAGE_PROJECT)
+PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ARTIFACTS ?= $(PROJECT_DIR)/bin
 TOOLS_DIR ?= $(PROJECT_DIR)/hack/tools
@@ -165,6 +174,12 @@ install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
+SLURM_INIT_IMAGE_NAME ?= slurm-init
+SLURM_INIT_IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(SLURM_INIT_IMAGE_NAME)
+SLURM_INIT_IMAGE_TAG ?= $(SLURM_INIT_IMAGE_REPO):$(GIT_TAG)
+.PHONY: slurm-init-image-build
+slurm-init-image-build:
+	$(IMAGE_BUILD_CMD) -t $(SLURM_INIT_IMAGE_TAG) --platform=$(PLATFORMS) $(PUSH) $(PROJECT_DIR)/images/slurm-init
 
 .PHONY: kubectl-kjob
 kubectl-kjob: embeded-manifest ## Build kubectl-kjob binary file to bin directory.
