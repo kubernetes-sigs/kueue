@@ -23,9 +23,6 @@ import (
 type TopologyDomainID string
 
 func DomainID(levelValues []string) TopologyDomainID {
-	if len(levelValues) == 0 {
-		panic("hash invoked without levelValues")
-	}
 	return TopologyDomainID(strings.Join(levelValues, ","))
 }
 

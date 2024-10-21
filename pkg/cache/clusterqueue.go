@@ -85,8 +85,7 @@ type clusterQueue struct {
 	resourceNode ResourceNode
 	hierarchy.ClusterQueue[*cohort]
 
-	tasFlavors []kueue.ResourceFlavorReference
-	tasCache   *TASCache
+	tasCache *TASCache
 }
 
 func (c *clusterQueue) GetName() string {
@@ -295,15 +294,6 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 func (c *clusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
 	c.updateLabelKeys(flavors)
 	c.updateQueueStatus()
-	if features.Enabled(features.TopologyAwareScheduling) {
-		for flavorName, rf := range flavors {
-			if rf.Spec.TopologyName != nil {
-				if !slices.Contains(c.tasFlavors, flavorName) {
-					c.tasFlavors = append(c.tasFlavors, flavorName)
-				}
-			}
-		}
-	}
 }
 
 func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
@@ -474,10 +464,7 @@ func (c *clusterQueue) tasFlavorCache(flvName kueue.ResourceFlavorReference) *TA
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		return nil
 	}
-	if c.tasFlavors == nil || c.tasCache == nil {
-		return nil
-	}
-	if !slices.Contains(c.tasFlavors, flvName) {
+	if c.tasCache == nil {
 		return nil
 	}
 	return c.tasCache.Get(flvName)

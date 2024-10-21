@@ -25,20 +25,19 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 type TASCache struct {
 	sync.RWMutex
-	client client.Client
-	Map    map[kueue.ResourceFlavorReference]*TASFlavorCache
+	client  client.Client
+	flvsMap map[kueue.ResourceFlavorReference]*TASFlavorCache
 }
 
 func NewTASCache(client client.Client) TASCache {
 	return TASCache{
-		client: client,
-		Map:    make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
+		client:  client,
+		flvsMap: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
 	}
 }
 
@@ -54,23 +53,24 @@ func (t *TASCache) NewFlavorCache(labels []string, nodeLabels map[string]string)
 func (t *TASCache) Get(name kueue.ResourceFlavorReference) *TASFlavorCache {
 	t.RLock()
 	defer t.RUnlock()
-	return t.Map[name]
+	return t.flvsMap[name]
 }
 
-func (t *TASCache) GetKeys() []kueue.ResourceFlavorReference {
+// Clone returns a shallow copy of the map
+func (t *TASCache) Clone() map[kueue.ResourceFlavorReference]*TASFlavorCache {
 	t.RLock()
 	defer t.RUnlock()
-	return utilmaps.Keys(t.Map)
+	return maps.Clone(t.flvsMap)
 }
 
 func (t *TASCache) Set(name kueue.ResourceFlavorReference, info *TASFlavorCache) {
 	t.Lock()
 	defer t.Unlock()
-	t.Map[name] = info
+	t.flvsMap[name] = info
 }
 
 func (t *TASCache) Delete(name kueue.ResourceFlavorReference) {
 	t.Lock()
 	defer t.Unlock()
-	delete(t.Map, name)
+	delete(t.flvsMap, name)
 }

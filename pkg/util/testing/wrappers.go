@@ -919,7 +919,7 @@ func MakeTopology(name string) *TopologyWrapper {
 	}}
 }
 
-// Creation sets the creation timestamp of the LocalQueue.
+// Levels sets the levels for a Topology.
 func (t *TopologyWrapper) Levels(levels []string) *TopologyWrapper {
 	t.Spec.Levels = make([]kueuealpha.TopologyLevel, len(levels))
 	for i, level := range levels {

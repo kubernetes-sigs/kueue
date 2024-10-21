@@ -229,9 +229,9 @@ func (c *Cache) updateClusterQueues() sets.Set[string] {
 	return cqs
 }
 
-func (c *Cache) GetActiveClusterQueues() sets.Set[string] {
-	c.Lock()
-	defer c.Unlock()
+func (c *Cache) ActiveClusterQueues() sets.Set[string] {
+	c.RLock()
+	defer c.RUnlock()
 	cqs := sets.New[string]()
 	for _, cq := range c.hm.ClusterQueues {
 		if cq.Status == active {
@@ -241,7 +241,7 @@ func (c *Cache) GetActiveClusterQueues() sets.Set[string] {
 	return cqs
 }
 
-func (c *Cache) GetTASCache() *TASCache {
+func (c *Cache) TASCache() *TASCache {
 	return &c.tasCache
 }
 
