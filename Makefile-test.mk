@@ -16,7 +16,7 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ARTIFACTS ?= $(PROJECT_DIR)/bin
 
 ifeq ($(shell uname),Darwin)
-    GOFLAGS ?= -ldflags=-extldflags=-Wl,-ld_classic
+    GOFLAGS ?= -ldflags=-linkmode=internal
 endif
 
 ifeq (,$(shell go env GOBIN))
