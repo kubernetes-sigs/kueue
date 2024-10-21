@@ -415,7 +415,7 @@ in the Kueue configuration as a cluster-level setting.
 {{< feature-state state="alpha" for_version="v0.9" >}}
 {{% alert title="Note" color="primary" %}}
 
-`transformations` is a Alpha feature that is not enabled by default.
+`transformations` is an Alpha feature that is not enabled by default.
 
 You can enable it by setting the `ConfigurableResourceTransformations` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 {{% /alert %}}
@@ -458,7 +458,9 @@ With this example configuration, a Pod that requests:
         example.com/gpu-type1: 2
         example.com/gpu-type2: 1
 ```
-will for quota purposes have an effective resource request of:
+
+The Workload obtains an effective resource requests for quota purposes:
+
 ```yaml
     resources:
       requests:
