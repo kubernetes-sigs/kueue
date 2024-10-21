@@ -177,8 +177,8 @@ status:
 {{< feature-state state="alpha" for_version="v0.9" >}}
 {{% alert title="Note" color="primary" %}}
 
-`resourceRequests` is a Alpha feature that is not enabled by default.  If the feature is not enabled,
-the status will not contain the detailed description of the resources being requested by the Workload.
+`resourceRequests` is a Alpha feature that is not enabled by default.  When the feature is enabled,
+the status will contain the detailed description of the resources being requested by the Workload.
 
 You can enable it by setting the `WorkloadResourceRequestsSummary` feature gate.
 Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
