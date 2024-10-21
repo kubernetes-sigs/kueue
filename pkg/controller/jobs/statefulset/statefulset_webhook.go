@@ -127,6 +127,13 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 		statefulsetLabelsPath.Key(pod.GroupNameLabel),
 	)...)
 
+	// Temporarily restrict to update replicas
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+		newStatefulSet.Spec.Replicas,
+		oldStatefulSet.Spec.Replicas,
+		field.NewPath("spec", "replicas"),
+	)...)
+
 	return warnings, allErrs.ToAggregate()
 }
 

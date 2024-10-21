@@ -120,6 +120,18 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 						Obj()
 					gomega.Expect(k8sClient.Update(ctx, updatedStatefulSet)).To(gomega.HaveOccurred())
 				})
+				ginkgo.By("Updating the statefulset should not allow to change replicas", func() {
+					statefulsetToUpdate := &appsv1.StatefulSet{}
+					gomega.Expect(k8sClient.Get(ctx, lookupKey, statefulsetToUpdate)).Should(gomega.Succeed())
+					statefulsetWrapper := &testingstatefulset.StatefulSetWrapper{
+						StatefulSet: *statefulsetToUpdate,
+					}
+					updatedStatefulSet := statefulsetWrapper.
+						Replicas(5).
+						PodTemplateSpecPodGroupNameLabel("another", "another", appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
+						Obj()
+					gomega.Expect(k8sClient.Update(ctx, updatedStatefulSet)).To(gomega.HaveOccurred())
+				})
 			})
 		})
 
