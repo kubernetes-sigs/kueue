@@ -71,6 +71,15 @@ func TestCountIn(t *testing.T) {
 			},
 			wantResult: 2,
 		},
+		"capacity non divisible cleanly by requests": {
+			requests: Requests{
+				corev1.ResourceCPU: 2,
+			},
+			capacity: Requests{
+				corev1.ResourceCPU: 5,
+			},
+			wantResult: 2,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

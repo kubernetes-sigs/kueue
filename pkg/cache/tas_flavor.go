@@ -18,8 +18,11 @@ package cache
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sync"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,35 +32,63 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+// usageOp indicates whether we should add or subtract the usage.
+type usageOp bool
+
+const (
+	// add usage to the cache
+	add usageOp = true
+	// subtract usage from the cache
+	subtract usageOp = false
+)
+
 type TASFlavorCache struct {
 	sync.RWMutex
 
-	client     client.Client
+	client client.Client
+
+	// nodeLabels is a map of nodeLabels defined in the ResourceFlavor object.
 	NodeLabels map[string]string
-	Levels     []string
-	usageMap   map[utiltas.TopologyDomainID]resources.Requests
+	// levels is a list of levels defined in the Topology object referenced
+	// by the flavor corresponding to the cache.
+	Levels []string
+
+	// usage maintains the usage per topology domain
+	usage map[utiltas.TopologyDomainID]resources.Requests
+}
+
+func (t *TASCache) NewTASFlavorCache(labels []string, nodeLabels map[string]string) *TASFlavorCache {
+	return &TASFlavorCache{
+		client:     t.client,
+		Levels:     slices.Clone(labels),
+		NodeLabels: maps.Clone(nodeLabels),
+		usage:      make(map[utiltas.TopologyDomainID]resources.Requests),
+	}
 }
 
 func (c *TASFlavorCache) snapshot(ctx context.Context) *TASFlavorSnapshot {
 	log := ctrl.LoggerFrom(ctx)
 	nodeList := &corev1.NodeList{}
-	matcher := client.MatchingLabels{}
+	requiredLabels := client.MatchingLabels{}
 	for k, v := range c.NodeLabels {
-		matcher[k] = v
+		requiredLabels[k] = v
 	}
-	err := c.client.List(ctx, nodeList, matcher)
+	requiredLabelKeys := client.HasLabels{}
+	requiredLabelKeys = append(requiredLabelKeys, c.Levels...)
+	err := c.client.List(ctx, nodeList, requiredLabels, requiredLabelKeys)
 	if err != nil {
 		log.Error(err, "failed to list nodes for TAS", "nodeLabels", c.NodeLabels)
 	}
-	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.NodeLabels,
-		"levels", c.Levels, "nodeCount", len(nodeList.Items))
-	return c.snapshotForNodes(nodeList.Items)
+	return c.snapshotForNodes(log, nodeList.Items)
 }
 
-func (c *TASFlavorCache) snapshotForNodes(nodes []corev1.Node) *TASFlavorSnapshot {
+func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node) *TASFlavorSnapshot {
 	c.RLock()
 	defer c.RUnlock()
-	snapshot := newTASFlavorSnapshot(c.Levels)
+
+	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.NodeLabels,
+		"levels", c.Levels, "nodeCount", len(nodes))
+	snapshot := newTASFlavorSnapshot(log, c.Levels)
 	for _, node := range nodes {
 		levelValues := utiltas.LevelValues(c.Levels, node.Labels)
 		capacity := resources.NewRequests(node.Status.Allocatable)
@@ -66,33 +97,33 @@ func (c *TASFlavorCache) snapshotForNodes(nodes []corev1.Node) *TASFlavorSnapsho
 		snapshot.addCapacity(domainID, capacity)
 	}
 	snapshot.initialize()
-	for domainID, usage := range c.usageMap {
+	for domainID, usage := range c.usage {
 		snapshot.addUsage(domainID, usage)
 	}
 	return snapshot
 }
 
 func (c *TASFlavorCache) addUsage(topologyRequests []workload.TopologyDomainRequests) {
-	c.updateUsage(topologyRequests, 1)
+	c.updateUsage(topologyRequests, add)
 }
 
 func (c *TASFlavorCache) removeUsage(topologyRequests []workload.TopologyDomainRequests) {
-	c.updateUsage(topologyRequests, -1)
+	c.updateUsage(topologyRequests, subtract)
 }
 
-func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainRequests, m int64) {
+func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainRequests, op usageOp) {
 	c.Lock()
 	defer c.Unlock()
 	for _, tr := range topologyRequests {
 		domainID := utiltas.DomainID(tr.Values)
-		_, found := c.usageMap[domainID]
+		_, found := c.usage[domainID]
 		if !found {
-			c.usageMap[domainID] = resources.Requests{}
+			c.usage[domainID] = resources.Requests{}
 		}
-		if m < 0 {
-			c.usageMap[domainID].Sub(tr.Requests)
+		if op == subtract {
+			c.usage[domainID].Sub(tr.Requests)
 		} else {
-			c.usageMap[domainID].Add(tr.Requests)
+			c.usage[domainID].Add(tr.Requests)
 		}
 	}
 }

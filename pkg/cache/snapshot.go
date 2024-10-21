@@ -100,6 +100,12 @@ func (c *Cache) SnapshotWithCtx(ctx context.Context) Snapshot {
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}
 	}
+	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for key, cache := range c.tasCache.Clone() {
+			tasSnapshots[key] = cache.snapshot(ctx)
+		}
+	}
 	for _, cq := range c.hm.ClusterQueues {
 		if !cq.Active() || (cq.HasParent() && c.hm.CycleChecker.HasCycle(cq.Parent())) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
@@ -111,15 +117,9 @@ func (c *Cache) SnapshotWithCtx(ctx context.Context) Snapshot {
 			snap.UpdateClusterQueueEdge(cq.Name, cq.Parent().Name)
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			tasSnapshotsMap := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
-			for _, tasFlv := range c.tasCache.GetKeys() {
-				if tasCacheRF := c.tasCache.Get(tasFlv); tasCacheRF != nil {
-					tasSnapshotsMap[tasFlv] = tasCacheRF.snapshot(ctx)
-				}
-			}
-			for _, tasFlv := range cq.tasFlavors {
-				if s := tasSnapshotsMap[tasFlv]; s != nil {
-					cqSnapshot.TASFlavorSnapshots[tasFlv] = s
+			for tasFlv, s := range tasSnapshots {
+				if cq.flavorInUse(string(tasFlv)) {
+					cqSnapshot.TASFlavors[tasFlv] = s
 				}
 			}
 		}
@@ -146,7 +146,7 @@ func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 		Status:                        c.Status,
 		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
 		ResourceNode:                  c.resourceNode.Clone(),
-		TASFlavorSnapshots:            make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
+		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 	}
 	for i, rg := range c.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()

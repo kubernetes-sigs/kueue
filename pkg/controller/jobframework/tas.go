@@ -26,12 +26,13 @@ import (
 
 func PodSetTopologyRequest(template *corev1.PodTemplateSpec) *kueue.PodSetTopologyRequest {
 	requiredValue, requiredFound := template.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
-	preferredValue, preferredFound := template.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	if requiredFound {
 		return &kueue.PodSetTopologyRequest{
 			Required: ptr.To(requiredValue),
 		}
-	} else if preferredFound {
+	}
+	preferredValue, preferredFound := template.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
+	if preferredFound {
 		return &kueue.PodSetTopologyRequest{
 			Preferred: ptr.To(preferredValue),
 		}

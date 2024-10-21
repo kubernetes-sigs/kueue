@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -53,6 +54,7 @@ type rfReconciler struct {
 }
 
 var _ reconcile.Reconciler = (*rfReconciler)(nil)
+var _ predicate.Predicate = (*rfReconciler)(nil)
 
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch
@@ -63,14 +65,14 @@ func newRfReconciler(c client.Client, queues *queue.Manager, cache *cache.Cache,
 		client:   c,
 		queues:   queues,
 		cache:    cache,
-		tasCache: cache.GetTASCache(),
+		tasCache: cache.TASCache(),
 		recorder: recorder,
 	}
 }
 
 func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *cache.Cache, cfg *configapi.Configuration) (string, error) {
 	nodeHandler := nodeHandler{
-		tasCache: cache.GetTASCache(),
+		tasCache: cache.TASCache(),
 	}
 	return TASResourceFlavorController, ctrl.NewControllerManagedBy(mgr).
 		Named(TASResourceFlavorController).
@@ -119,13 +121,11 @@ func (h *nodeHandler) queueReconcileForNode(node *corev1.Node, q workqueue.Typed
 		return
 	}
 	// trigger reconcile for TAS flavors affected by the node being created or updated
-	for _, name := range h.tasCache.GetKeys() {
-		if flavor := h.tasCache.Get(name); flavor != nil {
-			if isFlavorAffectedByNode(node, flavor.NodeLabels, flavor.Levels) {
-				q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
-					Name: string(name),
-				}}, nodeBatchPeriod)
-			}
+	for name, flavor := range h.tasCache.Clone() {
+		if nodeBelongsToFlavor(node, flavor.NodeLabels, flavor.Levels) {
+			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
+				Name: string(name),
+			}}, nodeBatchPeriod)
 		}
 	}
 }
@@ -153,16 +153,15 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 				return reconcile.Result{}, err
 			}
 			levels := r.levels(&topology)
-			tasInfo := r.tasCache.NewFlavorCache(levels, flv.Spec.NodeLabels)
+			tasInfo := r.tasCache.NewTASFlavorCache(levels, flv.Spec.NodeLabels)
 			r.tasCache.Set(kueue.ResourceFlavorReference(flv.Name), tasInfo)
 		}
 
 		// requeue inadmissible workloads as a change to the resource flavor
 		// or the set of nodes can allow admitting a workload which was
 		// previously inadmissible.
-		if cqNames := r.cache.GetActiveClusterQueues(); len(cqNames) > 0 {
+		if cqNames := r.cache.ActiveClusterQueues(); len(cqNames) > 0 {
 			r.queues.QueueInadmissibleWorkloads(ctx, cqNames)
-			r.queues.Broadcast()
 		}
 	}
 	return reconcile.Result{}, nil
@@ -173,8 +172,7 @@ func (r *rfReconciler) Create(event event.CreateEvent) bool {
 	if isRf {
 		return rf.Spec.TopologyName != nil
 	}
-	_, isNode := event.Object.(*corev1.Node)
-	return isNode
+	return true
 }
 
 func (r *rfReconciler) Delete(event event.DeleteEvent) bool {
@@ -185,8 +183,7 @@ func (r *rfReconciler) Delete(event event.DeleteEvent) bool {
 		}
 		return false
 	}
-	_, isNode := event.Object.(*corev1.Node)
-	return isNode
+	return true
 }
 
 func (r *rfReconciler) Update(event event.UpdateEvent) bool {
@@ -204,16 +201,14 @@ func (r *rfReconciler) Update(event event.UpdateEvent) bool {
 			return newRf.Spec.TopologyName != nil
 		}
 	}
-	_, isOldNode := event.ObjectOld.(*corev1.Node)
-	_, isNewNode := event.ObjectNew.(*corev1.Node)
-	return isOldNode && isNewNode
+	return true
 }
 
 func (r *rfReconciler) Generic(event event.GenericEvent) bool {
 	return false
 }
 
-func isFlavorAffectedByNode(node *corev1.Node, nodeLabels map[string]string, levels []string) bool {
+func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels []string) bool {
 	for k, v := range nodeLabels {
 		if node.Labels[k] != v {
 			return false

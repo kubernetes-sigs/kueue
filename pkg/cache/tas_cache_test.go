@@ -680,6 +680,35 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
+		"only nodes with matching levels are considered; no host label on node": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "b1-r1-x1",
+						Labels: map[string]string{
+							tasBlockLabel: "b1",
+							tasRackLabel:  "r1",
+							// the node doesn't have the tasHostLabel required by topology
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasRackLabel),
+			},
+			levels: defaultThreeLevels,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:          1,
+			wantAssignment: nil,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -691,11 +720,11 @@ func TestFindTopologyAssignment(t *testing.T) {
 			}
 			client := utiltesting.NewFakeClient(initialObjects...)
 			tasCache := NewTASCache(client)
-			tasFlavorCache := tasCache.NewFlavorCache(tc.levels, tc.nodeLabels)
+			tasFlavorCache := tasCache.NewTASFlavorCache(tc.levels, tc.nodeLabels)
 			snapshot := tasFlavorCache.snapshot(ctx)
 			gotAssignment := snapshot.FindTopologyAssignment(&tc.request, tc.requests, tc.count)
 			if diff := cmp.Diff(tc.wantAssignment, gotAssignment); diff != "" {
-				t.Errorf("unexpected topology assignment: %s", diff)
+				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
 		})
 	}

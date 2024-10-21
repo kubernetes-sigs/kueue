@@ -18,59 +18,47 @@ package cache
 
 import (
 	"maps"
-	"slices"
 	"sync"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/resources"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 type TASCache struct {
 	sync.RWMutex
-	client client.Client
-	Map    map[kueue.ResourceFlavorReference]*TASFlavorCache
+	client  client.Client
+	flavors map[kueue.ResourceFlavorReference]*TASFlavorCache
 }
 
 func NewTASCache(client client.Client) TASCache {
 	return TASCache{
-		client: client,
-		Map:    make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
-	}
-}
-
-func (t *TASCache) NewFlavorCache(labels []string, nodeLabels map[string]string) *TASFlavorCache {
-	return &TASFlavorCache{
-		client:     t.client,
-		Levels:     slices.Clone(labels),
-		NodeLabels: maps.Clone(nodeLabels),
-		usageMap:   make(map[utiltas.TopologyDomainID]resources.Requests),
+		client:  client,
+		flavors: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
 	}
 }
 
 func (t *TASCache) Get(name kueue.ResourceFlavorReference) *TASFlavorCache {
 	t.RLock()
 	defer t.RUnlock()
-	return t.Map[name]
+	return t.flavors[name]
 }
 
-func (t *TASCache) GetKeys() []kueue.ResourceFlavorReference {
+// Clone returns a shallow copy of the map
+func (t *TASCache) Clone() map[kueue.ResourceFlavorReference]*TASFlavorCache {
 	t.RLock()
 	defer t.RUnlock()
-	return utilmaps.Keys(t.Map)
+	return maps.Clone(t.flavors)
 }
 
 func (t *TASCache) Set(name kueue.ResourceFlavorReference, info *TASFlavorCache) {
 	t.Lock()
 	defer t.Unlock()
-	t.Map[name] = info
+	t.flavors[name] = info
 }
 
 func (t *TASCache) Delete(name kueue.ResourceFlavorReference) {
 	t.Lock()
 	defer t.Unlock()
-	delete(t.Map, name)
+	delete(t.flavors, name)
 }

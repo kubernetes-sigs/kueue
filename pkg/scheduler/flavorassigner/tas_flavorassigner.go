@@ -34,8 +34,8 @@ func assignTopology(log logr.Logger,
 	podSet *kueue.PodSet) {
 	switch {
 	case psAssignment.Status.IsError():
-		log.Info("There is no resource quota assignment for the workload. No need to check TAS.", "message", psAssignment.Status.Message())
-	case len(cq.TASFlavorSnapshots) == 0:
+		log.V(2).Info("There is no resource quota assignment for the workload. No need to check TAS.", "message", psAssignment.Status.Message())
+	case len(cq.TASFlavors) == 0:
 		if psAssignment.Status == nil {
 			psAssignment.Status = &Status{}
 		}
@@ -53,27 +53,26 @@ func assignTopology(log logr.Logger,
 			psAssignment.Status.err = err
 			psAssignment.Flavors = nil
 			return
-		} else {
-			snapshot := cq.TASFlavorSnapshots[*tasFlvr]
-			if snapshot == nil {
-				if psAssignment.Status == nil {
-					psAssignment.Status = &Status{}
-				}
-				psAssignment.Status.append("Workload requires Topology, but there is no TAS cache information for the assigned flavor")
-				psAssignment.Flavors = nil
-				return
-			}
-			psAssignment.TopologyAssignment = snapshot.FindTopologyAssignment(podSet.TopologyRequest,
-				singlePodRequests, podCount)
-			if psAssignment.TopologyAssignment == nil {
-				if psAssignment.Status == nil {
-					psAssignment.Status = &Status{}
-				}
-				psAssignment.Status.append("Workload cannot fit within the TAS ResourceFlavor")
-				psAssignment.Flavors = nil
-			}
-			log.Info("TAS PodSet assignment", "tasAssignment", psAssignment.TopologyAssignment)
 		}
+		snapshot := cq.TASFlavors[*tasFlvr]
+		if snapshot == nil {
+			if psAssignment.Status == nil {
+				psAssignment.Status = &Status{}
+			}
+			psAssignment.Status.append("Workload requires Topology, but there is no TAS cache information for the assigned flavor")
+			psAssignment.Flavors = nil
+			return
+		}
+		psAssignment.TopologyAssignment = snapshot.FindTopologyAssignment(podSet.TopologyRequest,
+			singlePodRequests, podCount)
+		if psAssignment.TopologyAssignment == nil {
+			if psAssignment.Status == nil {
+				psAssignment.Status = &Status{}
+			}
+			psAssignment.Status.append("Workload cannot fit within the TAS ResourceFlavor")
+			psAssignment.Flavors = nil
+		}
+		log.Info("TAS PodSet assignment", "tasAssignment", psAssignment.TopologyAssignment)
 	}
 }
 

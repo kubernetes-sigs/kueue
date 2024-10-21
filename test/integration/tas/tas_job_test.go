@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 				for _, node := range nodes {
-					gomega.Expect(util.DeleteObject(ctx, k8sClient, &node)).Should(gomega.Succeed())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
 			})
 
@@ -533,7 +533,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasCPUFlavor, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasGPUFlavor, true)
 				for _, node := range nodes {
-					gomega.Expect(util.DeleteObject(ctx, k8sClient, &node)).Should(gomega.Succeed())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
 			})
 
