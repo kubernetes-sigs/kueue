@@ -48,7 +48,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-",
+				GenerateName: "e2e-tas-",
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
