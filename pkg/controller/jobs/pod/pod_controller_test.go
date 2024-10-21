@@ -49,6 +49,11 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 )
 
+type keyUIDs struct {
+	key  types.NamespacedName
+	uids []types.UID
+}
+
 func TestPodsReady(t *testing.T) {
 	testCases := map[string]struct {
 		pod  *corev1.Pod

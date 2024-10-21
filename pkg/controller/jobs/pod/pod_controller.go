@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -115,7 +116,7 @@ func init() {
 
 type Reconciler struct {
 	*jobframework.JobReconciler
-	expectationsStore *expectationsStore
+	expectationsStore *expectations.Store
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -142,7 +143,7 @@ func NewJob() jobframework.GenericJob {
 func NewReconciler(c client.Client, record record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
 	return &Reconciler{
 		JobReconciler:     jobframework.NewReconciler(c, record, opts...),
-		expectationsStore: newUIDExpectations("finalizedPods"),
+		expectationsStore: expectations.NewStore("finalizedPods"),
 	}
 }
 
@@ -154,7 +155,7 @@ type Pod struct {
 	unretriableGroup      *bool
 	list                  corev1.PodList
 	absentPods            int
-	excessPodExpectations *expectationsStore
+	excessPodExpectations *expectations.Store
 	satisfiedExcessPods   bool
 }
 

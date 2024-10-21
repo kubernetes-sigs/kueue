@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 )
 
 var (
@@ -62,7 +63,7 @@ func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
 // podEventHandler will convert reconcile requests for pods in group from "<namespace>/<pod-name>" to
 // "group/<namespace>/<group-name>".
 type podEventHandler struct {
-	cleanedUpPodsExpectations *expectationsStore
+	cleanedUpPodsExpectations *expectations.Store
 }
 
 func (h *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
