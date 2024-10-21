@@ -2286,7 +2286,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{},
 		},
-		"when the prebuilt workload is missing, no new one is created and the job is suspended": {
+		"when the prebuilt workload is missing, no new one is created, the job is suspended and prebuild workload not found error is returned": {
 			job: *baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -2306,6 +2306,7 @@ func TestReconciler(t *testing.T) {
 					Message:   "missing workload",
 				},
 			},
+			wantErr: jobframework.ErrPrebuildWorkloadNotFound,
 		},
 		"when the prebuilt workload exists its owner info is updated": {
 			job: *baseJobWrapper.
@@ -2394,6 +2395,7 @@ func TestReconciler(t *testing.T) {
 					Message:   "missing workload",
 				},
 			},
+			wantErr: jobframework.ErrPrebuildWorkloadNotFound,
 		},
 		"when the prebuilt workload is not equivalent to the job": {
 			job: *baseJobWrapper.
@@ -2445,6 +2447,7 @@ func TestReconciler(t *testing.T) {
 					Message:   "missing workload",
 				},
 			},
+			wantErr: jobframework.ErrPrebuildWorkloadNotFound,
 		},
 		"the workload is not admitted, tolerations and node selector change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
