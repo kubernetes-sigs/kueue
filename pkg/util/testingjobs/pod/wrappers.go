@@ -130,19 +130,17 @@ func (p *PodWrapper) RoleHash(h string) *PodWrapper {
 
 // KueueSchedulingGate adds kueue scheduling gate to the Pod
 func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
-	if p.Spec.SchedulingGates == nil {
-		p.Spec.SchedulingGates = make([]corev1.PodSchedulingGate, 0)
-	}
-	p.Spec.SchedulingGates = append(p.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"})
-	return p
+	return p.Gate("kueue.x-k8s.io/admission")
 }
 
 // TopologySchedulingGate adds kueue scheduling gate to the Pod
 func (p *PodWrapper) TopologySchedulingGate() *PodWrapper {
-	if p.Spec.SchedulingGates == nil {
-		p.Spec.SchedulingGates = make([]corev1.PodSchedulingGate, 0)
-	}
-	utilpod.Gate(&p.Pod, kueuealpha.TopologySchedulingGate)
+	return p.Gate(kueuealpha.TopologySchedulingGate)
+}
+
+// Gate adds kueue scheduling gate to the Pod by the gate name
+func (p *PodWrapper) Gate(gateName string) *PodWrapper {
+	utilpod.Gate(&p.Pod, gateName)
 	return p
 }
 

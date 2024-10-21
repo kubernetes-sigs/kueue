@@ -31,7 +31,10 @@ const (
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return indexer.IndexField(ctx, &corev1.Pod{}, workloadNameKey, func(o client.Object) []string {
-		pod := o.(*corev1.Pod)
+		pod, ok := o.(*corev1.Pod)
+		if !ok {
+			return nil
+		}
 		value, found := pod.Annotations[kueuealpha.WorkloadAnnotation]
 		if !found {
 			return nil

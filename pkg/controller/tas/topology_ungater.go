@@ -18,6 +18,8 @@ package tas
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -38,17 +40,25 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
 	ungateBatchPeriod = time.Second
 )
 
+var (
+	errPendingUngateOps = errors.New("pending ungate operations")
+)
+
 type topologyUngater struct {
-	client client.Client
+	client            client.Client
+	expectationsStore *expectations.Store
 }
 
 type podWithUngateInfo struct {
@@ -64,12 +74,15 @@ var _ reconcile.Reconciler = (*topologyUngater)(nil)
 
 func newTopologyUngater(c client.Client) *topologyUngater {
 	return &topologyUngater{
-		client: c,
+		client:            c,
+		expectationsStore: expectations.NewStore(TASTopologyUngater),
 	}
 }
 
 func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
-	podHandler := podHandler{}
+	podHandler := podHandler{
+		expectationsStore: r.expectationsStore,
+	}
 	return TASTopologyUngater, ctrl.NewControllerManagedBy(mgr).
 		Named(TASTopologyUngater).
 		For(&kueue.Workload{}).
@@ -82,46 +95,42 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 var _ handler.EventHandler = (*podHandler)(nil)
 
 type podHandler struct {
+	expectationsStore *expectations.Store
 }
 
-func (h *podHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	pod, isPod := e.Object.(*corev1.Pod)
-	if !isPod {
-		return
-	}
-	h.queueReconcileForPod(pod, q)
+func (h *podHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueReconcileForPod(ctx, e.Object, false, q)
 }
 
 func (h *podHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldPod, isOldPod := e.ObjectOld.(*corev1.Pod)
-	newPod, isNewPod := e.ObjectNew.(*corev1.Pod)
-	if !isOldPod || !isNewPod {
-		return
-	}
-	h.queueReconcileForPod(oldPod, q)
-	h.queueReconcileForPod(newPod, q)
+	h.queueReconcileForPod(ctx, e.ObjectNew, false, q)
 }
 
-func (h *podHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	pod, isPod := e.Object.(*corev1.Pod)
+func (h *podHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueReconcileForPod(ctx, e.Object, true, q)
+}
+
+func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Object, deleted bool, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	pod, isPod := object.(*corev1.Pod)
 	if !isPod {
 		return
 	}
-	h.queueReconcileForPod(pod, q)
-}
-
-func (h *podHandler) queueReconcileForPod(pod *corev1.Pod, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if pod == nil {
-		return
-	}
-	if !utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate) {
+	if _, found := pod.Labels[kueuealpha.TASLabel]; !found {
+		// skip non-TAS pods
 		return
 	}
 	if wlName, found := pod.Annotations[kueuealpha.WorkloadAnnotation]; found {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
+		key := types.NamespacedName{
 			Name:      wlName,
 			Namespace: pod.Namespace,
-		}}, ungateBatchPeriod)
+		}
+		// it is possible that the pod is removed before the gate removal, so
+		// we also need to consider deleted pod as ungated.
+		if !utilpod.HasGate(pod, kueuealpha.TopologySchedulingGate) || deleted {
+			log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workload", key.String())
+			h.expectationsStore.ObservedUID(log, key, pod.UID)
+		}
+		q.AddAfter(reconcile.Request{NamespacedName: key}, ungateBatchPeriod)
 	}
 }
 
@@ -129,7 +138,7 @@ func (h *podHandler) Generic(context.Context, event.GenericEvent, workqueue.Type
 }
 
 func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("workload", req.NamespacedName.Name)
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", req.NamespacedName.String())
 	log.V(2).Info("Reconcile Topology Ungater")
 
 	wl := &kueue.Workload{}
@@ -137,11 +146,18 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		if client.IgnoreNotFound(err) != nil {
 			return reconcile.Result{}, err
 		}
-		log.Info("workload not found")
+		log.V(5).Info("workload not found")
 		return reconcile.Result{}, nil
 	}
-	if wl.Status.Admission == nil {
-		log.Info("workload is not admitted")
+	if !r.expectationsStore.Satisfied(log, req.NamespacedName) {
+		log.V(3).Info("There are pending ungate operations")
+		return reconcile.Result{}, errPendingUngateOps
+	}
+	if !isAdmittedByTAS(wl) {
+		// this is a safeguard. In particular, it helps to prevent the race
+		// condition if the workload is evicted before the reconcile is
+		// triggered.
+		log.V(5).Info("workload is not admitted by TAS")
 		return reconcile.Result{}, nil
 	}
 
@@ -152,8 +168,8 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 			if err != nil {
 				log.Error(err, "failed to identify pods to ungate", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
-			} else {
-				log.Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
+			} else if len(toUngate) > 0 {
+				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
 				allToUngate = append(allToUngate, toUngate...)
 			}
 		}
@@ -161,11 +177,15 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	var err error
 	if len(allToUngate) > 0 {
 		log.V(2).Info("identified pods to ungate", "count", len(allToUngate))
+		podsToUngateUIDs := utilslices.Map(allToUngate, func(p *podWithUngateInfo) types.UID { return p.pod.UID })
+		r.expectationsStore.ExpectUIDs(log, req.NamespacedName, podsToUngateUIDs)
+
 		err = parallelize.Until(ctx, len(allToUngate), func(i int) error {
 			podWithUngateInfo := &allToUngate[i]
+			var ungated bool
 			e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, true, func() (bool, error) {
 				log.V(3).Info("ungating pod", "pod", klog.KObj(podWithUngateInfo.pod), "nodeLabels", podWithUngateInfo.nodeLabels)
-				utilpod.Ungate(podWithUngateInfo.pod, kueuealpha.TopologySchedulingGate)
+				ungated = utilpod.Ungate(podWithUngateInfo.pod, kueuealpha.TopologySchedulingGate)
 				if podWithUngateInfo.pod.Spec.NodeSelector == nil {
 					podWithUngateInfo.pod.Spec.NodeSelector = make(map[string]string)
 				}
@@ -175,7 +195,13 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				return true, nil
 			})
 			if e != nil {
+				// We won't observe this cleanup in the event handler.
+				r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
 				log.Error(e, "failed ungating pod", "pod", klog.KObj(podWithUngateInfo.pod))
+			}
+			if !ungated {
+				// We don't expect an event in this case.
+				r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
 			}
 			return e
 		})
@@ -189,7 +215,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 func (r *topologyUngater) Create(event event.CreateEvent) bool {
 	wl, isWl := event.Object.(*kueue.Workload)
 	if isWl {
-		return isTASWorkload(wl)
+		return isAdmittedByTAS(wl)
 	}
 	return true
 }
@@ -197,34 +223,29 @@ func (r *topologyUngater) Create(event event.CreateEvent) bool {
 func (r *topologyUngater) Delete(event event.DeleteEvent) bool {
 	wl, isWl := event.Object.(*kueue.Workload)
 	if isWl {
-		return isTASWorkload(wl)
+		return isAdmittedByTAS(wl)
 	}
 	return true
 }
 
 func (r *topologyUngater) Update(event event.UpdateEvent) bool {
-	_, isOldWl := event.ObjectOld.(*kueue.Workload)
-	newWl, isNewWl := event.ObjectNew.(*kueue.Workload)
-	if isOldWl && isNewWl {
-		return isTASWorkload(newWl)
+	wl, isWl := event.ObjectNew.(*kueue.Workload)
+	if isWl {
+		return isAdmittedByTAS(wl)
 	}
 	return true
 }
 
-func isTASWorkload(wl *kueue.Workload) bool {
-	if wl.Status.Admission == nil {
-		return false
-	}
-	for _, psa := range wl.Status.Admission.PodSetAssignments {
-		if psa.TopologyAssignment != nil {
-			return true
-		}
-	}
+func (r *topologyUngater) Generic(event event.GenericEvent) bool {
 	return false
 }
 
-func (r *topologyUngater) Generic(event event.GenericEvent) bool {
-	return false
+func isAdmittedByTAS(w *kueue.Workload) bool {
+	return w.Status.Admission != nil && workload.IsAdmitted(w) &&
+		slices.ContainsFunc(w.Status.Admission.PodSetAssignments,
+			func(psa kueue.PodSetAssignment) bool {
+				return psa.TopologyAssignment != nil
+			})
 }
 
 func (r *topologyUngater) podsetPodsToUngate(ctx context.Context, log logr.Logger, wl *kueue.Workload, psa *kueue.PodSetAssignment) ([]podWithUngateInfo, error) {
@@ -253,7 +274,7 @@ func (r *topologyUngater) podsetPodsToUngate(ctx context.Context, log logr.Logge
 			domainIDToUngatedCnt[domainID]++
 		}
 	}
-	log.V(5).Info("searching pods to ungate",
+	log.V(3).Info("searching pods to ungate",
 		"podSetName", psa.Name,
 		"podSetCount", psa.Count,
 		"domainIDToUngatedCount", domainIDToUngatedCnt,
@@ -292,9 +313,14 @@ func (r *topologyUngater) podsForDomain(ctx context.Context, ns, wlName, psName 
 	}); err != nil {
 		return nil, err
 	}
-	result := make([]*corev1.Pod, 0)
-	for _, p := range pods.Items {
-		result = append(result, &p)
+	result := make([]*corev1.Pod, 0, len(pods.Items))
+	for i := range pods.Items {
+		if pods.Items[i].Status.Phase == corev1.PodFailed {
+			// ignore failed pods as they need to be replaced, and so we don't
+			// want to count them as already ungated Pods.
+			continue
+		}
+		result = append(result, &pods.Items[i])
 	}
 	return result, nil
 }

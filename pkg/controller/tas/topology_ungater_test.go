@@ -25,13 +25,14 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 
@@ -82,11 +83,16 @@ func TestReconcile(t *testing.T) {
 		result := make(map[string]*counts, len(pods))
 		for i := range pods {
 			pod := pods[i]
+			if utilpod.HasGate(&pod, kueuealpha.TopologySchedulingGate) {
+				continue
+			}
+			if pod.Status.Phase == corev1.PodFailed {
+				continue
+			}
 			key := mapToJSON(t, pod.Spec.NodeSelector)
 			if _, found := result[key]; !found {
 				result[key] = &counts{
 					NodeSelector: maps.Clone(pod.Spec.NodeSelector),
-					Count:        0,
 				}
 			}
 			result[key].Count++
@@ -95,6 +101,7 @@ func TestReconcile(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
+		expectUIDs []types.UID
 		workloads  []kueue.Workload
 		pods       []corev1.Pod
 		wantPods   []corev1.Pod
@@ -129,18 +136,14 @@ func TestReconcile(t *testing.T) {
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					Obj(),
 			},
 			wantCounts: []counts{
@@ -181,31 +184,23 @@ func TestReconcile(t *testing.T) {
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					Obj(),
 			},
 			wantCounts: []counts{
@@ -253,31 +248,23 @@ func TestReconcile(t *testing.T) {
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					TopologySchedulingGate().
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					TopologySchedulingGate().
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod1", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					Obj(),
 				*testingpod.MakePod("pod2", "ns").
 					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
-					Label(constants.ManagedByKueueLabel, "true").
 					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
-					KueueFinalizer().
 					Obj(),
 			},
 			wantCounts: []counts{
@@ -297,11 +284,596 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"workload without admission - pod remains gated": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+		},
+		"workload admitted but without topology assignment - pod remains gated": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(2).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+		},
+		"workload with admission (reserved quota), but not admitted - pod remains gated": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(2).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(false).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+		},
+		"workload admitted by TAS with single pod without the Workload annotation - Pod remains gated": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+		},
+		"workload admitted by TAS with single pod without the PodSet label - Pod remains gated": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					TopologySchedulingGate().
+					Obj(),
+			},
+		},
+		"workload admitted by TAS with single pod without topology gate, remains gated by another gate": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Gate("example.com/gate").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Gate("example.com/gate").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"workload admitted by TAS with single pod with topology gate and another gate, ungated, but remains gated by another gate": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Gate("example.com/gate").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Gate("example.com/gate").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"expect single pod; one already running - don't ungate second pod": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-already-running", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodRunning).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod-gated", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-already-running", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodRunning).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod-gated", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"expect single pod; one ungated pod failed - ungate second pod": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-already-running", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodFailed).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod-gated", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-already-running", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodFailed).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod-gated", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"two pods, one already ungated, second to ungate": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+							AssignmentPodCount(2).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 2,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").UID("x").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod2", "ns").UID("y").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").UID("x").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod2", "ns").UID("y").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 2,
+				},
+			},
+		},
+		"expect single pod; one ungated pod succeeded - don't ungate second pod": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(1).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 1,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-already-succeeded", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodSucceeded).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod-gated", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-already-succeeded", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodSucceeded).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod-gated", "ns").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"ungate single pod; while there are pending expectations": {
+			expectUIDs: []types.UID{"x"},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+							AssignmentPodCount(2).
+							TopologyAssignment(&kueue.TopologyAssignment{
+								Levels: defaultTestLevels,
+								Domains: []kueue.TopologyDomainAssignment{
+									{
+										Count: 2,
+										Values: []string{
+											"b1",
+											"r1",
+										},
+									},
+								},
+							}).
+							Obj(),
+					).
+					Admitted(true).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").UID("x").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod2", "ns").UID("y").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", "ns").UID("x").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod2", "ns").UID("y").
+					Annotation(kueuealpha.WorkloadAnnotation, "unit-test").
+					Label(kueuealpha.PodSetLabel, kueue.DefaultPodSetName).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantErr: errPendingUngateOps,
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
@@ -323,24 +895,28 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 			topologyUngater := newTopologyUngater(kClient)
-
-			reconcileRequest := reconcile.Request{
-				NamespacedName: client.ObjectKeyFromObject(&tc.workloads[0]),
+			key := client.ObjectKeyFromObject(&tc.workloads[0])
+			request := reconcile.Request{NamespacedName: key}
+			if len(tc.expectUIDs) > 0 {
+				topologyUngater.expectationsStore.ExpectUIDs(log, key, tc.expectUIDs)
 			}
 
-			_, err := topologyUngater.Reconcile(ctx, reconcileRequest)
+			_, err := topologyUngater.Reconcile(ctx, request)
 
-			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors(), cmpopts.EquateEmpty()); diff != "" {
+			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
 			var gotPods corev1.PodList
 			if err := kClient.List(ctx, &gotPods); err != nil {
-				if tc.wantPods != nil || !apierrors.IsNotFound(err) {
+				if !apierrors.IsNotFound(err) {
 					t.Fatalf("Could not get Pod after reconcile: %v", err)
 				}
 			}
 
+			// don't assert on the node selector directly, because the Pod
+			// assignments to domains may differ, depending on the order of
+			// listing the pods by the client.
 			extPodCmpOpts := append(podCmpOpts, cmpopts.IgnoreFields(corev1.PodSpec{}, "NodeSelector"))
 			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, extPodCmpOpts...); diff != "" {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
