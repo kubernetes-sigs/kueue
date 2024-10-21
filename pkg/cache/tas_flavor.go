@@ -29,13 +29,29 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+// usageOp indicates whether we should add or subtract the usage.
+type usageOp bool
+
+const (
+	// add usage to the cache
+	add usageOp = true
+	// subtract usage from the cache
+	subtract usageOp = false
+)
+
 type TASFlavorCache struct {
 	sync.RWMutex
 
-	client     client.Client
+	client client.Client
+
+	// nodeLabels is a map of nodeLabels defined in the ResourceFlavor object.
 	NodeLabels map[string]string
-	Levels     []string
-	usageMap   map[utiltas.TopologyDomainID]resources.Requests
+	// levels is a list of levels defined in the Topology object referenced
+	// by the flavor corresponding to the cache.
+	Levels []string
+
+	// usageMap maintains the usage per topology domain
+	usageMap map[utiltas.TopologyDomainID]resources.Requests
 }
 
 func (c *TASFlavorCache) snapshot(ctx context.Context) *TASFlavorSnapshot {
@@ -73,14 +89,14 @@ func (c *TASFlavorCache) snapshotForNodes(nodes []corev1.Node) *TASFlavorSnapsho
 }
 
 func (c *TASFlavorCache) addUsage(topologyRequests []workload.TopologyDomainRequests) {
-	c.updateUsage(topologyRequests, 1)
+	c.updateUsage(topologyRequests, add)
 }
 
 func (c *TASFlavorCache) removeUsage(topologyRequests []workload.TopologyDomainRequests) {
-	c.updateUsage(topologyRequests, -1)
+	c.updateUsage(topologyRequests, subtract)
 }
 
-func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainRequests, m int64) {
+func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainRequests, op usageOp) {
 	c.Lock()
 	defer c.Unlock()
 	for _, tr := range topologyRequests {
@@ -89,7 +105,7 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		if !found {
 			c.usageMap[domainID] = resources.Requests{}
 		}
-		if m < 0 {
+		if op == subtract {
 			c.usageMap[domainID].Sub(tr.Requests)
 		} else {
 			c.usageMap[domainID].Add(tr.Requests)

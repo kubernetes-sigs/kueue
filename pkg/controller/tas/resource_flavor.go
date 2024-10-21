@@ -63,14 +63,14 @@ func newRfReconciler(c client.Client, queues *queue.Manager, cache *cache.Cache,
 		client:   c,
 		queues:   queues,
 		cache:    cache,
-		tasCache: cache.GetTASCache(),
+		tasCache: cache.TASCache(),
 		recorder: recorder,
 	}
 }
 
 func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *cache.Cache, cfg *configapi.Configuration) (string, error) {
 	nodeHandler := nodeHandler{
-		tasCache: cache.GetTASCache(),
+		tasCache: cache.TASCache(),
 	}
 	return TASResourceFlavorController, ctrl.NewControllerManagedBy(mgr).
 		Named(TASResourceFlavorController).
@@ -119,13 +119,11 @@ func (h *nodeHandler) queueReconcileForNode(node *corev1.Node, q workqueue.Typed
 		return
 	}
 	// trigger reconcile for TAS flavors affected by the node being created or updated
-	for _, name := range h.tasCache.GetKeys() {
-		if flavor := h.tasCache.Get(name); flavor != nil {
-			if isFlavorAffectedByNode(node, flavor.NodeLabels, flavor.Levels) {
-				q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
-					Name: string(name),
-				}}, nodeBatchPeriod)
-			}
+	for name, flavor := range h.tasCache.Clone() {
+		if isFlavorAffectedByNode(node, flavor.NodeLabels, flavor.Levels) {
+			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
+				Name: string(name),
+			}}, nodeBatchPeriod)
 		}
 	}
 }
@@ -160,9 +158,8 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		// requeue inadmissible workloads as a change to the resource flavor
 		// or the set of nodes can allow admitting a workload which was
 		// previously inadmissible.
-		if cqNames := r.cache.GetActiveClusterQueues(); len(cqNames) > 0 {
+		if cqNames := r.cache.ActiveClusterQueues(); len(cqNames) > 0 {
 			r.queues.QueueInadmissibleWorkloads(ctx, cqNames)
-			r.queues.Broadcast()
 		}
 	}
 	return reconcile.Result{}, nil

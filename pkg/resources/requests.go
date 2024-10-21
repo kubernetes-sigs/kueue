@@ -44,13 +44,13 @@ func (r Requests) Clone() Requests {
 }
 
 func (r Requests) Divide(f int64) {
-	for name := range r {
-		r[name] /= f
+	for k := range r {
+		r[k] /= f
 	}
 }
 
-func (r Requests) Add(newRequests Requests) {
-	for k, v := range newRequests {
+func (r Requests) Add(addRequests Requests) {
+	for k, v := range addRequests {
 		r[k] += v
 	}
 }
