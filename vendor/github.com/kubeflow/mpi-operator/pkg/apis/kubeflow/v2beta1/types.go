@@ -93,6 +93,14 @@ type SchedulingPolicy struct {
 	ScheduleTimeoutSeconds *int32 `json:"scheduleTimeoutSeconds,omitempty"`
 }
 
+const (
+	// KubeflowJobController represents the value of the default job controller
+	KubeflowJobController = "kubeflow.org/mpi-operator"
+
+	// MultiKueueController represents the vaue of the MultiKueue controller
+	MultiKueueController = "kueue.x-k8s.io/multikueue"
+)
+
 // RunPolicy encapsulates various runtime policies of the distributed training
 // job, for example how to clean up resources and how long the job can stay
 // active.
@@ -131,6 +139,17 @@ type RunPolicy struct {
 	// Defaults to false.
 	// +kubebuilder:default:=false
 	Suspend *bool `json:"suspend,omitempty"`
+
+	// ManagedBy is used to indicate the controller or entity that manages a MPIJob.
+	// The value must be either empty, 'kubeflow.org/mpi-operator' or
+	// 'kueue.x-k8s.io/multikueue'.
+	// The mpi-operator reconciles a MPIJob which doesn't have this
+	// field at all or the field value is the reserved string
+	// 'kubeflow.org/mpi-operator', but delegates reconciling the MPIJob
+	// with 'kueue.x-k8s.io/multikueue' to the Kueue.
+	// The field is immutable.
+	// +optional
+	ManagedBy *string `json:"managedBy,omitempty"`
 }
 
 type LauncherCreationPolicy string
