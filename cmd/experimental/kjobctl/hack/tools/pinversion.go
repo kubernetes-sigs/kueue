@@ -24,9 +24,11 @@ import (
 	_ "gotest.tools/gotestsum/cmd"
 	_ "k8s.io/code-generator"
 	_ "sigs.k8s.io/controller-runtime/tools/setup-envtest/env"
+
 	// since verify will error when referencing a cmd package
 	// we need to reference individual dependencies used by it
 	_ "sigs.k8s.io/controller-tools/pkg/crd"
 	_ "sigs.k8s.io/controller-tools/pkg/genall/help/pretty"
+	_ "sigs.k8s.io/kind/pkg/cmd"
 	_ "sigs.k8s.io/kustomize/kustomize/v5/commands/edit/listbuiltin"
 )
