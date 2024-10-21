@@ -52,6 +52,11 @@ const (
 	// of the PodSet of the admitted Workload corresponding to the PodTemplate.
 	// The label is set when starting the Job, and removed on stopping the Job.
 	PodSetLabel = "kueue.x-k8s.io/podset"
+
+	// TASLabel is a label set on the Job's PodTemplate to indicate that the
+	// PodSet is admitted using TopologyAwareScheduling, and all Pods created
+	// from the Job's PodTemplate also have the label.
+	TASLabel = "kueue.x-k8s.io/tas"
 )
 
 // TopologySpec defines the desired state of Topology
