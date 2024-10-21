@@ -17,6 +17,7 @@ limitations under the License.
 package cache
 
 import (
+	"context"
 	"maps"
 
 	"github.com/go-logr/logr"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -76,6 +78,10 @@ func (s *Snapshot) Log(log logr.Logger) {
 }
 
 func (c *Cache) Snapshot() Snapshot {
+	return c.SnapshotWithCtx(context.TODO())
+}
+
+func (c *Cache) SnapshotWithCtx(ctx context.Context) Snapshot {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -94,14 +100,28 @@ func (c *Cache) Snapshot() Snapshot {
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}
 	}
+	tasSnapshotsMap := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for key, cache := range c.tasCache.Clone() {
+			tasSnapshotsMap[key] = cache.snapshot(ctx)
+		}
+	}
 	for _, cq := range c.hm.ClusterQueues {
 		if !cq.Active() || (cq.HasParent() && c.hm.CycleChecker.HasCycle(cq.Parent())) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
-		snap.AddClusterQueue(snapshotClusterQueue(cq))
+		cqSnapshot := snapshotClusterQueue(cq)
+		snap.AddClusterQueue(cqSnapshot)
 		if cq.HasParent() {
 			snap.UpdateClusterQueueEdge(cq.Name, cq.Parent().Name)
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			for tasFlv, s := range tasSnapshotsMap {
+				if cq.flavorInUse(string(tasFlv)) {
+					cqSnapshot.TASFlavors[tasFlv] = s
+				}
+			}
 		}
 	}
 	for name, rf := range c.resourceFlavors {
@@ -126,6 +146,7 @@ func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 		Status:                        c.Status,
 		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
 		ResourceNode:                  c.resourceNode.Clone(),
+		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 	}
 	for i, rg := range c.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
