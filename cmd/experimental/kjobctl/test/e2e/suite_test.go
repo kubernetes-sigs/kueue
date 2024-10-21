@@ -46,6 +46,4 @@ var _ = ginkgo.BeforeSuite(func() {
 	kjobctlPath = filepath.Join(dir, "bin", "kubectl-kjob")
 	k8sClient, _ = util.CreateClientUsingCluster("")
 	ctx = context.Background()
-
-	util.IsKjobInstalled()
 })

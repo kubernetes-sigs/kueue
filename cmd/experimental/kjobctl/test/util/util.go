@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"slices"
 	"strings"
 
@@ -60,21 +61,16 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	return nil
 }
 
-// Run executes the provided command within this context
+// Run executes the provided command
 func Run(cmd *exec.Cmd) ([]byte, error) {
 	dir, _ := GetProjectDir()
 	cmd.Dir = dir
 
-	if err := os.Chdir(cmd.Dir); err != nil {
-		fmt.Fprintf(ginkgo.GinkgoWriter, "chdir dir: %s\n", err)
-	}
-
-	cmd.Env = append(os.Environ(), "GO111MODULE=on")
-	command := strings.Join(cmd.Args, " ")
+	command := cmd.String()
 	fmt.Fprintf(ginkgo.GinkgoWriter, "running: %s\n", command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return output, fmt.Errorf("%s failed with error: (%v) %s", command, err, string(output))
+		return output, fmt.Errorf("%s failed with error: %v", command, err)
 	}
 
 	return output, nil
@@ -83,15 +79,9 @@ func Run(cmd *exec.Cmd) ([]byte, error) {
 // GetNonEmptyLines converts given command output string into individual objects
 // according to line breakers, and ignores the empty elements in it.
 func GetNonEmptyLines(output string) []string {
-	var res []string
-	elements := strings.Split(output, "\n")
-	for _, element := range elements {
-		if element != "" {
-			res = append(res, element)
-		}
-	}
-
-	return res
+	return slices.DeleteFunc(strings.Split(output, "\n"), func(s string) bool {
+		return s == ""
+	})
 }
 
 // GetProjectDir will return the directory where the project is
@@ -100,8 +90,7 @@ func GetProjectDir() (string, error) {
 	if err != nil {
 		return wd, err
 	}
-	wd = strings.ReplaceAll(wd, "/test/e2e", "")
-	return wd, nil
+	return path.Clean(wd + "/../.."), nil
 }
 
 func CreateClientUsingCluster(kContext string) (client.Client, *rest.Config) {
@@ -125,18 +114,4 @@ func CreateClientUsingCluster(kContext string) (client.Client, *rest.Config) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return client, cfg
-}
-
-func IsKjobInstalled() {
-	cmd := exec.Command("kubectl", "get", "crds")
-	out, err := Run(cmd)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	crds := GetNonEmptyLines(string(out))
-	gomega.Expect(crds).NotTo(gomega.BeEmpty())
-
-	isKjobInstalled := slices.ContainsFunc(crds, func(s string) bool {
-		return strings.Contains(s, "kjobctl")
-	})
-	gomega.Expect(isKjobInstalled).Should(gomega.BeTrue())
 }
