@@ -63,10 +63,11 @@ const (
 )
 
 var (
-	ErrUnknownWorkloadOwner  = errors.New("workload owner is unknown")
-	ErrWorkloadOwnerNotFound = errors.New("workload owner not found")
-	ErrNoMatchingWorkloads   = errors.New("no matching workloads")
-	ErrExtraWorkloads        = errors.New("extra workloads")
+	ErrUnknownWorkloadOwner     = errors.New("workload owner is unknown")
+	ErrWorkloadOwnerNotFound    = errors.New("workload owner not found")
+	ErrNoMatchingWorkloads      = errors.New("no matching workloads")
+	ErrExtraWorkloads           = errors.New("extra workloads")
+	ErrPrebuildWorkloadNotFound = errors.New("prebuild workload not found")
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -1011,8 +1012,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	}
 
 	if usePrebuiltWorkload {
-		log.V(2).Info("Skip workload creation for job with prebuilt workload")
-		return nil
+		return ErrPrebuildWorkloadNotFound
 	}
 
 	// Create the corresponding workload.

@@ -420,6 +420,48 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should reconcile job when the workload is created later", func() {
+			container := corev1.Container{
+				Name:  "c",
+				Image: "pause",
+			}
+			testingjob.SetContainerDefaults(&container)
+
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
+				Label(constants.PrebuiltWorkloadLabel, "wl").
+				Containers(*container.DeepCopy()).
+				Obj()
+
+			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+			ginkgo.By("Checking the job gets suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJob := batchv1.Job{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			wl := testing.MakeWorkload("wl", ns.Name).
+				PodSets(*testing.MakePodSet("main", 1).
+					Containers(*container.DeepCopy()).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Check the job gets the ownership of the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					g.Expect(createdWl.OwnerReferences).To(gomega.ContainElement(
+						gomega.BeComparableTo(metav1.OwnerReference{
+							Name: job.Name,
+							UID:  job.UID,
+						}, cmpopts.IgnoreFields(metav1.OwnerReference{}, "APIVersion", "Kind", "Controller", "BlockOwnerDeletion"))))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("Should take the ownership of the workload and continue the usual execution", func() {
 			container := corev1.Container{
 				Name:  "c",
