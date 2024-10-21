@@ -187,10 +187,6 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Cq)).Should(gomega.Succeed())
 		worker2Lq = utiltesting.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
 		gomega.Expect(worker2TestCluster.client.Create(worker2TestCluster.ctx, worker2Lq)).Should(gomega.Succeed())
-
-		ginkgo.By("Disabling AdmissionCheckValidationRules feature", func() {
-			gomega.Expect(features.SetEnable(features.AdmissionCheckValidationRules, false)).To(gomega.Succeed())
-		})
 	})
 
 	ginkgo.AfterEach(func() {
@@ -341,7 +337,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 
 	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by file", func() {
 		ginkgo.By("Enabling AdmissionCheckValidationRules feature", func() {
-			gomega.Expect(features.SetEnable(features.AdmissionCheckValidationRules, true)).To(gomega.Succeed())
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionCheckValidationRules, true)
 		})
 		ac := utiltesting.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).

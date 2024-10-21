@@ -632,6 +632,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status conditions when flavors are created", func() {
+			ginkgo.By("Enabling AdmissionCheckValidationRules feature", func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionCheckValidationRules, true)
+			})
 			check1 = testing.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
 			gomega.Expect(k8sClient.Create(ctx, check1)).To(gomega.Succeed())
 			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
@@ -785,7 +788,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "MultipleSingleInstanceControllerAdmissionChecks",
-					Message: "Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue.",
+					Message: `Can't admit new workloads: only one AdmissionCheck of [check1 check2] can be referenced for controller "kueue.x-k8s.io/multikueue", Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue.`,
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -814,20 +817,29 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorIndependentAdmissionCheckAppliedPerFlavor",
-					Message: "Can't admit new workloads: MultiKueue AdmissionCheck cannot be specified per flavor.",
+					Message: `Can't admit new workloads: AdmissionCheck(s): [check1] cannot be set at flavor level, MultiKueue AdmissionCheck cannot be specified per flavor.`,
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
 			ginkgo.By("Only one Multikueue flavor independent admission check assigned to cluster queue")
 			gomega.Eventually(func() error {
-				updatedCq := &kueue.ClusterQueue{}
-				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)
+				var updatedAc kueue.AdmissionCheck
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(check2), &updatedAc)
+				if err != nil {
+					return err
+				}
+				return k8sClient.Delete(ctx, &updatedAc)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func() error {
+				var updatedCq kueue.ClusterQueue
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)
 				if err != nil {
 					return err
 				}
 				updatedCq.Spec.AdmissionChecks = []string{"check1"}
 				updatedCq.Spec.AdmissionChecksStrategy = nil
-				return k8sClient.Update(ctx, updatedCq)
+				return k8sClient.Update(ctx, &updatedCq)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func() []metav1.Condition {

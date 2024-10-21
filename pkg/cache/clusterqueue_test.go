@@ -680,6 +680,28 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			acValidationRulesEnabled: true,
 		},
 		{
+			name:     "Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller - MultiKueue AdmissionCheckValidationRules enabled",
+			cq:       cqWithACStrategy,
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: kueue.MultiKueueControllerName,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: kueue.MultiKueueControllerName,
+				},
+			},
+			wantStatus:  pending,
+			wantReason:  kueue.ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks,
+			wantMessage: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue.`,
+		},
+		{
 			name:     "Active clusterQueue with a FlavorIndependent AC applied per ResourceFlavor - AdmissionCheckValidationRules enabled",
 			cq:       cqWithACPerFlavor,
 			cqStatus: pending,
@@ -797,7 +819,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "MultipleSingleInstanceControllerAdmissionChecks",
-			wantMessage: "Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue.",
+			wantMessage: `Can't admit new workloads: only one AdmissionCheck of [check2 check3] can be referenced for controller "controller2".`,
 		},
 		{
 			name:     "Active clusterQueue with a FlavorIndependent AC applied per ResourceFlavor",
@@ -812,7 +834,22 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "FlavorIndependentAdmissionCheckAppliedPerFlavor",
-			wantMessage: "Can't admit new workloads: MultiKueue AdmissionCheck cannot be specified per flavor.",
+			wantMessage: "Can't admit new workloads: AdmissionCheck(s): [check1] cannot be set at flavor level.",
+		},
+		{
+			name:     "Active clusterQueue with a FlavorIndependent MultiKueue AC applied per ResourceFlavor",
+			cq:       cqWithACPerFlavor,
+			cqStatus: pending,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:            true,
+					Controller:        kueue.MultiKueueControllerName,
+					FlavorIndependent: true,
+				},
+			},
+			wantStatus:  pending,
+			wantReason:  "FlavorIndependentAdmissionCheckAppliedPerFlavor",
+			wantMessage: "Can't admit new workloads: AdmissionCheck(s): [check1] cannot be set at flavor level, MultiKueue AdmissionCheck cannot be specified per flavor.",
 		},
 	}
 
@@ -820,6 +857,8 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.acValidationRulesEnabled {
 				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, true)
+			} else {
+				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, false)
 			}
 			cache := New(utiltesting.NewFakeClient())
 			cq, err := cache.newClusterQueue(tc.cq)

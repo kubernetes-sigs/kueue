@@ -31,6 +31,8 @@ const (
 	ClusterQueueActiveReasonAdmissionCheckInactive                          = "AdmissionCheckInactive"
 	ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks = "MultipleSingleInstanceControllerAdmissionChecks"
 	ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor = "FlavorIndependentAdmissionCheckAppliedPerFlavor"
+	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks               = "MultipleMultiKueueAdmissionChecks"
+	ClusterQueueActiveReasonMutliKueueAdmissionCheckAppliedPerFlavor        = "MutliKueueAdmissionCheckAppliedPerFlavor"
 	ClusterQueueActiveReasonUnknown                                         = "Unknown"
 	ClusterQueueActiveReasonReady                                           = "Ready"
 )

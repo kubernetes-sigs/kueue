@@ -243,19 +243,18 @@ func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[str
 	c.Lock()
 	defer c.Unlock()
 
-	// TBD: This might not be needed, but we could keep it for readability
-	// because SingleInstanceInClusterQueue and FlavorIndependent will be false if AdmissionCheckValidationRules is off
-	singleInstanceInClusterQueue, flavorIndependent := false, false
+	newAC := AdmissionCheck{
+		Active:     apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
+		Controller: ac.Spec.ControllerName,
+	}
 	if features.Enabled(features.AdmissionCheckValidationRules) {
-		singleInstanceInClusterQueue = apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue)
-		flavorIndependent = apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck)
+		newAC.SingleInstanceInClusterQueue = apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue)
+		newAC.FlavorIndependent = apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck)
+	} else if ac.Spec.ControllerName == kueue.MultiKueueControllerName {
+		newAC.SingleInstanceInClusterQueue = true
+		newAC.FlavorIndependent = true
 	}
-	c.admissionChecks[ac.Name] = AdmissionCheck{
-		Active:                       apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
-		Controller:                   ac.Spec.ControllerName,
-		SingleInstanceInClusterQueue: singleInstanceInClusterQueue,
-		FlavorIndependent:            flavorIndependent,
-	}
+	c.admissionChecks[ac.Name] = newAC
 
 	return c.updateClusterQueues()
 }
