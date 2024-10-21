@@ -80,7 +80,7 @@ type IntegrationCallbacks struct {
 	CanSupportIntegration func(opts ...Option) (bool, error)
 	// The job's MultiKueue adapter (optional)
 	MultiKueueAdapter MultiKueueAdapter
-	// The list of integration that need to be enabled along with the current one.
+	// The list of integrations that needs to be enabled along with the current one.
 	DependencyList []string
 }
 
