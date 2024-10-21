@@ -115,6 +115,8 @@ Example: `kueue.x-k8s.io/prebuilt -workload-name: "my-prebuild-workload-name"`
 Used on: Kueue-managed Jobs.
 
 The label key of the job holds the name of the pre-built workload to be used.
+The intended use of prebuilt workload is to create the Job once the workload 
+is created. In other scenarios the behavior is undefined.
 
 
 ### kueue.x-k8s.io/priority-class
