@@ -680,7 +680,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			acValidationRulesEnabled: true,
 		},
 		{
-			name:     "Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller - MultiKueue AdmissionCheckValidationRules enabled",
+			name:     "Active clusterQueue with an MultiKueue AC strategy updated with duplicate single instance AC Controller	",
 			cq:       cqWithACStrategy,
 			cqStatus: active,
 			admissionChecks: map[string]AdmissionCheck{
@@ -857,8 +857,6 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.acValidationRulesEnabled {
 				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, true)
-			} else {
-				features.SetFeatureGateDuringTest(t, features.AdmissionCheckValidationRules, false)
 			}
 			cache := New(utiltesting.NewFakeClient())
 			cq, err := cache.newClusterQueue(tc.cq)

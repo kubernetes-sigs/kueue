@@ -77,12 +77,11 @@ type clusterQueue struct {
 	inactiveAdmissionChecks                         []string
 	multipleSingleInstanceControllersChecks         map[string][]string // key = controllerName
 	flavorIndependentAdmissionCheckAppliedPerFlavor []string
-	// TBD: Are we interested in knowing those AC names?
-	multipleMultiKueueAdmissionChecks  []string
-	perFlavorMultiKueueAdmissionChecks []string
-	admittedWorkloadsCount             int
-	isStopped                          bool
-	workloadInfoOptions                []workload.InfoOption
+	multipleMultiKueueAdmissionChecks               []string
+	perFlavorMultiKueueAdmissionChecks              []string
+	admittedWorkloadsCount                          int
+	isStopped                                       bool
+	workloadInfoOptions                             []workload.InfoOption
 
 	resourceNode ResourceNode
 	hierarchy.ClusterQueue[*cohort]
@@ -271,14 +270,14 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 			messages = append(messages, fmt.Sprintf("references inactive AdmissionCheck(s): %v", c.inactiveAdmissionChecks))
 		}
 
-		// TBD: This shouldn't be feature gated, as the messages and reasons are valid
+		// This doesn't need to be gated behind, because it is empty when the gate is disabled
 		if len(c.multipleSingleInstanceControllersChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
 			for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
 				messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
 			}
 		}
-		// TBD: This shouldn't be feature gated, as the messages and reasons are valid
+		// This doesn't need to be gated behind, because it is empty when the gate is disabled
 		if len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor)
 			messages = append(messages, fmt.Sprintf("AdmissionCheck(s): %v cannot be set at flavor level", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
@@ -352,7 +351,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 				inactive = append(inactive, acName)
 			}
 			checksPerController[ac.Controller] = append(checksPerController[ac.Controller], acName)
-
 			if ac.SingleInstanceInClusterQueue {
 				singleInstanceControllers.Insert(ac.Controller)
 			}
@@ -377,8 +375,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	slices.Sort(inactive)
 	slices.Sort(flavorIndependentCheckOnFlavors)
 	slices.Sort(perFlavorMultiKueueChecks)
-	multipleMultiKueueControllersList := multipleMultiKueueControllers.UnsortedList()
-	slices.Sort(multipleMultiKueueControllersList)
+	multipleMultiKueueControllersList := sets.List(multipleMultiKueueControllers)
 
 	update := false
 	if !slices.Equal(c.missingAdmissionChecks, missing) {
