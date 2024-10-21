@@ -192,24 +192,29 @@ type AdmissionCheckParametersReference struct {
 // Configuration is the Schema for the kueueconfigurations API
 type Configuration struct {
 	...
-	// admissionCheckRetryStrategy defines strategy for retrying AdmissionChecks
-	// +optional
-	AdmissionCheckRetryStrategy *AdmissionCheckRetryStrategy `json:admissionCheckRetryStrategy, omitempty`
+	// provisioningRequestRetryStrategy defines strategy for retrying ProvisioningRequest
+	ProvisioningRequestRetryStrategy *AdmissionCheckRetryStrategy `json:admissionCheckRetryStrategy, omitempty`
 }
 
-type AdmissionCheckRetryStrategy struct {
-	// defaultRequeuingStrategy defines default requeueing strategy for AdmissionChecks
+type ProvisioningRequestRetryStrategy struct {
+	// defaultRequeuingStrategy defines default requeueing strategy for ProvisioningRequests.
+	// The strategy is applied to all classes of ProvisioningRequest.
 	//
 	// Default values are:
 	//
 	// defaultRequeuingStrategyAC:
 	//	timestamp: Eviction
-	//	backoffLimitCount: 5
+	//	backoffLimitCount: 3
 	//	backoffBaseSeconds: 60
-	//	backoffMaxSeconds: 600
-	//
-	// +listType=map
+	//	backoffMaxSeconds: 1800
 	DefaultRequeuingStrategy *RequeuingStrategy `json:defaultRequeuingStrategy`
+
+	// releaseQuota defines whether the reserved quota should be released during retry.
+	// If the releaseQuota is set not false, controller will delete old ProvisioningRequest
+	// and create a new one without releasing quota.
+	//
+	// Defaults to true.
+	ReleaseQuota bool `json:releaseQuota`
 }
 ```
 
@@ -256,9 +261,14 @@ are still valid (check quota/preemptions/reclamation) and admit the workload (do
 newly identified preemptions, if needed), setting the `Admitted`
 condition to True.
 
-If any check is switched to `Retry` state, the Workload will be requeued or deactivated, with respect to the `AdmissionCheckRetryStrategy.defaultRequeuingStrategy` defined in Kueue's global Configuration. If the Workload is requeued, controller should update Workload's
-`.status.requeueState` accordingly. If the limit of number of retries has been surpassed, the controller will mark the check as `Rejected`,
+If a ProvisioningRequest check is switched to `Retry` state, the Workload will be requeued
+or deactivated, with respect to the `ProvisioningRequestRetryStrategy.defaultRequeuingStrategy` defined in
+Kueue's global Configuration. If the Workload is requeued, controller should update Workload's `.status.requeueState`
+accordingly. If the limit of number of retries has been surpassed, the controller will mark the check as `Rejected`,
 which will result with eviction and deactivation of the Workload.
+
+This mechanism will be surfaced with featureGate `ProvReqRetryConfig` which will be switched on by default,
+and serve as a backup mechanism, if any of the current users relied on re-creating ProvisioningRequests without releasing quota.
 
 Setting reason to BookQuotaRequired (while keeping condition as "Unknown")
 means that some other, external quota is reached
