@@ -3,7 +3,7 @@ kind: Service
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-visibility-server'
+  name: '{{ printf "%s-visibility-server" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
   namespace: '{{ .Release.Namespace }}'
 spec:
   ports:
