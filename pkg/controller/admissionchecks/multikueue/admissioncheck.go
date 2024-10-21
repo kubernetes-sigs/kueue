@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
@@ -126,28 +127,30 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
 		needsUpdate = true
 	}
-	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue) {
-		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
-			Type:               kueue.AdmissionChecksSingleInstanceInClusterQueue,
-			Status:             metav1.ConditionTrue,
-			Reason:             SingleInstanceReason,
-			Message:            SingleInstanceMessage,
-			ObservedGeneration: ac.Generation,
-		})
-		needsUpdate = true
-	}
 
-	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck) {
-		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
-			Type:               kueue.FlavorIndependentAdmissionCheck,
-			Status:             metav1.ConditionTrue,
-			Reason:             FlavorIndependentCheckReason,
-			Message:            FlavorIndependentCheckMessage,
-			ObservedGeneration: ac.Generation,
-		})
-		needsUpdate = true
-	}
+	if features.Enabled(features.AdmissionCheckValidationRules) {
+		if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue) {
+			apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+				Type:               kueue.AdmissionChecksSingleInstanceInClusterQueue,
+				Status:             metav1.ConditionTrue,
+				Reason:             SingleInstanceReason,
+				Message:            SingleInstanceMessage,
+				ObservedGeneration: ac.Generation,
+			})
+			needsUpdate = true
+		}
 
+		if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck) {
+			apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+				Type:               kueue.FlavorIndependentAdmissionCheck,
+				Status:             metav1.ConditionTrue,
+				Reason:             FlavorIndependentCheckReason,
+				Message:            FlavorIndependentCheckMessage,
+				ObservedGeneration: ac.Generation,
+			})
+			needsUpdate = true
+		}
+	}
 	if needsUpdate {
 		err := a.client.Status().Update(ctx, ac)
 		if err != nil {

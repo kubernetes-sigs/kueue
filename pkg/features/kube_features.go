@@ -132,6 +132,13 @@ const (
 	// Enable the Flavors status field in the LocalQueue, allowing users to view
 	// all currently available ResourceFlavors for the LocalQueue.
 	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
+
+	// owner: @mszadkow
+	// alpha: v0.9
+	// Deprecated: v0.9
+	//
+	// Enable additional AdmissionCheck validation rules that will appear in status conditions.
+	AdmissionCheckValidationRules featuregate.Feature = "AdmissionCheckValidationRules"
 )
 
 func init() {
@@ -159,6 +166,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	ConfigurableResourceTransformations: {Default: false, PreRelease: featuregate.Alpha},
 	WorkloadResourceRequestsSummary:     {Default: false, PreRelease: featuregate.Alpha},
 	ExposeFlavorsInLocalQueue:           {Default: true, PreRelease: featuregate.Beta},
+	AdmissionCheckValidationRules:       {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
