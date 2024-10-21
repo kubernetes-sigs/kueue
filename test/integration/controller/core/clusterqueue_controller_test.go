@@ -787,8 +787,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				{
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
-					Reason:  "MultipleSingleInstanceControllerAdmissionChecks",
-					Message: `Can't admit new workloads: only one AdmissionCheck of [check1 check2] can be referenced for controller "kueue.x-k8s.io/multikueue", Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue.`,
+					Reason:  "MultipleMultiKueueAdmissionChecks",
+					Message: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue.`,
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 
@@ -816,8 +816,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				{
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
-					Reason:  "FlavorIndependentAdmissionCheckAppliedPerFlavor",
-					Message: `Can't admit new workloads: AdmissionCheck(s): [check1] cannot be set at flavor level, MultiKueue AdmissionCheck cannot be specified per flavor.`,
+					Reason:  "MutliKueueAdmissionCheckAppliedPerFlavor",
+					Message: `Can't admit new workloads: MultiKueue AdmissionCheck cannot be specified per flavor.`,
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 

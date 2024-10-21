@@ -34,6 +34,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -77,12 +78,11 @@ type clusterQueue struct {
 	inactiveAdmissionChecks                         []string
 	multipleSingleInstanceControllersChecks         map[string][]string // key = controllerName
 	flavorIndependentAdmissionCheckAppliedPerFlavor []string
-	// TBD: Are we interested in knowing those AC names?
-	multipleMultiKueueAdmissionChecks  []string
-	perFlavorMultiKueueAdmissionChecks []string
-	admittedWorkloadsCount             int
-	isStopped                          bool
-	workloadInfoOptions                []workload.InfoOption
+	multipleMultiKueueAdmissionChecks               []string
+	perFlavorMultiKueueAdmissionChecks              []string
+	admittedWorkloadsCount                          int
+	isStopped                                       bool
+	workloadInfoOptions                             []workload.InfoOption
 
 	resourceNode ResourceNode
 	hierarchy.ClusterQueue[*cohort]
@@ -234,6 +234,7 @@ func (c *clusterQueue) updateQueueStatus() {
 		len(c.inactiveAdmissionChecks) > 0 ||
 		len(c.multipleSingleInstanceControllersChecks) > 0 ||
 		len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 ||
+		// one multikueue admission check is allowed
 		len(c.multipleMultiKueueAdmissionChecks) > 1 ||
 		len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
 		status = pending
@@ -271,19 +272,6 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 			messages = append(messages, fmt.Sprintf("references inactive AdmissionCheck(s): %v", c.inactiveAdmissionChecks))
 		}
 
-		// TBD: This shouldn't be feature gated, as the messages and reasons are valid
-		if len(c.multipleSingleInstanceControllersChecks) > 0 {
-			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
-			for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
-				messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
-			}
-		}
-		// TBD: This shouldn't be feature gated, as the messages and reasons are valid
-		if len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
-			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor)
-			messages = append(messages, fmt.Sprintf("AdmissionCheck(s): %v cannot be set at flavor level", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
-		}
-
 		if len(c.multipleMultiKueueAdmissionChecks) > 1 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks)
 			messages = append(messages, "Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue")
@@ -292,6 +280,19 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		if len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMutliKueueAdmissionCheckAppliedPerFlavor)
 			messages = append(messages, "MultiKueue AdmissionCheck cannot be specified per flavor")
+		}
+
+		// This doesn't need to be gated behind, because it is empty when the gate is disabled
+		if len(c.multipleSingleInstanceControllersChecks) > 0 {
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
+			for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
+				messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
+			}
+		}
+		// This doesn't need to be gated behind, because it is empty when the gate is disabled
+		if len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor)
+			messages = append(messages, fmt.Sprintf("AdmissionCheck(s): %v cannot be set at flavor level", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
 		}
 
 		if len(reasons) == 0 {
@@ -352,7 +353,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 				inactive = append(inactive, acName)
 			}
 			checksPerController[ac.Controller] = append(checksPerController[ac.Controller], acName)
-
 			if ac.SingleInstanceInClusterQueue {
 				singleInstanceControllers.Insert(ac.Controller)
 			}
@@ -377,8 +377,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	slices.Sort(inactive)
 	slices.Sort(flavorIndependentCheckOnFlavors)
 	slices.Sort(perFlavorMultiKueueChecks)
-	multipleMultiKueueControllersList := multipleMultiKueueControllers.UnsortedList()
-	slices.Sort(multipleMultiKueueControllersList)
+	multipleMultiKueueControllersList := sets.List(multipleMultiKueueControllers)
 
 	update := false
 	if !slices.Equal(c.missingAdmissionChecks, missing) {
@@ -401,14 +400,16 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 		slices.Sort(checksPerController[c])
 	}
 
-	if !maps.EqualFunc(checksPerController, c.multipleSingleInstanceControllersChecks, slices.Equal) {
-		c.multipleSingleInstanceControllersChecks = checksPerController
-		update = true
-	}
-
-	if !slices.Equal(c.flavorIndependentAdmissionCheckAppliedPerFlavor, flavorIndependentCheckOnFlavors) {
-		c.flavorIndependentAdmissionCheckAppliedPerFlavor = flavorIndependentCheckOnFlavors
-		update = true
+	// Behind the gate due to being triggered when AC is MultiKueue
+	if features.Enabled(features.AdmissionCheckValidationRules) {
+		if !maps.EqualFunc(checksPerController, c.multipleSingleInstanceControllersChecks, slices.Equal) {
+			c.multipleSingleInstanceControllersChecks = checksPerController
+			update = true
+		}
+		if !slices.Equal(c.flavorIndependentAdmissionCheckAppliedPerFlavor, flavorIndependentCheckOnFlavors) {
+			c.flavorIndependentAdmissionCheckAppliedPerFlavor = flavorIndependentCheckOnFlavors
+			update = true
+		}
 	}
 
 	if !slices.Equal(c.multipleMultiKueueAdmissionChecks, multipleMultiKueueControllersList) {
