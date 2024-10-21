@@ -24,12 +24,10 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
@@ -125,17 +123,11 @@ very-long-local-queue-name   cq1                            0                   
 		ginkgo.JustBeforeEach(func() {
 			cq1 = testing.MakeClusterQueue("cq1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq1)).To(gomega.Succeed())
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).Should(gomega.Succeed())
-				g.Expect(apimeta.IsStatusConditionTrue(cq1.Status.Conditions, v1beta1.ClusterQueueActive)).Should(gomega.BeTrue())
-			}).Should(gomega.Succeed())
 
 			cq2 = testing.MakeClusterQueue("very-long-cluster-queue-name").Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq2)).To(gomega.Succeed())
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq2), cq2)).Should(gomega.Succeed())
-				g.Expect(apimeta.IsStatusConditionTrue(cq2.Status.Conditions, v1beta1.ClusterQueueActive)).Should(gomega.BeTrue())
-			}).Should(gomega.Succeed())
+
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq1, cq2)
 		})
 
 		ginkgo.JustAfterEach(func() {
