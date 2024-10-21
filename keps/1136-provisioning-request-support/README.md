@@ -174,9 +174,7 @@ type ProvisioningRequestConfigSpec struct {
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
 
 	// retryStrategy defines strategy for retrying ProvisioningRequest
-	//
-	// +optional
-	RetryStrategy *ProvisioningRequestRetryStrategy `json:retryStrategy, omitempty`
+	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy, omitempty"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
@@ -186,7 +184,6 @@ type ProvisioningRequestRetryStrategy struct {
 	// - `Eviction` (default) indicates from Workload `Evicted` condition with `PodsReadyTimeout` reason.
 	// - `Creation` indicates from Workload .metadata.creationTimestamp.
 	//
-	// +optional
 	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
 
 	// BackoffLimitCount defines the maximum number of re-queuing retries.
