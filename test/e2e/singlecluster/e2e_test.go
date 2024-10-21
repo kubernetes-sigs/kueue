@@ -196,6 +196,14 @@ var _ = ginkgo.Describe("Kueue", func() {
 				})
 			})
 
+			ginkgo.By("Await for pods to be running", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var job batchv1.Job
+					g.Expect(k8sClient.Get(ctx, jobKey, &job)).To(gomega.Succeed())
+					g.Expect(job.Status.Active).To(gomega.BeEquivalentTo(1))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("Delete all pods", func() {
 				gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			})
