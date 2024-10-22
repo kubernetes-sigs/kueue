@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"testing"
 	"time"
@@ -43,99 +42,6 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
-
-func TestUnmaskFilenameFunction(t *testing.T) {
-	testCases := map[string]struct {
-		input              string
-		slurmArrayJobID    int32
-		slurmJobID         int32
-		hostname           string
-		jobCompletionIndex int32
-		slurmArrayTaskID   int32
-		userID             string
-		sbatchJobName      string
-		wantOut            string
-	}{
-		"should not replace": {
-			input:   "filename.txt",
-			wantOut: "filename.txt\n",
-		},
-		"should not process any of the replacement symbols": {
-			input:   "\\filename-%u.txt",
-			userID:  "test",
-			wantOut: "filename-%u.txt\n",
-		},
-		"should replace": {
-			input:              "filename-%%-%A-%a-%j-%N-%n-%t-%u-%x.txt",
-			slurmArrayJobID:    1,
-			slurmJobID:         2,
-			hostname:           "host",
-			slurmArrayTaskID:   4,
-			jobCompletionIndex: 3,
-			userID:             "test",
-			sbatchJobName:      "name",
-			wantOut:            "filename-%-1-4-2-host-3-4-test-name.txt\n",
-		},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			file, err := os.CreateTemp("", "slurm-*.sh")
-			if err != nil {
-				t.Error(err)
-				return
-			}
-
-			script := fmt.Sprintf(`#!/usr/bin/bash
-
-set -o errexit
-set -o nounset
-set -o pipefail
-
-%s
-
-unmask_filename "%s"
-
-`, unmaskFilenameFunction, tc.input)
-
-			if _, err := file.WriteString(script); err != nil {
-				t.Error(err)
-				return
-			}
-
-			if err := file.Close(); err != nil {
-				t.Error(err)
-				return
-			}
-
-			defer os.Remove(file.Name())
-
-			envs := []string{
-				fmt.Sprintf("SLURM_ARRAY_JOB_ID=%d", tc.slurmArrayJobID),
-				fmt.Sprintf("SLURM_ARRAY_TASK_ID=%d", tc.slurmArrayTaskID),
-				fmt.Sprintf("SLURM_JOB_ID=%d", tc.slurmJobID),
-				fmt.Sprintf("HOSTNAME=%s", tc.hostname),
-				fmt.Sprintf("JOB_COMPLETION_INDEX=%d", tc.jobCompletionIndex),
-				fmt.Sprintf("SLURM_ARRAY_TASK_ID=%d", tc.slurmArrayTaskID),
-				fmt.Sprintf("USER_ID=%s", tc.userID),
-				fmt.Sprintf("SBATCH_JOB_NAME=%s", tc.sbatchJobName),
-			}
-
-			cmd := exec.Command("bash", file.Name())
-			cmd.Env = os.Environ()
-			cmd.Env = append(cmd.Env, envs...)
-
-			gotOut, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Error(err)
-				return
-			}
-
-			if diff := cmp.Diff(tc.wantOut, string(gotOut)); diff != "" {
-				t.Errorf("String (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
 
 type slurmBuilderTestCase struct {
 	beforeTest       func(tc *slurmBuilderTestCase) error
@@ -369,33 +275,6 @@ source /slurm/env/$JOB_CONTAINER_INDEX/sbatch.env
 
 export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 
-unmask_filename () {
-  replaced="$1"
-
-  if [[ "$replaced" == "\\"* ]]; then
-      replaced="${replaced//\\/}"
-      echo "${replaced}"
-      return 0
-  fi
-
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%A)/\1\n\2/g;:a s/(^|[^\n])%A/\1$SLURM_ARRAY_JOB_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%a)/\1\n\2/g;:a s/(^|[^\n])%a/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%j)/\1\n\2/g;:a s/(^|[^\n])%j/\1$SLURM_JOB_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%N)/\1\n\2/g;:a s/(^|[^\n])%N/\1$HOSTNAME/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%n)/\1\n\2/g;:a s/(^|[^\n])%n/\1$JOB_COMPLETION_INDEX/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%t)/\1\n\2/g;:a s/(^|[^\n])%t/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%u)/\1\n\2/g;:a s/(^|[^\n])%u/\1$USER_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%x)/\1\n\2/g;:a s/(^|[^\n])%x/\1$SBATCH_JOB_NAME/;ta;s/\n//g")
-
-  replaced="${replaced//%%/%}"
-
-  echo "$replaced"
-}
-
-input_file=$(unmask_filename "$SBATCH_INPUT")
-output_file=$(unmask_filename "$SBATCH_OUTPUT")
-error_path=$(unmask_filename "$SBATCH_ERROR")
-
 /slurm/scripts/script
 `,
 					}).
@@ -503,36 +382,36 @@ func TestSlurmBuilderBuildEntrypointCommand(t *testing.T) {
 		},
 		"should build entrypoint command with output": {
 			output:                "/home/test/stdout.out",
-			wantEntrypointCommand: "/slurm/scripts/script 1>$output_file",
+			wantEntrypointCommand: "/slurm/scripts/script 1>/home/test/stdout.out",
 		},
 		"should build entrypoint command with error": {
 			error:                 "/home/test/stderr.out",
-			wantEntrypointCommand: "/slurm/scripts/script 2>$error_file",
+			wantEntrypointCommand: "/slurm/scripts/script 2>/home/test/stderr.out",
 		},
 		"should build entrypoint command with output and error": {
 			output:                "/home/test/stdout.out",
 			error:                 "/home/test/stderr.out",
-			wantEntrypointCommand: "/slurm/scripts/script 1>$output_file 2>$error_file",
+			wantEntrypointCommand: "/slurm/scripts/script 1>/home/test/stdout.out 2>/home/test/stderr.out",
 		},
 		"should build entrypoint command with input": {
 			input:                 "/home/test/script.sh",
-			wantEntrypointCommand: "/slurm/scripts/script <$input_file",
+			wantEntrypointCommand: "/slurm/scripts/script </home/test/script.sh",
 		},
 		"should build entrypoint command with input and output": {
 			input:                 "/home/test/script.sh",
 			output:                "/home/test/stdout.out",
-			wantEntrypointCommand: "/slurm/scripts/script <$input_file 1>$output_file",
+			wantEntrypointCommand: "/slurm/scripts/script </home/test/script.sh 1>/home/test/stdout.out",
 		},
 		"should build entrypoint command with input and error": {
 			input:                 "/home/test/script.sh",
 			error:                 "/home/test/stderr.out",
-			wantEntrypointCommand: "/slurm/scripts/script <$input_file 2>$error_file",
+			wantEntrypointCommand: "/slurm/scripts/script </home/test/script.sh 2>/home/test/stderr.out",
 		},
 		"should build entrypoint command with input, output and error": {
 			input:                 "/home/test/script.sh",
 			output:                "/home/test/stdout.out",
 			error:                 "/home/test/stderr.out",
-			wantEntrypointCommand: "/slurm/scripts/script <$input_file 1>$output_file 2>$error_file",
+			wantEntrypointCommand: "/slurm/scripts/script </home/test/script.sh 1>/home/test/stdout.out 2>/home/test/stderr.out",
 		},
 	}
 	for name, tc := range testCases {

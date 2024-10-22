@@ -15,12 +15,6 @@ source {{.EnvsPath}}/$JOB_CONTAINER_INDEX/{{.SbatchEnvFilename}}
 
 export $(cat {{.EnvsPath}}/$JOB_CONTAINER_INDEX/{{.SlurmEnvFilename}} | xargs)
 
-{{.UnmaskFilenameFunction}}
+{{- if .ChangeDir }}cd {{.ChangeDir}}{{end}}
 
-input_file=$(unmask_filename "$SBATCH_INPUT")
-output_file=$(unmask_filename "$SBATCH_OUTPUT")
-error_path=$(unmask_filename "$SBATCH_ERROR")
-{{if .ChangeDir }}
-cd {{.ChangeDir}}
-{{end}}
 {{.BuildEntrypointCommand}}

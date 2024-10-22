@@ -55,39 +55,6 @@ const (
 	slurmEnvsPath          = "/slurm/env"
 	slurmSbatchEnvFilename = "sbatch.env"
 	slurmSlurmEnvFilename  = "slurm.env"
-
-	//# \\ - Do not process any of the replacement symbols.
-	//# %% - The character "%".
-	//# %A - Job array's master job allocation number (for now it is equivalent to SLURM_JOB_ID).
-	//# %a - Job array ID (index) number (SLURM_ARRAY_TASK_ID).
-	//# %j - job id of the running job (SLURM_JOB_ID).
-	//# %N - short hostname (pod name).
-	//# %n - node(pod) identifier relative to current job - index from K8S index job.
-	//# %t - task identifier (rank) relative to current job - It is array id position.
-	//# %u - username (from the client machine).
-	//# %x - job name.
-	unmaskFilenameFunction = `unmask_filename () {
-  replaced="$1"
-
-  if [[ "$replaced" == "\\"* ]]; then
-      replaced="${replaced//\\/}"
-      echo "${replaced}"
-      return 0
-  fi
-
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%A)/\1\n\2/g;:a s/(^|[^\n])%A/\1$SLURM_ARRAY_JOB_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%a)/\1\n\2/g;:a s/(^|[^\n])%a/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%j)/\1\n\2/g;:a s/(^|[^\n])%j/\1$SLURM_JOB_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%N)/\1\n\2/g;:a s/(^|[^\n])%N/\1$HOSTNAME/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%n)/\1\n\2/g;:a s/(^|[^\n])%n/\1$JOB_COMPLETION_INDEX/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%t)/\1\n\2/g;:a s/(^|[^\n])%t/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%u)/\1\n\2/g;:a s/(^|[^\n])%u/\1$USER_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%x)/\1\n\2/g;:a s/(^|[^\n])%x/\1$SBATCH_JOB_NAME/;ta;s/\n//g")
-
-  replaced="${replaced//%%/%}"
-
-  echo "$replaced"
-}`
 )
 
 var (
@@ -98,6 +65,18 @@ var (
 	slurmInitEntrypointFilenamePath = fmt.Sprintf("%s/%s", slurmScriptsPath, slurmInitEntrypointFilename)
 	slurmEntrypointFilenamePath     = fmt.Sprintf("%s/%s", slurmScriptsPath, slurmEntrypointFilename)
 	slurmScriptFilenamePath         = fmt.Sprintf("%s/%s", slurmScriptsPath, slurmScriptFilename)
+
+	unmaskReplacer = strings.NewReplacer(
+		"%%", "%",
+		"%A", "${SLURM_ARRAY_JOB_ID}",
+		"%a", "${SLURM_ARRAY_TASK_ID}",
+		"%j", "${SLURM_JOB_ID}",
+		"%N", "${HOSTNAME}",
+		"%n", "${JOB_COMPLETION_INDEX}",
+		"%t", "${SLURM_ARRAY_TASK_ID}",
+		"%u", "${USER_ID}",
+		"%x", "${SBATCH_JOB_NAME}",
+	)
 )
 
 type slurmBuilder struct {
@@ -620,7 +599,6 @@ type slurmEntrypointScript struct {
 	EnvsPath               string
 	SbatchEnvFilename      string
 	SlurmEnvFilename       string
-	UnmaskFilenameFunction string
 	ChangeDir              string
 	BuildEntrypointCommand string
 }
@@ -630,7 +608,6 @@ func (b *slurmBuilder) buildEntrypointScript() (string, error) {
 		EnvsPath:               slurmEnvsPath,
 		SbatchEnvFilename:      slurmSbatchEnvFilename,
 		SlurmEnvFilename:       slurmSlurmEnvFilename,
-		UnmaskFilenameFunction: unmaskFilenameFunction,
 		ChangeDir:              b.changeDir,
 		BuildEntrypointCommand: b.buildEntrypointCommand(),
 	}
@@ -652,21 +629,33 @@ func getValueOrEmpty(ptr *resource.Quantity) string {
 	return ""
 }
 
+// unmaskFilename unmasks a filename based on the filename pattern.
+// For more details, see https://slurm.schedmd.com/sbatch.html#SECTION_FILENAME-PATTERN.
+func unmaskFilename(filename string) string {
+	if strings.Contains(filename, "\\\\") {
+		return strings.ReplaceAll(filename, "\\\\", "")
+	}
+	return unmaskReplacer.Replace(filename)
+}
+
 func (b *slurmBuilder) buildEntrypointCommand() string {
 	strBuilder := strings.Builder{}
 
 	strBuilder.WriteString(slurmScriptFilenamePath)
 
 	if b.input != "" {
-		strBuilder.WriteString(" <$input_file")
+		strBuilder.WriteString(" <")
+		strBuilder.WriteString(unmaskFilename(b.input))
 	}
 
 	if b.output != "" {
-		strBuilder.WriteString(" 1>$output_file")
+		strBuilder.WriteString(" 1>")
+		strBuilder.WriteString(unmaskFilename(b.output))
 	}
 
 	if b.error != "" {
-		strBuilder.WriteString(" 2>$error_file")
+		strBuilder.WriteString(" 2>")
+		strBuilder.WriteString(unmaskFilename(b.error))
 	}
 
 	return strBuilder.String()
