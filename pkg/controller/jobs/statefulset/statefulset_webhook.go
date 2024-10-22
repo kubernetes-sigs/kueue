@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -60,7 +59,7 @@ var _ webhook.CustomDefaulter = &Webhook{}
 
 func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	ss := fromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook").WithValues("statefulset", klog.KObj(ss))
+	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 	log.V(5).Info("Applying defaults")
 
 	cqLabel, ok := ss.Labels[constants.QueueLabel]
@@ -100,16 +99,18 @@ func (wh *Webhook) ValidateCreate(context.Context, runtime.Object) (warnings adm
 var (
 	statefulsetLabelsPath         = field.NewPath("metadata", "labels")
 	statefulsetQueueNameLabelPath = statefulsetLabelsPath.Key(constants.QueueLabel)
+	statefulsetReplicasPath       = field.NewPath("spec", "replicas")
+	statefulsetGroupNameLabelPath = statefulsetLabelsPath.Key(pod.GroupNameLabel)
 
-	podSpecLabelsPath         = field.NewPath("spec", "template", "metadata", "labels")
-	podSpecQueueNameLabelPath = podSpecLabelsPath.Key(constants.QueueLabel)
+	podSpecQueueNameLabelPath = field.NewPath("spec", "template", "metadata", "labels").
+					Key(constants.QueueLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
 	oldStatefulSet := fromObject(oldObj)
 	newStatefulSet := fromObject(newObj)
 
-	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook").WithValues("statefulset", klog.KObj(newStatefulSet))
+	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
 	log.V(5).Info("Validating update")
 	allErrs := apivalidation.ValidateImmutableField(
 		newStatefulSet.GetLabels()[constants.QueueLabel],
@@ -124,14 +125,14 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Ob
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 		newStatefulSet.GetLabels()[pod.GroupNameLabel],
 		oldStatefulSet.GetLabels()[pod.GroupNameLabel],
-		statefulsetLabelsPath.Key(pod.GroupNameLabel),
+		statefulsetGroupNameLabelPath,
 	)...)
 
-	// Temporarily restrict to update replicas
+	// TODO(#3279): support resizes later
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 		newStatefulSet.Spec.Replicas,
 		oldStatefulSet.Spec.Replicas,
-		field.NewPath("spec", "replicas"),
+		statefulsetReplicasPath,
 	)...)
 
 	return warnings, allErrs.ToAggregate()

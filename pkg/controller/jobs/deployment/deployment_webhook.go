@@ -84,8 +84,8 @@ var (
 	deploymentLabelsPath         = field.NewPath("metadata", "labels")
 	deploymentQueueNameLabelPath = deploymentLabelsPath.Key(constants.QueueLabel)
 
-	podSpecLabelsPath         = field.NewPath("spec", "template", "metadata", "labels")
-	podSpecQueueNameLabelPath = podSpecLabelsPath.Key(constants.QueueLabel)
+	podSpecQueueNameLabelPath = field.NewPath("spec", "template", "metadata", "labels").
+					Key(constants.QueueLabel)
 )
 
 func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {

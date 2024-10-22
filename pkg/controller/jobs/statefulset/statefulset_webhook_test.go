@@ -17,12 +17,20 @@ limitations under the License.
 package statefulset
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
@@ -34,7 +42,7 @@ func TestDefault(t *testing.T) {
 		enableIntegrations         []string
 		want                       *appsv1.StatefulSet
 	}{
-		"pod with queue": {
+		"statefulset with queue": {
 			enableIntegrations: []string{"pod"},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").
 				Replicas(10).
@@ -82,6 +90,159 @@ func TestDefault(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, tc.statefulset); len(diff) != 0 {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateUpdate(t *testing.T) {
+	testCases := map[string]struct {
+		oldObj  *appsv1.StatefulSet
+		newObj  *appsv1.StatefulSet
+		wantErr error
+	}{
+		"no changes": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+						pod.GroupNameLabel:   "group1",
+					},
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.QueueLabel: "queue1",
+							},
+						},
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+						pod.GroupNameLabel:   "group1",
+					},
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.QueueLabel: "queue1",
+							},
+						},
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		"change in queue label": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.QueueLabel: "queue2",
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: statefulsetQueueNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change in pod template queue label": {
+			oldObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.QueueLabel: "queue1",
+							},
+						},
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.QueueLabel: "queue2",
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: podSpecQueueNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change in group name label": {
+			oldObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						pod.GroupNameLabel: "group1",
+					},
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						pod.GroupNameLabel: "group2",
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: statefulsetGroupNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change in replicas": {
+			oldObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(4)),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: statefulsetReplicasPath.String(),
+				},
+			}.ToAggregate(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+
+			wh := &Webhook{}
+
+			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}
