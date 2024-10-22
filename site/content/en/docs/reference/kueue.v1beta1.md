@@ -1,44 +1,36 @@
----
-title: Kueue API
-content_type: tool-reference
-package: kueue.x-k8s.io/v1beta1
+--------------------------------------------------------------------------------
+
+title: Kueue API content_type: tool-reference package: kueue.x-k8s.io/v1beta1
 auto_generated: true
-description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
----
 
+## description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 
-## Resource Types 
+## Resource Types
 
+-   [AdmissionCheck](#kueue-x-k8s-io-v1beta1-AdmissionCheck)
+-   [ClusterQueue](#kueue-x-k8s-io-v1beta1-ClusterQueue)
+-   [LocalQueue](#kueue-x-k8s-io-v1beta1-LocalQueue)
+-   [MultiKueueCluster](#kueue-x-k8s-io-v1beta1-MultiKueueCluster)
+-   [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
+-   [ProvisioningRequestConfig](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig)
+-   [ResourceFlavor](#kueue-x-k8s-io-v1beta1-ResourceFlavor)
+-   [Workload](#kueue-x-k8s-io-v1beta1-Workload)
+-   [WorkloadPriorityClass](#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass)
 
-- [AdmissionCheck](#kueue-x-k8s-io-v1beta1-AdmissionCheck)
-- [ClusterQueue](#kueue-x-k8s-io-v1beta1-ClusterQueue)
-- [LocalQueue](#kueue-x-k8s-io-v1beta1-LocalQueue)
-- [MultiKueueCluster](#kueue-x-k8s-io-v1beta1-MultiKueueCluster)
-- [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
-- [ProvisioningRequestConfig](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig)
-- [ResourceFlavor](#kueue-x-k8s-io-v1beta1-ResourceFlavor)
-- [Workload](#kueue-x-k8s-io-v1beta1-Workload)
-- [WorkloadPriorityClass](#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass)
-  
-
-## `AdmissionCheck`     {#kueue-x-k8s-io-v1beta1-AdmissionCheck}
-    
+## `AdmissionCheck` {#kueue-x-k8s-io-v1beta1-AdmissionCheck}
 
 **Appears in:**
 
-
-
 <p>AdmissionCheck is the Schema for the admissionchecks API</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
+
 <tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
 <tr><td><code>kind</code><br/>string</td><td><code>AdmissionCheck</code></td></tr>
-    
-  
+
+
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckSpec"><code>AdmissionCheckSpec</code></a>
 </td>
@@ -54,24 +46,20 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tbody>
 </table>
 
-## `ClusterQueue`     {#kueue-x-k8s-io-v1beta1-ClusterQueue}
-    
+## `ClusterQueue` {#kueue-x-k8s-io-v1beta1-ClusterQueue}
 
 **Appears in:**
 
-
-
 <p>ClusterQueue is the Schema for the clusterQueue API.</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
+
 <tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
 <tr><td><code>kind</code><br/>string</td><td><code>ClusterQueue</code></td></tr>
-    
-  
+
+
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueueSpec"><code>ClusterQueueSpec</code></a>
 </td>
@@ -87,24 +75,20 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tbody>
 </table>
 
-## `LocalQueue`     {#kueue-x-k8s-io-v1beta1-LocalQueue}
-    
+## `LocalQueue` {#kueue-x-k8s-io-v1beta1-LocalQueue}
 
 **Appears in:**
 
-
-
 <p>LocalQueue is the Schema for the localQueues API</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
+
 <tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
 <tr><td><code>kind</code><br/>string</td><td><code>LocalQueue</code></td></tr>
-    
-  
+
+
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueSpec"><code>LocalQueueSpec</code></a>
 </td>
@@ -120,24 +104,20 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tbody>
 </table>
 
-## `MultiKueueCluster`     {#kueue-x-k8s-io-v1beta1-MultiKueueCluster}
-    
+## `MultiKueueCluster` {#kueue-x-k8s-io-v1beta1-MultiKueueCluster}
 
 **Appears in:**
 
-
-
 <p>MultiKueueCluster is the Schema for the multikueue API</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
+
 <tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
 <tr><td><code>kind</code><br/>string</td><td><code>MultiKueueCluster</code></td></tr>
-    
-  
+
+
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-MultiKueueClusterSpec"><code>MultiKueueClusterSpec</code></a>
 </td>
@@ -153,24 +133,20 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tbody>
 </table>
 
-## `MultiKueueConfig`     {#kueue-x-k8s-io-v1beta1-MultiKueueConfig}
-    
+## `MultiKueueConfig` {#kueue-x-k8s-io-v1beta1-MultiKueueConfig}
 
 **Appears in:**
 
-
-
 <p>MultiKueueConfig is the Schema for the multikueue API</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
+
 <tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
 <tr><td><code>kind</code><br/>string</td><td><code>MultiKueueConfig</code></td></tr>
-    
-  
+
+
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-MultiKueueConfigSpec"><code>MultiKueueConfigSpec</code></a>
 </td>
@@ -180,24 +156,20 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tbody>
 </table>
 
-## `ProvisioningRequestConfig`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig}
-    
+## `ProvisioningRequestConfig` {#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig}
 
 **Appears in:**
 
-
-
 <p>ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
+
 <tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
 <tr><td><code>kind</code><br/>string</td><td><code>ProvisioningRequestConfig</code></td></tr>
-    
-  
+
+
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec"><code>ProvisioningRequestConfigSpec</code></a>
 </td>
@@ -207,24 +179,20 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tbody>
 </table>
 
-## `ResourceFlavor`     {#kueue-x-k8s-io-v1beta1-ResourceFlavor}
-    
+## `ResourceFlavor` {#kueue-x-k8s-io-v1beta1-ResourceFlavor}
 
 **Appears in:**
 
-
-
 <p>ResourceFlavor is the Schema for the resourceflavors API.</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
+
 <tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
 <tr><td><code>kind</code><br/>string</td><td><code>ResourceFlavor</code></td></tr>
-    
-  
+
+
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec"><code>ResourceFlavorSpec</code></a>
 </td>
@@ -234,24 +202,20 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tbody>
 </table>
 
-## `Workload`     {#kueue-x-k8s-io-v1beta1-Workload}
-    
+## `Workload` {#kueue-x-k8s-io-v1beta1-Workload}
 
 **Appears in:**
 
-
-
 <p>Workload is the Schema for the workloads API</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
+
 <tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
 <tr><td><code>kind</code><br/>string</td><td><code>Workload</code></td></tr>
-    
-  
+
+
 <tr><td><code>spec</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-WorkloadSpec"><code>WorkloadSpec</code></a>
 </td>
@@ -267,24 +231,20 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tbody>
 </table>
 
-## `WorkloadPriorityClass`     {#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass}
-    
+## `WorkloadPriorityClass` {#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass}
 
 **Appears in:**
 
-
-
 <p>WorkloadPriorityClass is the Schema for the workloadPriorityClass API</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
+
 <tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
 <tr><td><code>kind</code><br/>string</td><td><code>WorkloadPriorityClass</code></td></tr>
-    
-  
+
+
 <tr><td><code>value</code> <B>[Required]</B><br/>
 <code>int32</code>
 </td>
@@ -305,20 +265,17 @@ when this workloadPriorityClass should be used.</p>
 </tbody>
 </table>
 
-## `Admission`     {#kueue-x-k8s-io-v1beta1-Admission}
-    
+## `Admission` {#kueue-x-k8s-io-v1beta1-Admission}
 
 **Appears in:**
 
-- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
-
-
+-   [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>clusterQueue</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueueReference"><code>ClusterQueueReference</code></a>
 </td>
@@ -336,20 +293,17 @@ when this workloadPriorityClass should be used.</p>
 </tbody>
 </table>
 
-## `AdmissionCheckParametersReference`     {#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference}
-    
+## `AdmissionCheckParametersReference` {#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference}
 
 **Appears in:**
 
-- [AdmissionCheckSpec](#kueue-x-k8s-io-v1beta1-AdmissionCheckSpec)
-
-
+-   [AdmissionCheckSpec](#kueue-x-k8s-io-v1beta1-AdmissionCheckSpec)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>apiGroup</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -374,22 +328,19 @@ when this workloadPriorityClass should be used.</p>
 </tbody>
 </table>
 
-## `AdmissionCheckSpec`     {#kueue-x-k8s-io-v1beta1-AdmissionCheckSpec}
-    
+## `AdmissionCheckSpec` {#kueue-x-k8s-io-v1beta1-AdmissionCheckSpec}
 
 **Appears in:**
 
-- [AdmissionCheck](#kueue-x-k8s-io-v1beta1-AdmissionCheck)
-
+-   [AdmissionCheck](#kueue-x-k8s-io-v1beta1-AdmissionCheck)
 
 <p>AdmissionCheckSpec defines the desired state of AdmissionCheck</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>controllerName</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -419,20 +370,17 @@ check.</p>
 </tbody>
 </table>
 
-## `AdmissionCheckState`     {#kueue-x-k8s-io-v1beta1-AdmissionCheckState}
-    
+## `AdmissionCheckState` {#kueue-x-k8s-io-v1beta1-AdmissionCheckState}
 
 **Appears in:**
 
-- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
-
-
+-   [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -472,22 +420,19 @@ This may be an empty string.</p>
 </tbody>
 </table>
 
-## `AdmissionCheckStatus`     {#kueue-x-k8s-io-v1beta1-AdmissionCheckStatus}
-    
+## `AdmissionCheckStatus` {#kueue-x-k8s-io-v1beta1-AdmissionCheckStatus}
 
 **Appears in:**
 
-- [AdmissionCheck](#kueue-x-k8s-io-v1beta1-AdmissionCheck)
-
+-   [AdmissionCheck](#kueue-x-k8s-io-v1beta1-AdmissionCheck)
 
 <p>AdmissionCheckStatus defines the observed state of AdmissionCheck</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>conditions</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
 </td>
@@ -499,22 +444,19 @@ current state.</p>
 </tbody>
 </table>
 
-## `AdmissionCheckStrategyRule`     {#kueue-x-k8s-io-v1beta1-AdmissionCheckStrategyRule}
-    
+## `AdmissionCheckStrategyRule` {#kueue-x-k8s-io-v1beta1-AdmissionCheckStrategyRule}
 
 **Appears in:**
 
-- [AdmissionChecksStrategy](#kueue-x-k8s-io-v1beta1-AdmissionChecksStrategy)
-
+-   [AdmissionChecksStrategy](#kueue-x-k8s-io-v1beta1-AdmissionChecksStrategy)
 
 <p>AdmissionCheckStrategyRule defines rules for a single AdmissionCheck</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -533,22 +475,19 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 </tbody>
 </table>
 
-## `AdmissionChecksStrategy`     {#kueue-x-k8s-io-v1beta1-AdmissionChecksStrategy}
-    
+## `AdmissionChecksStrategy` {#kueue-x-k8s-io-v1beta1-AdmissionChecksStrategy}
 
 **Appears in:**
 
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
-
+-   [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
 <p>AdmissionChecksStrategy defines a strategy for a AdmissionCheck.</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>admissionChecks</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-AdmissionCheckStrategyRule"><code>[]AdmissionCheckStrategyRule</code></a>
 </td>
@@ -559,23 +498,20 @@ If empty, the AdmissionCheck will run for all workloads submitted to the Cluster
 </tbody>
 </table>
 
-## `BorrowWithinCohort`     {#kueue-x-k8s-io-v1beta1-BorrowWithinCohort}
-    
+## `BorrowWithinCohort` {#kueue-x-k8s-io-v1beta1-BorrowWithinCohort}
 
 **Appears in:**
 
-- [ClusterQueuePreemption](#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption)
-
+-   [ClusterQueuePreemption](#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption)
 
 <p>BorrowWithinCohort contains configuration which allows to preempt workloads
 within cohort while borrowing.</p>
 
-
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>policy</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-BorrowWithinCohortPolicy"><code>BorrowWithinCohortPolicy</code></a>
 </td>
@@ -605,47 +541,36 @@ policy can be preempted by the borrowing workload.</p>
 </tbody>
 </table>
 
-## `BorrowWithinCohortPolicy`     {#kueue-x-k8s-io-v1beta1-BorrowWithinCohortPolicy}
-    
+## `BorrowWithinCohortPolicy` {#kueue-x-k8s-io-v1beta1-BorrowWithinCohortPolicy}
+
 (Alias of `string`)
 
 **Appears in:**
 
-- [BorrowWithinCohort](#kueue-x-k8s-io-v1beta1-BorrowWithinCohort)
+-   [BorrowWithinCohort](#kueue-x-k8s-io-v1beta1-BorrowWithinCohort)
 
+## `CheckState` {#kueue-x-k8s-io-v1beta1-CheckState}
 
-
-
-
-## `CheckState`     {#kueue-x-k8s-io-v1beta1-CheckState}
-    
 (Alias of `string`)
 
 **Appears in:**
 
-- [AdmissionCheckState](#kueue-x-k8s-io-v1beta1-AdmissionCheckState)
+-   [AdmissionCheckState](#kueue-x-k8s-io-v1beta1-AdmissionCheckState)
 
-
-
-
-
-## `ClusterQueuePendingWorkload`     {#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkload}
-    
+## `ClusterQueuePendingWorkload` {#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkload}
 
 **Appears in:**
 
-- [ClusterQueuePendingWorkloadsStatus](#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkloadsStatus)
-
+-   [ClusterQueuePendingWorkloadsStatus](#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkloadsStatus)
 
 <p>ClusterQueuePendingWorkload contains the information identifying a pending workload
 in the cluster queue.</p>
 
-
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -663,20 +588,17 @@ in the cluster queue.</p>
 </tbody>
 </table>
 
-## `ClusterQueuePendingWorkloadsStatus`     {#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkloadsStatus}
-    
+## `ClusterQueuePendingWorkloadsStatus` {#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkloadsStatus}
 
 **Appears in:**
 
-- [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
-
-
+-   [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>clusterQueuePendingWorkload</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueuePendingWorkload"><code>[]ClusterQueuePendingWorkload</code></a>
 </td>
@@ -694,23 +616,20 @@ in the cluster queue.</p>
 </tbody>
 </table>
 
-## `ClusterQueuePreemption`     {#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption}
-    
+## `ClusterQueuePreemption` {#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption}
 
 **Appears in:**
 
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
-
+-   [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
 <p>ClusterQueuePreemption contains policies to preempt Workloads from this
 ClusterQueue or the ClusterQueue's cohort.</p>
 
-
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>reclaimWithinCohort</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-PreemptionPolicy"><code>PreemptionPolicy</code></a>
 </td>
@@ -720,14 +639,16 @@ Workloads from other ClusterQueues in the cohort that are using more than
 their nominal quota. The possible values are:</p>
 <ul>
 <li><code>Never</code> (default): do not preempt Workloads in the cohort.</li>
-<li><code>LowerPriority</code>: **Classic preemption** if the pending Workload fits within the nominal
-quota of its ClusterQueue, only preempt Workloads in the cohort that have
-lower priority than the pending Workload. **Fair sharing** only preempt
-Workloads in the cohort that have lower priority than the pending Workload and
-that satisfy the fair sharing preemptionStrategies.</li>
-<li><code>Any</code>: **Classic preemption** if the pending Workload fits within the nominal quota of its
-ClusterQueue, preempt any Workload in the cohort, irrespective of
-priority.</li>
+<li><code>LowerPriority</code>: <strong>Classic Preemption</strong> if the pending Workload
+fits within the nominal quota of its ClusterQueue, only preempt
+Workloads in the cohort that have lower priority than the pending
+Workload. <strong>Fair Sharing</strong> only preempt Workloads in the cohort that
+have lower priority than the pending Workload and that satisfy the
+fair sharing preemptionStategies.</li>
+<li><code>Any</code>: <strong>Classic Preemption</strong> if the pending Workload fits within
+the nominal quota of its ClusterQueue, preempt any Workload in the
+cohort, irrespective of priority. <strong>Fair Sharing</strong> preempt Workloads
+in the cohort that satisfy the fair sharing preemptionStrategies.</li>
 </ul>
 </td>
 </tr>
@@ -759,38 +680,31 @@ and are newer than the pending workload.</li>
 </tbody>
 </table>
 
-## `ClusterQueueReference`     {#kueue-x-k8s-io-v1beta1-ClusterQueueReference}
-    
+## `ClusterQueueReference` {#kueue-x-k8s-io-v1beta1-ClusterQueueReference}
+
 (Alias of `string`)
 
 **Appears in:**
 
-- [Admission](#kueue-x-k8s-io-v1beta1-Admission)
+-   [Admission](#kueue-x-k8s-io-v1beta1-Admission)
 
-- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
-
+-   [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
 <p>ClusterQueueReference is the name of the ClusterQueue.</p>
 
-
-
-
-## `ClusterQueueSpec`     {#kueue-x-k8s-io-v1beta1-ClusterQueueSpec}
-    
+## `ClusterQueueSpec` {#kueue-x-k8s-io-v1beta1-ClusterQueueSpec}
 
 **Appears in:**
 
-- [ClusterQueue](#kueue-x-k8s-io-v1beta1-ClusterQueue)
-
+-   [ClusterQueue](#kueue-x-k8s-io-v1beta1-ClusterQueue)
 
 <p>ClusterQueueSpec defines the desired state of ClusterQueue</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>resourceGroups</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceGroup"><code>[]ResourceGroup</code></a>
 </td>
@@ -917,22 +831,19 @@ The values are only relevant if fair sharing is enabled in the Kueue configurati
 </tbody>
 </table>
 
-## `ClusterQueueStatus`     {#kueue-x-k8s-io-v1beta1-ClusterQueueStatus}
-    
+## `ClusterQueueStatus` {#kueue-x-k8s-io-v1beta1-ClusterQueueStatus}
 
 **Appears in:**
 
-- [ClusterQueue](#kueue-x-k8s-io-v1beta1-ClusterQueue)
-
+-   [ClusterQueue](#kueue-x-k8s-io-v1beta1-ClusterQueue)
 
 <p>ClusterQueueStatus defines the observed state of ClusterQueue</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>flavorsReservation</code><br/>
 <a href="#kueue-x-k8s-io-v1beta1-FlavorUsage"><code>[]FlavorUsage</code></a>
 </td>
@@ -1002,22 +913,19 @@ instead.</p>
 </tbody>
 </table>
 
-## `FairSharing`     {#kueue-x-k8s-io-v1beta1-FairSharing}
-    
+## `FairSharing` {#kueue-x-k8s-io-v1beta1-FairSharing}
 
 **Appears in:**
 
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
-
+-   [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
 <p>FairSharing contains the properties of the ClusterQueue when participating in fair sharing.</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>weight</code> <B>[Required]</B><br/>
 <a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
 </td>
@@ -1035,20 +943,17 @@ be at disadvantage against other ClusterQueues.</p>
 </tbody>
 </table>
 
-## `FairSharingStatus`     {#kueue-x-k8s-io-v1beta1-FairSharingStatus}
-    
+## `FairSharingStatus` {#kueue-x-k8s-io-v1beta1-FairSharingStatus}
 
 **Appears in:**
 
-- [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
-
-
+-   [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>weightedShare</code> <B>[Required]</B><br/>
 <code>int64</code>
 </td>
@@ -1064,23 +969,20 @@ the maximum possible share value.</p>
 </tbody>
 </table>
 
-## `FlavorFungibility`     {#kueue-x-k8s-io-v1beta1-FlavorFungibility}
-    
+## `FlavorFungibility` {#kueue-x-k8s-io-v1beta1-FlavorFungibility}
 
 **Appears in:**
 
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
-
+-   [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
 <p>FlavorFungibility determines whether a workload should try the next flavor
 before borrowing or preempting in current flavor.</p>
 
-
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>whenCanBorrow</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-FlavorFungibilityPolicy"><code>FlavorFungibilityPolicy</code></a>
 </td>
@@ -1111,32 +1013,25 @@ candidates for preemption in the current flavor.</li>
 </tbody>
 </table>
 
-## `FlavorFungibilityPolicy`     {#kueue-x-k8s-io-v1beta1-FlavorFungibilityPolicy}
-    
+## `FlavorFungibilityPolicy` {#kueue-x-k8s-io-v1beta1-FlavorFungibilityPolicy}
+
 (Alias of `string`)
 
 **Appears in:**
 
-- [FlavorFungibility](#kueue-x-k8s-io-v1beta1-FlavorFungibility)
+-   [FlavorFungibility](#kueue-x-k8s-io-v1beta1-FlavorFungibility)
 
-
-
-
-
-## `FlavorQuotas`     {#kueue-x-k8s-io-v1beta1-FlavorQuotas}
-    
+## `FlavorQuotas` {#kueue-x-k8s-io-v1beta1-FlavorQuotas}
 
 **Appears in:**
 
-- [ResourceGroup](#kueue-x-k8s-io-v1beta1-ResourceGroup)
-
-
+-   [ResourceGroup](#kueue-x-k8s-io-v1beta1-ResourceGroup)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
 </td>
@@ -1157,20 +1052,17 @@ There could be up to 16 resources.</p>
 </tbody>
 </table>
 
-## `FlavorUsage`     {#kueue-x-k8s-io-v1beta1-FlavorUsage}
-    
+## `FlavorUsage` {#kueue-x-k8s-io-v1beta1-FlavorUsage}
 
 **Appears in:**
 
-- [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
-
-
+-   [ClusterQueueStatus](#kueue-x-k8s-io-v1beta1-ClusterQueueStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
 </td>
@@ -1188,20 +1080,17 @@ There could be up to 16 resources.</p>
 </tbody>
 </table>
 
-## `KubeConfig`     {#kueue-x-k8s-io-v1beta1-KubeConfig}
-    
+## `KubeConfig` {#kueue-x-k8s-io-v1beta1-KubeConfig}
 
 **Appears in:**
 
-- [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta1-MultiKueueClusterSpec)
-
-
+-   [MultiKueueClusterSpec](#kueue-x-k8s-io-v1beta1-MultiKueueClusterSpec)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>location</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -1221,20 +1110,17 @@ which the kueue controller manager is running. The config should be stored in th
 </tbody>
 </table>
 
-## `LocalQueueFlavorStatus`     {#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus}
-    
+## `LocalQueueFlavorStatus` {#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus}
 
 **Appears in:**
 
-- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
-
-
+-   [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
 </td>
@@ -1268,20 +1154,17 @@ have.</p>
 </tbody>
 </table>
 
-## `LocalQueueFlavorUsage`     {#kueue-x-k8s-io-v1beta1-LocalQueueFlavorUsage}
-    
+## `LocalQueueFlavorUsage` {#kueue-x-k8s-io-v1beta1-LocalQueueFlavorUsage}
 
 **Appears in:**
 
-- [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
-
-
+-   [LocalQueueStatus](#kueue-x-k8s-io-v1beta1-LocalQueueStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
 </td>
@@ -1299,20 +1182,17 @@ have.</p>
 </tbody>
 </table>
 
-## `LocalQueueResourceUsage`     {#kueue-x-k8s-io-v1beta1-LocalQueueResourceUsage}
-    
+## `LocalQueueResourceUsage` {#kueue-x-k8s-io-v1beta1-LocalQueueResourceUsage}
 
 **Appears in:**
 
-- [LocalQueueFlavorUsage](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorUsage)
-
-
+-   [LocalQueueFlavorUsage](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorUsage)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
 </td>
@@ -1330,22 +1210,19 @@ have.</p>
 </tbody>
 </table>
 
-## `LocalQueueSpec`     {#kueue-x-k8s-io-v1beta1-LocalQueueSpec}
-    
+## `LocalQueueSpec` {#kueue-x-k8s-io-v1beta1-LocalQueueSpec}
 
 **Appears in:**
 
-- [LocalQueue](#kueue-x-k8s-io-v1beta1-LocalQueue)
-
+-   [LocalQueue](#kueue-x-k8s-io-v1beta1-LocalQueue)
 
 <p>LocalQueueSpec defines the desired state of LocalQueue</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>clusterQueue</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-ClusterQueueReference"><code>ClusterQueueReference</code></a>
 </td>
@@ -1370,22 +1247,19 @@ no new reservation being made.</p>
 </tbody>
 </table>
 
-## `LocalQueueStatus`     {#kueue-x-k8s-io-v1beta1-LocalQueueStatus}
-    
+## `LocalQueueStatus` {#kueue-x-k8s-io-v1beta1-LocalQueueStatus}
 
 **Appears in:**
 
-- [LocalQueue](#kueue-x-k8s-io-v1beta1-LocalQueue)
-
+-   [LocalQueue](#kueue-x-k8s-io-v1beta1-LocalQueue)
 
 <p>LocalQueueStatus defines the observed state of LocalQueue</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>pendingWorkloads</code><br/>
 <code>int32</code>
 </td>
@@ -1443,32 +1317,25 @@ workloads assigned to this LocalQueue.</p>
 </tbody>
 </table>
 
-## `LocationType`     {#kueue-x-k8s-io-v1beta1-LocationType}
-    
+## `LocationType` {#kueue-x-k8s-io-v1beta1-LocationType}
+
 (Alias of `string`)
 
 **Appears in:**
 
-- [KubeConfig](#kueue-x-k8s-io-v1beta1-KubeConfig)
+-   [KubeConfig](#kueue-x-k8s-io-v1beta1-KubeConfig)
 
-
-
-
-
-## `MultiKueueClusterSpec`     {#kueue-x-k8s-io-v1beta1-MultiKueueClusterSpec}
-    
+## `MultiKueueClusterSpec` {#kueue-x-k8s-io-v1beta1-MultiKueueClusterSpec}
 
 **Appears in:**
 
-- [MultiKueueCluster](#kueue-x-k8s-io-v1beta1-MultiKueueCluster)
-
-
+-   [MultiKueueCluster](#kueue-x-k8s-io-v1beta1-MultiKueueCluster)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>kubeConfig</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-KubeConfig"><code>KubeConfig</code></a>
 </td>
@@ -1479,20 +1346,17 @@ workloads assigned to this LocalQueue.</p>
 </tbody>
 </table>
 
-## `MultiKueueClusterStatus`     {#kueue-x-k8s-io-v1beta1-MultiKueueClusterStatus}
-    
+## `MultiKueueClusterStatus` {#kueue-x-k8s-io-v1beta1-MultiKueueClusterStatus}
 
 **Appears in:**
 
-- [MultiKueueCluster](#kueue-x-k8s-io-v1beta1-MultiKueueCluster)
-
-
+-   [MultiKueueCluster](#kueue-x-k8s-io-v1beta1-MultiKueueCluster)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>conditions</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
 </td>
@@ -1502,22 +1366,19 @@ workloads assigned to this LocalQueue.</p>
 </tbody>
 </table>
 
-## `MultiKueueConfigSpec`     {#kueue-x-k8s-io-v1beta1-MultiKueueConfigSpec}
-    
+## `MultiKueueConfigSpec` {#kueue-x-k8s-io-v1beta1-MultiKueueConfigSpec}
 
 **Appears in:**
 
-- [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
-
+-   [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
 
 <p>MultiKueueConfigSpec defines the desired state of MultiKueueConfig</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>clusters</code> <B>[Required]</B><br/>
 <code>[]string</code>
 </td>
@@ -1528,34 +1389,27 @@ workloads assigned to this LocalQueue.</p>
 </tbody>
 </table>
 
-## `Parameter`     {#kueue-x-k8s-io-v1beta1-Parameter}
-    
+## `Parameter` {#kueue-x-k8s-io-v1beta1-Parameter}
+
 (Alias of `string`)
 
 **Appears in:**
 
-- [ProvisioningRequestConfigSpec](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec)
-
+-   [ProvisioningRequestConfigSpec](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec)
 
 <p>Parameter is limited to 255 characters.</p>
 
-
-
-
-## `PodSet`     {#kueue-x-k8s-io-v1beta1-PodSet}
-    
+## `PodSet` {#kueue-x-k8s-io-v1beta1-PodSet}
 
 **Appears in:**
 
-- [WorkloadSpec](#kueue-x-k8s-io-v1beta1-WorkloadSpec)
-
-
+-   [WorkloadSpec](#kueue-x-k8s-io-v1beta1-WorkloadSpec)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -1608,20 +1462,17 @@ enabled.</p>
 </tbody>
 </table>
 
-## `PodSetAssignment`     {#kueue-x-k8s-io-v1beta1-PodSetAssignment}
-    
+## `PodSetAssignment` {#kueue-x-k8s-io-v1beta1-PodSetAssignment}
 
 **Appears in:**
 
-- [Admission](#kueue-x-k8s-io-v1beta1-Admission)
-
-
+-   [Admission](#kueue-x-k8s-io-v1beta1-Admission)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -1693,20 +1544,17 @@ cloud.provider.com/topology-rack: rack-2</li>
 </tbody>
 </table>
 
-## `PodSetRequest`     {#kueue-x-k8s-io-v1beta1-PodSetRequest}
-    
+## `PodSetRequest` {#kueue-x-k8s-io-v1beta1-PodSetRequest}
 
 **Appears in:**
 
-- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
-
-
+-   [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -1727,22 +1575,19 @@ and the application of resource.excludeResourcePrefixes and resource.transformat
 </tbody>
 </table>
 
-## `PodSetTopologyRequest`     {#kueue-x-k8s-io-v1beta1-PodSetTopologyRequest}
-    
+## `PodSetTopologyRequest` {#kueue-x-k8s-io-v1beta1-PodSetTopologyRequest}
 
 **Appears in:**
 
-- [PodSet](#kueue-x-k8s-io-v1beta1-PodSet)
-
+-   [PodSet](#kueue-x-k8s-io-v1beta1-PodSet)
 
 <p>PodSetTopologyRequest defines the topology request for a PodSet.</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>required</code><br/>
 <code>string</code>
 </td>
@@ -1764,25 +1609,22 @@ annotation.</p>
 </tbody>
 </table>
 
-## `PodSetUpdate`     {#kueue-x-k8s-io-v1beta1-PodSetUpdate}
-    
+## `PodSetUpdate` {#kueue-x-k8s-io-v1beta1-PodSetUpdate}
 
 **Appears in:**
 
-- [AdmissionCheckState](#kueue-x-k8s-io-v1beta1-AdmissionCheckState)
-
+-   [AdmissionCheckState](#kueue-x-k8s-io-v1beta1-AdmissionCheckState)
 
 <p>PodSetUpdate contains a list of pod set modifications suggested by AdmissionChecks.
 The modifications should be additive only - modifications of already existing keys
 or having the same key provided by multiple AdmissionChecks is not allowed and will
 result in failure during workload admission.</p>
 
-
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -1817,34 +1659,27 @@ result in failure during workload admission.</p>
 </tbody>
 </table>
 
-## `PreemptionPolicy`     {#kueue-x-k8s-io-v1beta1-PreemptionPolicy}
-    
+## `PreemptionPolicy` {#kueue-x-k8s-io-v1beta1-PreemptionPolicy}
+
 (Alias of `string`)
 
 **Appears in:**
 
-- [ClusterQueuePreemption](#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption)
+-   [ClusterQueuePreemption](#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption)
 
-
-
-
-
-## `ProvisioningRequestConfigSpec`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec}
-    
+## `ProvisioningRequestConfigSpec` {#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec}
 
 **Appears in:**
 
-- [ProvisioningRequestConfig](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig)
-
+-   [ProvisioningRequestConfig](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig)
 
 <p>ProvisioningRequestConfigSpec defines the desired state of ProvisioningRequestConfig</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>provisioningClassName</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -1875,32 +1710,25 @@ the workload is considered ready.</p>
 </tbody>
 </table>
 
-## `QueueingStrategy`     {#kueue-x-k8s-io-v1beta1-QueueingStrategy}
-    
+## `QueueingStrategy` {#kueue-x-k8s-io-v1beta1-QueueingStrategy}
+
 (Alias of `string`)
 
 **Appears in:**
 
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+-   [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
-
-
-
-
-## `ReclaimablePod`     {#kueue-x-k8s-io-v1beta1-ReclaimablePod}
-    
+## `ReclaimablePod` {#kueue-x-k8s-io-v1beta1-ReclaimablePod}
 
 **Appears in:**
 
-- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
-
-
+-   [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <code>string</code>
 </td>
@@ -1918,20 +1746,17 @@ the workload is considered ready.</p>
 </tbody>
 </table>
 
-## `RequeueState`     {#kueue-x-k8s-io-v1beta1-RequeueState}
-    
+## `RequeueState` {#kueue-x-k8s-io-v1beta1-RequeueState}
 
 **Appears in:**
 
-- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
-
-
+-   [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>count</code><br/>
 <code>int32</code>
 </td>
@@ -1953,46 +1778,39 @@ this time would be reset to null.</p>
 </tbody>
 </table>
 
-## `ResourceFlavorReference`     {#kueue-x-k8s-io-v1beta1-ResourceFlavorReference}
-    
+## `ResourceFlavorReference` {#kueue-x-k8s-io-v1beta1-ResourceFlavorReference}
+
 (Alias of `string`)
 
 **Appears in:**
 
-- [AdmissionCheckStrategyRule](#kueue-x-k8s-io-v1beta1-AdmissionCheckStrategyRule)
+-   [AdmissionCheckStrategyRule](#kueue-x-k8s-io-v1beta1-AdmissionCheckStrategyRule)
 
-- [FlavorQuotas](#kueue-x-k8s-io-v1beta1-FlavorQuotas)
+-   [FlavorQuotas](#kueue-x-k8s-io-v1beta1-FlavorQuotas)
 
-- [FlavorUsage](#kueue-x-k8s-io-v1beta1-FlavorUsage)
+-   [FlavorUsage](#kueue-x-k8s-io-v1beta1-FlavorUsage)
 
-- [LocalQueueFlavorStatus](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus)
+-   [LocalQueueFlavorStatus](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorStatus)
 
-- [LocalQueueFlavorUsage](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorUsage)
+-   [LocalQueueFlavorUsage](#kueue-x-k8s-io-v1beta1-LocalQueueFlavorUsage)
 
-- [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
-
+-   [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
 
 <p>ResourceFlavorReference is the name of the ResourceFlavor.</p>
 
-
-
-
-## `ResourceFlavorSpec`     {#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec}
-    
+## `ResourceFlavorSpec` {#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec}
 
 **Appears in:**
 
-- [ResourceFlavor](#kueue-x-k8s-io-v1beta1-ResourceFlavor)
-
+-   [ResourceFlavor](#kueue-x-k8s-io-v1beta1-ResourceFlavor)
 
 <p>ResourceFlavorSpec defines the desired state of the ResourceFlavor</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>nodeLabels</code><br/>
 <code>map[string]string</code>
 </td>
@@ -2044,20 +1862,17 @@ nodes matching to the Resource Flavor node labels.</p>
 </tbody>
 </table>
 
-## `ResourceGroup`     {#kueue-x-k8s-io-v1beta1-ResourceGroup}
-    
+## `ResourceGroup` {#kueue-x-k8s-io-v1beta1-ResourceGroup}
 
 **Appears in:**
 
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
-
-
+-   [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>coveredResources</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
 </td>
@@ -2084,20 +1899,17 @@ The list cannot be empty and it can contain up to 16 flavors.</p>
 </tbody>
 </table>
 
-## `ResourceQuota`     {#kueue-x-k8s-io-v1beta1-ResourceQuota}
-    
+## `ResourceQuota` {#kueue-x-k8s-io-v1beta1-ResourceQuota}
 
 **Appears in:**
 
-- [FlavorQuotas](#kueue-x-k8s-io-v1beta1-FlavorQuotas)
-
-
+-   [FlavorQuotas](#kueue-x-k8s-io-v1beta1-FlavorQuotas)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
 </td>
@@ -2155,20 +1967,17 @@ This field is in beta stage and is enabled by default.</p>
 </tbody>
 </table>
 
-## `ResourceUsage`     {#kueue-x-k8s-io-v1beta1-ResourceUsage}
-    
+## `ResourceUsage` {#kueue-x-k8s-io-v1beta1-ResourceUsage}
 
 **Appears in:**
 
-- [FlavorUsage](#kueue-x-k8s-io-v1beta1-FlavorUsage)
-
-
+-   [FlavorUsage](#kueue-x-k8s-io-v1beta1-FlavorUsage)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>name</code> <B>[Required]</B><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
 </td>
@@ -2195,34 +2004,27 @@ words, it's the used quota that is over the nominalQuota.</p>
 </tbody>
 </table>
 
-## `StopPolicy`     {#kueue-x-k8s-io-v1beta1-StopPolicy}
-    
+## `StopPolicy` {#kueue-x-k8s-io-v1beta1-StopPolicy}
+
 (Alias of `string`)
 
 **Appears in:**
 
-- [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
+-   [ClusterQueueSpec](#kueue-x-k8s-io-v1beta1-ClusterQueueSpec)
 
-- [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
+-   [LocalQueueSpec](#kueue-x-k8s-io-v1beta1-LocalQueueSpec)
 
-
-
-
-
-## `TopologyAssignment`     {#kueue-x-k8s-io-v1beta1-TopologyAssignment}
-    
+## `TopologyAssignment` {#kueue-x-k8s-io-v1beta1-TopologyAssignment}
 
 **Appears in:**
 
-- [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
-
-
+-   [PodSetAssignment](#kueue-x-k8s-io-v1beta1-PodSetAssignment)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>levels</code> <B>[Required]</B><br/>
 <code>[]string</code>
 </td>
@@ -2243,20 +2045,17 @@ the lowest level of the topology.</p>
 </tbody>
 </table>
 
-## `TopologyDomainAssignment`     {#kueue-x-k8s-io-v1beta1-TopologyDomainAssignment}
-    
+## `TopologyDomainAssignment` {#kueue-x-k8s-io-v1beta1-TopologyDomainAssignment}
 
 **Appears in:**
 
-- [TopologyAssignment](#kueue-x-k8s-io-v1beta1-TopologyAssignment)
-
-
+-   [TopologyAssignment](#kueue-x-k8s-io-v1beta1-TopologyAssignment)
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>values</code> <B>[Required]</B><br/>
 <code>[]string</code>
 </td>
@@ -2277,22 +2076,19 @@ domain indicated by the values field.</p>
 </tbody>
 </table>
 
-## `WorkloadSpec`     {#kueue-x-k8s-io-v1beta1-WorkloadSpec}
-    
+## `WorkloadSpec` {#kueue-x-k8s-io-v1beta1-WorkloadSpec}
 
 **Appears in:**
 
-- [Workload](#kueue-x-k8s-io-v1beta1-Workload)
-
+-   [Workload](#kueue-x-k8s-io-v1beta1-Workload)
 
 <p>WorkloadSpec defines the desired state of Workload</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>podSets</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-PodSet"><code>[]PodSet</code></a>
 </td>
@@ -2360,22 +2156,19 @@ Possible values are:</p>
 </tbody>
 </table>
 
-## `WorkloadStatus`     {#kueue-x-k8s-io-v1beta1-WorkloadStatus}
-    
+## `WorkloadStatus` {#kueue-x-k8s-io-v1beta1-WorkloadStatus}
 
 **Appears in:**
 
-- [Workload](#kueue-x-k8s-io-v1beta1-Workload)
-
+-   [Workload](#kueue-x-k8s-io-v1beta1-Workload)
 
 <p>WorkloadStatus defines the observed state of Workload</p>
-
 
 <table class="table">
 <thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
 <tbody>
-    
-  
+
+
 <tr><td><code>admission</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-Admission"><code>Admission</code></a>
 </td>
@@ -2435,4 +2228,3 @@ admission.resourceUsage contains the detailed information.</p>
 </tr>
 </tbody>
 </table>
-
