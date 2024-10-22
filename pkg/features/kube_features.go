@@ -166,7 +166,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	ConfigurableResourceTransformations: {Default: false, PreRelease: featuregate.Alpha},
 	WorkloadResourceRequestsSummary:     {Default: false, PreRelease: featuregate.Alpha},
 	ExposeFlavorsInLocalQueue:           {Default: true, PreRelease: featuregate.Beta},
-	AdmissionCheckValidationRules:       {Default: false, PreRelease: featuregate.Alpha},
+	AdmissionCheckValidationRules:       {Default: false, PreRelease: featuregate.Deprecated},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {

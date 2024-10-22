@@ -722,10 +722,10 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  kueue.ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks,
-			wantMessage: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue.`,
+			wantMessage: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: check1,check3.`,
 		},
 		{
-			name:     "Active clusterQueue with a FlavorIndependent AC applied per ResourceFlavor - AdmissionCheckValidationRules enabled",
+			name:     "Pending clusterQueue with a FlavorIndependent AC applied per ResourceFlavor",
 			cq:       cqWithACPerFlavor,
 			cqStatus: pending,
 			admissionChecks: map[string]AdmissionCheck{
@@ -735,10 +735,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 					FlavorIndependent: true,
 				},
 			},
-			wantStatus:               pending,
-			wantReason:               "FlavorIndependentAdmissionCheckAppliedPerFlavor",
-			wantMessage:              "Can't admit new workloads: AdmissionCheck(s): [check1] cannot be set at flavor level.",
-			acValidationRulesEnabled: true,
+			wantStatus:  active,
+			wantReason:  "Ready",
+			wantMessage: "Can admit new workloads",
 		},
 		{
 			name:     "Terminating clusterQueue updated with valid AC list",
@@ -873,7 +872,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			},
 			wantStatus:  pending,
 			wantReason:  "MutliKueueAdmissionCheckAppliedPerFlavor",
-			wantMessage: `Can't admit new workloads: MultiKueue AdmissionCheck cannot be specified per flavor.`,
+			wantMessage: `Can't admit new workloads: Cannot specify MultiKueue AdmissionCheck per flavor, found: check1.`,
 		},
 	}
 

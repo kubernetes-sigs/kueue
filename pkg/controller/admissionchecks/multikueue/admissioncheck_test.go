@@ -57,8 +57,6 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
-					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -68,7 +66,6 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
-			acValidationRulesEnabled: true,
 		},
 		"unmanaged": {
 			reconcileFor: "ac1",
@@ -99,8 +96,6 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
-					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -110,7 +105,6 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
-			acValidationRulesEnabled: true,
 		},
 		"inactive cluster": {
 			reconcileFor: "ac1",
@@ -133,8 +127,6 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
-					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -144,7 +136,6 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
-			acValidationRulesEnabled: true,
 		},
 		"all clusters missing or inactive": {
 			reconcileFor: "ac1",
@@ -170,8 +161,6 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
-					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -181,7 +170,6 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
-			acValidationRulesEnabled: true,
 		},
 		"partially active": {
 			reconcileFor: "ac1",
@@ -207,8 +195,6 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
-					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionTrue,
@@ -218,7 +204,6 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
-			acValidationRulesEnabled: true,
 		},
 		"active": {
 			reconcileFor: "ac1",
@@ -254,7 +239,7 @@ func TestReconcile(t *testing.T) {
 			},
 			acValidationRulesEnabled: true,
 		},
-		"active AdmissionCheckValidationRules disabled": {
+		"extra status conditions of SingleInstance and FlavorIndependent when AdmissionCheckValidationRules is enabled": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
@@ -275,6 +260,8 @@ func TestReconcile(t *testing.T) {
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					SingleInstanceInClusterQueue(true, SingleInstanceReason, SingleInstanceMessage, 1).
+					ApplyToAllFlavors(true, FlavorIndependentCheckReason, FlavorIndependentCheckMessage, 1).
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionTrue,
@@ -284,6 +271,7 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+			acValidationRulesEnabled: true,
 		},
 	}
 

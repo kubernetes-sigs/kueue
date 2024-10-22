@@ -274,12 +274,12 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 
 		if len(c.multipleMultiKueueAdmissionChecks) > 1 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks)
-			messages = append(messages, "Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue")
+			messages = append(messages, fmt.Sprintf("Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: %v", strings.Join(c.multipleMultiKueueAdmissionChecks, ",")))
 		}
 
 		if len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMutliKueueAdmissionCheckAppliedPerFlavor)
-			messages = append(messages, "MultiKueue AdmissionCheck cannot be specified per flavor")
+			messages = append(messages, fmt.Sprintf("Cannot specify MultiKueue AdmissionCheck per flavor, found: %s", strings.Join(c.perFlavorMultiKueueAdmissionChecks, ",")))
 		}
 
 		// This doesn't need to be gated behind, because it is empty when the gate is disabled
@@ -361,9 +361,9 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 			}
 
 			if ac.Controller == kueue.MultiKueueControllerName {
-				// MultiKueue Admission Checks have extra constraints
-				// disallow to use multiple MultiKueue AdmissionChecks on the same ClusterQueue
-				// MultiKueue AdmissionCheck cannot be specified per flavor
+				// MultiKueue Admission Checks has extra constraints:
+				// - cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue
+				// - cannot use specify MultiKueue AdmissionCheck per flavor
 				multipleMultiKueueControllers.Insert(acName)
 				if flavors.Len() != 0 {
 					perFlavorMultiKueueChecks = append(perFlavorMultiKueueChecks, acName)
