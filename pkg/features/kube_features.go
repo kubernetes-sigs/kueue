@@ -146,7 +146,7 @@ func init() {
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	PartialAdmission:                    {Default: true, PreRelease: featuregate.Beta},
-	QueueVisibility:                     {Default: false, PreRelease: featuregate.Alpha},
+	QueueVisibility:                     {Default: false, PreRelease: featuregate.Deprecated},
 	FlavorFungibility:                   {Default: true, PreRelease: featuregate.Beta},
 	ProvisioningACC:                     {Default: true, PreRelease: featuregate.Beta},
 	VisibilityOnDemand:                  {Default: true, PreRelease: featuregate.Beta},
