@@ -87,9 +87,9 @@ Add a new optional field to hold the
 type WorkloadSpec struct {
 	// ...
 
-	// MaximumExecutionTime if provided, determines the maximum time the workload can be admitted  
+	// MaximumExecutionTimeSeconds if provided, determines the maximum time, in seconds, the workload can be admitted  
 	// befrore it's automatically deactivated.
-	MaximumExecutionTime *metav1.Duration `json:"maximumExecutionTime,omitempty"`
+	MaximumExecutionTimeSeconds int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 ```
 
@@ -101,9 +101,9 @@ Add a optional field to hold the
 type WorkloadStatus struct {
 	// ...
 
-	// AccumulatedPastAdmittedTime holds the total duration the workload spent in Admitted state
+	// AccumulatedPastExecutionTimeSeconds holds the total duration the workload spent in Admitted state
 	// in the previous `Admit` - `Evict` cycles.
-	AccumulatedPastAdmittedTime *metav1.Duration `json:"AccumulatedPastAdmittedTime,omitempty"`
+	AccumulatedPastExexcutionTimeSecond int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
 }
 
 ```
@@ -117,24 +117,24 @@ Define a new constant holding the new label name `kueue.x-k8s.io/max-exec-time-s
 #### Workload
 During reconcile:
 
-- When a workload transitions out of `Admitted` state, add the time spent in its `status.AccumulatedPastAdmittedTime`
+- When a workload transitions out of `Admitted` state, add the time spent in its `status.AccumulatedPastExecutionTimeSeconds`
 ```go
 cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-wl.Status.AccumulatedPastAdmittedTime += wl.Spec.MaximumExecutionTime.Duration -
-    time.Now().Sub(cond.LastTransitionTime.Time)
+wl.Status.AccumulatedPastExecutionTimeSeconds += wl.Spec.MaximumExecutionTimeSeconds -
+    time.Now().Sub(cond.LastTransitionTime.Time).Seconds()
 ```
 - When the workload is admitted and a maximum execution time is specified compute the remaining execution execution time as:
 ```go
-if wl.Spec.MaximumExecutionTime != nil {
+if wl.Spec.MaximumExecutionTimeSeconds != nil {
 	if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted); cond != nil && cond.Status == metav1.ConditionTrue {
-		remainingTime := wl.Spec.MaximumExecutionTime.Duration -
-            wl.Status.AccumulatedPastAdmittedTime -
-            time.Now().Sub(cond.LastTransitionTime.Time)
+		remainingTime := wl.Spec.MaximumExecutionTimeSeconds -
+            wl.Status.AccumulatedPastExecutionTimeSeconds -
+            time.Now().Sub(cond.LastTransitionTime.Time).Seconds()
 	}
 }
 ```
   - If `remainingTime` > 0 , a reconcile request should be queued with a `remainingTime` delay.
-  - If `remainingTime` <= 0 , the workload should be deactivated `wl.spec.Active = *false`, the `wl.status,AccumulatedPastAdmittedTime` set to 0, and a relevant event recorded.
+  - If `remainingTime` <= 0 , the workload should be deactivated `wl.spec.Active = *false`, the `wl.status,AccumulatedPastExecutionTimeSeconds` set to 0, and a relevant event recorded.
 
 #### Jobs / Jobframework
 
@@ -144,13 +144,13 @@ Upon workload creation, the value from `kueue.x-k8s.io/max-exec-time-seconds` is
 
 #### Workload
 
-Validate that if specified the value of `wl.spec.maximumExecutionTime` is grater then 0.
+Validate that the value of `wl.spec.maximumExecutionTimeSeconds` is greater or equal to 0.
 
-Optionally: `wl.spec.maximumExecutionTime` is immutable [ while the workload is admitted ]
+Optionally: `wl.spec.maximumExecutionTimeSeconds` is immutable [ while the workload is admitted ]
 
 #### Jobs
 
-Validate that the value provided in the `kueue.x-k8s.io/max-exec-time-seconds` label is the base 10 representation of an integer grater then 0.
+Validate that the value provided in the `kueue.x-k8s.io/max-exec-time-seconds` label is the base 10 representation of an integer greater then 0.
 
 Optionally: The value of the `kueue.x-k8s.io/max-exec-time-seconds` label is immutable [ while the job is unsuspended ] 
 
@@ -193,7 +193,7 @@ Add "An admitted workload is deactivated when its maximum execution time expires
 
 ##### controller/jobs/job
 
-Add "An job is suspended when its maximum execution time expires"
+Add "A job is suspended when its maximum execution time expires"
 
 ### Graduation Criteria
 
