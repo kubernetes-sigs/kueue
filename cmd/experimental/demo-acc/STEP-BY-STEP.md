@@ -1,12 +1,12 @@
-# Init
+# Step by step
 
-For the purpose of this guide [kubebuilder](https://book.kubebuilder.io/) is used to bootstrap the Kubernetes operator that will run the Demo Admission Check Controller.
+[Kubebuilder](https://book.kubebuilder.io/) version 4.2.0 is used to bootstrap the Kubernetes operator that will run the Demo Admission Check Controller.
 
 Check the kubebuilder [quick-start guide](https://book.kubebuilder.io/quick-start) for details.
 
-Choose a domain and repo for the project, for the purpose of this demo the project's domain is `demo-acc.experimental.kueue.x-k8s.io` and the repo `sigs.k8s.io/kueue/cmd/experimental/demo-acc`.
+For the purpose of this demo the project's domain is `demo-acc.experimental.kueue.x-k8s.io` and the repo `sigs.k8s.io/kueue/cmd/experimental/demo-acc`.
 
-## Init the project
+## Initialize the project
 
 ```bash
 kubebuilder init --domain demo-acc.experimental.kueue.x-k8s.io --repo sigs.k8s.io/kueue/cmd/experimental/demo-acc
@@ -37,13 +37,36 @@ make genetrate manifests
 
 Note: The generated `internal/controller/suite_test.go` is missing the "context" import it should be added.
 
-## Implement the AdmissionCheck reconciler
-
-Go get `kueue`
+## Add kueue as dependency
+### Go get `kueue`
 
 ```bash
 go get sigs.k8s.io/kueue@main
 ```
+
+### Register the Kueue's api in the controller's scheme
+
+In `cmd/main.go`
+
+```diff
+@@ -34,6 +34,7 @@ import (
+ 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+ 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+ 	"sigs.k8s.io/controller-runtime/pkg/webhook"
++	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+
+ 	"sigs.k8s.io/kueue/cmd/experimental/demo-acc/internal/controller"
+ 	// +kubebuilder:scaffold:imports
+@@ -46,6 +47,7 @@ var (
+
+ func init() {
+ 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
++	utilruntime.Must(kueueapi.AddToScheme(scheme))
+
+ 	// +kubebuilder:scaffold:scheme
+ }
+```
+## Implement the AdmissionCheck reconciler
 
 In `internal/controller/admissioncheck_controller.go`:
 
@@ -69,7 +92,6 @@ Define the controller's name
 const (
 	DemoACCName = "experimental.kueue.x-k8s.io/demo-acc"
 )
-
 ```
 
 Update the reconciler's logic to set active all ACs managed by this controller.
@@ -105,7 +127,6 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	return ctrl.Result{}, nil
 }
-
 ```
 
 Finally update `SetupWithManager` to be registered `For` Kueue's AdmissionChecks.
@@ -136,7 +157,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
-
 ```
 
 As a demo logic the ACC will prevent workloads from being `Admitted` for one minute after their creation.
@@ -204,7 +224,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	return ctrl.Result{}, nil
 }
-
 ```
 
 Finally update `SetupWithManager` to be registered `For` Kueue's Workloads.
@@ -217,139 +236,24 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 ```
 
-## Register the Kueue's api in the controller's scheme
+## Fix the image build
 
-In `cmd/main.go`
+Since at this point kueue is using go v1.23 update the builder's base image in the Dockerfile.
+
+Since at this point the operator is not defying an API, the `COPY api/ api/` line should be removed to be able to build the image.
 
 ```diff
-@@ -34,6 +34,7 @@ import (
- 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
- 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
- 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-
- 	"sigs.k8s.io/kueue/cmd/experimental/demo-acc/internal/controller"
- 	// +kubebuilder:scaffold:imports
-@@ -46,6 +47,7 @@ var (
-
- func init() {
- 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-+	utilruntime.Must(kueueapi.AddToScheme(scheme))
-
- 	// +kubebuilder:scaffold:scheme
- }
+@@ -1,5 +1,5 @@
+ # Build the manager binary
+-FROM golang:1.22 AS builder
++FROM golang:1.23 AS builder
+ ARG TARGETOS
+ ARG TARGETARCH
+ 
+@@ -13,7 +13,6 @@ RUN go mod download
+ 
+ # Copy the go source
+ COPY cmd/main.go cmd/main.go
+-COPY api/ api/
+ COPY internal/controller/ internal/controller/
 ```
-
-## Test the ACC
-
-### Install Kueue
-
-Install kueue as described in its [installation guide](https://kueue.sigs.k8s.io/docs/installation/).
-
-### Build the image
-
-Note: Since at this point the operator is not defying an API, the `COPY api/ api/` line should be removed to be able to build the image.
-Note: Since at this point kueue is using go v1.23 update the builder's base image in the Dockerfile.
-
-```bash
-make docker-build
-```
-
-Make sure the test cluster has access to the built image (it can be pushed in a image repository or directly in a test cluster).
-
-
-Skip `make install` since we have no API defined.
-
-```bash
-make deploy
-```
-
-Make sure the controller's manager is properly running
-
-```bash
-kubectl get -n demo-acc-system deployments.apps
-```
-
-Set up a single cluster queue environment as described [here](https://kueue.sigs.k8s.io/docs/tasks/manage/administer_cluster_quotas/#single-clusterqueue-and-single-resourceflavor-setup).
-This can be done with:
-```bash
-kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/single-clusterqueue-setup.yaml
-```
-
-Create an AdmissionCheck managed by demo-acc
-
-```bash
-kubectl apply -f - <<EOF
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: AdmissionCheck
-metadata:
-  name: demo-ac
-spec:
-  controllerName: experimental.kueue.x-k8s.io/demo-acc
-EOF
-```
-
-It should get marked as `Active`
-
-```bash
-kubectl get admissionchecks.kueue.x-k8s.io demo-ac -o=jsonpath='{.status.conditions[?(@.type=="Active")].status}{" -> "}{.status.conditions[?(@.type=="Active")].message}{"\n"}'
-```
-
-Should output: `True -> demo-acc is running`
-
-Add the admission check to the `cluster-queue` queue:
-
-```bash
-kubectl patch clusterqueues.kueue.x-k8s.io cluster-queue --type='json' -p='[{"op": "add", "path": "/spec/admissionChecks", "value":["demo-ac"]}]'
-```
-
-Create a sample-job:
-
-```bash
-kubectl create -f https://kueue.sigs.k8s.io/examples/jobs/sample-job.yaml
-```
-
-Observe the workload's execution.
-
-Given the job is created at t0
-- Since the queue is not used, it will get its quota reserved at t0
-- demo-acc will marks its admission check state at t0+1m
-- it will be admitted at t0+1m
-
-For example:
-
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: Workload
-metadata:
-  creationTimestamp: "2024-10-18T12:37:15Z" #t0
-  #<skip>
-spec:
-  active: true
-  #<skip>
-status:
-  admission:
-    clusterQueue: cluster-queue
-    #<skip>
-  admissionChecks:
-  - lastTransitionTime: "2024-10-18T12:38:15Z" #t0+1m
-    message: The workload is now ready
-    name: demo-ac
-    state: Ready
-  conditions:
-  - lastTransitionTime: "2024-10-18T12:37:15Z" #t0
-    message: Quota reserved in ClusterQueue cluster-queue
-    observedGeneration: 1
-    reason: QuotaReserved
-    status: "True"
-    type: QuotaReserved
-  - lastTransitionTime: "2024-10-18T12:38:15Z" #t0+1m
-    message: The workload is admitted
-    observedGeneration: 1
-    reason: Admitted
-    status: "True"
-    type: Admitted
-  - #<skip>
-```
-
-
