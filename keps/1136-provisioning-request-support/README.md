@@ -133,7 +133,7 @@ from 1min (1, 2, 4 min),
 
 Workload gets requeued in a similar way to [WaitForPodsReady](https://github.com/kubernetes-sigs/kueue/tree/main/keps/349-all-or-nothing) mechanism.
 When AdmissionCheck is in `Retry` state, the workload controller evicts the Workload with `WorkloadRequeued=False` condition with `AdmissionCheck` as a reason.
-After the backoff period, the Workload is requeued, enters the queue again, and begins a new admission cycle.
+After the backoff period, the Workload is requeued, enters the queue again, and begins a new admission cycle, and `.status.requeueState.requeueAt` field is reset.
 
 Additionally, to enable the previous behavior of keeping the quota, in 0.9.0 we introduce the feature gate `KeepQuotaForProvReqRetry`. If the feature gate is enabled the Workload with failed ProvisioningRequest
 will keep the allocated quota and won't be requeued. Instead it will be in the AdmissionCheck phase of admission, and will recreate ProvisioningRequest after backoff time.

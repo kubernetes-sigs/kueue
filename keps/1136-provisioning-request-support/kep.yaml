@@ -2,6 +2,7 @@ title: ProvisioningRequest support
 kep-number: 1136
 authors:
   - "@mwielgus"
+  - "@pbundyra"
 status: draft
 creation-date: 2023-09-20
 reviewers:
