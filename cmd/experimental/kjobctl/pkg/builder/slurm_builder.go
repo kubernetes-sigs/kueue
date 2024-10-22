@@ -617,21 +617,47 @@ func getValueOrEmpty(ptr *resource.Quantity) string {
 	return ""
 }
 
+// unmaskFilename unmasks a filename based on the filename pattern.
+// For more details, see https://slurm.schedmd.com/sbatch.html#SECTION_FILENAME-PATTERN.
+func unmaskFilename(filename string) string {
+	if strings.Contains(filename, "\\\\") {
+		return strings.ReplaceAll(filename, "\\\\", "")
+	}
+
+	filename = strings.ReplaceAll(filename, "%%", "//")
+
+	filename = strings.ReplaceAll(filename, "%A", "${SLURM_ARRAY_JOB_ID}")
+	filename = strings.ReplaceAll(filename, "%a", "${SLURM_ARRAY_TASK_ID}")
+	filename = strings.ReplaceAll(filename, "%j", "${SLURM_JOB_ID}")
+	filename = strings.ReplaceAll(filename, "%N", "${HOSTNAME}")
+	filename = strings.ReplaceAll(filename, "%n", "${JOB_COMPLETION_INDEX}")
+	filename = strings.ReplaceAll(filename, "%t", "${SLURM_ARRAY_TASK_ID}")
+	filename = strings.ReplaceAll(filename, "%u", "${USER_ID}")
+	filename = strings.ReplaceAll(filename, "%x", "${SBATCH_JOB_NAME}")
+
+	filename = strings.ReplaceAll(filename, "//", "%")
+
+	return filename
+}
+
 func (b *slurmBuilder) buildEntrypointCommand() string {
 	strBuilder := strings.Builder{}
 
 	strBuilder.WriteString(slurmScriptFilenamePath)
 
 	if b.input != "" {
-		strBuilder.WriteString(" <$input_file")
+		strBuilder.WriteString(" <")
+		strBuilder.WriteString(unmaskFilename(b.input))
 	}
 
 	if b.output != "" {
-		strBuilder.WriteString(" 1>$output_file")
+		strBuilder.WriteString(" 1>")
+		strBuilder.WriteString(unmaskFilename(b.output))
 	}
 
 	if b.error != "" {
-		strBuilder.WriteString(" 2>$error_file")
+		strBuilder.WriteString(" 2>")
+		strBuilder.WriteString(unmaskFilename(b.error))
 	}
 
 	return strBuilder.String()

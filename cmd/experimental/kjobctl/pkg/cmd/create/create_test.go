@@ -1060,33 +1060,6 @@ source /slurm/env/$JOB_CONTAINER_INDEX/sbatch.env
 
 export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 
-unmask_filename () {
-  replaced="$1"
-
-  if [[ "$replaced" == "\\"* ]]; then
-      replaced="${replaced//\\/}"
-      echo "${replaced}"
-      return 0
-  fi
-
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%A)/\1\n\2/g;:a s/(^|[^\n])%A/\1$SLURM_ARRAY_JOB_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%a)/\1\n\2/g;:a s/(^|[^\n])%a/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%j)/\1\n\2/g;:a s/(^|[^\n])%j/\1$SLURM_JOB_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%N)/\1\n\2/g;:a s/(^|[^\n])%N/\1$HOSTNAME/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%n)/\1\n\2/g;:a s/(^|[^\n])%n/\1$JOB_COMPLETION_INDEX/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%t)/\1\n\2/g;:a s/(^|[^\n])%t/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%u)/\1\n\2/g;:a s/(^|[^\n])%u/\1$USER_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%x)/\1\n\2/g;:a s/(^|[^\n])%x/\1$SBATCH_JOB_NAME/;ta;s/\n//g")
-
-  replaced="${replaced//%%/%}"
-
-  echo "$replaced"
-}
-
-input_file=$(unmask_filename "$SBATCH_INPUT")
-output_file=$(unmask_filename "$SBATCH_OUTPUT")
-error_path=$(unmask_filename "$SBATCH_ERROR")
-
 /slurm/scripts/script
 `,
 							}).
@@ -1138,9 +1111,9 @@ error_path=$(unmask_filename "$SBATCH_ERROR")
 					"--array", "0-25",
 					"--nodes", "2",
 					"--ntasks", "3",
-					"--output", "/slurm/stdout.out",
-					"--error", "/slurm/stderr.out",
-					"--input", "/slurm/input.txt",
+					"--input", "\\\\/home/%u/%x/stderr%%-%A-%a-%j-%N-%n-%t.out",
+					"--output", "/home/%u/%x/stdout%%-%A-%a-%j-%N-%n-%t.out",
+					"--error", "/home/%u/%x/stderr%%-%A-%a-%j-%N-%n-%t.out",
 					"--job-name", "job-name",
 					"--partition", "lq1",
 					"--chdir", "/mydir",
@@ -1288,9 +1261,9 @@ SBATCH_ARRAY_INX=0-25
 SBATCH_GPUS_PER_TASK=
 SBATCH_MEM_PER_CPU=
 SBATCH_MEM_PER_GPU=
-SBATCH_OUTPUT=/slurm/stdout.out
-SBATCH_ERROR=/slurm/stderr.out
-SBATCH_INPUT=/slurm/input.txt
+SBATCH_OUTPUT=/home/%u/%x/stdout%%-%A-%a-%j-%N-%n-%t.out
+SBATCH_ERROR=/home/%u/%x/stderr%%-%A-%a-%j-%N-%n-%t.out
+SBATCH_INPUT=\\/home/%u/%x/stderr%%-%A-%a-%j-%N-%n-%t.out
 SBATCH_JOB_NAME=job-name
 SBATCH_PARTITION=lq1
 EOF
@@ -1363,38 +1336,9 @@ fi
 
 source /slurm/env/$JOB_CONTAINER_INDEX/sbatch.env
 
-export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
+export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 
-unmask_filename () {
-  replaced="$1"
-
-  if [[ "$replaced" == "\\"* ]]; then
-      replaced="${replaced//\\/}"
-      echo "${replaced}"
-      return 0
-  fi
-
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%A)/\1\n\2/g;:a s/(^|[^\n])%A/\1$SLURM_ARRAY_JOB_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%a)/\1\n\2/g;:a s/(^|[^\n])%a/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%j)/\1\n\2/g;:a s/(^|[^\n])%j/\1$SLURM_JOB_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%N)/\1\n\2/g;:a s/(^|[^\n])%N/\1$HOSTNAME/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%n)/\1\n\2/g;:a s/(^|[^\n])%n/\1$JOB_COMPLETION_INDEX/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%t)/\1\n\2/g;:a s/(^|[^\n])%t/\1$SLURM_ARRAY_TASK_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%u)/\1\n\2/g;:a s/(^|[^\n])%u/\1$USER_ID/;ta;s/\n//g")
-  replaced=$(echo "$replaced" | sed -E "s/(%)(%x)/\1\n\2/g;:a s/(^|[^\n])%x/\1$SBATCH_JOB_NAME/;ta;s/\n//g")
-
-  replaced="${replaced//%%/%}"
-
-  echo "$replaced"
-}
-
-input_file=$(unmask_filename "$SBATCH_INPUT")
-output_file=$(unmask_filename "$SBATCH_OUTPUT")
-error_path=$(unmask_filename "$SBATCH_ERROR")
-
-cd /mydir
-
-/slurm/scripts/script <$input_file 1>$output_file 2>$error_file
+/slurm/scripts/script </home/%u/%x/stderr%%-%A-%a-%j-%N-%n-%t.out 1>/home/${USER_ID}/${SBATCH_JOB_NAME}/stdout%-${SLURM_ARRAY_JOB_ID}-${SLURM_ARRAY_TASK_ID}-${SLURM_JOB_ID}-${HOSTNAME}-${JOB_COMPLETION_INDEX}-${SLURM_ARRAY_TASK_ID}.out 2>/home/${USER_ID}/${SBATCH_JOB_NAME}/stderr%-${SLURM_ARRAY_JOB_ID}-${SLURM_ARRAY_TASK_ID}-${SLURM_JOB_ID}-${HOSTNAME}-${JOB_COMPLETION_INDEX}-${SLURM_ARRAY_TASK_ID}.out
 `,
 							}).
 							Obj(),
