@@ -118,9 +118,10 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 	podSets := make([]kueue.PodSet, len(j.Spec.ReplicatedJobs))
 	for index, replicatedJob := range j.Spec.ReplicatedJobs {
 		podSets[index] = kueue.PodSet{
-			Name:     replicatedJob.Name,
-			Template: *replicatedJob.Template.Spec.Template.DeepCopy(),
-			Count:    podsCount(&replicatedJob),
+			Name:            replicatedJob.Name,
+			Template:        *replicatedJob.Template.Spec.Template.DeepCopy(),
+			Count:           podsCount(&replicatedJob),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&replicatedJob.Template.Spec.Template),
 		}
 	}
 	return podSets

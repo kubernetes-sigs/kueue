@@ -34,6 +34,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -83,6 +84,9 @@ type clusterQueue struct {
 
 	resourceNode ResourceNode
 	hierarchy.ClusterQueue[*cohort]
+
+	tasFlavors []kueue.ResourceFlavorReference
+	tasCache   *TASCache
 }
 
 func (c *clusterQueue) GetName() string {
@@ -291,6 +295,15 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 func (c *clusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
 	c.updateLabelKeys(flavors)
 	c.updateQueueStatus()
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for flavorName, rf := range flavors {
+			if rf.Spec.TopologyName != nil {
+				if !slices.Contains(c.tasFlavors, flavorName) {
+					c.tasFlavors = append(c.tasFlavors, flavorName)
+				}
+			}
+		}
+	}
 }
 
 func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
@@ -426,12 +439,20 @@ func (c *clusterQueue) reportActiveWorkloads() {
 func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
+	tasUsage := wi.TASUsage()
 	for fr, q := range frUsage {
+		tasFlvCache := c.tasFlavorCache(fr.Flavor)
 		if m == 1 {
 			addUsage(c, fr, q)
+			if tasFlvCache != nil {
+				tasFlvCache.addUsage(tasUsage)
+			}
 		}
 		if m == -1 {
 			removeUsage(c, fr, q)
+			if tasFlvCache != nil {
+				tasFlvCache.removeUsage(tasUsage)
+			}
 		}
 	}
 	if admitted {
@@ -447,6 +468,19 @@ func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 			lq.admittedWorkloads += int(m)
 		}
 	}
+}
+
+func (c *clusterQueue) tasFlavorCache(flvName kueue.ResourceFlavorReference) *TASFlavorCache {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return nil
+	}
+	if c.tasFlavors == nil || c.tasCache == nil {
+		return nil
+	}
+	if !slices.Contains(c.tasFlavors, flvName) {
+		return nil
+	}
+	return c.tasCache.Get(flvName)
 }
 
 func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, m int64) {

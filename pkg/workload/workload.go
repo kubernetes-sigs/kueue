@@ -165,11 +165,27 @@ type PodSetResources struct {
 	// Count indicates how many pods are in the podset.
 	Count int32
 
+	// TopologyRequest specifies the requests for TAS
+	TopologyRequest *TopologyRequest
+
 	// Flavors are populated when the Workload is assigned.
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
+type TopologyRequest struct {
+	Levels         []string
+	DomainRequests []TopologyDomainRequests
+}
+
+type TopologyDomainRequests struct {
+	Values   []string
+	Requests resources.Requests
+}
+
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
+	if psr.TopologyRequest != nil {
+		return psr
+	}
 	ret := &PodSetResources{
 		Name:     psr.Name,
 		Requests: maps.Clone(psr.Requests),
@@ -241,6 +257,20 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 		}
 	}
 	return res
+}
+
+// TASUsage returns topology usage requested by the Workload
+func (i *Info) TASUsage() []TopologyDomainRequests {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return nil
+	}
+	result := make([]TopologyDomainRequests, 0)
+	for _, ps := range i.TotalRequests {
+		if ps.TopologyRequest != nil {
+			result = append(result, ps.TopologyRequest.DomainRequests...)
+		}
+	}
+	return result
 }
 
 func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
@@ -353,6 +383,20 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			Flavors:  psa.Flavors,
 			Count:    ptr.Deref(psa.Count, totalCounts[psa.Name]),
 			Requests: resources.NewRequests(psa.ResourceUsage),
+		}
+		if features.Enabled(features.TopologyAwareScheduling) && psa.TopologyAssignment != nil {
+			setRes.TopologyRequest = &TopologyRequest{
+				Levels: psa.TopologyAssignment.Levels,
+			}
+			for _, domain := range psa.TopologyAssignment.Domains {
+				domainRequests := setRes.Requests.Clone()
+				scaleDown(domainRequests, int64(setRes.Count))
+				scaleUp(domainRequests, int64(domain.Count))
+				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
+					Values:   domain.Values,
+					Requests: domainRequests,
+				})
+			}
 		}
 
 		// If countAfterReclaim is lower then the admission count indicates that
