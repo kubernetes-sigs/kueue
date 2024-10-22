@@ -135,8 +135,9 @@ Workload gets requeued in a similar way to [WaitForPodsReady](https://github.com
 When AdmissionCheck is in `Retry` state, the workload controller evicts the Workload with `WorkloadRequeued=False` condition with `AdmissionCheck` as a reason.
 After the backoff period, the Workload is requeued, enters the queue again, and begins a new admission cycle.
 
-Additionally, we introduce the feature gate `KeepQuotaForProvReqRetry`. If the feature gate is enabled the Workload with failed ProvisioningRequest
-will keep the allocated quota and won't be requeued. Instead it will be in the AdmissionCheck phase of admission, and will recreate ProvisioningRequest after backoff time
+Additionally, to enable the previous behavior of keeping the quota, in 0.9.0 we introduce the feature gate `KeepQuotaForProvReqRetry`. If the feature gate is enabled the Workload with failed ProvisioningRequest
+will keep the allocated quota and won't be requeued. Instead it will be in the AdmissionCheck phase of admission, and will recreate ProvisioningRequest after backoff time.
+The feature gate is deprecated and will be removed in 0.10 unless we get feedback from users indicating that the old behavior is needed.
 
 The definition of `ProvisioningRequestConfig` is relatively simple and is based on
 what can be set in `ProvisioningRequest`.
