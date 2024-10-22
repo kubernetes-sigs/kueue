@@ -65,6 +65,18 @@ var (
 	slurmInitEntrypointFilenamePath = fmt.Sprintf("%s/%s", slurmScriptsPath, slurmInitEntrypointFilename)
 	slurmEntrypointFilenamePath     = fmt.Sprintf("%s/%s", slurmScriptsPath, slurmEntrypointFilename)
 	slurmScriptFilenamePath         = fmt.Sprintf("%s/%s", slurmScriptsPath, slurmScriptFilename)
+
+	unmaskReplacer = strings.NewReplacer(
+		"%%", "%",
+		"%A", "${SLURM_ARRAY_JOB_ID}",
+		"%a", "${SLURM_ARRAY_TASK_ID}",
+		"%j", "${SLURM_JOB_ID}",
+		"%N", "${HOSTNAME}",
+		"%n", "${JOB_COMPLETION_INDEX}",
+		"%t", "${SLURM_ARRAY_TASK_ID}",
+		"%u", "${USER_ID}",
+		"%x", "${SBATCH_JOB_NAME}",
+	)
 )
 
 type slurmBuilder struct {
@@ -623,21 +635,7 @@ func unmaskFilename(filename string) string {
 	if strings.Contains(filename, "\\\\") {
 		return strings.ReplaceAll(filename, "\\\\", "")
 	}
-
-	filename = strings.ReplaceAll(filename, "%%", "//")
-
-	filename = strings.ReplaceAll(filename, "%A", "${SLURM_ARRAY_JOB_ID}")
-	filename = strings.ReplaceAll(filename, "%a", "${SLURM_ARRAY_TASK_ID}")
-	filename = strings.ReplaceAll(filename, "%j", "${SLURM_JOB_ID}")
-	filename = strings.ReplaceAll(filename, "%N", "${HOSTNAME}")
-	filename = strings.ReplaceAll(filename, "%n", "${JOB_COMPLETION_INDEX}")
-	filename = strings.ReplaceAll(filename, "%t", "${SLURM_ARRAY_TASK_ID}")
-	filename = strings.ReplaceAll(filename, "%u", "${USER_ID}")
-	filename = strings.ReplaceAll(filename, "%x", "${SBATCH_JOB_NAME}")
-
-	filename = strings.ReplaceAll(filename, "//", "%")
-
-	return filename
+	return unmaskReplacer.Replace(filename)
 }
 
 func (b *slurmBuilder) buildEntrypointCommand() string {
