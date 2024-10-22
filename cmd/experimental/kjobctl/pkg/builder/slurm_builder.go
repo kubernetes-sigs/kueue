@@ -52,9 +52,8 @@ const (
 	slurmEntrypointFilename     = "entrypoint.sh"
 	slurmScriptFilename         = "script"
 
-	slurmEnvsPath          = "/slurm/env"
-	slurmSbatchEnvFilename = "sbatch.env"
-	slurmSlurmEnvFilename  = "slurm.env"
+	slurmEnvsPath         = "/slurm/env"
+	slurmSlurmEnvFilename = "slurm.env"
 )
 
 var (
@@ -478,19 +477,8 @@ type slurmInitEntrypointScript struct {
 	JobName   string
 	Namespace string
 
-	EnvsPath          string
-	SbatchEnvFilename string
-	SlurmEnvFilename  string
-
-	SbatchArrayIndex  string
-	SbatchGPUsPerTask string
-	SbatchMemPerCPU   string
-	SbatchMemPerGPU   string
-	SbatchOutput      string
-	SbatchError       string
-	SbatchInput       string
-	SbatchJobName     string
-	SbatchPartition   string
+	EnvsPath         string
+	SlurmEnvFilename string
 
 	SlurmArrayJobID     int32
 	SlurmArrayTaskCount int32
@@ -521,21 +509,6 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 	nTasks := ptr.Deref(b.nTasks, 1)
 	nodes := ptr.Deref(b.nodes, 1)
 
-	var gpusPerTask, memPerCPU, memPerGPU string
-	if b.gpusPerTask != nil {
-		gpus := make([]string, 0)
-		for name, number := range b.gpusPerTask {
-			gpus = append(gpus, fmt.Sprintf("%s:%s", name, number))
-		}
-		gpusPerTask = strings.Join(gpus, ",")
-	}
-	if b.memPerCPU != nil {
-		memPerCPU = b.memPerCPU.String()
-	}
-	if b.memPerGPU != nil {
-		memPerGPU = b.memPerGPU.String()
-	}
-
 	nodeList := make([]string, nodes)
 	for i := int32(0); i < nodes; i++ {
 		nodeList[i] = fmt.Sprintf("%s-%d.%s", b.objectName, i, b.objectName)
@@ -547,19 +520,8 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 		JobName:   b.objectName,
 		Namespace: b.namespace,
 
-		EnvsPath:          slurmEnvsPath,
-		SbatchEnvFilename: slurmSbatchEnvFilename,
-		SlurmEnvFilename:  slurmSlurmEnvFilename,
-
-		SbatchArrayIndex:  b.array,
-		SbatchGPUsPerTask: gpusPerTask,
-		SbatchMemPerCPU:   memPerCPU,
-		SbatchMemPerGPU:   memPerGPU,
-		SbatchOutput:      b.output,
-		SbatchError:       b.error,
-		SbatchInput:       b.input,
-		SbatchJobName:     b.jobName,
-		SbatchPartition:   b.partition,
+		EnvsPath:         slurmEnvsPath,
+		SlurmEnvFilename: slurmSlurmEnvFilename,
 
 		SlurmArrayJobID:     slurmArrayJobID,
 		SlurmArrayTaskCount: int32(b.arrayIndexes.Count()),
@@ -597,7 +559,7 @@ func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
 
 type slurmEntrypointScript struct {
 	EnvsPath               string
-	SbatchEnvFilename      string
+	SbatchJobName          string
 	SlurmEnvFilename       string
 	ChangeDir              string
 	BuildEntrypointCommand string
@@ -606,7 +568,7 @@ type slurmEntrypointScript struct {
 func (b *slurmBuilder) buildEntrypointScript() (string, error) {
 	scriptValues := slurmEntrypointScript{
 		EnvsPath:               slurmEnvsPath,
-		SbatchEnvFilename:      slurmSbatchEnvFilename,
+		SbatchJobName:          b.jobName,
 		SlurmEnvFilename:       slurmSlurmEnvFilename,
 		ChangeDir:              b.changeDir,
 		BuildEntrypointCommand: b.buildEntrypointCommand(),

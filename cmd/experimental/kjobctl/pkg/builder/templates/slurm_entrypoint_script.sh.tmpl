@@ -11,7 +11,7 @@ if [ ! -d "{{.EnvsPath}}/$JOB_CONTAINER_INDEX" ]; then
 	exit 0
 fi
 
-source {{.EnvsPath}}/$JOB_CONTAINER_INDEX/{{.SbatchEnvFilename}}
+SBATCH_JOB_NAME={{.SbatchJobName}}
 
 export $(cat {{.EnvsPath}}/$JOB_CONTAINER_INDEX/{{.SlurmEnvFilename}} | xargs)
 

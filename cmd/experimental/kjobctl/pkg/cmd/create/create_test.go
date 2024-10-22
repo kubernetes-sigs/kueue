@@ -1001,17 +1001,6 @@ do
 
 	mkdir -p /slurm/env/$i
 
-	cat << EOF > /slurm/env/$i/sbatch.env
-SBATCH_ARRAY_INX=
-SBATCH_GPUS_PER_TASK=
-SBATCH_MEM_PER_CPU=
-SBATCH_MEM_PER_GPU=
-SBATCH_OUTPUT=
-SBATCH_ERROR=
-SBATCH_INPUT=
-SBATCH_JOB_NAME=
-SBATCH_PARTITION=
-EOF
 
 	cat << EOF > /slurm/env/$i/slurm.env
 SLURM_ARRAY_JOB_ID=1
@@ -1056,7 +1045,7 @@ if [ ! -d "/slurm/env/$JOB_CONTAINER_INDEX" ]; then
 	exit 0
 fi
 
-source /slurm/env/$JOB_CONTAINER_INDEX/sbatch.env
+SBATCH_JOB_NAME=
 
 export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 
@@ -1256,17 +1245,6 @@ do
 
 	mkdir -p /slurm/env/$i
 
-	cat << EOF > /slurm/env/$i/sbatch.env
-SBATCH_ARRAY_INX=0-25
-SBATCH_GPUS_PER_TASK=
-SBATCH_MEM_PER_CPU=
-SBATCH_MEM_PER_GPU=
-SBATCH_OUTPUT=/home/%u/%x/stdout%%-%A-%a-%j-%N-%n-%t.out
-SBATCH_ERROR=/home/%u/%x/stderr%%-%A-%a-%j-%N-%n-%t.out
-SBATCH_INPUT=\\/home/%u/%x/stderr%%-%A-%a-%j-%N-%n-%t.out
-SBATCH_JOB_NAME=job-name
-SBATCH_PARTITION=lq1
-EOF
 
   if [[ "$JOB_COMPLETION_INDEX" -eq 0 ]]; then
     SLURM_JOB_FIRST_NODE_IP=${POD_IP}
@@ -1334,7 +1312,7 @@ if [ ! -d "/slurm/env/$JOB_CONTAINER_INDEX" ]; then
 	exit 0
 fi
 
-source /slurm/env/$JOB_CONTAINER_INDEX/sbatch.env
+SBATCH_JOB_NAME=job-name
 
 export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 

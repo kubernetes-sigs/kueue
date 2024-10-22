@@ -22,17 +22,6 @@ do
 
 	mkdir -p {{.EnvsPath}}/$i
 
-	cat << EOF > {{.EnvsPath}}/$i/{{.SbatchEnvFilename}}
-SBATCH_ARRAY_INX={{.SbatchArrayIndex}}
-SBATCH_GPUS_PER_TASK={{.SbatchGPUsPerTask}}
-SBATCH_MEM_PER_CPU={{.SbatchMemPerCPU}}
-SBATCH_MEM_PER_GPU={{.SbatchMemPerGPU}}
-SBATCH_OUTPUT={{.SbatchOutput}}
-SBATCH_ERROR={{.SbatchError}}
-SBATCH_INPUT={{.SbatchInput}}
-SBATCH_JOB_NAME={{.SbatchJobName}}
-SBATCH_PARTITION={{.SbatchPartition}}
-EOF
 {{if .FirstNodeIP}}
   if [[ "$JOB_COMPLETION_INDEX" -eq 0 ]]; then
     SLURM_JOB_FIRST_NODE_IP=${POD_IP}
