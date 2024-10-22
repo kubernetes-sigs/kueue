@@ -137,13 +137,13 @@ func TestSlurmBuilderDo(t *testing.T) {
 					WithSupportedMode(*wrappers.MakeSupportedMode(v1alpha1.SlurmMode, "slurm-job-template").Obj()).
 					Obj(),
 			},
-			wantRootObj: wrappers.MakeJob("", metav1.NamespaceDefault).
+			wantRootObj: wrappers.MakeJob("profile-slurm-c7rb4", metav1.NamespaceDefault).
 				Parallelism(2).
 				Completions(5).
 				CompletionMode(batchv1.IndexedCompletion).
 				Profile("profile").
 				Mode(v1alpha1.SlurmMode).
-				Subdomain("profile-slurm").
+				Subdomain("profile-slurm-c7rb4").
 				WithInitContainer(*wrappers.MakeContainer("slurm-init-env", "bash:latest").
 					Command("sh", "/slurm/scripts/init-entrypoint.sh").
 					WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
@@ -166,11 +166,18 @@ func TestSlurmBuilderDo(t *testing.T) {
 					WithEnvVar(corev1.EnvVar{Name: "TIMESTAMP", Value: testStartTime.Format(time.RFC3339)}).
 					WithEnvVar(corev1.EnvVar{Name: "JOB_CONTAINER_INDEX", Value: "0"}).
 					Obj()).
+				WithEnvFrom(corev1.EnvFromSource{
+					ConfigMapRef: &corev1.ConfigMapEnvSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "profile-slurm-c7rb4-env",
+						},
+					},
+				}).
 				WithVolume(corev1.Volume{
 					Name: "slurm-scripts",
 					VolumeSource: corev1.VolumeSource{
 						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{Name: "profile-slurm"},
+							LocalObjectReference: corev1.LocalObjectReference{Name: "profile-slurm-c7rb4-scripts"},
 							Items: []corev1.KeyToPath{
 								{Key: "init-entrypoint.sh", Path: "init-entrypoint.sh"},
 								{Key: "entrypoint.sh", Path: "entrypoint.sh"},
@@ -187,7 +194,7 @@ func TestSlurmBuilderDo(t *testing.T) {
 				}).
 				Obj(),
 			wantChildObjs: []runtime.Object{
-				wrappers.MakeConfigMap("", metav1.NamespaceDefault).
+				wrappers.MakeConfigMap("profile-slurm-c7rb4-scripts", metav1.NamespaceDefault).
 					Profile("profile").
 					Mode(v1alpha1.SlurmMode).
 					Data(map[string]string{
@@ -206,7 +213,7 @@ set -x
 array_indexes="1;2;3;4;5"
 container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
 
-for i in $(seq 0 1)
+for i in $(seq 0 $SLURM_TASKS_PER_NODE)
 do
   container_index=$(echo "$container_indexes" | awk -F',' -v idx="$i" '{print $((idx + 1))}')
 
@@ -218,29 +225,9 @@ do
 
 
 	cat << EOF > /slurm/env/$i/slurm.env
-SLURM_ARRAY_JOB_ID=1
-SLURM_ARRAY_TASK_COUNT=5
-SLURM_ARRAY_TASK_MAX=5
-SLURM_ARRAY_TASK_MIN=1
-SLURM_TASKS_PER_NODE=1
-SLURM_CPUS_PER_TASK=
-SLURM_CPUS_ON_NODE=
-SLURM_JOB_CPUS_PER_NODE=
-SLURM_CPUS_PER_GPU=
-SLURM_MEM_PER_CPU=
-SLURM_MEM_PER_GPU=
-SLURM_MEM_PER_NODE=
-SLURM_GPUS=
-SLURM_NTASKS=1
-SLURM_NTASKS_PER_NODE=1
-SLURM_NPROCS=1
-SLURM_NNODES=2
-SLURM_SUBMIT_DIR=/slurm/scripts
 SLURM_SUBMIT_HOST=$HOSTNAME
-SLURM_JOB_NODELIST=profile-slurm-0.profile-slurm,profile-slurm-1.profile-slurm
-SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
-SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
-SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
+SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* $SLURM_TASKS_PER_NODE + $i + $SLURM_ARRAY_JOB_ID)
+SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* $SLURM_TASKS_PER_NODE + $i + $SLURM_ARRAY_JOB_ID)
 SLURM_ARRAY_TASK_ID=$container_index
 SLURM_JOB_FIRST_NODE_IP=${SLURM_JOB_FIRST_NODE_IP:-""}
 EOF
@@ -268,11 +255,37 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 `,
 					}).
 					Obj(),
-				wrappers.MakeService("profile-slurm", metav1.NamespaceDefault).
+				wrappers.MakeConfigMap("profile-slurm-c7rb4-env", metav1.NamespaceDefault).
+					Profile("profile").
+					Mode(v1alpha1.SlurmMode).
+					Data(map[string]string{
+						"SLURM_ARRAY_JOB_ID":      "1",
+						"SLURM_ARRAY_TASK_COUNT":  "5",
+						"SLURM_ARRAY_TASK_MAX":    "5",
+						"SLURM_ARRAY_TASK_MIN":    "1",
+						"SLURM_TASKS_PER_NODE":    "1",
+						"SLURM_CPUS_PER_TASK":     "",
+						"SLURM_CPUS_ON_NODE":      "",
+						"SLURM_JOB_CPUS_PER_NODE": "",
+						"SLURM_CPUS_PER_GPU":      "",
+						"SLURM_MEM_PER_CPU":       "",
+						"SLURM_MEM_PER_GPU":       "",
+						"SLURM_MEM_PER_NODE":      "",
+						"SLURM_GPUS":              "",
+						"SLURM_NTASKS":            "1",
+						"SLURM_NTASKS_PER_NODE":   "1",
+						"SLURM_NPROCS":            "1",
+						"SLURM_NNODES":            "2",
+						"SLURM_SUBMIT_DIR":        "/slurm/scripts",
+						"SLURM_JOB_NODELIST":      "profile-slurm-mwnv4-0.profile-slurm-mwnv4,profile-slurm-mwnv4-1.profile-slurm-mwnv4",
+						"SLURM_JOB_FIRST_NODE":    "profile-slurm-mwnv4-0.profile-slurm-mwnv4",
+					}).
+					Obj(),
+				wrappers.MakeService("profile-slurm-c7rb4", metav1.NamespaceDefault).
 					Profile("profile").
 					Mode(v1alpha1.SlurmMode).
 					ClusterIP("None").
-					Selector("job-name", "profile-slurm").
+					Selector("job-name", "profile-slurm-c7rb4").
 					Obj(),
 			},
 			cmpopts: []cmp.Option{
@@ -343,14 +356,11 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 				return
 			}
 
-			defaultCmpOpts := []cmp.Option{cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")}
-			opts = append(defaultCmpOpts, tc.cmpopts...)
-
-			if diff := cmp.Diff(tc.wantRootObj, gotRootObj, opts...); diff != "" {
+			if diff := cmp.Diff(tc.wantRootObj, gotRootObj, tc.cmpopts...); diff != "" {
 				t.Errorf("Root object after build (-want,+got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantChildObjs, gotChildObjs, opts...); diff != "" {
+			if diff := cmp.Diff(tc.wantChildObjs, gotChildObjs, tc.cmpopts...); diff != "" {
 				t.Errorf("Child objects after build (-want,+got):\n%s", diff)
 			}
 		})

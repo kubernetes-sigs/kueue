@@ -933,11 +933,18 @@ func TestCreateCmd(t *testing.T) {
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-scripts", MountPath: "/slurm/scripts"}).
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
 								Obj()).
+							WithEnvFrom(corev1.EnvFromSource{
+								ConfigMapRef: &corev1.ConfigMapEnvSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "profile-slurm-c7rb4-env",
+									},
+								},
+							}).
 							WithVolume(corev1.Volume{
 								Name: "slurm-scripts",
 								VolumeSource: corev1.VolumeSource{
 									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{Name: "profile-slurm"},
+										LocalObjectReference: corev1.LocalObjectReference{Name: "profile-slurm-c7rb4-scripts"},
 										Items: []corev1.KeyToPath{
 											{Key: "init-entrypoint.sh", Path: "init-entrypoint.sh"},
 											{Key: "entrypoint.sh", Path: "entrypoint.sh"},
@@ -967,9 +974,9 @@ func TestCreateCmd(t *testing.T) {
 				&corev1.ConfigMapList{
 					TypeMeta: metav1.TypeMeta{Kind: "ConfigMapList", APIVersion: "v1"},
 					Items: []corev1.ConfigMap{
-						*wrappers.MakeConfigMap("profile-slurm", metav1.NamespaceDefault).
+						*wrappers.MakeConfigMap("profile-slurm-c7rb4-scripts", metav1.NamespaceDefault).
 							WithOwnerReference(metav1.OwnerReference{
-								Name:       "profile-slurm",
+								Name:       "profile-slurm-c7rb4",
 								APIVersion: "batch/v1",
 								Kind:       "Job",
 							}).
@@ -991,7 +998,7 @@ set -x
 array_indexes="0"
 container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
 
-for i in $(seq 0 1)
+for i in $(seq 0 $SLURM_TASKS_PER_NODE)
 do
   container_index=$(echo "$container_indexes" | awk -F',' -v idx="$i" '{print $((idx + 1))}')
 
@@ -1003,29 +1010,9 @@ do
 
 
 	cat << EOF > /slurm/env/$i/slurm.env
-SLURM_ARRAY_JOB_ID=1
-SLURM_ARRAY_TASK_COUNT=1
-SLURM_ARRAY_TASK_MAX=0
-SLURM_ARRAY_TASK_MIN=0
-SLURM_TASKS_PER_NODE=1
-SLURM_CPUS_PER_TASK=
-SLURM_CPUS_ON_NODE=
-SLURM_JOB_CPUS_PER_NODE=
-SLURM_CPUS_PER_GPU=
-SLURM_MEM_PER_CPU=
-SLURM_MEM_PER_GPU=
-SLURM_MEM_PER_NODE=
-SLURM_GPUS=
-SLURM_NTASKS=1
-SLURM_NTASKS_PER_NODE=1
-SLURM_NPROCS=1
-SLURM_NNODES=1
-SLURM_SUBMIT_DIR=/slurm/scripts
 SLURM_SUBMIT_HOST=$HOSTNAME
-SLURM_JOB_NODELIST=profile-slurm-0.profile-slurm
-SLURM_JOB_FIRST_NODE=profile-slurm-0.profile-slurm
-SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
-SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* 1 + $i + 1)
+SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* $SLURM_TASKS_PER_NODE + $i + $SLURM_ARRAY_JOB_ID)
+SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* $SLURM_TASKS_PER_NODE + $i + $SLURM_ARRAY_JOB_ID)
 SLURM_ARRAY_TASK_ID=$container_index
 SLURM_JOB_FIRST_NODE_IP=${SLURM_JOB_FIRST_NODE_IP:-""}
 EOF
@@ -1053,18 +1040,49 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 `,
 							}).
 							Obj(),
+						*wrappers.MakeConfigMap("profile-slurm-c7rb4-env", metav1.NamespaceDefault).
+							WithOwnerReference(metav1.OwnerReference{
+								Name:       "profile-slurm-c7rb4",
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+							}).
+							Profile("profile").
+							Mode(v1alpha1.SlurmMode).
+							Data(map[string]string{
+								"SLURM_ARRAY_JOB_ID":      "1",
+								"SLURM_ARRAY_TASK_COUNT":  "1",
+								"SLURM_ARRAY_TASK_MAX":    "0",
+								"SLURM_ARRAY_TASK_MIN":    "0",
+								"SLURM_TASKS_PER_NODE":    "1",
+								"SLURM_CPUS_PER_TASK":     "",
+								"SLURM_CPUS_ON_NODE":      "",
+								"SLURM_JOB_CPUS_PER_NODE": "",
+								"SLURM_CPUS_PER_GPU":      "",
+								"SLURM_MEM_PER_CPU":       "",
+								"SLURM_MEM_PER_GPU":       "",
+								"SLURM_MEM_PER_NODE":      "",
+								"SLURM_GPUS":              "",
+								"SLURM_NTASKS":            "1",
+								"SLURM_NTASKS_PER_NODE":   "1",
+								"SLURM_NPROCS":            "1",
+								"SLURM_NNODES":            "1",
+								"SLURM_SUBMIT_DIR":        "/slurm/scripts",
+								"SLURM_JOB_NODELIST":      "profile-slurm-mwnv4-0.profile-slurm-mwnv4",
+								"SLURM_JOB_FIRST_NODE":    "profile-slurm-mwnv4-0.profile-slurm-mwnv4",
+							}).
+							Obj(),
 					},
 				},
 				&corev1.ServiceList{
 					TypeMeta: metav1.TypeMeta{Kind: "ServiceList", APIVersion: "v1"},
 					Items: []corev1.Service{
-						*wrappers.MakeService("profile-slurm", metav1.NamespaceDefault).
+						*wrappers.MakeService("profile-slurm-c7rb4", metav1.NamespaceDefault).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
 							ClusterIP("None").
-							Selector("job-name", "profile-slurm").
+							Selector("job-name", "profile-slurm-c7rb4").
 							WithOwnerReference(metav1.OwnerReference{
-								Name:       "profile-slurm",
+								Name:       "profile-slurm-c7rb4",
 								APIVersion: "batch/v1",
 								Kind:       "Job",
 							}).
@@ -1082,8 +1100,11 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 					}
 					return m
 				}),
+				cmpopts.SortSlices(func(a, b corev1.ConfigMap) bool {
+					return a.Name < b.Name
+				}),
 			},
-			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+			wantOutPattern: `^job\.batch\/profile-slurm-.{5} created\\nconfigmap\/profile-slurm-.{5}-scripts created\\nconfigmap\/profile-slurm-.{5}-env created\\nservice\/profile-slurm-.{5} created\\n`,
 		},
 		"should create slurm with flags": {
 			beforeTest: beforeSlurmTest,
@@ -1176,11 +1197,18 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 								WithVolumeMount(corev1.VolumeMount{Name: "slurm-env", MountPath: "/slurm/env"}).
 								WithRequest(corev1.ResourceCPU, resource.MustParse("2")).
 								Obj()).
+							WithEnvFrom(corev1.EnvFromSource{
+								ConfigMapRef: &corev1.ConfigMapEnvSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "profile-slurm-c7rb4-env",
+									},
+								},
+							}).
 							WithVolume(corev1.Volume{
 								Name: "slurm-scripts",
 								VolumeSource: corev1.VolumeSource{
 									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{Name: "profile-slurm"},
+										LocalObjectReference: corev1.LocalObjectReference{Name: "profile-slurm-c7rb4-scripts"},
 										Items: []corev1.KeyToPath{
 											{Key: "init-entrypoint.sh", Path: "init-entrypoint.sh"},
 											{Key: "entrypoint.sh", Path: "entrypoint.sh"},
@@ -1210,15 +1238,14 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 				&corev1.ConfigMapList{
 					TypeMeta: metav1.TypeMeta{Kind: "ConfigMapList", APIVersion: "v1"},
 					Items: []corev1.ConfigMap{
-						*wrappers.MakeConfigMap("profile-slurm", metav1.NamespaceDefault).
+						*wrappers.MakeConfigMap("profile-slurm-c7rb4-scripts", metav1.NamespaceDefault).
 							WithOwnerReference(metav1.OwnerReference{
-								Name:       "profile-slurm",
+								Name:       "profile-slurm-c7rb4",
 								APIVersion: "batch/v1",
 								Kind:       "Job",
 							}).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
-							LocalQueue("lq1").
 							Data(map[string]string{
 								"script": "#!/bin/bash\nsleep 300'",
 								"init-entrypoint.sh": `#!/bin/sh
@@ -1235,7 +1262,7 @@ set -x
 array_indexes="0,1,2;3,4,5;6,7,8;9,10,11;12,13,14;15,16,17;18,19,20;21,22,23;24,25"
 container_indexes=$(echo "$array_indexes" | awk -F';' -v idx="$JOB_COMPLETION_INDEX" '{print $((idx + 1))}')
 
-for i in $(seq 0 3)
+for i in $(seq 0 $SLURM_TASKS_PER_NODE)
 do
   container_index=$(echo "$container_indexes" | awk -F',' -v idx="$i" '{print $((idx + 1))}')
 
@@ -1252,7 +1279,7 @@ do
     timeout=29
     start_time=$(date +%s)
     while true; do
-      ip=$(nslookup "profile-slurm-r8njg-0.profile-slurm-r8njg" | grep "Address 1" | awk 'NR==2 {print $3}') || true
+      ip=$(nslookup "$SLURM_JOB_FIRST_NODE" | grep "Address 1" | awk 'NR==2 {print $3}') || true
       if [[ -n "$ip" ]]; then
         SLURM_JOB_FIRST_NODE_IP=$ip
         break
@@ -1260,39 +1287,19 @@ do
         current_time=$(date +%s)
         elapsed_time=$((current_time - start_time))
         if [ "$elapsed_time" -ge "$timeout" ]; then
-          echo "Timeout reached, IP address for the first node (profile-slurm-r8njg-0.profile-slurm-r8njg) not found."
+          echo "Timeout reached, IP address for the first node ($SLURM_JOB_FIRST_NODE) not found."
           break
         fi
-        echo "IP Address for the first node (profile-slurm-r8njg-0.profile-slurm-r8njg) not found, retrying..."
+        echo "IP Address for the first node ($SLURM_JOB_FIRST_NODE) not found, retrying..."
         sleep 1
       fi
     done
   fi
 
 	cat << EOF > /slurm/env/$i/slurm.env
-SLURM_ARRAY_JOB_ID=1
-SLURM_ARRAY_TASK_COUNT=26
-SLURM_ARRAY_TASK_MAX=25
-SLURM_ARRAY_TASK_MIN=0
-SLURM_TASKS_PER_NODE=3
-SLURM_CPUS_PER_TASK=2
-SLURM_CPUS_ON_NODE=8
-SLURM_JOB_CPUS_PER_NODE=8
-SLURM_CPUS_PER_GPU=
-SLURM_MEM_PER_CPU=
-SLURM_MEM_PER_GPU=
-SLURM_MEM_PER_NODE=
-SLURM_GPUS=
-SLURM_NTASKS=3
-SLURM_NTASKS_PER_NODE=3
-SLURM_NPROCS=3
-SLURM_NNODES=2
-SLURM_SUBMIT_DIR=/slurm/scripts
 SLURM_SUBMIT_HOST=$HOSTNAME
-SLURM_JOB_NODELIST=profile-slurm-fpxnj-0.profile-slurm-fpxnj,profile-slurm-fpxnj-1.profile-slurm-fpxnj
-SLURM_JOB_FIRST_NODE=profile-slurm-fpxnj-0.profile-slurm-fpxnj
-SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* 3 + $i + 1)
-SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* 3 + $i + 1)
+SLURM_JOB_ID=$(expr $JOB_COMPLETION_INDEX \* $SLURM_TASKS_PER_NODE + $i + $SLURM_ARRAY_JOB_ID)
+SLURM_JOBID=$(expr $JOB_COMPLETION_INDEX \* $SLURM_TASKS_PER_NODE + $i + $SLURM_ARRAY_JOB_ID)
 SLURM_ARRAY_TASK_ID=$container_index
 SLURM_JOB_FIRST_NODE_IP=${SLURM_JOB_FIRST_NODE_IP:-""}
 EOF
@@ -1320,6 +1327,37 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 `,
 							}).
 							Obj(),
+						*wrappers.MakeConfigMap("profile-slurm-c7rb4-env", metav1.NamespaceDefault).
+							WithOwnerReference(metav1.OwnerReference{
+								Name:       "profile-slurm-c7rb4",
+								APIVersion: "batch/v1",
+								Kind:       "Job",
+							}).
+							Profile("profile").
+							Mode(v1alpha1.SlurmMode).
+							Data(map[string]string{
+								"SLURM_ARRAY_JOB_ID":      "1",
+								"SLURM_ARRAY_TASK_COUNT":  "26",
+								"SLURM_ARRAY_TASK_MAX":    "25",
+								"SLURM_ARRAY_TASK_MIN":    "0",
+								"SLURM_TASKS_PER_NODE":    "3",
+								"SLURM_CPUS_PER_TASK":     "2",
+								"SLURM_CPUS_ON_NODE":      "8",
+								"SLURM_JOB_CPUS_PER_NODE": "8",
+								"SLURM_CPUS_PER_GPU":      "",
+								"SLURM_MEM_PER_CPU":       "",
+								"SLURM_MEM_PER_GPU":       "",
+								"SLURM_MEM_PER_NODE":      "",
+								"SLURM_GPUS":              "",
+								"SLURM_NTASKS":            "3",
+								"SLURM_NTASKS_PER_NODE":   "3",
+								"SLURM_NPROCS":            "3",
+								"SLURM_NNODES":            "2",
+								"SLURM_SUBMIT_DIR":        "/slurm/scripts",
+								"SLURM_JOB_NODELIST":      "profile-slurm-mwnv4-0.profile-slurm-mwnv4,profile-slurm-mwnv4-1.profile-slurm-mwnv4",
+								"SLURM_JOB_FIRST_NODE":    "profile-slurm-mwnv4-0.profile-slurm-mwnv4",
+							}).
+							Obj(),
 					},
 				},
 				&corev1.ServiceList{
@@ -1328,7 +1366,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 						*wrappers.MakeService("profile-slurm", metav1.NamespaceDefault).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
-							LocalQueue("lq1").
 							ClusterIP("None").
 							Selector("job-name", "profile-slurm").
 							WithOwnerReference(metav1.OwnerReference{
@@ -1350,8 +1387,11 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 					}
 					return m
 				}),
+				cmpopts.SortSlices(func(a, b corev1.ConfigMap) bool {
+					return a.Name < b.Name
+				}),
 			},
-			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+			wantOutPattern: `^job\.batch\/profile-slurm-.{5} created\\nconfigmap\/profile-slurm-.{5}-scripts created\\nconfigmap\/profile-slurm-.{5}-env created\\nservice\/profile-slurm-.{5} created\\n`,
 		},
 		"should create slurm with --ntasks flag": {
 			beforeTest: beforeSlurmTest,
@@ -1409,12 +1449,13 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
 				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
+				cmpopts.IgnoreTypes([]corev1.EnvFromSource{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
-			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+			wantOutPattern: `^job\.batch\/profile-slurm-.{5} created\\nconfigmap\/profile-slurm-.{5}-scripts created\\nconfigmap\/profile-slurm-.{5}-env created\\nservice\/profile-slurm-.{5} created\\n`,
 		},
 		"should divide --mem exactly across containers": {
 			beforeTest: beforeSlurmTest,
@@ -1479,12 +1520,13 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
 				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
+				cmpopts.IgnoreTypes([]corev1.EnvFromSource{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
-			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+			wantOutPattern: `^job\.batch\/profile-slurm-.{5} created\\nconfigmap\/profile-slurm-.{5}-scripts created\\nconfigmap\/profile-slurm-.{5}-env created\\nservice\/profile-slurm-.{5} created\\n`,
 		},
 		"should handle non-exact --mem division across containers": {
 			beforeTest: beforeSlurmTest,
@@ -1549,12 +1591,13 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
 				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
+				cmpopts.IgnoreTypes([]corev1.EnvFromSource{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
-			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+			wantOutPattern: `^job\.batch\/profile-slurm-.{5} created\\nconfigmap\/profile-slurm-.{5}-scripts created\\nconfigmap\/profile-slurm-.{5}-env created\\nservice\/profile-slurm-.{5} created\\n`,
 		},
 		"should create slurm with --mem-per-cpu flag": {
 			beforeTest: beforeSlurmTest,
@@ -1622,12 +1665,13 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
 				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
+				cmpopts.IgnoreTypes([]corev1.EnvFromSource{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
-			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+			wantOutPattern: `^job\.batch\/profile-slurm-.{5} created\\nconfigmap\/profile-slurm-.{5}-scripts created\\nconfigmap\/profile-slurm-.{5}-env created\\nservice\/profile-slurm-.{5} created\\n`,
 		},
 		"shouldn't create slurm with --mem-per-cpu flag because --cpus-per-task flag not specified": {
 			beforeTest: beforeSlurmTest,
@@ -1709,12 +1753,13 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
 				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
+				cmpopts.IgnoreTypes([]corev1.EnvFromSource{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
-			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+			wantOutPattern: `^job\.batch\/profile-slurm-.{5} created\\nconfigmap\/profile-slurm-.{5}-scripts created\\nconfigmap\/profile-slurm-.{5}-env created\\nservice\/profile-slurm-.{5} created\\n`,
 		},
 		"should create slurm with --mem-per-gpu flag": {
 			beforeTest: beforeSlurmTest,
@@ -1784,12 +1829,13 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
 				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
+				cmpopts.IgnoreTypes([]corev1.EnvFromSource{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
-			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+			wantOutPattern: `^job\.batch\/profile-slurm-.{5} created\\nconfigmap\/profile-slurm-.{5}-scripts created\\nconfigmap\/profile-slurm-.{5}-env created\\nservice\/profile-slurm-.{5} created\\n`,
 		},
 		"shouldn't create slurm with --mem-per-gpu flag because --gpus-per-task flag not specified": {
 			beforeTest: beforeSlurmTest,
@@ -1866,12 +1912,13 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 				cmpopts.IgnoreFields(metav1.OwnerReference{}, "Name"),
 				cmpopts.IgnoreFields(corev1.PodSpec{}, "InitContainers", "Subdomain"),
 				cmpopts.IgnoreTypes([]corev1.EnvVar{}),
+				cmpopts.IgnoreTypes([]corev1.EnvFromSource{}),
 				cmpopts.IgnoreTypes([]corev1.Volume{}),
 				cmpopts.IgnoreTypes([]corev1.VolumeMount{}),
 				cmpopts.IgnoreTypes(corev1.ConfigMapList{}),
 				cmpopts.IgnoreTypes(corev1.ServiceList{}),
 			},
-			wantOutPattern: `job\.batch\/.+ created\\nconfigmap\/.+ created`,
+			wantOutPattern: `^job\.batch\/profile-slurm-.{5} created\\nconfigmap\/profile-slurm-.{5}-scripts created\\nconfigmap\/profile-slurm-.{5}-env created\\nservice\/profile-slurm-.{5} created\\n`,
 		},
 		"shouldn't create job with client dry run": {
 			args: func(tc *createCmdTestCase) []string {

@@ -155,6 +155,17 @@ func (j *JobWrapper) WithEnvVarIndexValue(name string) *JobWrapper {
 	return j
 }
 
+// WithEnvFrom add envFrom to the container template.
+func (j *JobWrapper) WithEnvFrom(envFrom corev1.EnvFromSource) *JobWrapper {
+	for index := range j.Job.Spec.Template.Spec.Containers {
+		j.Job.Spec.Template.Spec.Containers[index].EnvFrom = append(j.Job.Spec.Template.Spec.Containers[index].EnvFrom, envFrom)
+	}
+	for index := range j.Job.Spec.Template.Spec.InitContainers {
+		j.Job.Spec.Template.Spec.InitContainers[index].EnvFrom = append(j.Job.Spec.Template.Spec.InitContainers[index].EnvFrom, envFrom)
+	}
+	return j
+}
+
 // RestartPolicy updates the restartPolicy on the pod template.
 func (j *JobWrapper) RestartPolicy(restartPolicy corev1.RestartPolicy) *JobWrapper {
 	j.Job.Spec.Template.Spec.RestartPolicy = restartPolicy
