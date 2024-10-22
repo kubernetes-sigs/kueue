@@ -1,0 +1,14 @@
+{{- if .Values.controllerManager.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kueue.fullname" . }}-manager-pdb
+  namespace: '{{ .Release.Namespace }}'
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.controllerManager.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+    {{- include "kueue.selectorLabels" . | nindent 6 }}
+{{- end }}
