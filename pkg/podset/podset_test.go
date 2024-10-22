@@ -264,6 +264,9 @@ func TestMergeRestore(t *testing.T) {
 			Value:    "t0v",
 			Effect:   corev1.TaintEffectNoSchedule,
 		}).
+		SchedulingGates(corev1.PodSchedulingGate{
+			Name: "example.com/gate",
+		}).
 		Obj()
 
 	cases := map[string]struct {
@@ -297,6 +300,11 @@ func TestMergeRestore(t *testing.T) {
 						Effect:   corev1.TaintEffectNoSchedule,
 					},
 				},
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{
+						Name: "example.com/gate2",
+					},
+				},
 			},
 			wantPodSet: utiltesting.MakePodSet("", 1).
 				NodeSelector(map[string]string{"ns0": "ns0v", "ns1": "ns1v"}).
@@ -313,6 +321,11 @@ func TestMergeRestore(t *testing.T) {
 					Operator: corev1.TolerationOpEqual,
 					Value:    "t1v",
 					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}, corev1.PodSchedulingGate{
+					Name: "example.com/gate2",
 				}).
 				Obj(),
 			wantRestoreChanges: true,
@@ -347,6 +360,43 @@ func TestMergeRestore(t *testing.T) {
 					Operator: corev1.TolerationOpEqual,
 					Value:    "t0v",
 					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
+				}).
+				Obj(),
+			wantRestoreChanges: true,
+		},
+		"don't duplicate schedulingGate": {
+			podSet: basePodSet.DeepCopy(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					"a1": "a1v",
+				},
+				Labels: map[string]string{
+					"l1": "l1v",
+				},
+				NodeSelector: map[string]string{
+					"ns1": "ns1v",
+				},
+				SchedulingGates: []corev1.PodSchedulingGate{
+					{
+						Name: "example.com/gate",
+					},
+				},
+			},
+			wantPodSet: utiltesting.MakePodSet("", 1).
+				NodeSelector(map[string]string{"ns0": "ns0v", "ns1": "ns1v"}).
+				Labels(map[string]string{"l0": "l0v", "l1": "l1v"}).
+				Annotations(map[string]string{"a0": "a0v", "a1": "a1v"}).
+				Toleration(corev1.Toleration{
+					Key:      "t0",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "t0v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				SchedulingGates(corev1.PodSchedulingGate{
+					Name: "example.com/gate",
 				}).
 				Obj(),
 			wantRestoreChanges: true,

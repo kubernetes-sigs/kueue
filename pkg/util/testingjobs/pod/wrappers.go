@@ -135,7 +135,8 @@ func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
 
 // TopologySchedulingGate adds kueue scheduling gate to the Pod
 func (p *PodWrapper) TopologySchedulingGate() *PodWrapper {
-	return p.Gate(kueuealpha.TopologySchedulingGate)
+	utilpod.Gate(&p.Pod, kueuealpha.TopologySchedulingGate)
+	return p
 }
 
 // Gate adds kueue scheduling gate to the Pod by the gate name
