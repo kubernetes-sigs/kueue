@@ -216,17 +216,6 @@ do
 
 	mkdir -p /slurm/env/$i
 
-	cat << EOF > /slurm/env/$i/sbatch.env
-SBATCH_ARRAY_INX=1-5%2
-SBATCH_GPUS_PER_TASK=
-SBATCH_MEM_PER_CPU=
-SBATCH_MEM_PER_GPU=
-SBATCH_OUTPUT=
-SBATCH_ERROR=
-SBATCH_INPUT=
-SBATCH_JOB_NAME=
-SBATCH_PARTITION=
-EOF
 
 	cat << EOF > /slurm/env/$i/slurm.env
 SLURM_ARRAY_JOB_ID=1
@@ -271,7 +260,7 @@ if [ ! -d "/slurm/env/$JOB_CONTAINER_INDEX" ]; then
 	exit 0
 fi
 
-source /slurm/env/$JOB_CONTAINER_INDEX/sbatch.env
+SBATCH_JOB_NAME=
 
 export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 
