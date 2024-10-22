@@ -1924,6 +1924,7 @@ func TestAssignFlavors(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
@@ -1947,7 +1948,7 @@ func TestAssignFlavors(t *testing.T) {
 				cache.AddOrUpdateResourceFlavor(rf)
 			}
 
-			clusterQueue := cache.Snapshot().ClusterQueues[tc.clusterQueue.Name]
+			clusterQueue := cache.Snapshot(ctx).ClusterQueues[tc.clusterQueue.Name]
 
 			if clusterQueue == nil {
 				t.Fatalf("Failed to create CQ snapshot")
@@ -2053,6 +2054,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 				"uno": utiltesting.MakeResourceFlavor("uno").Obj(),
 				"due": utiltesting.MakeResourceFlavor("due").Obj(),
@@ -2103,7 +2105,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				cache.AddOrUpdateResourceFlavor(rf)
 			}
 
-			snapshot := cache.Snapshot()
+			snapshot := cache.Snapshot(ctx)
 			otherClusterQueue := snapshot.ClusterQueues["other-clusterqueue"]
 			otherClusterQueue.AddUsage(tc.otherClusterQueueUsage)
 
@@ -2200,6 +2202,7 @@ func TestDeletedFlavors(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
 			})
@@ -2227,7 +2230,7 @@ func TestDeletedFlavors(t *testing.T) {
 			for _, flavor := range flavorMap {
 				cache.AddOrUpdateResourceFlavor(flavor)
 			}
-			clusterQueue := cache.Snapshot().ClusterQueues[tc.clusterQueue.Name]
+			clusterQueue := cache.Snapshot(ctx).ClusterQueues[tc.clusterQueue.Name]
 			if clusterQueue == nil {
 				t.Fatalf("Failed to create CQ snapshot")
 			}

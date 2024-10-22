@@ -868,6 +868,12 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 	return &rf.ResourceFlavor
 }
 
+// TopologyLevels sets the topology name
+func (rf *ResourceFlavorWrapper) TopologyName(name string) *ResourceFlavorWrapper {
+	rf.ResourceFlavor.Spec.TopologyName = ptr.To(name)
+	return rf
+}
+
 // Label sets the label on the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
 	if rf.ObjectMeta.Labels == nil {
@@ -899,6 +905,33 @@ func (rf *ResourceFlavorWrapper) Toleration(t corev1.Toleration) *ResourceFlavor
 func (rf *ResourceFlavorWrapper) Creation(t time.Time) *ResourceFlavorWrapper {
 	rf.CreationTimestamp = metav1.NewTime(t)
 	return rf
+}
+
+// TopologyWrapper wraps a Topology.
+type TopologyWrapper struct{ kueuealpha.Topology }
+
+// MakeTopology creates a wrapper for a Topology.
+func MakeTopology(name string) *TopologyWrapper {
+	return &TopologyWrapper{kueuealpha.Topology{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}}
+}
+
+// Levels sets the levels for a Topology.
+func (t *TopologyWrapper) Levels(levels []string) *TopologyWrapper {
+	t.Spec.Levels = make([]kueuealpha.TopologyLevel, len(levels))
+	for i, level := range levels {
+		t.Spec.Levels[i] = kueuealpha.TopologyLevel{
+			NodeLabel: level,
+		}
+	}
+	return t
+}
+
+func (t *TopologyWrapper) Obj() *kueuealpha.Topology {
+	return &t.Topology
 }
 
 // RuntimeClassWrapper wraps a RuntimeClass.

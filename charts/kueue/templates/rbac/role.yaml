@@ -19,6 +19,7 @@ rules:
     resources:
       - limitranges
       - namespaces
+      - nodes
     verbs:
       - get
       - list
@@ -247,6 +248,7 @@ rules:
       - multikueueclusters
       - multikueueconfigs
       - provisioningrequestconfigs
+      - topologies
       - workloadpriorityclasses
     verbs:
       - get

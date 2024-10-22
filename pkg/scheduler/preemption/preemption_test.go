@@ -1458,9 +1458,9 @@ func TestPreemption(t *testing.T) {
 				return nil
 			}
 
-			startingSnapshot := cqCache.Snapshot()
+			startingSnapshot := cqCache.Snapshot(ctx)
 			// make a working copy of the snapshot than preemption can temporarily modify
-			snapshot := cqCache.Snapshot()
+			snapshot := cqCache.Snapshot(ctx)
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, &snapshot)
@@ -1971,7 +1971,7 @@ func TestFairPreemptions(t *testing.T) {
 				PreemptionStrategies: tc.strategies,
 			}, clocktesting.NewFakeClock(now))
 
-			snapshot := cqCache.Snapshot()
+			snapshot := cqCache.Snapshot(ctx)
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(

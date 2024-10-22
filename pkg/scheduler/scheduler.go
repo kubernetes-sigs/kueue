@@ -209,7 +209,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	startTime := time.Now()
 
 	// 2. Take a snapshot of the cache.
-	snapshot := s.cache.Snapshot()
+	snapshot := s.cache.Snapshot(ctx)
 	logSnapshotIfVerbose(log, &snapshot)
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.

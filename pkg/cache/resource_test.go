@@ -372,7 +372,7 @@ func TestAvailable(t *testing.T) {
 				_ = cache.AddOrUpdateCohort(&cohort)
 			}
 
-			snapshot := cache.Snapshot()
+			snapshot := cache.Snapshot(ctx)
 
 			// before adding usage
 			{

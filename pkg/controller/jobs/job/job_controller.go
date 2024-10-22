@@ -249,10 +249,11 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
-			Name:     kueue.DefaultPodSetName,
-			Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
-			Count:    j.podsCount(),
-			MinCount: j.minPodsCount(),
+			Name:            kueue.DefaultPodSetName,
+			Template:        *cleanManagedLabels(j.Spec.Template.DeepCopy()),
+			Count:           j.podsCount(),
+			MinCount:        j.minPodsCount(),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.Template),
 		},
 	}
 }

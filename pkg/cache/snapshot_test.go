@@ -878,6 +878,7 @@ func TestSnapshot(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
@@ -898,7 +899,7 @@ func TestSnapshot(t *testing.T) {
 			for _, wl := range tc.wls {
 				cache.AddOrUpdateWorkload(wl)
 			}
-			snapshot := cache.Snapshot()
+			snapshot := cache.Snapshot(ctx)
 			if diff := cmp.Diff(tc.wantSnapshot, snapshot, snapCmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)
 			}
@@ -981,7 +982,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
 	}
-	initialSnapshot := cqCache.Snapshot()
+	initialSnapshot := cqCache.Snapshot(ctx)
 	initialCohortResources := initialSnapshot.ClusterQueues["c1"].Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []string
@@ -1192,7 +1193,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			snap := cqCache.Snapshot()
+			snap := cqCache.Snapshot(ctx)
 			for _, name := range tc.remove {
 				snap.RemoveWorkload(wlInfos[name])
 			}
@@ -1269,7 +1270,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
 	}
-	initialSnapshot := cqCache.Snapshot()
+	initialSnapshot := cqCache.Snapshot(ctx)
 	initialCohortResources := initialSnapshot.ClusterQueues["lend-a"].Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []string
@@ -1668,7 +1669,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			snap := cqCache.Snapshot()
+			snap := cqCache.Snapshot(ctx)
 			for _, name := range tc.remove {
 				snap.RemoveWorkload(wlInfos[name])
 			}

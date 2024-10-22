@@ -2693,7 +2693,7 @@ func TestSchedule(t *testing.T) {
 			// Verify assignments in cache.
 			gotAssignments := make(map[string]kueue.Admission)
 			var gotWorkloads []kueue.Workload
-			snapshot := cqCache.Snapshot()
+			snapshot := cqCache.Snapshot(ctx)
 			for cqName, c := range snapshot.ClusterQueues {
 				for name, w := range c.Workloads {
 					gotWorkloads = append(gotWorkloads, *w.Obj)
@@ -3495,7 +3495,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			}
 			// Verify assignments in cache.
 			gotAssignments := make(map[string]kueue.Admission)
-			snapshot := cqCache.Snapshot()
+			snapshot := cqCache.Snapshot(ctx)
 			for cqName, c := range snapshot.ClusterQueues {
 				for name, w := range c.Workloads {
 					switch {
@@ -3839,7 +3839,7 @@ func TestResourcesToReserve(t *testing.T) {
 				cqCache.AddOrUpdateWorkload(wl)
 				i += 1
 			}
-			cqSnapshot := cqCache.Snapshot().ClusterQueues["cq"]
+			cqSnapshot := cqCache.Snapshot(ctx).ClusterQueues["cq"]
 
 			got := resourcesToReserve(e, cqSnapshot)
 			if !reflect.DeepEqual(tc.wantReserved, got) {

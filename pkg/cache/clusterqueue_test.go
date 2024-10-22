@@ -369,6 +369,7 @@ func TestFitInCohort(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			if tc.disableLendingLimit {
 				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
 			}
@@ -381,7 +382,7 @@ func TestFitInCohort(t *testing.T) {
 				_ = cache.AddClusterQueue(context.Background(), cq)
 			}
 
-			snapshot := cache.Snapshot()
+			snapshot := cache.Snapshot(ctx)
 			cq := snapshot.ClusterQueues["CQ"]
 			cq.AddUsage(tc.usage)
 
@@ -467,7 +468,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 			if err := cqCache.UpdateClusterQueue(tc.newcq); err != nil {
 				t.Fatalf("Updating clusterQueue %s in cache: %v", tc.newcq.Name, err)
 			}
-			snapshot := cqCache.Snapshot()
+			snapshot := cqCache.Snapshot(ctx)
 			if diff := cmp.Diff(
 				tc.wantLastAssignmentGeneration,
 				snapshot.ClusterQueues["eng-alpha"].AllocatableResourceGeneration); diff != "" {
@@ -1072,6 +1073,7 @@ func TestDominantResourceShare(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("default").Obj())
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("on-demand").Obj())
@@ -1084,7 +1086,7 @@ func TestDominantResourceShare(t *testing.T) {
 				_ = cache.AddClusterQueue(context.Background(), tc.lendingClusterQueue)
 			}
 
-			snapshot := cache.Snapshot()
+			snapshot := cache.Snapshot(ctx)
 
 			i := 0
 			for fr, v := range tc.usage {

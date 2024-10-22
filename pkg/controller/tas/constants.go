@@ -17,5 +17,6 @@ limitations under the License.
 package tas
 
 const (
-	TASTopologyUngater = "tas-topology-ungater"
+	TASResourceFlavorController = "tas-resource-flavor-controller"
+	TASTopologyUngater          = "tas-topology-ungater"
 )

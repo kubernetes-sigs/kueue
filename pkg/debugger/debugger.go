@@ -57,7 +57,7 @@ func (d *Dumper) ListenForSignal(ctx context.Context) {
 func (d *Dumper) DumpAll(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx).WithName("dumper")
 	log.Info("Started dump")
-	snap := d.cache.Snapshot()
+	snap := d.cache.Snapshot(ctx)
 	snap.Log(log)
 	d.queues.LogDump(log)
 	log.Info("Ended dump")
