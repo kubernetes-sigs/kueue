@@ -2,7 +2,7 @@
 ENVTEST_K8S_VERSION = 1.31.0
 
 ifeq ($(shell uname),Darwin)
-    GOFLAGS ?= -ldflags=-extldflags=-Wl,-ld_classic
+    GOFLAGS ?= -ldflags=-linkmode=internal
 endif
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
