@@ -120,7 +120,7 @@ admitted when accounting back the quota usage of the target Workload.
 Fair sharing introduces the concepts of ClusterQueue share values and preemption
 strategies. These work together with the preemption policies set in
 `withinClusterQueue` and `reclaimWithinCohort` to determine if pending workloads
-can preempt running workloads.
+can preempt admitted workloads.
 
 {{< feature-state state="stable" for_version="v0.7" >}}
 
