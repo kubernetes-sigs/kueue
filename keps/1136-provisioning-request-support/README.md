@@ -111,7 +111,7 @@ will also need to watch `ProvisioningRequestConfigs`.
   - `Provisioned=false` controller should surface information about ProvisioningRequest's ETA. It should emit an event regarding that and for every ETA change.
   - `Provisioned=true` controller should mark the AdmissionCheck as `Ready` and propagate the information about `ProvisioningRequest` name to
 workload pods - [KEP #1145](https://github.com/kubernetes-sigs/kueue/blob/main/keps/1145-additional-labels/kep.yaml) under `"cluster-autoscaler.kubernetes.io/consume-provisioning-request"`.
-  - `Failed=true` controller should retry AdmissionCheck with respect to the `RetryConfig` configuration, or mark the AdmissionCheck as `Rejected`
+  - `Failed=true` controller should retry AdmissionCheck with respect to the `RetryStrategy` configuration, or mark the AdmissionCheck as `Rejected`
   - `BookingExpired=true` if a Workload is not `Admitted`, the controller should act the same as for `Failed=true`.
   - `CapacityRevoked=true` if a Workload is not `Finished`, the controller should mark it as `Inactive`, which will evict it.
     Additionally, an event should be emitted to signalize this happening. This can happen only if the job
@@ -122,12 +122,22 @@ workload pods - [KEP #1145](https://github.com/kubernetes-sigs/kueue/blob/main/k
 the provisioning request should also be deleted (the last one can be achieved via
 OwnerReference).
 
-* Retry ProvisioningRequests with respect to the `RetryConfig` configuration in
+* Retry ProvisioningRequests with respect to the `RetryStrategy` configuration in
 the `ProvisioningRequestConfig`. For each attempt a new provisioning request is
-created with the suffix indicating the attempt number. The corresponding admission
-check will remain in the `Pending` state until the retries end. The max number
-of retries is 3, and the interval between attempts grows exponentially, starting
-from 1min (1, 2, 4 min).
+created with the suffix indicating the attempt number. The corresponding AdmissionCheck will change Workload's `.status.requeueState` accordingly, and change its status to `Retry` state until the Workload is requeued. After the Workload is requeued the workload controller should change the AdmissionCheck's status to `Pending`.
+Unless a user configures otherwise configuration is as follows:
+  - The max number of retries is 3,
+  - The interval between attempts grows exponentially, starting
+from 1min (1, 2, 4 min),
+  - Workloads gets requeued (and the allocated quota is released) after each failure of ProvisioningRequest.
+
+Workload gets requeued in a similar way to [WaitForPodsReady](https://github.com/kubernetes-sigs/kueue/tree/main/keps/349-all-or-nothing) mechanism.
+When AdmissionCheck is in `Retry` state, the workload controller evicts the Workload with `WorkloadRequeued=False` condition with `AdmissionCheck` as a reason.
+After the backoff period, the Workload is requeued, enters the queue again, and begins a new admission cycle, and `.status.requeueState.requeueAt` field is reset.
+
+Additionally, to enable the previous behavior of keeping the quota, in 0.9.0 we introduce the feature gate `KeepQuotaForProvReqRetry`. If the feature gate is enabled the Workload with failed ProvisioningRequest
+will keep the allocated quota and won't be requeued. Instead it will be in the AdmissionCheck phase of admission, and will recreate ProvisioningRequest after backoff time.
+The feature gate is deprecated and will be removed in 0.10 unless we get feedback from users indicating that the old behavior is needed.
 
 The definition of `ProvisioningRequestConfig` is relatively simple and is based on
 what can be set in `ProvisioningRequest`.
@@ -170,6 +180,52 @@ type ProvisioningRequestConfigSpec struct {
 	// +listType=set
 	// +kubebuilder:validation:MaxItems=100
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
+
+	// retryStrategy defines strategy for retrying ProvisioningRequest
+	// if nil then default configuration will be applied
+	// to switch off retry mechanism completely, set retryStrategy.backoffLimitCount to 0.
+	//
+	// +optional
+	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy, omitempty"`
+}
+
+type ProvisioningRequestRetryStrategy struct {
+	// Timestamp defines the timestamp used for re-queuing a Workload
+	// that was evicted due to Pod readiness. The possible values are:
+	//
+	// - `Eviction` (default) indicates from Workload `Evicted` condition with `PodsReadyTimeout` reason.
+	// - `Creation` indicates from Workload .metadata.creationTimestamp.
+	//
+	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
+
+	// BackoffLimitCount defines the maximum number of re-queuing retries.
+	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	// When it is null, the workloads will repeatedly and endless re-queueing.
+	//
+	// Every backoff duration is about "b*2^(n-1)+Rand" where:
+	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
+	// - "n" represents the "workloadStatus.requeueState.count",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and
+	// other workloads will have a chance to be admitted.
+	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
+	//
+	// Defaults to 3.
+	// +optional
+	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+
+	// BackoffBaseSeconds defines the base for the exponential backoff for
+	// re-queuing an evicted workload.
+	//
+	// Defaults to 60.
+	// +optional
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	//
+	// Defaults to 1800.
+	// +optional
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 ```
 
