@@ -77,11 +77,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 	}
 }
 
-func (c *Cache) Snapshot() Snapshot {
-	return c.SnapshotWithCtx(context.TODO())
-}
-
-func (c *Cache) SnapshotWithCtx(ctx context.Context) Snapshot {
+func (c *Cache) Snapshot(ctx context.Context) Snapshot {
 	c.RLock()
 	defer c.RUnlock()
 
