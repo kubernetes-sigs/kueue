@@ -78,6 +78,8 @@ type clusterQueue struct {
 	inactiveAdmissionChecks                         []string
 	multipleSingleInstanceControllersChecks         map[string][]string // key = controllerName
 	flavorIndependentAdmissionCheckAppliedPerFlavor []string
+	multipleMultiKueueAdmissionChecks               []string
+	perFlavorMultiKueueAdmissionChecks              []string
 	admittedWorkloadsCount                          int
 	isStopped                                       bool
 	workloadInfoOptions                             []workload.InfoOption
@@ -233,7 +235,10 @@ func (c *clusterQueue) updateQueueStatus() {
 		len(c.missingAdmissionChecks) > 0 ||
 		len(c.inactiveAdmissionChecks) > 0 ||
 		len(c.multipleSingleInstanceControllersChecks) > 0 ||
-		len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
+		len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 ||
+		// one multikueue admission check is allowed
+		len(c.multipleMultiKueueAdmissionChecks) > 1 ||
+		len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -268,13 +273,25 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonAdmissionCheckInactive)
 			messages = append(messages, fmt.Sprintf("references inactive AdmissionCheck(s): %v", c.inactiveAdmissionChecks))
 		}
+
+		if len(c.multipleMultiKueueAdmissionChecks) > 1 {
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks)
+			messages = append(messages, fmt.Sprintf("Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: %v", strings.Join(c.multipleMultiKueueAdmissionChecks, ",")))
+		}
+
+		if len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonMutliKueueAdmissionCheckAppliedPerFlavor)
+			messages = append(messages, fmt.Sprintf("Cannot specify MultiKueue AdmissionCheck per flavor, found: %s", strings.Join(c.perFlavorMultiKueueAdmissionChecks, ",")))
+		}
+
+		// This doesn't need to be gated behind, because it is empty when the gate is disabled
 		if len(c.multipleSingleInstanceControllersChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks)
 			for _, controller := range utilmaps.SortedKeys(c.multipleSingleInstanceControllersChecks) {
 				messages = append(messages, fmt.Sprintf("only one AdmissionCheck of %v can be referenced for controller %q", c.multipleSingleInstanceControllersChecks[controller], controller))
 			}
 		}
-
+		// This doesn't need to be gated behind, because it is empty when the gate is disabled
 		if len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor)
 			messages = append(messages, fmt.Sprintf("AdmissionCheck(s): %v cannot be set at flavor level", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
@@ -325,9 +342,11 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
 	checksPerController := make(map[string][]string, len(c.AdmissionChecks))
 	singleInstanceControllers := sets.New[string]()
+	multipleMultiKueueControllers := sets.New[string]()
 	var missing []string
 	var inactive []string
 	var flavorIndependentCheckOnFlavors []string
+	var perFlavorMultiKueueChecks []string
 	for acName, flavors := range c.AdmissionChecks {
 		if ac, found := checks[acName]; !found {
 			missing = append(missing, acName)
@@ -342,6 +361,16 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 			if ac.FlavorIndependent && flavors.Len() != 0 {
 				flavorIndependentCheckOnFlavors = append(flavorIndependentCheckOnFlavors, acName)
 			}
+
+			if ac.Controller == kueue.MultiKueueControllerName {
+				// MultiKueue Admission Checks has extra constraints:
+				// - cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue
+				// - cannot use specify MultiKueue AdmissionCheck per flavor
+				multipleMultiKueueControllers.Insert(acName)
+				if flavors.Len() != 0 {
+					perFlavorMultiKueueChecks = append(perFlavorMultiKueueChecks, acName)
+				}
+			}
 		}
 	}
 
@@ -349,6 +378,8 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	slices.Sort(missing)
 	slices.Sort(inactive)
 	slices.Sort(flavorIndependentCheckOnFlavors)
+	slices.Sort(perFlavorMultiKueueChecks)
+	multipleMultiKueueControllersList := sets.List(multipleMultiKueueControllers)
 
 	update := false
 	if !slices.Equal(c.missingAdmissionChecks, missing) {
@@ -371,13 +402,25 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 		slices.Sort(checksPerController[c])
 	}
 
-	if !maps.EqualFunc(checksPerController, c.multipleSingleInstanceControllersChecks, slices.Equal) {
-		c.multipleSingleInstanceControllersChecks = checksPerController
+	// Behind the gate due to being triggered when AC is MultiKueue
+	if features.Enabled(features.AdmissionCheckValidationRules) {
+		if !maps.EqualFunc(checksPerController, c.multipleSingleInstanceControllersChecks, slices.Equal) {
+			c.multipleSingleInstanceControllersChecks = checksPerController
+			update = true
+		}
+		if !slices.Equal(c.flavorIndependentAdmissionCheckAppliedPerFlavor, flavorIndependentCheckOnFlavors) {
+			c.flavorIndependentAdmissionCheckAppliedPerFlavor = flavorIndependentCheckOnFlavors
+			update = true
+		}
+	}
+
+	if !slices.Equal(c.multipleMultiKueueAdmissionChecks, multipleMultiKueueControllersList) {
+		c.multipleMultiKueueAdmissionChecks = multipleMultiKueueControllersList
 		update = true
 	}
 
-	if !slices.Equal(c.flavorIndependentAdmissionCheckAppliedPerFlavor, flavorIndependentCheckOnFlavors) {
-		c.flavorIndependentAdmissionCheckAppliedPerFlavor = flavorIndependentCheckOnFlavors
+	if !slices.Equal(c.perFlavorMultiKueueAdmissionChecks, perFlavorMultiKueueChecks) {
+		c.perFlavorMultiKueueAdmissionChecks = perFlavorMultiKueueChecks
 		update = true
 	}
 

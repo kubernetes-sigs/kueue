@@ -632,6 +632,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status conditions when flavors are created", func() {
+			ginkgo.By("Enabling AdmissionCheckValidationRules feature", func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionCheckValidationRules, true)
+			})
 			check1 = testing.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
 			gomega.Expect(k8sClient.Create(ctx, check1)).To(gomega.Succeed())
 			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
@@ -745,6 +748,100 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 			ginkgo.By("All checks are created")
 			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
+			gomega.Eventually(func() []metav1.Condition {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.Conditions
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+				{
+					Type:    kueue.ClusterQueueActive,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Ready",
+					Message: "Can admit new workloads",
+				},
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
+		})
+
+		ginkgo.It("Should prevent workload admission due to multikueue contraints", func() {
+			cpuArchAFlavor = testing.MakeResourceFlavor(flavorCPUArchA).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cpuArchAFlavor)).To(gomega.Succeed())
+
+			cpuArchBFlavor = testing.MakeResourceFlavor(flavorCPUArchB).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cpuArchBFlavor)).To(gomega.Succeed())
+
+			check1 = testing.MakeAdmissionCheck("check1").ControllerName(kueue.MultiKueueControllerName).Obj()
+			gomega.Expect(k8sClient.Create(ctx, check1)).To(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
+
+			check2 = testing.MakeAdmissionCheck("check2").ControllerName(kueue.MultiKueueControllerName).Obj()
+			gomega.Expect(k8sClient.Create(ctx, check2)).To(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
+
+			ginkgo.By("Multiple MultiKueue admission checks for the same cluster queue")
+
+			gomega.Eventually(func() []metav1.Condition {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.Conditions
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+				{
+					Type:    kueue.ClusterQueueActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "MultipleMultiKueueAdmissionChecks",
+					Message: `Can't admit new workloads: Cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue, found: check1,check2.`,
+				},
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
+
+			ginkgo.By("Only one Multikueue flavor dependent admission check assigned to cluster queue")
+			gomega.Eventually(func() error {
+				updatedCq := &kueue.ClusterQueue{}
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)
+				if err != nil {
+					return err
+				}
+				updatedCq.Spec.AdmissionChecks = nil
+				updatedCq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
+						*testing.MakeAdmissionCheckStrategyRule("check1", flavorCPUArchA).Obj(),
+					},
+				}
+				return k8sClient.Update(ctx, updatedCq)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func() []metav1.Condition {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.Conditions
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+				{
+					Type:    kueue.ClusterQueueActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "MutliKueueAdmissionCheckAppliedPerFlavor",
+					Message: `Can't admit new workloads: Cannot specify MultiKueue AdmissionCheck per flavor, found: check1.`,
+				},
+			}, util.IgnoreConditionTimestampsAndObservedGeneration))
+
+			ginkgo.By("Only one Multikueue flavor independent admission check assigned to cluster queue")
+			gomega.Eventually(func() error {
+				var updatedAc kueue.AdmissionCheck
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(check2), &updatedAc)
+				if err != nil {
+					return err
+				}
+				return k8sClient.Delete(ctx, &updatedAc)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func() error {
+				var updatedCq kueue.ClusterQueue
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)
+				if err != nil {
+					return err
+				}
+				updatedCq.Spec.AdmissionChecks = []string{"check1"}
+				updatedCq.Spec.AdmissionChecksStrategy = nil
+				return k8sClient.Update(ctx, &updatedCq)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 			gomega.Eventually(func() []metav1.Condition {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
