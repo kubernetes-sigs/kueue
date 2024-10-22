@@ -129,7 +129,11 @@ Unless a user configures otherwise configuration is as follows:
   - The max number of retries is 3,
   - The interval between attempts grows exponentially, starting
 from 1min (1, 2, 4 min),
-  - Workloads gets requeued after each failure of ProvisionigRequest.
+  - Workloads gets requeued (and the allocated quota is released) after each failure of ProvisionigRequest.
+
+Workload gets requeued in similar way to (WaitForPodsReady)[https://github.com/kubernetes-sigs/kueue/tree/main/keps/349-all-or-nothing] mechanism.
+When AdmissionCheck is in `Retry` state, the workload controller evicts the Workload with `WorkloadRequeued=False` condition with `AdmissionCheck` as a reason.
+After backoff time the Workload is requeued, placed in a queue, and starts another cycle of admission.
 
 The definition of `ProvisioningRequestConfig` is relatively simple and is based on
 what can be set in `ProvisioningRequest`.
@@ -174,6 +178,10 @@ type ProvisioningRequestConfigSpec struct {
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
 
 	// retryStrategy defines strategy for retrying ProvisioningRequest
+	// if nil then default configuration will be applied
+	// to switch off retry mechanism completely, set retryStrategy.backoffLimitCount to 0.
+	//
+	// +optional
 	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy, omitempty"`
 }
 
@@ -198,7 +206,7 @@ type ProvisioningRequestRetryStrategy struct {
 	// other workloads will have a chance to be admitted.
 	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 	//
-	// Defaults to null.
+	// Defaults to 3.
 	// +optional
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 
@@ -211,7 +219,7 @@ type ProvisioningRequestRetryStrategy struct {
 
 	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
-	// Defaults to 3600.
+	// Defaults to 1800.
 	// +optional
 	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 
