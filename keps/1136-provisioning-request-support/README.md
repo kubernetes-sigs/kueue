@@ -129,11 +129,14 @@ Unless a user configures otherwise configuration is as follows:
   - The max number of retries is 3,
   - The interval between attempts grows exponentially, starting
 from 1min (1, 2, 4 min),
-  - Workloads gets requeued (and the allocated quota is released) after each failure of ProvisionigRequest.
+  - Workloads gets requeued (and the allocated quota is released) after each failure of ProvisioningRequest.
 
-Workload gets requeued in similar way to (WaitForPodsReady)[https://github.com/kubernetes-sigs/kueue/tree/main/keps/349-all-or-nothing] mechanism.
+Workload gets requeued in a similar way to [WaitForPodsReady](https://github.com/kubernetes-sigs/kueue/tree/main/keps/349-all-or-nothing) mechanism.
 When AdmissionCheck is in `Retry` state, the workload controller evicts the Workload with `WorkloadRequeued=False` condition with `AdmissionCheck` as a reason.
-After backoff time the Workload is requeued, placed in a queue, and starts another cycle of admission.
+After the backoff period, the Workload is requeued, enters the queue again, and begins a new admission cycle.
+
+Additionally, we introduce the feature gate `KeepQuotaForProvReqRetry`. If the feature gate is enabled the Workload with failed ProvisioningRequest
+will keep the allocated quota and won't be requeued. Instead it will be in the AdmissionCheck phase of admission, and will recreate ProvisioningRequest after backoff time
 
 The definition of `ProvisioningRequestConfig` is relatively simple and is based on
 what can be set in `ProvisioningRequest`.
@@ -222,14 +225,6 @@ type ProvisioningRequestRetryStrategy struct {
 	// Defaults to 1800.
 	// +optional
 	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
-
-	// releaseQuota defines whether the reserved quota should be released during retry.
-	// If the releaseQuota is set not false, controller will delete old ProvisioningRequest
-	// and create a new one without releasing quota.
-	//
-	// Defaults to true.
-	// +optional
-	Requeue bool `json:requeue`
 }
 ```
 

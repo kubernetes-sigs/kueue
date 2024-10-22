@@ -22,6 +22,9 @@ latest-milestone: "v0.5"
 milestone:
   beta: "v0.5"
 
+feature-gates:
+  - KeepQuotaForProvReqRetry
+
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled
 disable-supported: false
