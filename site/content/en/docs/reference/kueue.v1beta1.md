@@ -723,7 +723,7 @@ their nominal quota. The possible values are:</p>
 <li><code>LowerPriority</code>: **Classic preemption** if the pending Workload fits within the nominal
 quota of its ClusterQueue, only preempt Workloads in the cohort that have
 lower priority than the pending Workload. **Fair sharing** only preempt
-Workloads in the cohort that have lower priority then the pending Workload and
+Workloads in the cohort that have lower priority than the pending Workload and
 that satisfy the fair sharing preemptionStrategies.</li>
 <li><code>Any</code>: **Classic preemption** if the pending Workload fits within the nominal quota of its
 ClusterQueue, preempt any Workload in the cohort, irrespective of
