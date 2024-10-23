@@ -427,12 +427,16 @@ type ClusterQueuePreemption struct {
 	// their nominal quota. The possible values are:
 	//
 	// - `Never` (default): do not preempt Workloads in the cohort.
-	// - `LowerPriority`: if the pending Workload fits within the nominal
-	//   quota of its ClusterQueue, only preempt Workloads in the cohort that have
-	//   lower priority than the pending Workload.
-	// - `Any`: if the pending Workload fits within the nominal quota of its
-	//   ClusterQueue, preempt any Workload in the cohort, irrespective of
-	//   priority.
+	// - `LowerPriority`: **Classic Preemption** if the pending Workload
+	//   fits within the nominal quota of its ClusterQueue, only preempt
+	//   Workloads in the cohort that have lower priority than the pending
+	//   Workload. **Fair Sharing** only preempt Workloads in the cohort that
+	//   have lower priority than the pending Workload and that satisfy the
+	//   fair sharing preemptionStategies.
+	// - `Any`: **Classic Preemption** if the pending Workload fits within
+	//    the nominal quota of its ClusterQueue, preempt any Workload in the
+	//    cohort, irrespective of priority. **Fair Sharing** preempt Workloads
+	//    in the cohort that satisfy the fair sharing preemptionStrategies.
 	//
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
