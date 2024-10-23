@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -98,8 +99,14 @@ func (c *Cache) Snapshot(ctx context.Context) Snapshot {
 	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
+		log := ctrl.LoggerFrom(ctx)
 		for key, cache := range c.tasCache.Clone() {
-			tasSnapshots[key] = cache.snapshot(ctx)
+			s, err := cache.snapshot(ctx)
+			if err != nil {
+				log.Error(err, "failed to construct snapshot for TAS flavor", "flavor", key)
+			} else {
+				tasSnapshots[key] = s
+			}
 		}
 	}
 	for _, cq := range c.hm.ClusterQueues {

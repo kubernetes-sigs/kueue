@@ -27,9 +27,11 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 func TestFindTopologyAssignment(t *testing.T) {
@@ -155,6 +157,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		levels         []string
 		nodeLabels     map[string]string
 		nodes          []corev1.Node
+		pods           []corev1.Pod
 		requests       resources.Requests
 		count          int32
 		wantAssignment *kueue.TopologyAssignment
@@ -709,6 +712,266 @@ func TestFindTopologyAssignment(t *testing.T) {
 			count:          1,
 			wantAssignment: nil,
 		},
+		"don't consider unscheduled Pods when computing capacity": {
+			// the Pod is not scheduled (no NodeName set, so is not blocking capacity)
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-unscheduled", "test-ns").
+					Request(corev1.ResourceCPU, "600m").
+					Obj(),
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasHostLabel),
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 600,
+			},
+			count: 1,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"x1",
+						},
+					},
+				},
+			},
+		},
+		"don't consider terminal pods when computing the capacity": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-failed", "test-ns").NodeName("x1").
+					Request(corev1.ResourceCPU, "600m").
+					StatusPhase(corev1.PodFailed).
+					Obj(),
+				*testingpod.MakePod("test-succeeded", "test-ns").NodeName("x1").
+					Request(corev1.ResourceCPU, "600m").
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasHostLabel),
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 600,
+			},
+			count: 1,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"x1",
+						},
+					},
+				},
+			},
+		},
+		"don't consider TAS pods when computing the capacity": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-tas", "test-ns").NodeName("x1").
+					Request(corev1.ResourceCPU, "600m").
+					Label(kueuealpha.TASLabel, "true").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasHostLabel),
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 600,
+			},
+			count: 1,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"x1",
+						},
+					},
+				},
+			},
+		},
+		"include usage from pending scheduled non-TAS pods, blocked assignment": {
+			// there is not enough free capacity on the only node x1
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-pending", "test-ns").NodeName("x1").
+					StatusPhase(corev1.PodPending).
+					Request(corev1.ResourceCPU, "600m").
+					Obj(),
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasHostLabel),
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 600,
+			},
+			count:          1,
+			wantAssignment: nil,
+		},
+		"include usage from running non-TAS pods, blocked assignment": {
+			// there is not enough free capacity on the only node x1
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-running", "test-ns").NodeName("x1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "600m").
+					Obj(),
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasHostLabel),
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 600,
+			},
+			count:          1,
+			wantAssignment: nil,
+		},
+		"include usage from running non-TAS pods, found free capacity on another node": {
+			// there is not enough free capacity on the node x1 as the
+			// assignments lends on the free x2
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x2",
+						Labels: map[string]string{
+							tasHostLabel: "x2",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-pod", "test-ns").NodeName("x1").
+					Request(corev1.ResourceCPU, "600m").
+					Obj(),
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasHostLabel),
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 600,
+			},
+			count: 1,
+			wantAssignment: &kueue.TopologyAssignment{
+				Levels: defaultOneLevel,
+				Domains: []kueue.TopologyDomainAssignment{
+					{
+						Count: 1,
+						Values: []string{
+							"x2",
+						},
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -718,10 +981,19 @@ func TestFindTopologyAssignment(t *testing.T) {
 			for i := range tc.nodes {
 				initialObjects = append(initialObjects, &tc.nodes[i])
 			}
-			client := utiltesting.NewFakeClient(initialObjects...)
+			for i := range tc.pods {
+				initialObjects = append(initialObjects, &tc.pods[i])
+			}
+			clientBuilder := utiltesting.NewClientBuilder()
+			clientBuilder.WithObjects(initialObjects...)
+			client := clientBuilder.Build()
+
 			tasCache := NewTASCache(client)
 			tasFlavorCache := tasCache.NewTASFlavorCache(tc.levels, tc.nodeLabels)
-			snapshot := tasFlavorCache.snapshot(ctx)
+			snapshot, err := tasFlavorCache.snapshot(ctx)
+			if err != nil {
+				t.Fatalf("failed to build the snapshot: %v", err)
+			}
 			gotAssignment := snapshot.FindTopologyAssignment(&tc.request, tc.requests, tc.count)
 			if diff := cmp.Diff(tc.wantAssignment, gotAssignment); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
