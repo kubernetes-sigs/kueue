@@ -24,6 +24,8 @@ ROOT_DIR="$SOURCE_DIR/.."
 export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 
+export E2E_TEST_BASH_IMAGE=registry.k8s.io/alpine-with-bash:1.0@sha256:0955672451201896cf9e2e5ce30bec0c7f10757af33bf78b7a6afa5672c596f5
+
 # $1 cluster name
 function cluster_create {
     $KIND create cluster --name "$1" --image "$E2E_KIND_VERSION" --wait 1m -v 5  > "$ARTIFACTS/$1-create.log" 2>&1 \
@@ -52,6 +54,24 @@ function startup {
     fi
 }
 
+function kind_load {
+    if [ "$CREATE_KIND_CLUSTER" == 'true' ]
+    then
+        cluster_kind_load "$KIND_CLUSTER_NAME"
+    fi
+}
+
+# $1 cluster
+function cluster_kind_load {
+    docker pull "${E2E_TEST_BASH_IMAGE}"
+    e2e_test_bash_image_without_sha=${E2E_TEST_BASH_IMAGE%%@*}
+    # We can load image by a digest but we cannot reference it by the digest that we pulled.
+    # For more information https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-888713831.
+    # Manually create tag for image with digest which is already pulled
+    docker tag $E2E_TEST_BASH_IMAGE "$e2e_test_bash_image_without_sha"
+    $KIND load docker-image "${e2e_test_bash_image_without_sha}" --name "$1"
+}
+
 function cleanup {
     if [ "$CREATE_KIND_CLUSTER" == 'true' ]
     then
@@ -73,6 +93,7 @@ function uninstall_kjobctl {
 
 trap cleanup EXIT
 startup
+kind_load
 install_kjobctl
 # shellcheck disable=SC2086
 $GINKGO $GINKGO_ARGS --junit-report=junit.xml --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/...

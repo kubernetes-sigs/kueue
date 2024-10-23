@@ -81,6 +81,12 @@ func (j *JobTemplateWrapper) RestartPolicy(restartPolicy corev1.RestartPolicy) *
 	return j
 }
 
+// BackoffLimitPerIndex updates the backoffLimitPerIndex on the job template.
+func (j *JobTemplateWrapper) BackoffLimitPerIndex(backoffLimitPerIndex int32) *JobTemplateWrapper {
+	j.Template.Spec.BackoffLimitPerIndex = ptr.To[int32](backoffLimitPerIndex)
+	return j
+}
+
 // WithInitContainer add init container to the pod template.
 func (j *JobTemplateWrapper) WithInitContainer(container corev1.Container) *JobTemplateWrapper {
 	j.Template.Spec.Template.Spec.InitContainers = append(j.Template.Spec.Template.Spec.InitContainers, container)
