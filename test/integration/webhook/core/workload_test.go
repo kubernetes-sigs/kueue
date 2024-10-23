@@ -771,7 +771,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				gomega.Succeed(),
 			),
-			ginkgo.Entry("cannot add maximum execution time when not admitted",
+			ginkgo.Entry("cannot add maximum execution time when admitted",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).Obj()
 				},
@@ -781,7 +781,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				testing.BeAPIError(testing.InvalidError),
 			),
-			ginkgo.Entry("cannot update maximum execution time when not admitted",
+			ginkgo.Entry("cannot update maximum execution time when admitted",
 				func() *kueue.Workload {
 					return testing.MakeWorkload(workloadName, ns.Name).
 						MaximumExecutionTimeSeconds(1).

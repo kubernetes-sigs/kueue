@@ -2359,7 +2359,7 @@ Possible values are:</p>
 <code>int32</code>
 </td>
 <td>
-   <p>MaximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
+   <p>maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
 the workload can be admitted before it's automatically deactivated.</p>
 <p>If unspecified, no execution time limit is enforced on the Workload.</p>
 </td>

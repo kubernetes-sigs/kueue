@@ -76,7 +76,7 @@ type WorkloadSpec struct {
 	// +kubebuilder:default=true
 	Active *bool `json:"active,omitempty"`
 
-	// MaximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
+	// maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
 	// the workload can be admitted before it's automatically deactivated.
 	//
 	// If unspecified, no execution time limit is enforced on the Workload.

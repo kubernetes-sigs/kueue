@@ -338,7 +338,7 @@ func isDisabledRequeuedByReason(w *kueue.Workload, reason string) bool {
 	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == reason
 }
 
-// reconcileMaxExecutionTime deactivates the workload if its MaximumExecutionTime exceeded or returns a retry after value.
+// reconcileMaxExecutionTime deactivates the workload if its MaximumExecutionTimeSeconds is exceeded or returns a retry after value.
 func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
 	admittedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	if admittedCondition == nil || admittedCondition.Status != metav1.ConditionTrue || wl.Spec.MaximumExecutionTimeSeconds == nil {
@@ -350,8 +350,7 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 		return remainingTime, nil
 	}
 
-	if ptr.Deref(wl.Spec.Active, true) {
-		wl.Spec.Active = ptr.To(false)
+	if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
 		workload.SetDeactivationTarget(wl, kueue.WorkloadMaximumExecutionTimeExceeded, "exceeding the maximum execution time")
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
 			return 0, err
