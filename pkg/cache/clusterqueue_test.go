@@ -872,7 +872,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 				},
 			},
 			wantStatus:  pending,
-			wantReason:  "MutliKueueAdmissionCheckAppliedPerFlavor",
+			wantReason:  "MultiKueueAdmissionCheckAppliedPerFlavor",
 			wantMessage: `Can't admit new workloads: Cannot specify MultiKueue AdmissionCheck per flavor, found: check1.`,
 		},
 	}

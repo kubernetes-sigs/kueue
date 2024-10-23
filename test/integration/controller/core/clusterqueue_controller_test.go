@@ -816,7 +816,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				{
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
-					Reason:  "MutliKueueAdmissionCheckAppliedPerFlavor",
+					Reason:  "MultiKueueAdmissionCheckAppliedPerFlavor",
 					Message: `Can't admit new workloads: Cannot specify MultiKueue AdmissionCheck per flavor, found: check1.`,
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
