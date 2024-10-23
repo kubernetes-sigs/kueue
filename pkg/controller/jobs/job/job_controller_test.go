@@ -616,7 +616,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					PastAdmittedTime(time.Second).
+					PastAdmittedTime(1).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
@@ -685,7 +685,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					PastAdmittedTime(time.Second).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
@@ -753,7 +753,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					PastAdmittedTime(time.Second).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
@@ -833,7 +833,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					PastAdmittedTime(time.Second).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
@@ -913,7 +913,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					PastAdmittedTime(time.Second).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,
@@ -993,7 +993,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					PastAdmittedTime(time.Second).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionFalse,

@@ -1916,7 +1916,7 @@ func TestReconciler(t *testing.T) {
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
-					PastAdmittedTime(time.Second).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionFalse,

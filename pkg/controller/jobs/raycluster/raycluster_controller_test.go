@@ -315,7 +315,7 @@ func TestReconciler(t *testing.T) {
 						}).
 					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
 					Generation(1).
-					PastAdmittedTime(time.Second).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,

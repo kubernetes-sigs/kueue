@@ -64,11 +64,11 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		oldCondition := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadAdmitted)
 		// in practice the oldCondition cannot be nil, however we should try to avoid nil ptr deref.
 		if oldCondition != nil {
-			d := now.Sub(oldCondition.LastTransitionTime.Time)
-			if w.Status.AccumulatedPastAdmittedTime != nil {
-				w.Status.AccumulatedPastAdmittedTime.Duration += d
+			d := int32(now.Sub(oldCondition.LastTransitionTime.Time).Seconds())
+			if w.Status.AccumulatedPastExexcutionTimeSeconds != nil {
+				*w.Status.AccumulatedPastExexcutionTimeSeconds += d
 			} else {
-				w.Status.AccumulatedPastAdmittedTime = &metav1.Duration{Duration: d}
+				w.Status.AccumulatedPastExexcutionTimeSeconds = &d
 			}
 		}
 	}
