@@ -973,7 +973,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		},
 		Spec: kueue.WorkloadSpec{
 			QueueName:                   jobframework.QueueName(p),
-			MaximumExecutionTimeSeconds: jobframework.MaxExecTime(p),
+			MaximumExecutionTimeSeconds: jobframework.MaximumExecutionTimeSeconds(p),
 		},
 	}
 
@@ -1112,7 +1112,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 	}
 
 	defaultDuration := int32(-1)
-	if ptr.Deref(workload.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(jobframework.MaxExecTime(p), defaultDuration) {
+	if ptr.Deref(workload.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(jobframework.MaximumExecutionTimeSeconds(p), defaultDuration) {
 		return nil, []*kueue.Workload{workload}, nil
 	}
 

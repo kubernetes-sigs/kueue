@@ -146,7 +146,7 @@ func QueueNameForObject(object client.Object) string {
 	return object.GetAnnotations()[constants.QueueAnnotation]
 }
 
-func MaxExecTime(job GenericJob) *int32 {
+func MaximumExecutionTimeSeconds(job GenericJob) *int32 {
 	strVal, found := job.Object().GetLabels()[constants.MaxExecTimeSecondsLabel]
 	if !found {
 		return nil

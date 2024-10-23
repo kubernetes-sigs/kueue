@@ -763,7 +763,7 @@ func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 
 	defaultDuration := int32(-1)
-	if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(MaxExecTime(job), defaultDuration) {
+	if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(MaximumExecutionTimeSeconds(job), defaultDuration) {
 		return false
 	}
 
@@ -908,7 +908,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		Spec: kueue.WorkloadSpec{
 			PodSets:                     podSets,
 			QueueName:                   QueueName(job),
-			MaximumExecutionTimeSeconds: MaxExecTime(job),
+			MaximumExecutionTimeSeconds: MaximumExecutionTimeSeconds(job),
 		},
 	}
 	if wl.Labels == nil {
