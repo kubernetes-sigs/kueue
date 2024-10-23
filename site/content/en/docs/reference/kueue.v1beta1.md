@@ -658,12 +658,16 @@ Workloads from other ClusterQueues in the cohort that are using more than
 their nominal quota. The possible values are:</p>
 <ul>
 <li><code>Never</code> (default): do not preempt Workloads in the cohort.</li>
-<li><code>LowerPriority</code>: if the pending Workload fits within the nominal
-quota of its ClusterQueue, only preempt Workloads in the cohort that have
-lower priority than the pending Workload.</li>
-<li><code>Any</code>: if the pending Workload fits within the nominal quota of its
-ClusterQueue, preempt any Workload in the cohort, irrespective of
-priority.</li>
+<li><code>LowerPriority</code>: <strong>Classic Preemption</strong> if the pending Workload
+fits within the nominal quota of its ClusterQueue, only preempt
+Workloads in the cohort that have lower priority than the pending
+Workload. <strong>Fair Sharing</strong> only preempt Workloads in the cohort that
+have lower priority than the pending Workload and that satisfy the
+fair sharing preemptionStategies.</li>
+<li><code>Any</code>: <strong>Classic Preemption</strong> if the pending Workload fits within
+the nominal quota of its ClusterQueue, preempt any Workload in the
+cohort, irrespective of priority. <strong>Fair Sharing</strong> preempt Workloads
+in the cohort that satisfy the fair sharing preemptionStrategies.</li>
 </ul>
 </td>
 </tr>
