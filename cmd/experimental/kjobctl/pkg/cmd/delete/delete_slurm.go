@@ -142,9 +142,6 @@ func (o *SlurmOptions) Run(ctx context.Context) error {
 		if err := o.deleteJob(ctx, jobName); err != nil {
 			return err
 		}
-		if err := o.deleteConfigMap(ctx, jobName); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -184,40 +181,4 @@ func (o *SlurmOptions) deleteJob(ctx context.Context, jobName string) error {
 	}
 
 	return o.PrintObj(job, o.Out)
-}
-
-func (o *SlurmOptions) deleteConfigMap(ctx context.Context, configMapName string) error {
-	configMap, err := o.Clientset.CoreV1().ConfigMaps(o.Namespace).Get(ctx, configMapName, metav1.GetOptions{})
-	if client.IgnoreNotFound(err) != nil {
-		return err
-	}
-	if err != nil {
-		fmt.Fprintln(o.ErrOut, err)
-		return nil
-	}
-	if _, ok := configMap.Labels[constants.ProfileLabel]; !ok {
-		fmt.Fprintf(o.ErrOut, "configmaps \"%s\" not created via kjob\n", configMap.Name)
-		return nil
-	}
-	if configMap.Labels[constants.ModeLabel] != string(v1alpha1.SlurmMode) {
-		fmt.Fprintf(o.ErrOut, "configmaps \"%s\" created in \"%s\" mode. Switch to the correct mode to delete it\n",
-			configMap.Name, configMap.Labels[constants.ModeLabel])
-		return nil
-	}
-
-	if o.DryRunStrategy != util.DryRunClient {
-		deleteOptions := metav1.DeleteOptions{
-			PropagationPolicy: ptr.To(o.CascadeStrategy),
-		}
-
-		if o.DryRunStrategy == util.DryRunServer {
-			deleteOptions.DryRun = []string{metav1.DryRunAll}
-		}
-
-		if err := o.Clientset.CoreV1().ConfigMaps(o.Namespace).Delete(ctx, configMapName, deleteOptions); err != nil {
-			return err
-		}
-	}
-
-	return o.PrintObj(configMap, o.Out)
 }
