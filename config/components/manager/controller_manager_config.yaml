@@ -50,7 +50,8 @@ integrations:
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
 #  - "pod"
-#  - "deployment"
+#  - "deployment" # requires enabling pod integration
+#  - "statefulset" # requires enabling pod integration
 #  externalFrameworks:
 #  - "Foo.v1.example.com"
 #  podOptions:
