@@ -301,6 +301,20 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				testing.BeAPIError(testing.ForbiddenError)),
+			ginkgo.Entry("invalid maximumExexcutionTimeSeconds",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						MaximumExecutionTimeSeconds(0).
+						Obj()
+				},
+				testing.BeAPIError(testing.InvalidError)),
+			ginkgo.Entry("valid maximumExexcutionTimeSeconds",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						MaximumExecutionTimeSeconds(1).
+						Obj()
+				},
+				nil),
 		)
 
 		ginkgo.DescribeTable("Should have valid values when setting Admission", func(w func() *kueue.Workload, a *kueue.Admission, errorType gomega.OmegaMatcher) {
@@ -455,6 +469,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
 				if setQuotaReservation {
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
 				}
 
 				gomega.Eventually(func() error {
@@ -733,6 +748,50 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					}
 				},
 				gomega.Succeed(),
+			),
+			ginkgo.Entry("can add maximum execution time when not admitted",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.MaximumExecutionTimeSeconds = ptr.To[int32](1)
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("can update maximum execution time when not admitted",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						MaximumExecutionTimeSeconds(1).
+						Obj()
+				},
+				false,
+				func(newWL *kueue.Workload) {
+					*newWL.Spec.MaximumExecutionTimeSeconds = 2
+				},
+				gomega.Succeed(),
+			),
+			ginkgo.Entry("cannot add maximum execution time when not admitted",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					newWL.Spec.MaximumExecutionTimeSeconds = ptr.To[int32](1)
+				},
+				testing.BeAPIError(testing.InvalidError),
+			),
+			ginkgo.Entry("cannot update maximum execution time when not admitted",
+				func() *kueue.Workload {
+					return testing.MakeWorkload(workloadName, ns.Name).
+						MaximumExecutionTimeSeconds(1).
+						Obj()
+				},
+				true,
+				func(newWL *kueue.Workload) {
+					*newWL.Spec.MaximumExecutionTimeSeconds = 2
+				},
+				testing.BeAPIError(testing.InvalidError),
 			),
 		)
 

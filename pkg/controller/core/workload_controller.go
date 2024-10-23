@@ -341,21 +341,22 @@ func isDisabledRequeuedByReason(w *kueue.Workload, reason string) bool {
 // reconcileMaxExecutionTime deactivates the workload if its MaximumExecutionTime exceeded or returns a retry after value.
 func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
 	admittedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-	if admittedCondition == nil || admittedCondition.Status != metav1.ConditionTrue || wl.Spec.MaximumExecutionTime == nil {
+	if admittedCondition == nil || admittedCondition.Status != metav1.ConditionTrue || wl.Spec.MaximumExecutionTimeSeconds == nil {
 		return 0, nil
 	}
 
-	remainingTime := wl.Spec.MaximumExecutionTime.Duration - r.clock.Since(admittedCondition.LastTransitionTime.Time)
+	remainingTime := time.Duration(*wl.Spec.MaximumExecutionTimeSeconds)*time.Second - r.clock.Since(admittedCondition.LastTransitionTime.Time)
 	if remainingTime > 0 {
 		return remainingTime, nil
 	}
 
 	if ptr.Deref(wl.Spec.Active, true) {
 		wl.Spec.Active = ptr.To(false)
-		if err := r.client.Update(ctx, wl); err != nil {
+		workload.SetDeactivationTarget(wl, kueue.WorkloadMaximumExecutionTimeExceeded, "exceeding the maximum execution time")
+		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
 			return 0, err
 		}
-		r.recorder.Eventf(wl, corev1.EventTypeWarning, "MaximumExecutionTimeExceeded", "The maximum execution time (%v) exceeded", wl.Spec.MaximumExecutionTime.Duration)
+		r.recorder.Eventf(wl, corev1.EventTypeWarning, kueue.WorkloadMaximumExecutionTimeExceeded, "The maximum execution time (%ds) exceeded", *wl.Spec.MaximumExecutionTimeSeconds)
 	}
 	return 0, nil
 }

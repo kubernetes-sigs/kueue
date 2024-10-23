@@ -1581,9 +1581,9 @@ func (in *WorkloadSpec) DeepCopyInto(out *WorkloadSpec) {
 		*out = new(bool)
 		**out = **in
 	}
-	if in.MaximumExecutionTime != nil {
-		in, out := &in.MaximumExecutionTime, &out.MaximumExecutionTime
-		*out = new(v1.Duration)
+	if in.MaximumExecutionTimeSeconds != nil {
+		in, out := &in.MaximumExecutionTimeSeconds, &out.MaximumExecutionTimeSeconds
+		*out = new(int32)
 		**out = **in
 	}
 }

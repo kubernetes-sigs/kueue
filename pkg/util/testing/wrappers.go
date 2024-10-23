@@ -354,8 +354,8 @@ func (w *WorkloadWrapper) ResourceVersion(v string) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) MaximumExecutionTime(v time.Duration) *WorkloadWrapper {
-	w.Spec.MaximumExecutionTime = ptr.To(metav1.Duration{Duration: v})
+func (w *WorkloadWrapper) MaximumExecutionTimeSeconds(v int32) *WorkloadWrapper {
+	w.Spec.MaximumExecutionTimeSeconds = &v
 	return w
 }
 

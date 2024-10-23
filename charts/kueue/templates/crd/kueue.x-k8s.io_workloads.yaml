@@ -89,11 +89,15 @@ spec:
 
                   Defaults to true
                 type: boolean
-              maximumExecutionTime:
+              maximumExecutionTimeSeconds:
                 description: |-
-                  MaximumExecutionTime if provided, determines the maximum time the workload can be admitted
-                  before it's automatically deactivated.
-                type: string
+                  MaximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
+                  the workload can be admitted before it's automatically deactivated.
+
+                  If unspecified, no execution time limit is enforced on the Workload.
+                format: int32
+                minimum: 1
+                type: integer
               podSets:
                 description: |-
                   podSets is a list of sets of homogeneous pods, each described by a Pod spec
@@ -8713,6 +8717,12 @@ spec:
             == ''QuotaReserved'' && c.status == ''True'')) && has(oldSelf.spec.queueName)
             && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName
             : true'
+        - message: maximumExecutionTimeSeconds is immutable while admitted
+          rule: ((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
+            c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions)
+            && self.status.conditions.exists(c, c.type == 'Admitted' && c.status ==
+            'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0)
+            ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true
     served: true
     storage: true
     subresources:

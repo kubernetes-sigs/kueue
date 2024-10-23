@@ -76,9 +76,14 @@ type WorkloadSpec struct {
 	// +kubebuilder:default=true
 	Active *bool `json:"active,omitempty"`
 
-	// MaximumExecutionTime if provided, determines the maximum time the workload can be admitted
-	// before it's automatically deactivated.
-	MaximumExecutionTime *metav1.Duration `json:"maximumExecutionTime,omitempty"`
+	// MaximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
+	// the workload can be admitted before it's automatically deactivated.
+	//
+	// If unspecified, no execution time limit is enforced on the Workload.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 
 // PodSetTopologyRequest defines the topology request for a PodSet.
@@ -524,6 +529,10 @@ const (
 	// WorkloadRequeuingLimitExceeded indicates that the workload exceeded max number
 	// of re-queuing retries.
 	WorkloadRequeuingLimitExceeded = "RequeuingLimitExceeded"
+
+	// WorkloadMaximumExecutionTimeExceeded indicates that the workload exceeded its
+	// maximum execution time.
+	WorkloadMaximumExecutionTimeExceeded = "MaximumExecutionTimeExceeded"
 )
 
 const (
@@ -556,6 +565,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) ? (oldSelf.spec.priorityClassSource == self.spec.priorityClassSource) : true", message="field is immutable"
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassName) && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName == self.spec.priorityClassName) : true", message="field is immutable"
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && has(oldSelf.spec.queueName) && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName : true", message="field is immutable"
+// +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while admitted"
 type Workload struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

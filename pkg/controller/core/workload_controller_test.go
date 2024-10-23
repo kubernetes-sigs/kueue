@@ -1322,13 +1322,13 @@ func TestReconcile(t *testing.T) {
 		"admitted workload with max execution time": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				MaximumExecutionTime(2*time.Minute).
+				MaximumExecutionTimeSeconds(120).
 				AdmittedAt(true, testStartTime.Add(-time.Minute)).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				MaximumExecutionTime(2*time.Minute).
+				MaximumExecutionTimeSeconds(120).
 				AdmittedAt(true, testStartTime.Add(-time.Minute)).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				Obj(),
@@ -1338,23 +1338,28 @@ func TestReconcile(t *testing.T) {
 		"admitted workload with max execution time - expired": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				MaximumExecutionTime(time.Minute).
+				MaximumExecutionTimeSeconds(60).
 				AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				Active(false).
-				MaximumExecutionTime(time.Minute).
+				MaximumExecutionTimeSeconds(60).
 				AdmittedAt(true, testStartTime.Add(-2*time.Minute)).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadMaximumExecutionTimeExceeded,
+					Message: "exceeding the maximum execution time",
+				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
 					EventType: "Warning",
 					Reason:    "MaximumExecutionTimeExceeded",
-					Message:   "The maximum execution time (1m0s) exceeded",
+					Message:   "The maximum execution time (60s) exceeded",
 				},
 			},
 		},
