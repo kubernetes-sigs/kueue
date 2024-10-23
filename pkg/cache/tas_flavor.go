@@ -73,14 +73,14 @@ func (t *TASCache) NewTASFlavorCache(labels []string, nodeLabels map[string]stri
 
 func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, error) {
 	log := ctrl.LoggerFrom(ctx)
-	nodeList := &corev1.NodeList{}
+	nodes := &corev1.NodeList{}
 	requiredLabels := client.MatchingLabels{}
 	for k, v := range c.NodeLabels {
 		requiredLabels[k] = v
 	}
 	requiredLabelKeys := client.HasLabels{}
 	requiredLabelKeys = append(requiredLabelKeys, c.Levels...)
-	err := c.client.List(ctx, nodeList, requiredLabels, requiredLabelKeys)
+	err := c.client.List(ctx, nodes, requiredLabels, requiredLabelKeys)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes for TAS: %w", err)
 	}
@@ -91,12 +91,12 @@ func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, erro
 	podListOpts := &client.ListOptions{}
 	podListOpts.LabelSelector = labels.NewSelector()
 	podListOpts.LabelSelector = podListOpts.LabelSelector.Add(*r)
-	podList := corev1.PodList{}
-	err = c.client.List(ctx, &podList, podListOpts)
+	pods := corev1.PodList{}
+	err = c.client.List(ctx, &pods, podListOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list non-TAS pods which are bound to nodes: %w", err)
 	}
-	return c.snapshotForNodes(log, nodeList.Items, podList.Items), nil
+	return c.snapshotForNodes(log, nodes.Items, pods.Items), nil
 }
 
 func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, pods []corev1.Pod) *TASFlavorSnapshot {
