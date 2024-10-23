@@ -1,12 +1,10 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
 approvers:
-- alculquicondor
 - tenzen-y
 - mimowo
 
 reviewers:
-- alculquicondor
 - denkensk
 - kerthcet
 - mimowo
@@ -15,4 +13,5 @@ reviewers:
 
 emeritus_approvers:
 - ahg-g
+- alculquicondor
 - denkensk
