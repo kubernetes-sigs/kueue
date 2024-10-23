@@ -141,7 +141,7 @@ The attributes in this Kueue Configuration are described in the following sectio
 ### ClusterQueue share value
 
 When you enable fair sharing, Kueue assigns a numeric share value to each ClusterQueue to summarize
-the usage of borrowed resources in a ClusterQueue, in comparisson to others in the same cohort.
+the usage of borrowed resources in a ClusterQueue, in comparison to others in the same cohort.
 The share value is weighted by the `.spec.fairSharing.weight` defined in a ClusterQueue.
 
 During admission, Kueue prefers to admit Workloads from ClusterQueues that have the lowest share value first.

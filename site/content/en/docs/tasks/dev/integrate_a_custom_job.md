@@ -127,7 +127,7 @@ Extend the existing webhook for your CRD to invoke Kueue's webhook helper method
    - Your validator should invoke `jobframework.ValidateJobOnCreate` and `jobframework.ValidateJobOnUpdate` in [validation.go](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/validation.go)
 
 Extend your manager's startup procedure to do the following:
-   - Using the `jobframework.NewGenericReconcilerFactory` method, create an instance of Kueue's JobReconicler
+   - Using the `jobframework.NewGenericReconcilerFactory` method, create an instance of Kueue's JobReconciler
      for your CRD and register it with the controller-runtime manager.
    - Invoke `jobframework.SetupWorkloadOwnerIndex` to create an indexer for Workloads owned by your CRD.
 
