@@ -52,6 +52,10 @@ controllerManager:
     timeoutSeconds: 1
     failureThreshold: 3
     successThreshold: 1
+  topologySpreadConstraints: []
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
 kubernetesClusterDomain: cluster.local
 # controller_manager_config.yaml. controllerManager utilizes this yaml via manager-config Configmap.
 managerConfig:
