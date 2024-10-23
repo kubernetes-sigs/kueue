@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -65,16 +66,13 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	cqLabel, ok := ss.Labels[constants.QueueLabel]
 	if ok {
 		if ss.Spec.Template.Labels == nil {
-			ss.Spec.Template.Labels = make(map[string]string, 1)
+			ss.Spec.Template.Labels = make(map[string]string, 2)
 		}
 		ss.Spec.Template.Labels[constants.QueueLabel] = cqLabel
 	}
 
 	podGroupName := GetWorkloadName(ss.Name, ss.UID)
-	var podGroupReplicas int32 = 1
-	if ss.Spec.Replicas != nil {
-		podGroupReplicas = *ss.Spec.Replicas
-	}
+	podGroupReplicas := ptr.Deref(ss.Spec.Replicas, 1)
 	if ss.Spec.Template.Labels == nil {
 		ss.Spec.Template.Labels = make(map[string]string, 1)
 	}
