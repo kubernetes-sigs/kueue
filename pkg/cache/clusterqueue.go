@@ -280,7 +280,7 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		}
 
 		if len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
-			reasons = append(reasons, kueue.ClusterQueueActiveReasonMutliKueueAdmissionCheckAppliedPerFlavor)
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor)
 			messages = append(messages, fmt.Sprintf("Cannot specify MultiKueue AdmissionCheck per flavor, found: %s", strings.Join(c.perFlavorMultiKueueAdmissionChecks, ",")))
 		}
 
