@@ -39,7 +39,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 
 		wantConditions   []metav1.Condition
 		wantChange       bool
-		wantAdmittedTime time.Duration
+		wantAdmittedTime int32
 	}{
 		"empty": {},
 		"reservation no checks": {
@@ -145,7 +145,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				},
 			},
 			wantChange:       true,
-			wantAdmittedTime: time.Second,
+			wantAdmittedTime: 1,
 		},
 		"check lost": {
 			checkStates: []kueue.AdmissionCheckState{
@@ -182,7 +182,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				},
 			},
 			wantChange:       true,
-			wantAdmittedTime: time.Second,
+			wantAdmittedTime: 1,
 		},
 		"reservation and check lost": {
 			checkStates: []kueue.AdmissionCheckState{
@@ -211,7 +211,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				},
 			},
 			wantChange:       true,
-			wantAdmittedTime: time.Second,
+			wantAdmittedTime: 1,
 		},
 		"reservation lost with past admitted time": {
 			conditions: []metav1.Condition{
@@ -231,7 +231,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				},
 			},
 			wantChange:       true,
-			wantAdmittedTime: 2 * time.Second,
+			wantAdmittedTime: 2,
 		},
 	}
 
@@ -241,7 +241,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				AdmissionChecks(tc.checkStates...).
 				Conditions(tc.conditions...).
 				Generation(1).
-				PastAdmittedTime(tc.pastAdmittedTime).
+				PastAdmittedTime(int32(tc.pastAdmittedTime.Seconds())).
 				Obj()
 
 			gotChange := SyncAdmittedCondition(wl, testTime)
@@ -254,7 +254,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				t.Errorf("Unexpected conditions after sync (- want/+ got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantAdmittedTime, wl.Status.AccumulatedPastAdmittedTime.Duration); diff != "" {
+			if diff := cmp.Diff(tc.wantAdmittedTime, ptr.Deref(wl.Status.AccumulatedPastExexcutionTimeSeconds, -1)); diff != "" {
 				t.Errorf("Unexpected conditions admitted time (- want/+ got):\n%s", diff)
 			}
 		})

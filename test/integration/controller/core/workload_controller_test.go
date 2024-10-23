@@ -23,7 +23,9 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -486,12 +488,16 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
-			ginkgo.By("waiting for the workload to be admitted", func() {
+			ginkgo.By("waiting for the workload to be admitted, and for the time to change the second", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
 					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+				gomega.Expect(admittedCond).NotTo(gomega.BeNil())
+				time.Sleep(time.Until(admittedCond.LastTransitionTime.Add(time.Second)))
 			})
 
 			ginkgo.By("evicting the workload, the accumulated admission time is updated", func() {
@@ -506,14 +512,14 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
 					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
-					g.Expect(wl.Status.AccumulatedPastAdmittedTime.Duration > 0).To(gomega.BeTrue())
+					g.Expect(ptr.Deref(wl.Status.AccumulatedPastExexcutionTimeSeconds, 0)).To(gomega.BeNumerically(">", int32(0)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the accumulated admission time closer to maximum", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-					wl.Status.AccumulatedPastAdmittedTime.Duration = maxExecTime - time.Second
+					wl.Status.AccumulatedPastExexcutionTimeSeconds = ptr.To(*wl.Spec.MaximumExecutionTimeSeconds - 1)
 					g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
