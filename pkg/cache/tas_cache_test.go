@@ -62,7 +62,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Labels: map[string]string{
 					tasBlockLabel: "b1",
 					tasRackLabel:  "r2",
-					tasHostLabel:  "x1",
+					tasHostLabel:  "x2",
 				},
 			},
 			Status: corev1.NodeStatus{

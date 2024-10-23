@@ -33,13 +33,13 @@ import (
 )
 
 // usageOp indicates whether we should add or subtract the usage.
-type usageOp bool
+type usageOp int
 
 const (
 	// add usage to the cache
-	add usageOp = true
+	add usageOp = iota
 	// subtract usage from the cache
-	subtract usageOp = false
+	subtract
 )
 
 type TASFlavorCache struct {

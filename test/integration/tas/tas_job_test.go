@@ -314,6 +314,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Required: ptr.To(tasRackLabel),
 					}
 					gomega.Expect(k8sClient.Create(ctx, wl4)).Should(gomega.Succeed())
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wl4)
 				})
 
 				ginkgo.By("finish wl3", func() {
@@ -349,7 +350,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 		})
 
-		ginkgo.When("Nodes node structure is mutated during test cases", func() {
+		ginkgo.When("Node structure is mutated during test cases", func() {
+			var (
+				nodes []corev1.Node
+			)
+
 			ginkgo.BeforeEach(func() {
 				ns = &corev1.Namespace{
 					ObjectMeta: metav1.ObjectMeta{
@@ -383,12 +388,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).Should(gomega.Succeed())
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				for _, node := range nodes {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
 			})
 
 			ginkgo.It("should admit workload when nodes become available", func() {
 				var (
-					nodes []corev1.Node
-					wl1   *kueue.Workload
+					wl1 *kueue.Workload
 				)
 
 				ginkgo.By("creating a workload which requires rack, but does not fit in any", func() {
@@ -432,12 +439,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 					util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-				})
-
-				ginkgo.By("Delete the node for cleanup", func() {
-					for _, node := range nodes {
-						gomega.Expect(k8sClient.Delete(ctx, &node)).Should(gomega.Succeed())
-					}
 				})
 			})
 		})
