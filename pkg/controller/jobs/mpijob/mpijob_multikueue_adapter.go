@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -72,6 +73,9 @@ func (b *multikueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
 	remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
 
+	// clear the managedBy enables the controller to take over
+	remoteJob.Spec.RunPolicy.ManagedBy = nil
+
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
@@ -86,7 +90,16 @@ func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (b *multikueueAdapter) IsJobManagedByKueue(context.Context, client.Client, types.NamespacedName) (bool, string, error) {
+func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, remoteClient client.Client, key types.NamespacedName) (bool, string, error) {
+	job := kfmpi.MPIJob{}
+	err := remoteClient.Get(ctx, key, &job)
+	if err != nil {
+		return false, "", err
+	}
+	jobControllerName := ptr.Deref(job.Spec.RunPolicy.ManagedBy, "")
+	if jobControllerName != kueue.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.runPolicy.managedBy to be %q not %q", kueue.MultiKueueControllerName, jobControllerName), nil
+	}
 	return true, "", nil
 }
 

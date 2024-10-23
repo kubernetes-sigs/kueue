@@ -214,3 +214,9 @@ func (j *MPIJobWrapper) Image(replicaType kfmpi.MPIReplicaType, image string, ar
 	j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.Containers[0].Args = args
 	return j
 }
+
+// ManagedBy adds a managedby.
+func (j *MPIJobWrapper) ManagedBy(c string) *MPIJobWrapper {
+	j.Spec.RunPolicy.ManagedBy = &c
+	return j
+}
