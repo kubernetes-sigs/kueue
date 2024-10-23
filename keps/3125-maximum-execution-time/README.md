@@ -89,7 +89,8 @@ type WorkloadSpec struct {
 
 	// MaximumExecutionTimeSeconds if provided, determines the maximum time, in seconds, the workload can be admitted  
 	// befrore it's automatically deactivated.
-	MaximumExecutionTimeSeconds int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+    // +optional
+	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 ```
 
@@ -103,7 +104,8 @@ type WorkloadStatus struct {
 
 	// AccumulatedPastExecutionTimeSeconds holds the total duration the workload spent in Admitted state
 	// in the previous `Admit` - `Evict` cycles.
-	AccumulatedPastExexcutionTimeSecond int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
+    // +optional
+	AccumulatedPastExexcutionTimeSecond *int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
 }
 
 ```
@@ -134,17 +136,17 @@ if wl.Spec.MaximumExecutionTimeSeconds != nil {
 }
 ```
   - If `remainingTime` > 0 , a reconcile request should be queued with a `remainingTime` delay.
-  - If `remainingTime` <= 0 , the workload should be deactivated `wl.spec.Active = *false`, the `wl.status,AccumulatedPastExecutionTimeSeconds` set to 0, and a relevant event recorded.
+  - If `remainingTime` <= 0 , the workload should be deactivated `wl.spec.Active = *false`, the `wl.status.accumulatedPastExecutionTimeSeconds` set to 0, and a relevant event recorded.
 
 #### Jobs / Jobframework
 
-Upon workload creation, the value from `kueue.x-k8s.io/max-exec-time-seconds` is converted to `metav1.Duration` and set into the new workload's `spec`.
+Upon workload creation, the value from `kueue.x-k8s.io/max-exec-time-seconds` is converted to `int32` and set into the new workload's `spec`.
 
 ### Webhooks
 
 #### Workload
 
-Validate that the value of `wl.spec.maximumExecutionTimeSeconds` is greater or equal to 0.
+If specified, validate that the value of `wl.spec.maximumExecutionTimeSeconds` is greater then 0.
 
 Optionally: `wl.spec.maximumExecutionTimeSeconds` is immutable [ while the workload is admitted ]
 
