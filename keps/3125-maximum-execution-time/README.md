@@ -136,7 +136,7 @@ if wl.Spec.MaximumExecutionTimeSeconds != nil {
 }
 ```
   - If `remainingTime` > 0 , a reconcile request should be queued with a `remainingTime` delay.
-  - If `remainingTime` <= 0 , the workload should be deactivated `wl.spec.Active = *false`, the `wl.status.accumulatedPastExecutionTimeSeconds` set to 0, and a relevant event recorded.
+  - If `remainingTime` <= 0 , the workload's deactivation is triggered, the `wl.status.accumulatedPastExecutionTimeSeconds` set to 0, and a relevant event recorded.
 
 #### Jobs / Jobframework
 
@@ -148,13 +148,13 @@ Upon workload creation, the value from `kueue.x-k8s.io/max-exec-time-seconds` is
 
 If specified, validate that the value of `wl.spec.maximumExecutionTimeSeconds` is greater then 0.
 
-Optionally: `wl.spec.maximumExecutionTimeSeconds` is immutable [ while the workload is admitted ]
+Validate that `wl.spec.maximumExecutionTimeSeconds` is immutable, while the workload is admitted.
 
 #### Jobs
 
 Validate that the value provided in the `kueue.x-k8s.io/max-exec-time-seconds` label is the base 10 representation of an integer greater then 0.
 
-Optionally: The value of the `kueue.x-k8s.io/max-exec-time-seconds` label is immutable [ while the job is unsuspended ] 
+The value of the `kueue.x-k8s.io/max-exec-time-seconds` label is immutable, while the job is unsuspended.
 
 ### Test Plan
 
