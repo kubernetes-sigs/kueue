@@ -23,7 +23,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -73,7 +72,7 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	ss.Spec.Template.Labels[constants.QueueLabel] = cqLabel
-	ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name, ss.UID)
+	ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name)
 
 	if ss.Spec.Template.Annotations == nil {
 		ss.Spec.Template.Annotations = make(map[string]string, 2)
@@ -138,6 +137,7 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 	return nil, nil
 }
 
-func GetWorkloadName(statefulSetName string, statefulSetUID types.UID) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, statefulSetUID, gvk)
+func GetWorkloadName(statefulSetName string) string {
+	// Passing empty UID as it is not available before object creation
+	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, "", gvk)
 }

@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("Stateful set integration", func() {
 				Replicas(3).
 				Queue(lq.Name).
 				Obj()
-			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name, statefulSet.UID), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.Name), Namespace: ns.Name}
 			gomega.Expect(k8sClient.Create(ctx, statefulSet)).To(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Stateful set integration", func() {
 					Queue(lq.Name).
 					Obj()
 				conflictingWlLookupKey := types.NamespacedName{
-					Name:      statefulset.GetWorkloadName(conflictingStatefulSet.Name, conflictingStatefulSet.UID),
+					Name:      statefulset.GetWorkloadName(conflictingStatefulSet.Name),
 					Namespace: ns.Name,
 				}
 				gomega.Expect(k8sClient.Create(ctx, conflictingStatefulSet)).To(gomega.Succeed())
