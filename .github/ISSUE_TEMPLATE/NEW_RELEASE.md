@@ -2,7 +2,7 @@
 name: New Release
 about: Propose a new release
 title: Release v0.x.0
-assignees: alculquicondor, mimowo, tenzen-y
+assignees: mimowo, tenzen-y
 
 ---
 
