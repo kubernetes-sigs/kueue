@@ -87,15 +87,10 @@ type TopologyLevel struct {
 	NodeLabel string `json:"nodeLabel"`
 }
 
-// TopologyStatus defines the observed state of Topology
-type TopologyStatus struct {
-}
-
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
-// +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 
 // Topology is the Schema for the topology API
@@ -103,8 +98,7 @@ type Topology struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   TopologySpec   `json:"spec,omitempty"`
-	Status TopologyStatus `json:"status,omitempty"`
+	Spec TopologySpec `json:"spec,omitempty"`
 }
 
 //+kubebuilder:object:root=true

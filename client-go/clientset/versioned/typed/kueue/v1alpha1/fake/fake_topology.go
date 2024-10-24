@@ -101,18 +101,6 @@ func (c *FakeTopologies) Update(ctx context.Context, topology *v1alpha1.Topology
 	return obj.(*v1alpha1.Topology), err
 }
 
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *FakeTopologies) UpdateStatus(ctx context.Context, topology *v1alpha1.Topology, opts v1.UpdateOptions) (result *v1alpha1.Topology, err error) {
-	emptyResult := &v1alpha1.Topology{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateSubresourceActionWithOptions(topologiesResource, "status", topology, opts), emptyResult)
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1alpha1.Topology), err
-}
-
 // Delete takes name of the topology and deletes it. Returns an error if one occurs.
 func (c *FakeTopologies) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
@@ -155,29 +143,6 @@ func (c *FakeTopologies) Apply(ctx context.Context, topology *kueuev1alpha1.Topo
 	emptyResult := &v1alpha1.Topology{}
 	obj, err := c.Fake.
 		Invokes(testing.NewRootPatchSubresourceActionWithOptions(topologiesResource, *name, types.ApplyPatchType, data, opts.ToPatchOptions()), emptyResult)
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1alpha1.Topology), err
-}
-
-// ApplyStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
-func (c *FakeTopologies) ApplyStatus(ctx context.Context, topology *kueuev1alpha1.TopologyApplyConfiguration, opts v1.ApplyOptions) (result *v1alpha1.Topology, err error) {
-	if topology == nil {
-		return nil, fmt.Errorf("topology provided to Apply must not be nil")
-	}
-	data, err := json.Marshal(topology)
-	if err != nil {
-		return nil, err
-	}
-	name := topology.Name
-	if name == nil {
-		return nil, fmt.Errorf("topology.Name must be provided to Apply")
-	}
-	emptyResult := &v1alpha1.Topology{}
-	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceActionWithOptions(topologiesResource, *name, types.ApplyPatchType, data, opts.ToPatchOptions(), "status"), emptyResult)
 	if obj == nil {
 		return emptyResult, err
 	}

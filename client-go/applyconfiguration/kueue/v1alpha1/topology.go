@@ -21,7 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
-	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
 // TopologyApplyConfiguration represents a declarative configuration of the Topology type for use
@@ -30,7 +29,6 @@ type TopologyApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *TopologySpecApplyConfiguration `json:"spec,omitempty"`
-	Status                           *kueuev1alpha1.TopologyStatus   `json:"status,omitempty"`
 }
 
 // Topology constructs a declarative configuration of the Topology type for use with
@@ -206,14 +204,6 @@ func (b *TopologyApplyConfiguration) ensureObjectMetaApplyConfigurationExists() 
 // If called multiple times, the Spec field is set to the value of the last call.
 func (b *TopologyApplyConfiguration) WithSpec(value *TopologySpecApplyConfiguration) *TopologyApplyConfiguration {
 	b.Spec = value
-	return b
-}
-
-// WithStatus sets the Status field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Status field is set to the value of the last call.
-func (b *TopologyApplyConfiguration) WithStatus(value kueuev1alpha1.TopologyStatus) *TopologyApplyConfiguration {
-	b.Status = &value
 	return b
 }
 
