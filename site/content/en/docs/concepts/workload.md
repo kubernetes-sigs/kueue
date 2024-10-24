@@ -155,6 +155,23 @@ the requeueState (`.status.requeueState`) will be reset to null.
 You can configure Kueue to copy labels, at Workload creation, into the new Workload from the underlying Job or Pod objects. This can be useful for Workload identification and debugging.
 You can specify which labels should be copied by setting the `labelKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod label into the Workload. 
 
+## Maximum execution time
+
+You can configure a Workload's maximum execution time by specifying the expected maximum number of seconds for it to run in:
+
+```yaml
+spec:
+  maximumExecutionTimeSeconds: n
+```
+
+If the workload spends more then `n` seconds in `Admitted` state, including the time spent as `Admitted` in previous "Admit/Evict" cycles, it gets automatically deactivated.
+Once deactivated, the accumulated time spent as active in previous "Admit/Evict" cycles is set to 0.
+
+If `maximumExecutionTimeSeconds` is not specified, the workload has no execution time limit.
+
+You can configure the `maximumExecutionTimeSeconds` of the Workload associated with any supported Kueue Job by specifying the desired value as `kueue.x-k8s.io/max-exec-time-seconds` label of the job. 
+
+
 
 ## What's next
 

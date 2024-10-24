@@ -180,3 +180,14 @@ Example: `kueue.x-k8s.io/role-hash: "b54683bb"`
 Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 
 The annotation key is used as the name for a Workload podSet.
+
+
+### kueue.x-k8s.io/max-exec-time-seconds
+
+Type: Label
+
+Example: `kueue.x-k8s.io/max-exec-time-seconds: "120"`
+
+Used on: Kueue-managed Jobs.
+
+The value of this label is passed in the Job's Workload `spec.maximumExecutionTimeSeconds` and used by the [Maximum execution time](/docs/concepts/workload/#maximum-execution-time) feature.
