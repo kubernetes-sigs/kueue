@@ -18,16 +18,21 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"sync"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -66,39 +71,64 @@ func (t *TASCache) NewTASFlavorCache(labels []string, nodeLabels map[string]stri
 	}
 }
 
-func (c *TASFlavorCache) snapshot(ctx context.Context) *TASFlavorSnapshot {
+func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, error) {
 	log := ctrl.LoggerFrom(ctx)
-	nodeList := &corev1.NodeList{}
+	nodes := &corev1.NodeList{}
 	requiredLabels := client.MatchingLabels{}
 	for k, v := range c.NodeLabels {
 		requiredLabels[k] = v
 	}
 	requiredLabelKeys := client.HasLabels{}
 	requiredLabelKeys = append(requiredLabelKeys, c.Levels...)
-	err := c.client.List(ctx, nodeList, requiredLabels, requiredLabelKeys)
+	err := c.client.List(ctx, nodes, requiredLabels, requiredLabelKeys)
 	if err != nil {
-		log.Error(err, "failed to list nodes for TAS", "nodeLabels", c.NodeLabels)
+		return nil, fmt.Errorf("failed to list nodes for TAS: %w", err)
 	}
-	return c.snapshotForNodes(log, nodeList.Items)
+	r, err := labels.NewRequirement(kueuealpha.TASLabel, selection.DoesNotExist, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build requirement for non-TAS pods: %w", err)
+	}
+	podListOpts := &client.ListOptions{}
+	podListOpts.LabelSelector = labels.NewSelector()
+	podListOpts.LabelSelector = podListOpts.LabelSelector.Add(*r)
+	pods := corev1.PodList{}
+	err = c.client.List(ctx, &pods, podListOpts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list non-TAS pods which are bound to nodes: %w", err)
+	}
+	return c.snapshotForNodes(log, nodes.Items, pods.Items), nil
 }
 
-func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node) *TASFlavorSnapshot {
+func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, pods []corev1.Pod) *TASFlavorSnapshot {
 	c.RLock()
 	defer c.RUnlock()
 
 	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.NodeLabels,
-		"levels", c.Levels, "nodeCount", len(nodes))
+		"levels", c.Levels, "nodeCount", len(nodes), "podCount", len(pods))
 	snapshot := newTASFlavorSnapshot(log, c.Levels)
+	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		levelValues := utiltas.LevelValues(c.Levels, node.Labels)
 		capacity := resources.NewRequests(node.Status.Allocatable)
 		domainID := utiltas.DomainID(levelValues)
 		snapshot.levelValuesPerDomain[domainID] = levelValues
 		snapshot.addCapacity(domainID, capacity)
+		nodeToDomain[node.Name] = domainID
 	}
 	snapshot.initialize()
 	for domainID, usage := range c.usage {
 		snapshot.addUsage(domainID, usage)
+	}
+	for _, pod := range pods {
+		// skip unscheduled or terminal pods as they don't use any capacity
+		if len(pod.Spec.NodeName) == 0 || pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+			continue
+		}
+		if domainID, ok := nodeToDomain[pod.Spec.NodeName]; ok {
+			requests := limitrange.TotalRequests(&pod.Spec)
+			usage := resources.NewRequests(requests)
+			snapshot.addUsage(domainID, usage)
+		}
 	}
 	return snapshot
 }
