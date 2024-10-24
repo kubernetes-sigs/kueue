@@ -90,9 +90,9 @@ func (b *multikueueAdapter) KeepAdmissionCheckPending() bool {
 	return false
 }
 
-func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, remoteClient client.Client, key types.NamespacedName) (bool, string, error) {
+func (b *multikueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	job := kfmpi.MPIJob{}
-	err := remoteClient.Get(ctx, key, &job)
+	err := c.Get(ctx, key, &job)
 	if err != nil {
 		return false, "", err
 	}
