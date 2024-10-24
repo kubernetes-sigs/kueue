@@ -24,12 +24,13 @@ import (
 // WorkloadStatusApplyConfiguration represents a declarative configuration of the WorkloadStatus type for use
 // with apply.
 type WorkloadStatusApplyConfiguration struct {
-	Admission        *AdmissionApplyConfiguration            `json:"admission,omitempty"`
-	RequeueState     *RequeueStateApplyConfiguration         `json:"requeueState,omitempty"`
-	Conditions       []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
-	ReclaimablePods  []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
-	AdmissionChecks  []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
-	ResourceRequests []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
+	Admission                            *AdmissionApplyConfiguration            `json:"admission,omitempty"`
+	RequeueState                         *RequeueStateApplyConfiguration         `json:"requeueState,omitempty"`
+	Conditions                           []v1.ConditionApplyConfiguration        `json:"conditions,omitempty"`
+	ReclaimablePods                      []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
+	AdmissionChecks                      []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
+	ResourceRequests                     []PodSetRequestApplyConfiguration       `json:"resourceRequests,omitempty"`
+	AccumulatedPastExexcutionTimeSeconds *int32                                  `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -103,5 +104,13 @@ func (b *WorkloadStatusApplyConfiguration) WithResourceRequests(values ...*PodSe
 		}
 		b.ResourceRequests = append(b.ResourceRequests, *values[i])
 	}
+	return b
+}
+
+// WithAccumulatedPastExexcutionTimeSeconds sets the AccumulatedPastExexcutionTimeSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AccumulatedPastExexcutionTimeSeconds field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithAccumulatedPastExexcutionTimeSeconds(value int32) *WorkloadStatusApplyConfiguration {
+	b.AccumulatedPastExexcutionTimeSeconds = &value
 	return b
 }
