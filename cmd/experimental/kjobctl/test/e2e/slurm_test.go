@@ -32,10 +32,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/utils/maps"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/test/util"
 )
 
