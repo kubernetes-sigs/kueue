@@ -43,6 +43,7 @@ import (
 var (
 	minPodsCountAnnotationsPath   = field.NewPath("metadata", "annotations").Key(JobMinParallelismAnnotation)
 	syncCompletionAnnotationsPath = field.NewPath("metadata", "annotations").Key(JobCompletionsEqualParallelismAnnotation)
+	replicaMetaPath               = field.NewPath("spec", "template", "metadata")
 )
 
 type JobWebhook struct {
@@ -125,6 +126,7 @@ func (w *JobWebhook) validateCreate(job *Job) field.ErrorList {
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
+	allErrs = append(allErrs, w.validateTopologyRequest(job)...)
 	return allErrs
 }
 
@@ -184,6 +186,7 @@ func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
+	allErrs = append(allErrs, w.validateTopologyRequest(newJob)...)
 	return allErrs
 }
 
@@ -198,6 +201,10 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 		allErrs = append(allErrs, field.Forbidden(syncCompletionAnnotationsPath, fmt.Sprintf("%s while the job is not suspended", apivalidation.FieldImmutableErrorMsg)))
 	}
 	return allErrs
+}
+
+func (w *JobWebhook) validateTopologyRequest(job *Job) field.ErrorList {
+	return jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
