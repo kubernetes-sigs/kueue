@@ -515,8 +515,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				podList := &corev1.PodList{}
 				podListOptions := client.InNamespace("kueue-system")
-				gomega.Eventually(func(g gomega.Gomega) error {
-					return k8sWorker1Client.List(ctx, podList, podListOptions)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.List(ctx, podList, podListOptions)).Should(gomega.Succeed())
 				}, util.LongTimeout, util.Interval).ShouldNot(gomega.Succeed())
 			})
 
@@ -538,9 +538,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				cmd := exec.Command("docker", "network", "connect", "kind", worker1Container)
 				output, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-				gomega.Eventually(func() error {
-					return util.DeleteObject(ctx, k8sWorker1Client, worker1Cq2)
-				}, util.LongTimeout, util.Interval).ShouldNot(gomega.HaveOccurred())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(util.DeleteObject(ctx, k8sWorker1Client, worker1Cq2)).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 				// After reconnecting the container to the network, when we try to get pods,
 				// we get it with the previous values (as before disconnect). Therefore, it
@@ -548,9 +548,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				// To be sure that the leader of kueue-control-manager successfully recovered
 				// we can check it by removing already created Cluster Queue.
 				var cq kueue.ClusterQueue
-				gomega.Eventually(func() error {
-					return k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(worker1Cq2), &cq)
-				}, util.LongTimeout, util.Interval).Should(utiltesting.BeNotFoundError())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(worker1Cq2), &cq)).Should(utiltesting.BeNotFoundError())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for the cluster do become active", func() {
