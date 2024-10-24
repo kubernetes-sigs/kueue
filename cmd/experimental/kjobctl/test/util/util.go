@@ -55,6 +55,15 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := c.DeleteAllOf(ctx, &kjob.JobTemplate{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
+	if err := c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := c.DeleteAllOf(ctx, &corev1.Service{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
 	if err := c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
