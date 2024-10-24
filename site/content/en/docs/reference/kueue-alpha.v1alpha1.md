@@ -37,12 +37,6 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 <td>
    <span class="text-muted">No description provided.</span></td>
 </tr>
-<tr><td><code>status</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1alpha1-TopologyStatus"><code>TopologyStatus</code></a>
-</td>
-<td>
-   <span class="text-muted">No description provided.</span></td>
-</tr>
 </tbody>
 </table>
 
@@ -215,17 +209,4 @@ level.</p>
 </tr>
 </tbody>
 </table>
-
-## `TopologyStatus`     {#kueue-x-k8s-io-v1alpha1-TopologyStatus}
-    
-
-**Appears in:**
-
-- [Topology](#kueue-x-k8s-io-v1alpha1-Topology)
-
-
-<p>TopologyStatus defines the observed state of Topology</p>
-
-
-
   

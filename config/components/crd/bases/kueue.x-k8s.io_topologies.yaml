@@ -66,11 +66,6 @@ spec:
             required:
             - levels
             type: object
-          status:
-            description: TopologyStatus defines the observed state of Topology
-            type: object
         type: object
     served: true
     storage: true
-    subresources:
-      status: {}
