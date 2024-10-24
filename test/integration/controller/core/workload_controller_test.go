@@ -457,6 +457,15 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+					g.Expect(wl.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						metav1.Condition{
+							Type:    kueue.WorkloadEvicted,
+							Status:  metav1.ConditionTrue,
+							Reason:  kueue.WorkloadEvictedByDeactivation + kueue.WorkloadMaximumExecutionTimeExceeded,
+							Message: "The workload is deactivated due to exceeding the maximum execution time",
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration,
+					)))
 				}, maxExecTime, util.Interval).Should(gomega.Succeed())
 			})
 		})
