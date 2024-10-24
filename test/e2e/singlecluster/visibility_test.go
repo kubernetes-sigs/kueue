@@ -159,19 +159,19 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 
 			ginkgo.By("Verify there is one pending workload", func() {
-				gomega.Eventually(func() []visibility.PendingWorkload {
+				gomega.Eventually(func(g gomega.Gomega) {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return info.Items
-				}, util.Timeout, util.Interval).Should(gomega.HaveLen(1))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.HaveLen(1))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Await for pods to be running", func() {
-				gomega.Eventually(func() int {
+				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
-					return int(*createdJob.Status.Ready)
-				}, util.LongTimeout, util.Interval).Should(gomega.Equal(1))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
+					g.Expect(*createdJob.Status.Ready).Should(gomega.Equal(int32(1)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Terminate execution of the first workload to release the quota", func() {
@@ -179,11 +179,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 
 			ginkgo.By("Verify there are zero pending workloads, after the second workload is admitted", func() {
-				gomega.Eventually(func() []visibility.PendingWorkload {
+				gomega.Eventually(func(g gomega.Gomega) {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return info.Items
-				}, util.LongTimeout, util.Interval).Should(gomega.BeEmpty())
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeEmpty())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -254,11 +254,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						LocalQueueName:         localQueueB.Name,
 					},
 				}
-				gomega.Eventually(func() []visibility.PendingWorkload {
+				gomega.Eventually(func(g gomega.Gomega) {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return info.Items
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -280,19 +280,19 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 
 			ginkgo.By("Verify there is one pending workload", func() {
-				gomega.Eventually(func() []visibility.PendingWorkload {
+				gomega.Eventually(func(g gomega.Gomega) {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return info.Items
-				}, util.Timeout, util.Interval).Should(gomega.HaveLen(1))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.HaveLen(1))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Await for pods to be running", func() {
-				gomega.Eventually(func() int {
+				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
-					return int(*createdJob.Status.Ready)
-				}, util.LongTimeout, util.Interval).Should(gomega.Equal(1))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
+					g.Expect(*createdJob.Status.Ready).Should(gomega.Equal(int32(1)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Terminate execution of the first workload to release the quota", func() {
@@ -300,11 +300,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			})
 
 			ginkgo.By("Verify there are zero pending workloads, after the second workload is admitted", func() {
-				gomega.Eventually(func() int {
+				gomega.Eventually(func(g gomega.Gomega) {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return len(info.Items)
-				}, util.LongTimeout, util.Interval).Should(gomega.Equal(0))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeEmpty())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -355,11 +355,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						LocalQueueName:         localQueueA.Name,
 					},
 				}
-				gomega.Eventually(func() []visibility.PendingWorkload {
+				gomega.Eventually(func(g gomega.Gomega) {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return info.Items
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify their positions and priorities in LocalQueueB", func() {
@@ -385,11 +385,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						LocalQueueName:         localQueueB.Name,
 					},
 				}
-				gomega.Eventually(func() []visibility.PendingWorkload {
+				gomega.Eventually(func(g gomega.Gomega) {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueB.Name, metav1.GetOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return info.Items
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 		ginkgo.It("Should allow fetching information about position of pending workloads from different LocalQueues from different Namespaces", func() {
@@ -448,11 +448,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						LocalQueueName:         localQueueA.Name,
 					},
 				}
-				gomega.Eventually(func() []visibility.PendingWorkload {
+				gomega.Eventually(func(g gomega.Gomega) {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return info.Items
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify their positions and priorities in LocalQueueB", func() {
@@ -478,11 +478,11 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 						LocalQueueName:         localQueueB.Name,
 					},
 				}
-				gomega.Eventually(func() []visibility.PendingWorkload {
+				gomega.Eventually(func(g gomega.Gomega) {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueB.Name, metav1.GetOptions{})
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					return info.Items
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(info.Items).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

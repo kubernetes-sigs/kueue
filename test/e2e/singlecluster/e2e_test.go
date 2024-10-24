@@ -68,20 +68,16 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdJob := &batchv1.Job{}
-			gomega.Eventually(func() bool {
-				if err := k8sClient.Get(ctx, jobKey, createdJob); err != nil {
-					return false
-				}
-				return *createdJob.Spec.Suspend
-			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+				g.Expect(*createdJob.Spec.Suspend).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
-			gomega.Eventually(func() bool {
-				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-					return false
-				}
-				return workload.HasQuotaReservation(createdWorkload)
-			}, util.Timeout, util.Interval).Should(gomega.BeFalse())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, sampleJob)).Should(gomega.Succeed())
 		})
 	})
@@ -141,13 +137,12 @@ var _ = ginkgo.Describe("Kueue", func() {
 				"instance-type": "on-demand",
 			})
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
-			gomega.Eventually(func() bool {
-				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-					return false
-				}
-				return workload.HasQuotaReservation(createdWorkload) &&
-					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload) &&
+					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished),
+				).Should(gomega.BeTrue())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should run with prebuilt workload", func() {
@@ -323,13 +318,12 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("Wait for the job to finish", func() {
 				createdWorkload := &kueue.Workload{}
 				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
-				gomega.Eventually(func() bool {
-					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-						return false
-					}
-					return workload.HasQuotaReservation(createdWorkload) &&
-						apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-				}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(createdWorkload) &&
+						apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished),
+					).Should(gomega.BeTrue())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -380,21 +374,19 @@ var _ = ginkgo.Describe("Kueue", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("verify the check is added to the workload", func() {
-				gomega.Eventually(func() map[string]string {
-					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-						return nil
-					}
-					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) {
+						return createdWorkload.Status.AdmissionChecks[i].Name, ""
+					})).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("waiting for the workload to be assigned", func() {
-				gomega.Eventually(func() bool {
-					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-						return false
-					}
-					return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
-				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("checking the job remains suspended", func() {
@@ -409,16 +401,14 @@ var _ = ginkgo.Describe("Kueue", func() {
 			})
 
 			ginkgo.By("setting the check as successful", func() {
-				gomega.Eventually(func() error {
-					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-						return err
-					}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					patch := workload.BaseSSAWorkload(createdWorkload)
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
 					})
-					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
+					g.Expect(k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -426,13 +416,11 @@ var _ = ginkgo.Describe("Kueue", func() {
 			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
-			gomega.Eventually(func() bool {
-				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-					return false
-				}
-				return workload.HasQuotaReservation(createdWorkload) &&
-					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload) &&
+					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)).Should(gomega.BeTrue())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should suspend a job when its checks become invalid", func() {
@@ -442,25 +430,23 @@ var _ = ginkgo.Describe("Kueue", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("verify the check is added to the workload", func() {
-				gomega.Eventually(func() map[string]string {
-					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-						return nil
-					}
-					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) {
+						return createdWorkload.Status.AdmissionChecks[i].Name, ""
+					})).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the check as successful", func() {
-				gomega.Eventually(func() error {
-					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-						return err
-					}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					patch := workload.BaseSSAWorkload(createdWorkload)
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
 					})
-					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
+					g.Expect(k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -469,28 +455,26 @@ var _ = ginkgo.Describe("Kueue", func() {
 			})
 
 			ginkgo.By("setting the check as failed (Retry)", func() {
-				gomega.Eventually(func() error {
-					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-						return err
-					}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					patch := workload.BaseSSAWorkload(createdWorkload)
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateRetry,
 					})
-					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
+					g.Expect(k8sClient.Status().Patch(ctx, patch, client.Apply,
+						client.FieldOwner("test-admission-check-controller"),
+						client.ForceOwnership)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("checking the job gets suspended", func() {
 				createdJob := &batchv1.Job{}
 				jobKey := client.ObjectKeyFromObject(sampleJob)
-				gomega.Eventually(func() bool {
-					if err := k8sClient.Get(ctx, jobKey, createdJob); err != nil {
-						return false
-					}
-					return ptr.Deref(createdJob.Spec.Suspend, false)
-				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -498,18 +482,19 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 func expectJobUnsuspended(key types.NamespacedName) {
 	job := &batchv1.Job{}
-	gomega.EventuallyWithOffset(1, func() *bool {
-		gomega.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
-		return job.Spec.Suspend
-	}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
+		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
 func expectJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[string]string) {
 	job := &batchv1.Job{}
-	gomega.EventuallyWithOffset(1, func() []any {
-		gomega.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
-		return []any{*job.Spec.Suspend, job.Spec.Template.Spec.NodeSelector}
-	}, util.Timeout, util.Interval).Should(gomega.Equal([]any{false, ns}))
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
+		g.Expect(*job.Spec.Suspend).Should(gomega.BeFalse())
+		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(ns))
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
 func defaultOwnerReferenceForJob(name string) []metav1.OwnerReference {

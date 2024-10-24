@@ -109,7 +109,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
 						var p corev1.Pod
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 						g.Expect(p.Spec.NodeSelector).To(gomega.Equal(map[string]string{
 							"instance-type": "on-demand",
@@ -163,8 +163,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group[:2] {
 						var p corev1.Pod
-						err := k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)
-						g.Expect(err).To(testing.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(testing.BeNotFoundError())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -213,20 +212,20 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			ginkgo.By("Wait for the pod to be running to allow fast termination by Kubelet", func() {
-				gomega.Eventually(func() corev1.PodPhase {
+				gomega.Eventually(func(g gomega.Gomega) {
 					var p corev1.Pod
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
-					return p.Status.Phase
-				}, util.Timeout, util.Interval).Should(gomega.Equal(corev1.PodRunning))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
+					g.Expect(p.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Fail a pod", func() {
 				gomega.Expect(k8sClient.Delete(ctx, group[0])).To(gomega.Succeed())
-				gomega.Eventually(func() corev1.PodPhase {
+				gomega.Eventually(func(g gomega.Gomega) {
 					var p corev1.Pod
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
-					return p.Status.Phase
-				}, util.LongTimeout, util.Interval).Should(gomega.Equal(corev1.PodFailed))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(group[0]), &p)).To(gomega.Succeed())
+					g.Expect(p.Status.Phase).Should(gomega.Equal(corev1.PodFailed))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			createdWorkload := &kueue.Workload{}
@@ -392,7 +391,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range group {
 						var p corev1.Pod
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -451,7 +450,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range defaultPriorityGroup {
 						var p corev1.Pod
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -472,7 +471,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range highPriorityGroup {
 						var p corev1.Pod
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -526,7 +525,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					for _, origPod := range highPriorityGroup {
 						var p corev1.Pod
-						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
