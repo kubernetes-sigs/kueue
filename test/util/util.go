@@ -69,16 +69,24 @@ func DeleteObject[PtrT objAsPtr[T], T any](ctx context.Context, c client.Client,
 }
 
 func ExpectObjectToBeDeleted[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool) {
+	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, Timeout)
+}
+
+func ExpectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
+	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, timeout)
+}
+
+func expectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
 	if o == nil {
 		return
 	}
 	if deleteNow {
-		gomega.Expect(client.IgnoreNotFound(DeleteObject(ctx, k8sClient, o))).To(gomega.Succeed())
+		gomega.ExpectWithOffset(2, client.IgnoreNotFound(DeleteObject(ctx, k8sClient, o))).To(gomega.Succeed())
 	}
-	gomega.EventuallyWithOffset(1, func() error {
+	gomega.EventuallyWithOffset(2, func() error {
 		newObj := PtrT(new(T))
 		return k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)
-	}, Timeout, Interval).Should(testing.BeNotFoundError())
+	}, timeout, Interval).Should(testing.BeNotFoundError())
 }
 
 // DeleteNamespace deletes all objects the tests typically create in the namespace.

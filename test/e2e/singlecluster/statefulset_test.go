@@ -126,11 +126,11 @@ var _ = ginkgo.Describe("Stateful set integration", func() {
 				conflictingWorkload := &kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, conflictingWlLookupKey, conflictingWorkload)).To(gomega.Succeed())
 				gomega.Expect(createdWorkload.Name).ToNot(gomega.Equal(conflictingWorkload.Name))
-				gomega.Expect(k8sClient.Delete(ctx, conflictingStatefulSet)).To(gomega.Succeed())
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, conflictingStatefulSet, true, util.LongTimeout)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, conflictingWorkload, false)
 			})
 
-			gomega.Expect(k8sClient.Delete(ctx, statefulSet)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, statefulSet, true, util.LongTimeout)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, createdWorkload, false)
 		})
 	})
