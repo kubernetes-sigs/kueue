@@ -138,5 +138,6 @@ func (wh *Webhook) ValidateDelete(context.Context, runtime.Object) (warnings adm
 }
 
 func GetWorkloadName(statefulSetName string) string {
+	// Passing empty UID as it is not available before object creation
 	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, "", gvk)
 }
