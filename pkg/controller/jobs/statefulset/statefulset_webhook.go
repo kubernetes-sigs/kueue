@@ -64,23 +64,21 @@ func (wh *Webhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Applying defaults")
 
 	cqLabel, ok := ss.Labels[constants.QueueLabel]
-	if ok {
-		if ss.Spec.Template.Labels == nil {
-			ss.Spec.Template.Labels = make(map[string]string, 2)
-		}
-		ss.Spec.Template.Labels[constants.QueueLabel] = cqLabel
+	if !ok {
+		return nil
 	}
 
-	podGroupName := GetWorkloadName(ss.Name, ss.UID)
-	podGroupReplicas := ptr.Deref(ss.Spec.Replicas, 1)
 	if ss.Spec.Template.Labels == nil {
-		ss.Spec.Template.Labels = make(map[string]string, 1)
+		ss.Spec.Template.Labels = make(map[string]string, 2)
 	}
-	ss.Spec.Template.Labels[pod.GroupNameLabel] = podGroupName
+
+	ss.Spec.Template.Labels[constants.QueueLabel] = cqLabel
+	ss.Spec.Template.Labels[pod.GroupNameLabel] = GetWorkloadName(ss.Name, ss.UID)
+
 	if ss.Spec.Template.Annotations == nil {
 		ss.Spec.Template.Annotations = make(map[string]string, 2)
 	}
-	ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(podGroupReplicas)
+	ss.Spec.Template.Annotations[pod.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(ss.Spec.Replicas, 1))
 	ss.Spec.Template.Annotations[pod.GroupFastAdmissionAnnotation] = "true"
 
 	return nil
