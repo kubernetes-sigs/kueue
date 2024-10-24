@@ -18,8 +18,11 @@ package webhook
 
 import (
 	"context"
+	"reflect"
+	"strconv"
+	"strings"
 
-	jsonpatch "gomodules.xyz/jsonpatch/v2"
+	"gomodules.xyz/jsonpatch/v2"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -29,11 +32,13 @@ import (
 func WithLosslessDefaulter(scheme *runtime.Scheme, obj runtime.Object, defaulter admission.CustomDefaulter) admission.Handler {
 	return &losslessDefaulter{
 		Handler: admission.WithCustomDefaulter(scheme, obj, defaulter).Handler,
+		object:  obj,
 	}
 }
 
 type losslessDefaulter struct {
 	admission.Handler
+	object runtime.Object
 }
 
 // Handle handles admission requests, **dropping** remove operations from patches produced by controller-runtime.
@@ -47,7 +52,7 @@ func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) a
 	if response.Allowed {
 		var patches []jsonpatch.Operation
 		for _, p := range response.Patches {
-			if p.Operation != "remove" {
+			if p.Operation != "remove" || fieldExistsByJSONPointer(h.object, p.Path) {
 				patches = append(patches, p)
 			}
 		}
@@ -57,4 +62,125 @@ func (h *losslessDefaulter) Handle(ctx context.Context, req admission.Request) a
 		response.Patches = patches
 	}
 	return response
+}
+
+func fieldExistsByJSONPointer(object interface{}, jsonPointer string) bool {
+	// A JSON Pointer is a Unicode string containing a sequence of zero or more
+	// reference tokens, each prefixed by a '/' character.
+	// For more information, see https://datatracker.ietf.org/doc/html/rfc6901#section-3.
+	if !strings.HasPrefix(jsonPointer, "/") {
+		return false
+	}
+	return fieldExistsByReferenceTokens(object, strings.Split(jsonPointer, "/")[1:])
+}
+
+func fieldExistsByReferenceTokens(object interface{}, referenceTokens []string) bool {
+	if object == nil {
+		return false
+	}
+
+	if referenceTokens[0] == "" {
+		return false
+	}
+
+	t := reflect.TypeOf(object)
+	v := reflect.ValueOf(object)
+
+	if v.Kind() == reflect.Pointer {
+		t = t.Elem()
+		v = v.Elem()
+	}
+
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		value := v.Field(i)
+
+		if getJSONFieldName(field) != unescapeReferenceToken(referenceTokens[0]) {
+			continue
+		}
+
+		if len(referenceTokens) == 1 {
+			return true
+		}
+
+		switch value.Kind() {
+		case reflect.Pointer:
+			return fieldExistsByReferenceTokens(reflect.New(field.Type.Elem()).Interface(), referenceTokens[1:])
+		case reflect.Struct:
+			return fieldExistsByReferenceTokens(value.Interface(), referenceTokens[1:])
+		case reflect.Array, reflect.Slice:
+			if isInt(referenceTokens[1]) {
+				if len(referenceTokens) > 2 {
+					return fieldExistsByReferenceTokens(reflect.New(field.Type.Elem()).Interface(), referenceTokens[2:])
+				} else {
+					return true
+				}
+			}
+		case reflect.Map:
+			keyType := value.Type().Key().Kind()
+			keyTypeNum := isNumericType(keyType)
+			if keyType != reflect.String && (!keyTypeNum || !isNumeric(referenceTokens[1])) {
+				return false
+			}
+			if len(referenceTokens) == 2 {
+				return true
+			}
+
+			return fieldExistsByReferenceTokens(reflect.New(field.Type.Elem()).Interface(), referenceTokens[2:])
+		}
+
+		return false
+	}
+
+	return false
+}
+
+// Because the characters '~' and '/' have special meanings in JSON Pointer,
+// '~' needs to be encoded as '~0' and '/' needs to be encoded as '~1'
+// when these characters appear in a reference token.
+// For more information see https://datatracker.ietf.org/doc/html/rfc6901#section-3.
+func unescapeReferenceToken(fieldName string) string {
+	fieldName = strings.ReplaceAll(fieldName, "~0", "~")
+	fieldName = strings.ReplaceAll(fieldName, "~1", "/")
+	return fieldName
+}
+
+func getJSONFieldName(field reflect.StructField) string {
+	jsonTag := field.Tag.Get("json")
+	if jsonTag == "" {
+		jsonTag = field.Name
+	} else if parts := strings.Split(jsonTag, ","); len(parts) > 1 {
+		jsonTag = strings.Trim(parts[0], " ")
+	}
+	return jsonTag
+}
+
+func isInt(v string) bool {
+	_, err := strconv.ParseInt(v, 10, 64)
+	return err == nil
+}
+
+func isNumeric(s string) bool {
+	if _, err := strconv.Atoi(s); err == nil {
+		return true
+	}
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return true
+	}
+	return false
+}
+
+func isNumericType(kind reflect.Kind) bool {
+	switch kind {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	default:
+		return false
+	}
 }
