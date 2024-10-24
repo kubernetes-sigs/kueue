@@ -2359,6 +2359,15 @@ Possible values are:</p>
 <p>Defaults to true</p>
 </td>
 </tr>
+<tr><td><code>maximumExecutionTimeSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
+the workload can be admitted before it's automatically deactivated.</p>
+<p>If unspecified, no execution time limit is enforced on the Workload.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
