@@ -18,6 +18,7 @@ package mpijob
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -49,28 +50,27 @@ func TestMultikueueAdapter(t *testing.T) {
 	mpiJobBuilder := utiltestingmpijob.MakeMPIJob("mpijob1", TestNamespace)
 
 	cases := map[string]struct {
-		managersJobSets []kfmpi.MPIJob
-		workerJobSets   []kfmpi.MPIJob
+		managersMpiJobs []kfmpi.MPIJob
+		workerMpiJobs   []kfmpi.MPIJob
 
 		operation func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError           error
-		wantManagersJobSets []kfmpi.MPIJob
-		wantWorkerJobSets   []kfmpi.MPIJob
+		wantManagersMpiJobs []kfmpi.MPIJob
+		wantWorkerMpiJobs   []kfmpi.MPIJob
 	}{
-
 		"sync creates missing remote mpijob": {
-			managersJobSets: []kfmpi.MPIJob{
+			managersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
-			wantManagersJobSets: []kfmpi.MPIJob{
+			wantManagersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.DeepCopy(),
 			},
-			wantWorkerJobSets: []kfmpi.MPIJob{
+			wantWorkerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
@@ -78,10 +78,10 @@ func TestMultikueueAdapter(t *testing.T) {
 			},
 		},
 		"sync status from remote mpijob": {
-			managersJobSets: []kfmpi.MPIJob{
+			managersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.DeepCopy(),
 			},
-			workerJobSets: []kfmpi.MPIJob{
+			workerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
@@ -92,12 +92,12 @@ func TestMultikueueAdapter(t *testing.T) {
 				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}, "wl1", "origin1")
 			},
 
-			wantManagersJobSets: []kfmpi.MPIJob{
+			wantManagersMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					StatusConditions(kfmpi.JobCondition{Type: kfmpi.JobSucceeded, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
-			wantWorkerJobSets: []kfmpi.MPIJob{
+			wantWorkerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
@@ -106,7 +106,7 @@ func TestMultikueueAdapter(t *testing.T) {
 			},
 		},
 		"remote mpijob is deleted": {
-			workerJobSets: []kfmpi.MPIJob{
+			workerMpiJobs: []kfmpi.MPIJob{
 				*mpiJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
@@ -116,16 +116,61 @@ func TestMultikueueAdapter(t *testing.T) {
 				return adapter.DeleteRemoteObject(ctx, workerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace})
 			},
 		},
+		"job with wrong managedBy is not considered managed": {
+			managersMpiJobs: []kfmpi.MPIJob{
+				*mpiJobBuilder.Clone().
+					ManagedBy("some-other-controller").
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersMpiJobs: []kfmpi.MPIJob{
+				*mpiJobBuilder.Clone().
+					ManagedBy("some-other-controller").
+					Obj(),
+			},
+		},
+
+		"job managedBy multikueue": {
+			managersMpiJobs: []kfmpi.MPIJob{
+				*mpiJobBuilder.Clone().
+					ManagedBy(kueue.MultiKueueControllerName).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersMpiJobs: []kfmpi.MPIJob{
+				*mpiJobBuilder.Clone().
+					ManagedBy(kueue.MultiKueueControllerName).
+					Obj(),
+			},
+		},
+		"missing job is not considered managed": {
+			operation: func(ctx context.Context, adapter *multikueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "mpijob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			managerBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			managerBuilder = managerBuilder.WithLists(&kfmpi.MPIJobList{Items: tc.managersJobSets})
-			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobSets, func(w *kfmpi.MPIJob) client.Object { return w })...)
+			managerBuilder = managerBuilder.WithLists(&kfmpi.MPIJobList{Items: tc.managersMpiJobs})
+			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersMpiJobs, func(w *kfmpi.MPIJob) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 
 			workerBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			workerBuilder = workerBuilder.WithLists(&kfmpi.MPIJobList{Items: tc.workerJobSets})
+			workerBuilder = workerBuilder.WithLists(&kfmpi.MPIJobList{Items: tc.workerMpiJobs})
 			workerClient := workerBuilder.Build()
 
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -138,20 +183,20 @@ func TestMultikueueAdapter(t *testing.T) {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
 
-			gotManagersJobSets := &kfmpi.MPIJobList{}
-			if err := managerClient.List(ctx, gotManagersJobSets); err != nil {
+			gotManagersMpiJobs := &kfmpi.MPIJobList{}
+			if err := managerClient.List(ctx, gotManagersMpiJobs); err != nil {
 				t.Errorf("unexpected list manager's mpijobs error %s", err)
 			} else {
-				if diff := cmp.Diff(tc.wantManagersJobSets, gotManagersJobSets.Items, objCheckOpts...); diff != "" {
+				if diff := cmp.Diff(tc.wantManagersMpiJobs, gotManagersMpiJobs.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected manager's mpijobs (-want/+got):\n%s", diff)
 				}
 			}
 
-			gotWorkerJobSets := &kfmpi.MPIJobList{}
-			if err := workerClient.List(ctx, gotWorkerJobSets); err != nil {
+			gotWorkerMpiJobs := &kfmpi.MPIJobList{}
+			if err := workerClient.List(ctx, gotWorkerMpiJobs); err != nil {
 				t.Errorf("unexpected list worker's mpijobs error %s", err)
 			} else {
-				if diff := cmp.Diff(tc.wantWorkerJobSets, gotWorkerJobSets.Items, objCheckOpts...); diff != "" {
+				if diff := cmp.Diff(tc.wantWorkerMpiJobs, gotWorkerMpiJobs.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected worker's mpijobs (-want/+got):\n%s", diff)
 				}
 			}

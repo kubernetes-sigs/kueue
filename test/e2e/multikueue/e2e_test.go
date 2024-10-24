@@ -436,6 +436,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			// Since it requires 1.5 CPU, this job can only be admitted in worker 1.
 			mpijob := testingmpijob.MakeMPIJob("mpijob1", managerNs.Name).
 				Queue(managerLq.Name).
+				ManagedBy(kueue.MultiKueueControllerName).
 				MPIJobReplicaSpecs(
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeLauncher,

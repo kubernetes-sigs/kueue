@@ -1049,9 +1049,65 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 		})
 	})
 
+	ginkgo.It("Should not run a MPIJob on worker if set to be managed by external controller", func() {
+		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+			kueue.PodSetAssignment{
+				Name: "launcher",
+			}, kueue.PodSetAssignment{
+				Name: "worker",
+			},
+		)
+		mpijobNoManagedBy := testingmpijob.MakeMPIJob("mpijob2", managerNs.Name).
+			Queue(managerLq.Name).
+			ManagedBy("example.com/other-controller-not-mpi-operator").
+			MPIJobReplicaSpecs(
+				testingmpijob.MPIJobReplicaSpecRequirement{
+					ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
+					ReplicaCount:  1,
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+				},
+				testingmpijob.MPIJobReplicaSpecRequirement{
+					ReplicaType:   kfmpi.MPIReplicaTypeWorker,
+					ReplicaCount:  1,
+					RestartPolicy: corev1.RestartPolicyNever,
+				},
+			).
+			Obj()
+		ginkgo.By("create a mpijob with external managedBy", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, mpijobNoManagedBy)).Should(gomega.Succeed())
+		})
+
+		wlLookupKeyNoManagedBy := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijobNoManagedBy.Name, mpijobNoManagedBy.UID), Namespace: managerNs.Name}
+		ginkgo.By("setting workload reservation in the management cluster", func() {
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKeyNoManagedBy, createdWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, admission.Obj())).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("workload was not created in the worker clusters", func() {
+			managerWl := &kueue.Workload{}
+			createdWorkload := &kueue.Workload{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKeyNoManagedBy, managerWl)).To(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKeyNoManagedBy, createdWorkload)).ToNot(gomega.Succeed())
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKeyNoManagedBy, createdWorkload)).ToNot(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should run a MPIJob on worker if admitted", func() {
+		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
+			kueue.PodSetAssignment{
+				Name: "launcher",
+			}, kueue.PodSetAssignment{
+				Name: "worker",
+			},
+		)
 		mpijob := testingmpijob.MakeMPIJob("mpijob1", managerNs.Name).
 			Queue(managerLq.Name).
+			ManagedBy(kueue.MultiKueueControllerName).
 			MPIJobReplicaSpecs(
 				testingmpijob.MPIJobReplicaSpecRequirement{
 					ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
@@ -1066,16 +1122,7 @@ var _ = ginkgo.Describe("Multikueue", ginkgo.Ordered, ginkgo.ContinueOnFailure, 
 			).
 			Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, mpijob)).Should(gomega.Succeed())
-
 		wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID), Namespace: managerNs.Name}
-		admission := utiltesting.MakeAdmission(managerCq.Name).PodSets(
-			kueue.PodSetAssignment{
-				Name: "launcher",
-			}, kueue.PodSetAssignment{
-				Name: "worker",
-			},
-		)
-
 		admitWorkloadAndCheckWorkerCopies(multikueueAC.Name, wlLookupKey, admission)
 
 		ginkgo.By("changing the status of the MPIJob in the worker, updates the manager's MPIJob status", func() {

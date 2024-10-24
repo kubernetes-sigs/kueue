@@ -40,12 +40,7 @@ var (
 	gvk = kfmpi.SchemeGroupVersionKind
 
 	FrameworkName = "kubeflow.org/mpijob"
-
-	SetupMPIJobWebhook = jobframework.BaseWebhookFactory(NewJob(), fromObject)
 )
-
-// +kubebuilder:webhook:path=/mutate-kubeflow-org-v2beta1-mpijob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create,versions=v2beta1,name=mmpijob.kb.io,admissionReviewVersions=v1
-// +kubebuilder:webhook:path=/validate-kubeflow-org-v2beta1-mpijob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create;update,versions=v2beta1,name=vmpijob.kb.io,admissionReviewVersions=v1
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
@@ -90,7 +85,7 @@ func (j *MPIJob) Object() client.Object {
 	return (*kfmpi.MPIJob)(j)
 }
 
-func fromObject(o runtime.Object) jobframework.GenericJob {
+func fromObject(o runtime.Object) *MPIJob {
 	return (*MPIJob)(o.(*kfmpi.MPIJob))
 }
 
