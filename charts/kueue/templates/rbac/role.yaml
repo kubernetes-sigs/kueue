@@ -3,7 +3,7 @@ kind: ClusterRole
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-manager-role'
+  name: '{{ printf "%s-manager-role" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 rules:
   - apiGroups:
       - ""

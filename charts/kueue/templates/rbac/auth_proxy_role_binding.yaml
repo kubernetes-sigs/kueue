@@ -3,12 +3,12 @@ kind: ClusterRoleBinding
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-proxy-rolebinding'
+  name: '{{ printf "%s-proxy-rolebinding" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: '{{ include "kueue.fullname" . }}-proxy-role'
+  name: '{{ printf "%s-proxy-role" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 subjects:
   - kind: ServiceAccount
-    name: '{{ include "kueue.fullname" . }}-controller-manager'
+    name: '{{ printf "%s-controller-manager" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
     namespace: '{{ .Release.Namespace }}'

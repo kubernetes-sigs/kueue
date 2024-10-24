@@ -9,7 +9,7 @@ spec:
   groupPriorityMinimum: 100
   insecureSkipTLSVerify: true
   service:
-    name: '{{ include "kueue.fullname" . }}-visibility-server'
+    name: '{{ printf "%s-visibility-server" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
     namespace: '{{ .Release.Namespace }}'
   version: v1alpha1
   versionPriority: 100

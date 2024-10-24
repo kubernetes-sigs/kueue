@@ -3,7 +3,7 @@ kind: ClusterRole
 metadata:
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
-  name: '{{ include "kueue.fullname" . }}-metrics-reader'
+  name: '{{ printf "%s-metrics-reader" (include "kueue.fullname" .) | trunc 63 | trimSuffix "-" }}'
 rules:
   - nonResourceURLs:
       - "/metrics"
