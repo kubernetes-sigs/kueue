@@ -35,7 +35,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 	cases := map[string]struct {
 		checkStates      []kueue.AdmissionCheckState
 		conditions       []metav1.Condition
-		pastAdmittedTime time.Duration
+		pastAdmittedTime int32
 
 		wantConditions   []metav1.Condition
 		wantChange       bool
@@ -221,7 +221,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
 				},
 			},
-			pastAdmittedTime: time.Second,
+			pastAdmittedTime: 1,
 			wantConditions: []metav1.Condition{
 				{
 					Type:               kueue.WorkloadAdmitted,
@@ -241,7 +241,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				AdmissionChecks(tc.checkStates...).
 				Conditions(tc.conditions...).
 				Generation(1).
-				PastAdmittedTime(int32(tc.pastAdmittedTime.Seconds())).
+				PastAdmittedTime(tc.pastAdmittedTime).
 				Obj()
 
 			gotChange := SyncAdmittedCondition(wl, testTime)
@@ -254,8 +254,12 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				t.Errorf("Unexpected conditions after sync (- want/+ got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantAdmittedTime, ptr.Deref(wl.Status.AccumulatedPastExexcutionTimeSeconds, -1)); diff != "" {
-				t.Errorf("Unexpected conditions admitted time (- want/+ got):\n%s", diff)
+			if wl.Status.AccumulatedPastExexcutionTimeSeconds == nil {
+				t.Fatalf("Expecting AccumulatedPastExexcutionTimeSeconds not to be nil")
+			}
+
+			if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExexcutionTimeSeconds); diff != "" {
+				t.Errorf("Unexpected AccumulatedPastExexcutionTimeSeconds (- want/+ got):\n%s", diff)
 			}
 		})
 	}

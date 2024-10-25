@@ -474,7 +474,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		ginkgo.It("should deactivate the workload when the time expires with multiple admissions", func() {
 			// due time rounding in conditions, the workload will stay admitted
 			// for a time between maxExecutionTime - 1s and maxExecutionTime
-			maxExecTime := 10 * time.Second
+			maxExecTime := 30 * time.Second
 			wl := testing.MakeWorkload("wl", ns.Name).
 				Queue("lq").
 				MaximumExecutionTimeSeconds(int32(maxExecTime.Seconds())).
