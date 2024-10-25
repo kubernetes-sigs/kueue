@@ -36,6 +36,7 @@ type ResourceFlavor struct {
 }
 
 // ResourceFlavorSpec defines the desired state of the ResourceFlavor
+// +kubebuilder:validation:XValidation:rule="!has(self.topologyName) || self.nodeLabels.size() >= 1", message="at least one nodeLabel is required when topology is set"
 type ResourceFlavorSpec struct {
 	// nodeLabels are labels that associate the ResourceFlavor with Nodes that
 	// have the same labels.
@@ -91,6 +92,8 @@ type ResourceFlavorSpec struct {
 	// nodes matching to the Resource Flavor node labels.
 	//
 	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 	TopologyName *string `json:"topologyName,omitempty"`
 }
 
