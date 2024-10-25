@@ -7,7 +7,7 @@ description: >
 ---
 
 A _workload_ is an application that will run to completion. It can be composed
-by one or multiple Pods that, loosely or tightly coupled, that, as a whole,
+by one or multiple Pods that, loosely or tightly coupled, as a whole,
 complete a task. A workload is the unit of [admission](/docs/concepts#admission) in Kueue.
 
 The prototypical workload can be represented with a
