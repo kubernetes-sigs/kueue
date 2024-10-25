@@ -2444,6 +2444,14 @@ If admission is non-null, resourceRequests will be empty because
 admission.resourceUsage contains the detailed information.</p>
 </td>
 </tr>
+<tr><td><code>accumulatedPastExexcutionTimeSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
+in Admitted state, in the previous <code>Admit</code> - <code>Evict</code> cycles.</p>
+</td>
+</tr>
 </tbody>
 </table>
   

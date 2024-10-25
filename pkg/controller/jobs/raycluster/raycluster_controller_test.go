@@ -18,6 +18,7 @@ package raycluster
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -53,6 +55,11 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	// the clock is primarily used with second rounded times
+	// use the current time trimmed.
+	testStartTime := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(testStartTime)
+
 	baseJobWrapper := testingrayutil.MakeCluster("job", "ns").
 		Suspend(true).
 		Queue("foo").
@@ -266,7 +273,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "The workload was deactivated",
 						ObservedGeneration: 1,
 					}).
-					Admitted(true).
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -308,6 +315,7 @@ func TestReconciler(t *testing.T) {
 						}).
 					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
 					Generation(1).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
@@ -368,7 +376,7 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
 
 			jobKey := client.ObjectKeyFromObject(&tc.job)
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{

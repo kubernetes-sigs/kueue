@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -149,6 +150,11 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	// the clock is primarily used with second rounded times
+	// use the current time trimmed.
+	testStartTime := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(testStartTime)
+
 	basePodWrapper := testingpod.MakePod("pod", "ns").
 		UID("test-uid").
 		Queue("user-queue").
@@ -1883,7 +1889,7 @@ func TestReconciler(t *testing.T) {
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
-					Admitted(true).
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
@@ -1910,10 +1916,11 @@ func TestReconciler(t *testing.T) {
 					Queue("user-queue").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
 						Status:             metav1.ConditionFalse,
-						LastTransitionTime: metav1.Now(),
+						LastTransitionTime: metav1.NewTime(testStartTime),
 						Reason:             "NoReservation",
 						Message:            "The workload has no reservation",
 					}).
@@ -4925,7 +4932,7 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
 			pReconciler := reconciler.(*Reconciler)
 			for _, e := range tc.excessPodsExpectations {
 				pReconciler.expectationsStore.ExpectUIDs(log, e.key, e.uids)

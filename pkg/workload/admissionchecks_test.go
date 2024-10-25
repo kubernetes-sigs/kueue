@@ -31,11 +31,15 @@ import (
 )
 
 func TestSyncAdmittedCondition(t *testing.T) {
+	testTime := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
-		checkStates    []kueue.AdmissionCheckState
-		conditions     []metav1.Condition
-		wantConditions []metav1.Condition
-		wantChange     bool
+		checkStates      []kueue.AdmissionCheckState
+		conditions       []metav1.Condition
+		pastAdmittedTime int32
+
+		wantConditions   []metav1.Condition
+		wantChange       bool
+		wantAdmittedTime int32
 	}{
 		"empty": {},
 		"reservation no checks": {
@@ -127,8 +131,9 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			conditions: []metav1.Condition{
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
 				},
 			},
 			wantConditions: []metav1.Condition{
@@ -139,7 +144,8 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange: true,
+			wantChange:       true,
+			wantAdmittedTime: 1,
 		},
 		"check lost": {
 			checkStates: []kueue.AdmissionCheckState{
@@ -158,8 +164,9 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					Status: metav1.ConditionTrue,
 				},
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
 				},
 			},
 			wantConditions: []metav1.Condition{
@@ -174,7 +181,8 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange: true,
+			wantChange:       true,
+			wantAdmittedTime: 1,
 		},
 		"reservation and check lost": {
 			checkStates: []kueue.AdmissionCheckState{
@@ -189,8 +197,9 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			conditions: []metav1.Condition{
 				{
-					Type:   kueue.WorkloadAdmitted,
-					Status: metav1.ConditionTrue,
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
 				},
 			},
 			wantConditions: []metav1.Condition{
@@ -203,17 +212,59 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			wantChange: true,
 		},
+		"reservation lost with past admitted time (set)": {
+			conditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "NoReservation",
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange:       true,
+			wantAdmittedTime: 1,
+		},
+		"reservation lost with past admitted time (add)": {
+			conditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
+				},
+			},
+			pastAdmittedTime: 1,
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "NoReservation",
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange:       true,
+			wantAdmittedTime: 2,
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			wl := utiltesting.MakeWorkload("foo", "bar").
+			builder := utiltesting.MakeWorkload("foo", "bar").
 				AdmissionChecks(tc.checkStates...).
 				Conditions(tc.conditions...).
-				Generation(1).
-				Obj()
+				Generation(1)
+			if tc.pastAdmittedTime > 0 {
+				builder = builder.PastAdmittedTime(tc.pastAdmittedTime)
+			}
+			wl := builder.Obj()
 
-			gotChange := SyncAdmittedCondition(wl)
+			gotChange := SyncAdmittedCondition(wl, testTime)
 
 			if gotChange != tc.wantChange {
 				t.Errorf("Unexpected change status, expecting %v", tc.wantChange)
@@ -221,6 +272,16 @@ func TestSyncAdmittedCondition(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantConditions, wl.Status.Conditions, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message")); diff != "" {
 				t.Errorf("Unexpected conditions after sync (- want/+ got):\n%s", diff)
+			}
+
+			if tc.wantAdmittedTime > 0 {
+				if wl.Status.AccumulatedPastExexcutionTimeSeconds == nil {
+					t.Fatalf("Expecting AccumulatedPastExexcutionTimeSeconds not to be nil")
+				}
+
+				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExexcutionTimeSeconds); diff != "" {
+					t.Errorf("Unexpected AccumulatedPastExexcutionTimeSeconds (- want/+ got):\n%s", diff)
+				}
 			}
 		})
 	}

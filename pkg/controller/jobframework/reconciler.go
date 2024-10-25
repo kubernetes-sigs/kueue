@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"testing"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -78,6 +80,7 @@ type JobReconciler struct {
 	manageJobsWithoutQueueName bool
 	waitForPodsReady           bool
 	labelKeysToCopy            []string
+	clock                      clock.Clock
 }
 
 type Options struct {
@@ -92,6 +95,7 @@ type Options struct {
 	LabelKeysToCopy           []string
 	Queues                    *queue.Manager
 	Cache                     *cache.Cache
+	Clock                     clock.Clock
 }
 
 // Option configures the reconciler.
@@ -187,7 +191,18 @@ func WithCache(c *cache.Cache) Option {
 	}
 }
 
-var defaultOptions = Options{}
+// WithClock sets the clock of the reconciler.
+// It default to system's clock and should only
+// be changed in testing.
+func WithClock(_ testing.TB, c clock.Clock) Option {
+	return func(o *Options) {
+		o.Clock = c
+	}
+}
+
+var defaultOptions = Options{
+	Clock: clock.RealClock{},
+}
 
 func NewReconciler(
 	client client.Client,
@@ -201,6 +216,7 @@ func NewReconciler(
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 		waitForPodsReady:           options.WaitForPodsReady,
 		labelKeysToCopy:            options.LabelKeysToCopy,
+		clock:                      options.Clock,
 	}
 }
 
@@ -444,7 +460,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				// The requeued condition status set to true only on EvictedByPreemption or EvictedByAdmissionCheck
 				setRequeued := evCond.Reason == kueue.WorkloadEvictedByPreemption || evCond.Reason == kueue.WorkloadEvictedByAdmissionCheck
 				workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-				_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
+				_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now())
 				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)

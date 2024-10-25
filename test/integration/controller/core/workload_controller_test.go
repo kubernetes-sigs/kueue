@@ -23,7 +23,9 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -467,6 +469,74 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						util.IgnoreConditionTimestampsAndObservedGeneration,
 					)))
 				}, maxExecTime, util.Interval).Should(gomega.Succeed())
+			})
+		})
+		ginkgo.It("should deactivate the workload when the time expires with multiple admissions", func() {
+			// due time rounding in conditions, the workload will stay admitted
+			// for a time between maxExecutionTime - 1s and maxExecutionTime
+			maxExecTime := 30 * time.Second
+			wl := testing.MakeWorkload("wl", ns.Name).
+				Queue("lq").
+				MaximumExecutionTimeSeconds(int32(maxExecTime.Seconds())).
+				Obj()
+			key := client.ObjectKeyFromObject(wl)
+			ginkgo.By("creating the workload and reserving its quota", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				admission := testing.MakeAdmission("cq").Obj()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("waiting for the workload to be admitted, and for the time to change the second", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+				gomega.Expect(admittedCond).NotTo(gomega.BeNil())
+				time.Sleep(time.Until(admittedCond.LastTransitionTime.Add(time.Second)))
+			})
+
+			ginkgo.By("evicting the workload, the accumulated admission time is updated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					workload.SetEvictedCondition(wl, "ByTest", "by test")
+					g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
+					g.Expect(ptr.Deref(wl.Status.AccumulatedPastExexcutionTimeSeconds, 0)).To(gomega.BeNumerically(">", int32(0)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting the accumulated admission time closer to maximum", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					wl.Status.AccumulatedPastExexcutionTimeSeconds = ptr.To(*wl.Spec.MaximumExecutionTimeSeconds - 1)
+					g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("reserving new quota", func() {
+				admission := testing.MakeAdmission("cq").Obj()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the workload to be deactivated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
