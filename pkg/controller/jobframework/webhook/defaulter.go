@@ -36,7 +36,6 @@ func WithLosslessDefaulter(scheme *runtime.Scheme, obj runtime.Object, defaulter
 		decoder: admission.NewDecoder(scheme),
 		object:  obj,
 	}
-
 }
 
 type losslessDefaulter struct {
