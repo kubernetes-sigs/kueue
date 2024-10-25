@@ -25,3 +25,13 @@ See [MPI Operator Installation](https://www.kubeflow.org/docs/components/trainin
 ## MultiKueue integration
 
 Once the setup is complete you can test it by running a MPI Job [`sample-mpijob.yaml`](/docs/tasks/run/kubeflow/mpijobs/#sample-mpijob). 
+
+
+### ManagedBy
+
+The feature allows you to disable the MPI Operator and delegate reconciliation of that job to the Kueue controller.
+In order to change the controller that reconciles the job to the Kueue you need to set a value of that field to `kueue.x-k8s.io/multikueue`. 
+
+However the `spec.runPolicy.managedBy` field is defaulted to `kueue.x-k8s.io/multikueue` automatically if following conditions are met.
+
+The `kueue.x-k8s.io/queue-name` annotation of the mpijob job points to a Local Queue, whose corresponding Cluster Queue uses the Multi Kueue admission check.
