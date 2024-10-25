@@ -105,7 +105,6 @@ var _ = ginkgo.Describe("JobSet", func() {
 			ginkgo.By("Waiting for the jobSet to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
@@ -183,10 +182,10 @@ var _ = ginkgo.Describe("JobSet", func() {
 
 			ginkgo.By("Waiting for the jobSet to be unsuspended", func() {
 				jobKey := client.ObjectKeyFromObject(jobSet)
-				gomega.Eventually(func() *bool {
-					gomega.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
-					return jobSet.Spec.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.BeEquivalentTo(ptr.To(false)))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
+					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(false)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify the jobSet has nodeSelector set", func() {
@@ -198,18 +197,18 @@ var _ = ginkgo.Describe("JobSet", func() {
 			})
 
 			ginkgo.By("Stopping the ClusterQueue to make the JobSet be stopped and suspended")
-			gomega.Eventually(func() error {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 				clusterQueue.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
-				return k8sClient.Update(ctx, clusterQueue)
+				g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Waiting for the jobSet to be suspended", func() {
 				jobKey := client.ObjectKeyFromObject(jobSet)
-				gomega.Eventually(func() *bool {
-					gomega.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
-					return jobSet.Spec.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.BeEquivalentTo(ptr.To(true)))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
+					g.Expect(jobSet.Spec.Suspend).Should(gomega.BeEquivalentTo(ptr.To(true)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
