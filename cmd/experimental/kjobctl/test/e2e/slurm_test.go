@@ -93,23 +93,24 @@ var _ = ginkgo.Describe("Slurm", ginkgo.Ordered, func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		var output []byte
+		var jobName, configMapName, serviceName string
 
 		ginkgo.By("Create slurm", func() {
 			cmdArgs := []string{"create", "slurm", "-n", ns.Name, "--profile", profile.Name}
 			cmdArgs = append(cmdArgs, args...)
 			cmdArgs = append(cmdArgs, "--", script.Name())
 			cmdArgs = append(cmdArgs, slurmArgs...)
-			cmd := exec.Command(kjobctlPath, cmdArgs...)
-			output, err = util.Run(cmd)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-			gomega.Expect(output).NotTo(gomega.BeEmpty())
-		})
 
-		jobName, configMapName, serviceName := parseSlurmCreateOutput(output, profile.Name)
-		gomega.Expect(jobName).NotTo(gomega.BeEmpty())
-		gomega.Expect(configMapName).NotTo(gomega.BeEmpty())
-		gomega.Expect(serviceName).NotTo(gomega.BeEmpty())
+			cmd := exec.Command(kjobctlPath, cmdArgs...)
+			out, err := util.Run(cmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
+			gomega.Expect(out).NotTo(gomega.BeEmpty())
+
+			jobName, configMapName, serviceName = parseSlurmCreateOutput(out, profile.Name)
+			gomega.Expect(jobName).NotTo(gomega.BeEmpty())
+			gomega.Expect(configMapName).NotTo(gomega.BeEmpty())
+			gomega.Expect(serviceName).NotTo(gomega.BeEmpty())
+		})
 
 		job := &batchv1.Job{}
 		configMap := &corev1.Service{}
@@ -147,17 +148,16 @@ var _ = ginkgo.Describe("Slurm", ginkgo.Ordered, func() {
 
 			for containerName, expectContainerVars := range expectPod {
 				ginkgo.By(fmt.Sprintf("Check env variables in index %d and container name %s", completionIndex, containerName), func() {
+					wantOut := maps.MergeKeepFirst(expectContainerVars, expectCommonVars)
+					if withFirstNodeIP {
+						wantOut["SLURM_JOB_FIRST_NODE_IP"] = firstPod.Status.PodIP
+					}
+
 					gomega.Eventually(func(g gomega.Gomega) {
-						cmd := exec.Command("kubectl", "exec", "-c", containerName, "-n", ns.Name, pod.Name, "--", "cat", "/env.out")
-						output, err = util.Run(cmd)
-						g.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-
-						wantOut := maps.MergeKeepFirst(expectContainerVars, expectCommonVars)
-						if withFirstNodeIP {
-							wantOut["SLURM_JOB_FIRST_NODE_IP"] = firstPod.Status.PodIP
-						}
-
-						g.Expect(parseSlurmEnvOutput(output)).To(gomega.BeComparableTo(wantOut,
+						out, outErr, err := util.KExecute(ctx, cfg, restClient, ns.Name, pod.Name, containerName)
+						g.Expect(err).NotTo(gomega.HaveOccurred())
+						g.Expect(string(outErr)).To(gomega.BeEmpty())
+						g.Expect(parseSlurmEnvOutput(out)).To(gomega.BeComparableTo(wantOut,
 							cmpopts.AcyclicTransformer("RemoveGeneratedNameSuffixInMap", func(m map[string]string) map[string]string {
 								for key, val := range m {
 									m[key] = regexp.MustCompile("(profile-slurm)(-.{5})").ReplaceAllString(val, "$1")

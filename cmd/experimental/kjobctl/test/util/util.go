@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -30,12 +31,14 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	kjob "sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/scheme"
 )
 
 // DeleteNamespace deletes all objects the tests typically create in the namespace.
@@ -102,25 +105,67 @@ func GetProjectDir() (string, error) {
 	return path.Clean(wd + "/../.."), nil
 }
 
-func CreateClientUsingCluster(kContext string) (client.Client, *rest.Config) {
+// GetConfigWithContext creates a *rest.Config for talking to a Kubernetes API server
+// with a specific context.
+func GetConfigWithContext(kContext string) *rest.Config {
 	cfg, err := config.GetConfigWithContext(kContext)
 	if err != nil {
 		fmt.Printf("unable to get kubeconfig for context %q: %s", kContext, err)
 		os.Exit(1)
 	}
-	gomega.Expect(cfg).NotTo(gomega.BeNil())
+	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
-	err = kjob.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	cfg.APIPath = "/api"
+	cfg.ContentConfig.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
+	cfg.ContentConfig.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
 
-	err = corev1.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	return cfg
+}
 
-	err = batchv1.AddToScheme(scheme.Scheme)
+// CreateClient creates a client.Client using the provided config.
+func CreateClient(cfg *rest.Config) client.Client {
+	err := kjob.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	client, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.ExpectWithOffset(1, client).NotTo(gomega.BeNil())
 
-	return client, cfg
+	return client
+}
+
+// CreateRestClient creates a *rest.RESTClient using the provided config.
+func CreateRestClient(cfg *rest.Config) *rest.RESTClient {
+	restClient, err := rest.RESTClientFor(cfg)
+	gomega.ExpectWithOffset(1, err).Should(gomega.Succeed())
+	gomega.ExpectWithOffset(1, restClient).NotTo(gomega.BeNil())
+
+	return restClient
+}
+
+func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns, pod, container string) ([]byte, []byte, error) {
+	var out, outErr bytes.Buffer
+
+	req := client.Post().
+		Resource("pods").
+		Namespace(ns).
+		Name(pod).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container,
+			Command:   []string{"cat", "/env.out"},
+			Stdout:    true,
+			Stderr:    true,
+		}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &out, Stderr: &outErr}); err != nil {
+		return nil, nil, err
+	}
+
+	return out.Bytes(), outErr.Bytes(), nil
 }
