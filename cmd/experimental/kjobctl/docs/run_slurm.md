@@ -38,6 +38,7 @@ Kjob provides support for executing Slurm scripts by offering several options th
 | -n, --ntasks        | Specifies the number of identical containers inside of a pod, usually 1. |
 | -o, --output        | Specifies where to redirect the standard output stream of a task. If not passed, it proceeds to stdout and is available via `kubectl logs`. |
 | --partition         | Specifies the local queue name. See [Local Queue](https://kueue.sigs.k8s.io/docs/concepts/local_queue/) for more information. |
+| -t, --time          | Set a limit on the total run time of the job. For more details, see https://slurm.schedmd.com/sbatch.html#OPT_time. |
 
 If an unsupported flag is passed in the script, the command will fail with an error unless `--ignore-unknown-flags` is given.
 

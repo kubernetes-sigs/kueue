@@ -91,6 +91,11 @@ func (j *JobWrapper) Priority(v string) *JobWrapper {
 	return j.Label(kueueconstants.WorkloadPriorityClassLabel, v)
 }
 
+// MaxExecTimeSecondsLabel sets the max exec time seconds label.
+func (j *JobWrapper) MaxExecTimeSecondsLabel(v string) *JobWrapper {
+	return j.Label(kueueconstants.MaxExecTimeSecondsLabel, v)
+}
+
 // Mode sets the profile label.
 func (j *JobWrapper) Mode(v v1alpha1.ApplicationProfileMode) *JobWrapper {
 	return j.Label(constants.ModeLabel, string(v))

@@ -94,6 +94,7 @@ sleep 10`,
 #SBATCH --time=1:00:00
 #SBATCH --mail-type=END
 #SBATCH --mail-user=your@email.com
+#SBATCH --unknown=unknown
 
 python my_script.py`,
 			ignoreUnknown: true,
@@ -105,6 +106,7 @@ python my_script.py`,
 				Nodes:       ptr.To[int32](1),
 				NTasks:      ptr.To[int32](1),
 				CpusPerTask: ptr.To(resource.MustParse("1")),
+				TimeLimit:   "1:00:00",
 			},
 		},
 		"should fail due to unknown flags": {
@@ -112,10 +114,10 @@ python my_script.py`,
 #SBATCH --job-name=my_job_name
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=1:00:00
+#SBATCH --unknown=unknown
 
 python my_script.py`,
-			wantErr: "unknown flag: time",
+			wantErr: "unknown flag: unknown",
 		},
 	}
 	for name, tc := range testCases {

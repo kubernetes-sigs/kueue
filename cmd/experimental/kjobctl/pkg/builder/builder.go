@@ -69,6 +69,7 @@ var (
 	noNTasksSpecifiedErr                   = errors.New("no ntasks specified")
 	noOutputSpecifiedErr                   = errors.New("no output specified")
 	noPartitionSpecifiedErr                = errors.New("no partition specified")
+	noTimeSpecifiedErr                     = errors.New("no time specified")
 )
 
 type builder interface {
@@ -117,6 +118,7 @@ type Builder struct {
 	firstNodeIP              bool
 	firstNodeIPTimeout       time.Duration
 	changeDir                string
+	timeLimit                string
 
 	profile       *v1alpha1.ApplicationProfile
 	mode          *v1alpha1.SupportedMode
@@ -304,6 +306,11 @@ func (b *Builder) WithFirstNodeIPTimeout(timeout time.Duration) *Builder {
 	return b
 }
 
+func (b *Builder) WithTimeLimit(timeLimit string) *Builder {
+	b.timeLimit = timeLimit
+	return b
+}
+
 func (b *Builder) validateGeneral(ctx context.Context) error {
 	if b.namespace == "" {
 		return noNamespaceSpecifiedErr
@@ -452,6 +459,10 @@ func (b *Builder) validateFlags() error {
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.PartitionFlag) && b.partition == "" {
 		return noPartitionSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.TimeFlag) && b.timeLimit == "" {
+		return noTimeSpecifiedErr
 	}
 
 	return nil
