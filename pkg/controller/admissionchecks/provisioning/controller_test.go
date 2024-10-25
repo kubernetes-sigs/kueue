@@ -263,7 +263,7 @@ func TestReconcile(t *testing.T) {
 	}
 
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").
-		ControllerName(ControllerName).
+		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
 		Obj()
 
@@ -1370,7 +1370,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 	pr2Created.Name = "wl-check-2"
 
 	baseCheck := utiltesting.MakeAdmissionCheck("check").
-		ControllerName(ControllerName).
+		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
 		Obj()
 

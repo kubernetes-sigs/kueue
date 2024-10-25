@@ -121,7 +121,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			gomega.Expect(k8sClient.Create(ctx, prc2)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
-				ControllerName(provisioning.ControllerName).
+				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
@@ -971,7 +971,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
-				ControllerName(provisioning.ControllerName).
+				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
@@ -1214,7 +1214,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			gomega.Expect(k8sClient.Create(ctx, prc)).To(gomega.Succeed())
 
 			ac = testing.MakeAdmissionCheck("ac-prov").
-				ControllerName(provisioning.ControllerName).
+				ControllerName(kueue.ProvisioningRequestControllerName).
 				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())

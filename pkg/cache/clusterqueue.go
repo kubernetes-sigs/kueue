@@ -79,7 +79,9 @@ type clusterQueue struct {
 	multipleSingleInstanceControllersChecks         map[string][]string // key = controllerName
 	flavorIndependentAdmissionCheckAppliedPerFlavor []string
 	multiKueueAdmissionChecks                       []string
+	provisioningAdmissionChecks                     []string
 	perFlavorMultiKueueAdmissionChecks              []string
+	tasFlavors                                      []kueue.ResourceFlavorReference
 	admittedWorkloadsCount                          int
 	isStopped                                       bool
 	workloadInfoOptions                             []workload.InfoOption
@@ -236,6 +238,7 @@ func (c *clusterQueue) updateQueueStatus() {
 		len(c.inactiveAdmissionChecks) > 0 ||
 		len(c.multipleSingleInstanceControllersChecks) > 0 ||
 		len(c.flavorIndependentAdmissionCheckAppliedPerFlavor) > 0 ||
+		c.isTASViolated() ||
 		// one multikueue admission check is allowed
 		len(c.multiKueueAdmissionChecks) > 1 ||
 		len(c.perFlavorMultiKueueAdmissionChecks) > 0 {
@@ -297,6 +300,25 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 			messages = append(messages, fmt.Sprintf("AdmissionCheck(s): %v cannot be set at flavor level", c.flavorIndependentAdmissionCheckAppliedPerFlavor))
 		}
 
+		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
+			if c.HasParent() {
+				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
+				messages = append(messages, "TAS is not supported for cohorts")
+			}
+			if c.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
+				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
+				messages = append(messages, "TAS is not supported for preemption within cluster queue")
+			}
+			if len(c.multiKueueAdmissionChecks) > 0 {
+				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
+				messages = append(messages, "TAS is not supported with MultiKueue admission check")
+			}
+			if len(c.provisioningAdmissionChecks) > 0 {
+				reasons = append(reasons, kueue.ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling)
+				messages = append(messages, "TAS is not supported with ProvisioningRequest admission check")
+			}
+		}
+
 		if len(reasons) == 0 {
 			return kueue.ClusterQueueActiveReasonUnknown, "Can't admit new workloads."
 		}
@@ -304,6 +326,16 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		return reasons[0], api.TruncateConditionMessage(strings.Join([]string{"Can't admit new workloads: ", strings.Join(messages, ", "), "."}, ""))
 	}
 	return kueue.ClusterQueueActiveReasonReady, "Can admit new workloads"
+}
+
+func (c *clusterQueue) isTASViolated() bool {
+	if !features.Enabled(features.TopologyAwareScheduling) || len(c.tasFlavors) == 0 {
+		return false
+	}
+	return c.HasParent() ||
+		c.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever ||
+		len(c.multiKueueAdmissionChecks) > 0 ||
+		len(c.provisioningAdmissionChecks) > 0
 }
 
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
@@ -315,6 +347,7 @@ func (c *clusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReferen
 
 func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
 	c.missingFlavors = nil
+	c.tasFlavors = nil
 	for i := range c.ResourceGroups {
 		rg := &c.ResourceGroups[i]
 		if len(rg.Flavors) == 0 {
@@ -326,6 +359,9 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 			if flv, exist := flavors[fName]; exist {
 				for k := range flv.Spec.NodeLabels {
 					keys.Insert(k)
+				}
+				if flv.Spec.TopologyName != nil {
+					c.tasFlavors = append(c.tasFlavors, fName)
 				}
 			} else {
 				c.missingFlavors = append(c.missingFlavors, fName)
@@ -343,6 +379,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	checksPerController := make(map[string][]string, len(c.AdmissionChecks))
 	singleInstanceControllers := sets.New[string]()
 	multiKueueAdmissionChecks := sets.New[string]()
+	provisioningAdmissionChecks := sets.New[string]()
 	var missing []string
 	var inactive []string
 	var flavorIndependentCheckOnFlavors []string
@@ -362,6 +399,9 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 				flavorIndependentCheckOnFlavors = append(flavorIndependentCheckOnFlavors, acName)
 			}
 
+			if ac.Controller == kueue.ProvisioningRequestControllerName {
+				provisioningAdmissionChecks.Insert(acName)
+			}
 			if ac.Controller == kueue.MultiKueueControllerName {
 				// MultiKueue Admission Checks has extra constraints:
 				// - cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue
@@ -380,6 +420,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	slices.Sort(flavorIndependentCheckOnFlavors)
 	slices.Sort(perFlavorMultiKueueChecks)
 	multiKueueAdmissionChecksList := sets.List(multiKueueAdmissionChecks)
+	provisioningChecksList := sets.List(provisioningAdmissionChecks)
 
 	update := false
 	if !slices.Equal(c.missingAdmissionChecks, missing) {
@@ -416,6 +457,11 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 
 	if !slices.Equal(c.multiKueueAdmissionChecks, multiKueueAdmissionChecksList) {
 		c.multiKueueAdmissionChecks = multiKueueAdmissionChecksList
+		update = true
+	}
+
+	if !slices.Equal(c.provisioningAdmissionChecks, provisioningChecksList) {
+		c.provisioningAdmissionChecks = provisioningChecksList
 		update = true
 	}
 

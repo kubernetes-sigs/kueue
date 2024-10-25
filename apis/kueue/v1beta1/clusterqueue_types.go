@@ -33,6 +33,7 @@ const (
 	ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor = "FlavorIndependentAdmissionCheckAppliedPerFlavor"
 	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks               = "MultipleMultiKueueAdmissionChecks"
 	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor        = "MultiKueueAdmissionCheckAppliedPerFlavor"
+	ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling         = "NotSupportedWithTopologyAwareScheduling"
 	ClusterQueueActiveReasonUnknown                                         = "Unknown"
 	ClusterQueueActiveReasonReady                                           = "Ready"
 )

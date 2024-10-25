@@ -77,11 +77,10 @@ var _ = ginkgo.Describe("TopologyAwareSchedling", func() {
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
-				Preemption(kueue.ClusterQueuePreemption{
-					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-				}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
 			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 		})

@@ -150,7 +150,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	// get the lists of relevant checks
-	relevantChecks, err := admissioncheck.FilterForController(ctx, c.client, wl.Status.AdmissionChecks, ControllerName)
+	relevantChecks, err := admissioncheck.FilterForController(ctx, c.client, wl.Status.AdmissionChecks, kueue.ProvisioningRequestControllerName)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -586,7 +586,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
 	}
 	if updated {
-		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership); err != nil {
+		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.ProvisioningRequestControllerName), client.ForceOwnership); err != nil {
 			return err
 		}
 		for i := range recorderMessages {
@@ -625,7 +625,7 @@ func (a *acHandler) Create(ctx context.Context, event event.CreateEvent, q workq
 		return
 	}
 
-	if ac.Spec.ControllerName == ControllerName {
+	if ac.Spec.ControllerName == kueue.ProvisioningRequestControllerName {
 		err := a.reconcileWorkloadsUsing(ctx, ac.Name, q)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "admissionCheck", klog.KObj(ac))
@@ -640,7 +640,7 @@ func (a *acHandler) Update(ctx context.Context, event event.UpdateEvent, q workq
 		return
 	}
 
-	if oldAc.Spec.ControllerName == ControllerName || newAc.Spec.ControllerName == ControllerName {
+	if oldAc.Spec.ControllerName == kueue.ProvisioningRequestControllerName || newAc.Spec.ControllerName == kueue.ProvisioningRequestControllerName {
 		err := a.reconcileWorkloadsUsing(ctx, oldAc.Name, q)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "admissionCheck", klog.KObj(oldAc))
@@ -654,7 +654,7 @@ func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workq
 		return
 	}
 
-	if ac.Spec.ControllerName == ControllerName {
+	if ac.Spec.ControllerName == kueue.ProvisioningRequestControllerName {
 		err := a.reconcileWorkloadsUsing(ctx, ac.Name, q)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "admissionCheck", klog.KObj(ac))
