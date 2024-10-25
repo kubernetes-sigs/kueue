@@ -27,6 +27,7 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -170,7 +171,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
-					g.Expect(*createdJob.Status.Ready).Should(gomega.Equal(int32(1)))
+					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -291,7 +292,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
-					g.Expect(*createdJob.Status.Ready).Should(gomega.Equal(int32(1)))
+					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

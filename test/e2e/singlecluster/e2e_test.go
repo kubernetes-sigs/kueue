@@ -492,7 +492,7 @@ func expectJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[stri
 	job := &batchv1.Job{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
-		g.Expect(*job.Spec.Suspend).Should(gomega.BeFalse())
+		g.Expect(job.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(ns))
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
