@@ -55,7 +55,7 @@ type conditionMatcher struct {
 func (matcher *conditionMatcher) Match(actual interface{}) (bool, error) {
 	conditions, ok := actual.([]metav1.Condition)
 	if !ok {
-		return false, fmt.Errorf("Condition matcher expectes a []metav1.Condition. Got:\n%s", format.Object(actual, 1))
+		return false, fmt.Errorf("Condition matcher expects a []metav1.Condition. Got:\n%s", format.Object(actual, 1))
 	}
 
 	found := apimeta.FindStatusCondition(conditions, matcher.condition)
