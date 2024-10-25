@@ -125,7 +125,7 @@ func validateCreateForMaxExecTime(job GenericJob) field.ErrorList {
 		}
 
 		if v <= 0 {
-			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, v, "should be grater then 0")}
+			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, v, "should be greater than 0")}
 		}
 	}
 	return nil

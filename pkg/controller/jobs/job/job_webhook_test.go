@@ -244,7 +244,7 @@ func TestValidateCreate(t *testing.T) {
 				Indexed(true).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(maxExecTimeLabelPath, 0, "should be grater then 0"),
+				field.Invalid(maxExecTimeLabelPath, 0, "should be greater than 0"),
 			},
 			serverVersion: "1.31.0",
 		},
@@ -257,7 +257,7 @@ func TestValidateCreate(t *testing.T) {
 				Indexed(true).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(maxExecTimeLabelPath, -10, "should be grater then 0"),
+				field.Invalid(maxExecTimeLabelPath, -10, "should be greater than 0"),
 			},
 			serverVersion: "1.31.0",
 		},
@@ -488,8 +488,18 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			newJob: testingutil.MakeJob("job", "default").
 				Suspend(false).
-				Parallelism(5).
-				Completions(6).
+				Label(constants.MaxExecTimeSecondsLabel, "20").
+				Obj(),
+			wantErr: apivalidation.ValidateImmutableField("20", "10", maxExecTimeLabelPath),
+		},
+		{
+			name: "immutable max exec time while transitioning to unsuspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Label(constants.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
 				Label(constants.MaxExecTimeSecondsLabel, "20").
 				Obj(),
 			wantErr: apivalidation.ValidateImmutableField("20", "10", maxExecTimeLabelPath),
@@ -502,8 +512,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			newJob: testingutil.MakeJob("job", "default").
 				Suspend(true).
-				Parallelism(5).
-				Completions(6).
 				Label(constants.MaxExecTimeSecondsLabel, "20").
 				Obj(),
 		},

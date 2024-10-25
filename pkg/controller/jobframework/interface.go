@@ -157,7 +157,7 @@ func MaximumExecutionTimeSeconds(job GenericJob) *int32 {
 		return nil
 	}
 
-	return ptr.To[int32](int32(v))
+	return ptr.To(int32(v))
 }
 
 func workloadPriorityClassName(job GenericJob) string {
