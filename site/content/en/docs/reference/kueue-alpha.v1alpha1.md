@@ -63,12 +63,6 @@ results in undefined behavior in 0.9</p>
 <td>
    <span class="text-muted">No description provided.</span></td>
 </tr>
-<tr><td><code>status</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1alpha1-CohortStatus"><code>CohortStatus</code></a>
-</td>
-<td>
-   <span class="text-muted">No description provided.</span></td>
-</tr>
 </tbody>
 </table>
 
@@ -123,31 +117,6 @@ can lend to the parent subtree.</p>
 Cohort has a parent.  Otherwise, the Cohort create/update
 will be rejected by the webhook.</p>
 </td>
-</tr>
-</tbody>
-</table>
-
-## `CohortStatus`     {#kueue-x-k8s-io-v1alpha1-CohortStatus}
-    
-
-**Appears in:**
-
-- [Cohort](#kueue-x-k8s-io-v1alpha1-Cohort)
-
-
-<p>CohortStatus defines the observed state of Cohort</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>conditions</code> <B>[Required]</B><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
-</td>
-<td>
-   <span class="text-muted">No description provided.</span></td>
 </tr>
 </tbody>
 </table>

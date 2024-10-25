@@ -62,18 +62,7 @@ type CohortSpec struct {
 	ResourceGroups []kueuebeta.ResourceGroup `json:"resourceGroups,omitempty"`
 }
 
-// CohortStatus defines the observed state of Cohort
-type CohortStatus struct {
-
-	//+listType=map
-	//+listMapKey=type
-	//+patchStrategy=merge
-	//+patchMergeKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
 //+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster
 
 // Cohort is the Schema for the cohorts API. Using Hierarchical
@@ -83,8 +72,7 @@ type Cohort struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   CohortSpec   `json:"spec,omitempty"`
-	Status CohortStatus `json:"status,omitempty"`
+	Spec CohortSpec `json:"spec,omitempty"`
 }
 
 //+kubebuilder:object:root=true
