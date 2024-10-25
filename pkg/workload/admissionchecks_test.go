@@ -210,10 +210,28 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					ObservedGeneration: 1,
 				},
 			},
+			wantChange: true,
+		},
+		"reservation lost with past admitted time (set)": {
+			conditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "NoReservation",
+					ObservedGeneration: 1,
+				},
+			},
 			wantChange:       true,
 			wantAdmittedTime: 1,
 		},
-		"reservation lost with past admitted time": {
+		"reservation lost with past admitted time (add)": {
 			conditions: []metav1.Condition{
 				{
 					Type:               kueue.WorkloadAdmitted,
@@ -237,12 +255,14 @@ func TestSyncAdmittedCondition(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			wl := utiltesting.MakeWorkload("foo", "bar").
+			builder := utiltesting.MakeWorkload("foo", "bar").
 				AdmissionChecks(tc.checkStates...).
 				Conditions(tc.conditions...).
-				Generation(1).
-				PastAdmittedTime(tc.pastAdmittedTime).
-				Obj()
+				Generation(1)
+			if tc.pastAdmittedTime > 0 {
+				builder = builder.PastAdmittedTime(tc.pastAdmittedTime)
+			}
+			wl := builder.Obj()
 
 			gotChange := SyncAdmittedCondition(wl, testTime)
 
@@ -254,12 +274,14 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				t.Errorf("Unexpected conditions after sync (- want/+ got):\n%s", diff)
 			}
 
-			if wl.Status.AccumulatedPastExexcutionTimeSeconds == nil {
-				t.Fatalf("Expecting AccumulatedPastExexcutionTimeSeconds not to be nil")
-			}
+			if tc.wantAdmittedTime > 0 {
+				if wl.Status.AccumulatedPastExexcutionTimeSeconds == nil {
+					t.Fatalf("Expecting AccumulatedPastExexcutionTimeSeconds not to be nil")
+				}
 
-			if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExexcutionTimeSeconds); diff != "" {
-				t.Errorf("Unexpected AccumulatedPastExexcutionTimeSeconds (- want/+ got):\n%s", diff)
+				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExexcutionTimeSeconds); diff != "" {
+					t.Errorf("Unexpected AccumulatedPastExexcutionTimeSeconds (- want/+ got):\n%s", diff)
+				}
 			}
 		})
 	}
