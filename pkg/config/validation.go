@@ -23,19 +23,19 @@ import (
 	"unsafe"
 
 	corev1 "k8s.io/api/core/v1"
+	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
-	apimachineryvalidation "k8s.io/apimachinery/pkg/util/validation"
+	apimachineryutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 )
@@ -78,12 +78,12 @@ func validateInternalCertManagement(c *configapi.Configuration) field.ErrorList 
 		return allErrs
 	}
 	if svcName := c.InternalCertManagement.WebhookServiceName; svcName != nil {
-		if errs := apimachineryvalidation.IsDNS1035Label(*svcName); len(errs) != 0 {
+		if errs := apimachineryutilvalidation.IsDNS1035Label(*svcName); len(errs) != 0 {
 			allErrs = append(allErrs, field.Invalid(internalCertManagementPath.Child("webhookServiceName"), svcName, strings.Join(errs, ",")))
 		}
 	}
 	if secName := c.InternalCertManagement.WebhookSecretName; secName != nil {
-		if errs := apimachineryvalidation.IsDNS1123Subdomain(*secName); len(errs) != 0 {
+		if errs := apimachineryutilvalidation.IsDNS1123Subdomain(*secName); len(errs) != 0 {
 			allErrs = append(allErrs, field.Invalid(internalCertManagementPath.Child("webhookSecretName"), secName, strings.Join(errs, ",")))
 		}
 	}
@@ -95,14 +95,14 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 	if c.MultiKueue != nil {
 		if c.MultiKueue.GCInterval != nil && c.MultiKueue.GCInterval.Duration < 0 {
 			allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("gcInterval"),
-				c.MultiKueue.GCInterval.Duration, constants.IsNegativeErrorMsg))
+				c.MultiKueue.GCInterval.Duration, apimachineryvalidation.IsNegativeErrorMsg))
 		}
 		if c.MultiKueue.WorkerLostTimeout != nil && c.MultiKueue.WorkerLostTimeout.Duration < 0 {
 			allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("workerLostTimeout"),
-				c.MultiKueue.WorkerLostTimeout.Duration, constants.IsNegativeErrorMsg))
+				c.MultiKueue.WorkerLostTimeout.Duration, apimachineryvalidation.IsNegativeErrorMsg))
 		}
 		if c.MultiKueue.Origin != nil {
-			if errs := apimachineryvalidation.IsValidLabelValue(*c.MultiKueue.Origin); len(errs) != 0 {
+			if errs := apimachineryutilvalidation.IsValidLabelValue(*c.MultiKueue.Origin); len(errs) != 0 {
 				allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("origin"), *c.MultiKueue.Origin, strings.Join(errs, ",")))
 			}
 		}
@@ -117,7 +117,7 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	}
 	if c.WaitForPodsReady.Timeout != nil && c.WaitForPodsReady.Timeout.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("timeout"),
-			c.WaitForPodsReady.Timeout, constants.IsNegativeErrorMsg))
+			c.WaitForPodsReady.Timeout, apimachineryvalidation.IsNegativeErrorMsg))
 	}
 	if strategy := c.WaitForPodsReady.RequeuingStrategy; strategy != nil {
 		if strategy.Timestamp != nil &&
@@ -127,15 +127,15 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 		}
 		if strategy.BackoffLimitCount != nil && *strategy.BackoffLimitCount < 0 {
 			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffLimitCount"),
-				*strategy.BackoffLimitCount, constants.IsNegativeErrorMsg))
+				*strategy.BackoffLimitCount, apimachineryvalidation.IsNegativeErrorMsg))
 		}
 		if strategy.BackoffBaseSeconds != nil && *strategy.BackoffBaseSeconds < 0 {
 			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffBaseSeconds"),
-				*strategy.BackoffBaseSeconds, constants.IsNegativeErrorMsg))
+				*strategy.BackoffBaseSeconds, apimachineryvalidation.IsNegativeErrorMsg))
 		}
 		if ptr.Deref(strategy.BackoffMaxSeconds, 0) < 0 {
 			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffMaxSeconds"),
-				*strategy.BackoffMaxSeconds, constants.IsNegativeErrorMsg))
+				*strategy.BackoffMaxSeconds, apimachineryvalidation.IsNegativeErrorMsg))
 		}
 	}
 	return allErrs
@@ -147,7 +147,7 @@ func validateQueueVisibility(cfg *configapi.Configuration) field.ErrorList {
 		if cfg.QueueVisibility.ClusterQueues != nil {
 			maxCountPath := queueVisibilityPath.Child("clusterQueues").Child("maxCount")
 			if cfg.QueueVisibility.ClusterQueues.MaxCount < 0 {
-				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, constants.IsNegativeErrorMsg))
+				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, apimachineryvalidation.IsNegativeErrorMsg))
 			}
 			if cfg.QueueVisibility.ClusterQueues.MaxCount > queueVisibilityClusterQueuesMaxValue {
 				allErrs = append(allErrs, field.Invalid(maxCountPath, cfg.QueueVisibility.ClusterQueues.MaxCount, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)))

@@ -41,8 +41,6 @@ const (
 
 	DefaultPendingWorkloadsLimit = 1000
 
-	IsNegativeErrorMsg string = `must be greater than or equal to 0`
-
 	// Label that signalize that an object is managed by Kueue
 	ManagedByKueueLabel = "kueue.x-k8s.io/managed"
 )
