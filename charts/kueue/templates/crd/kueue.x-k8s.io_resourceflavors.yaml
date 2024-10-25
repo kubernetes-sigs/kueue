@@ -191,8 +191,13 @@ spec:
                   topologyName indicates topology for the TAS ResourceFlavor.
                   When specified, it enables scraping of the topology information from the
                   nodes matching to the Resource Flavor node labels.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
             type: object
+            x-kubernetes-validations:
+            - message: at least one nodeLabel is required when topology is set
+              rule: '!has(self.topologyName) || self.nodeLabels.size() >= 1'
         type: object
     served: true
     storage: true

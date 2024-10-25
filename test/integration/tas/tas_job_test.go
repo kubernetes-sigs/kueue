@@ -85,6 +85,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "b1-r1",
 							Labels: map[string]string{
+								"node-group":  "tas",
 								tasBlockLabel: "b1",
 								tasRackLabel:  "r1",
 							},
@@ -100,6 +101,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "b1-r2",
 							Labels: map[string]string{
+								"node-group":  "tas",
 								tasBlockLabel: "b1",
 								tasRackLabel:  "r2",
 							},
@@ -115,6 +117,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "b2-r1",
 							Labels: map[string]string{
+								"node-group":  "tas",
 								tasBlockLabel: "b2",
 								tasRackLabel:  "r1",
 							},
@@ -130,6 +133,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "b2-r2",
 							Labels: map[string]string{
+								"node-group":  "tas",
 								tasBlockLabel: "b2",
 								tasRackLabel:  "r2",
 							},
@@ -153,7 +157,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
-				tasFlavor = testing.MakeResourceFlavor("tas-flavor").TopologyName("default").Obj()
+				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName("default").Obj()
 				gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
 
 				clusterQueue = testing.MakeClusterQueue("cluster-queue").
@@ -369,7 +375,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}).Obj()
 				gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
-				tasFlavor = testing.MakeResourceFlavor("tas-flavor").TopologyName("default").Obj()
+				tasFlavor = testing.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName("default").
+					Obj()
 				gomega.Expect(k8sClient.Create(ctx, tasFlavor)).Should(gomega.Succeed())
 
 				clusterQueue = testing.MakeClusterQueue("cluster-queue").
@@ -417,6 +426,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							ObjectMeta: metav1.ObjectMeta{
 								Name: "b1-r1",
 								Labels: map[string]string{
+									"node-group":  "tas",
 									tasBlockLabel: "b1",
 									tasRackLabel:  "r1",
 								},
