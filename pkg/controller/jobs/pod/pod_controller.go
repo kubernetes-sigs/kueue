@@ -972,7 +972,8 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 			Annotations: admissioncheck.FilterProvReqAnnotations(p.pod.GetAnnotations()),
 		},
 		Spec: kueue.WorkloadSpec{
-			QueueName: jobframework.QueueName(p),
+			QueueName:                   jobframework.QueueName(p),
+			MaximumExecutionTimeSeconds: jobframework.MaximumExecutionTimeSeconds(p),
 		},
 	}
 
@@ -1108,6 +1109,11 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 		}
 		log.Error(err, "Unable to get related workload")
 		return nil, nil, err
+	}
+
+	defaultDuration := int32(-1)
+	if ptr.Deref(workload.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(jobframework.MaximumExecutionTimeSeconds(p), defaultDuration) {
+		return nil, []*kueue.Workload{workload}, nil
 	}
 
 	// Cleanup excess pods for each workload pod set (role)

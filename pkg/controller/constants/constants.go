@@ -39,4 +39,7 @@ const (
 
 	// ProvReqAnnotationPrefix is the prefix for annotations that should be pass to ProvisioningRequest as Parameters.
 	ProvReqAnnotationPrefix = "provreq.kueue.x-k8s.io/"
+
+	// MaxExecTimeSecondsLabel is the label key in the job that holds the maximum execution time.
+	MaxExecTimeSecondsLabel = `kueue.x-k8s.io/max-exec-time-seconds`
 )

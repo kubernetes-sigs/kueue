@@ -18,6 +18,7 @@ package jobframework
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -36,6 +37,7 @@ var (
 	annotationsPath               = field.NewPath("metadata", "annotations")
 	labelsPath                    = field.NewPath("metadata", "labels")
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	maxExecTimeLabelPath          = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 	supportedPrebuiltWlJobGVKs    = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
@@ -49,13 +51,16 @@ var (
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
 func ValidateJobOnCreate(job GenericJob) field.ErrorList {
-	return validateCreateForQueueName(job)
+	allErrs := validateCreateForQueueName(job)
+	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
+	return allErrs
 }
 
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
 func ValidateJobOnUpdate(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob)
 	allErrs = append(allErrs, validateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
+	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	return allErrs
 }
 
@@ -110,4 +115,25 @@ func validateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 func validateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
 	allErrs := apivalidation.ValidateImmutableField(workloadPriorityClassName(newJob), workloadPriorityClassName(oldJob), workloadPriorityClassNamePath)
 	return allErrs
+}
+
+func validateCreateForMaxExecTime(job GenericJob) field.ErrorList {
+	if strVal, found := job.Object().GetLabels()[constants.MaxExecTimeSecondsLabel]; found {
+		v, err := strconv.Atoi(strVal)
+		if err != nil {
+			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, strVal, err.Error())}
+		}
+
+		if v <= 0 {
+			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, v, "should be greater than 0")}
+		}
+	}
+	return nil
+}
+
+func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
+	if !newJob.IsSuspended() || !oldJob.IsSuspended() {
+		return apivalidation.ValidateImmutableField(newJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], oldJob.Object().GetLabels()[constants.MaxExecTimeSecondsLabel], maxExecTimeLabelPath)
+	}
+	return nil
 }
