@@ -32,6 +32,10 @@ func BeForbiddenError() types.GomegaMatcher {
 	return BeAPIError(ForbiddenError)
 }
 
+func BeInvalidError() types.GomegaMatcher {
+	return BeAPIError(InvalidError)
+}
+
 type errorMatcher int
 
 const (

@@ -178,12 +178,12 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}()
 
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var updateCQ kueue.ClusterQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
 				updateCQ.Spec.ResourceGroups[0].Flavors[0].Name = "@x86"
-				return k8sClient.Update(ctx, &updateCQ)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
+				g.Expect(k8sClient.Update(ctx, &updateCQ)).Should(testing.BeInvalidError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should allow to update queueingStrategy with different value", func() {
@@ -198,11 +198,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}()
 
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var updateCQ kueue.ClusterQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
 				updateCQ.Spec.QueueingStrategy = kueue.BestEffortFIFO
-				return k8sClient.Update(ctx, &updateCQ)
+				g.Expect(k8sClient.Update(ctx, &updateCQ)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

@@ -38,12 +38,12 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, obj)).Should(gomega.Succeed())
 
 			ginkgo.By("Updating the Queue")
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedQ kueue.LocalQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &updatedQ)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &updatedQ)).Should(gomega.Succeed())
 				updatedQ.Spec.ClusterQueue = "bar"
-				return k8sClient.Update(ctx, &updatedQ)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
+				g.Expect(k8sClient.Update(ctx, &updatedQ)).Should(testing.BeInvalidError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

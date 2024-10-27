@@ -374,11 +374,11 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			wl := w()
 			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 
-			gomega.Eventually(func() error {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs)
-				return k8sClient.Status().Update(ctx, wl)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(testing.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
 			ginkgo.Entry("mismatched names in podSetUpdates with names in podSets",
 				func() *kueue.Workload {
@@ -472,12 +472,12 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
 				}
 
-				gomega.Eventually(func() error {
+				gomega.Eventually(func(g gomega.Gomega) {
 					var newWL kueue.Workload
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
 					updateWl(&newWL)
-					return k8sClient.Update(ctx, &newWL)
-				}, util.Timeout, util.Interval).Should(matcher)
+					g.Expect(k8sClient.Update(ctx, &newWL)).Should(matcher)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			},
 			ginkgo.Entry("podSets should not be updated when has quota reservation: count",
 				func() *kueue.Workload {
@@ -799,18 +799,18 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Creating and admitting a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
-			gomega.EventuallyWithOffset(1, func() error {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				return util.SetQuotaReservation(ctx, k8sClient, &newWL, testing.MakeAdmission("cq").Obj())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(ctx, k8sClient, &newWL, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			ginkgo.By("Updating queueName")
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
 				newWL.Spec.QueueName = "queue2"
-				return k8sClient.Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
+				g.Expect(k8sClient.Update(ctx, &newWL)).Should(testing.BeInvalidError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should forbid the change of spec.admission", func() {
@@ -819,20 +819,20 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
 
 			ginkgo.By("Admitting the Workload")
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
 				newWL.Status.Admission = testing.MakeAdmission("cluster-queue").Obj()
-				return k8sClient.Status().Update(ctx, &newWL)
+				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Updating queueName")
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
 				newWL.Status.Admission.ClusterQueue = "foo-cluster-queue"
-				return k8sClient.Status().Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
+				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(testing.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should have priority once priorityClassName is set", func() {
@@ -847,10 +847,10 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			wl := testing.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 				PriorityClass("workload-priority-class").PriorityClassSource(constants.WorkloadPriorityClassSource).Priority(200).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			gomega.Eventually(func() []metav1.Condition {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				return updatedQueueWorkload.Status.Conditions
-			}, util.Timeout, util.Interval).ShouldNot(gomega.BeNil())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			initialPriority := int32(200)
 			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
 
@@ -858,10 +858,10 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			updatedPriority := int32(150)
 			updatedQueueWorkload.Spec.Priority = &updatedPriority
 			gomega.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
-			gomega.Eventually(func() *int32 {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
-				return finalQueueWorkload.Spec.Priority
-			}, util.Timeout, util.Interval).Should(gomega.Equal(&updatedPriority))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
+				g.Expect(finalQueueWorkload.Spec.Priority).Should(gomega.Equal(&updatedPriority))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("workload's priority should be mutable when referencing PriorityClass", func() {
@@ -869,10 +869,10 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			wl := testing.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 				PriorityClass("priority-class").PriorityClassSource(constants.PodPriorityClassSource).Priority(100).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			gomega.Eventually(func() []metav1.Condition {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				return updatedQueueWorkload.Status.Conditions
-			}, util.Timeout, util.Interval).ShouldNot(gomega.BeNil())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			initialPriority := int32(100)
 			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
 
@@ -880,10 +880,10 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			updatedPriority := int32(50)
 			updatedQueueWorkload.Spec.Priority = &updatedPriority
 			gomega.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
-			gomega.Eventually(func() *int32 {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
-				return finalQueueWorkload.Spec.Priority
-			}, util.Timeout, util.Interval).Should(gomega.Equal(&updatedPriority))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
+				g.Expect(finalQueueWorkload.Spec.Priority).Should(gomega.Equal(&updatedPriority))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("admission should not be updated once set", func() {
@@ -893,12 +893,12 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cluster-queue").Obj())).Should(gomega.Succeed())
 
 			ginkgo.By("Updating the workload setting admission")
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) {
 				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
 				newWL.Status.Admission = testing.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj()
-				return k8sClient.Status().Update(ctx, &newWL)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
+				g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(testing.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("reclaimable pod count can change up", func() {
@@ -968,8 +968,8 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 
 			ginkgo.By("Setting admission check state")
-			gomega.Eventually(func() error {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 					Name:               "ac1",
 					Message:            "old",
@@ -977,12 +977,12 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 					State:              kueue.CheckStateReady,
 				})
-				return k8sClient.Status().Update(ctx, wl)
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Updating admission check state")
-			gomega.Eventually(func() error {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 					Name:               "ac1",
 					Message:            "new",
@@ -990,8 +990,8 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "baz"}}, {Name: "second"}},
 					State:              kueue.CheckStateReady,
 				})
-				return k8sClient.Status().Update(ctx, wl)
-			}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.ForbiddenError))
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(testing.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
