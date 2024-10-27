@@ -79,12 +79,10 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", g
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
-		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
-				return false
-			}
-			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should not update unsuspend Job successfully when adding queue name", func() {
@@ -140,12 +138,10 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
-		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
-				return false
-			}
-			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should not suspend a Job when no queue name specified", func() {
@@ -154,12 +150,10 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
-		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
-				return false
-			}
-			return createdJob.Spec.Suspend != nil && !(*createdJob.Spec.Suspend)
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should not update unsuspend Job successfully when changing queue name", func() {
