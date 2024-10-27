@@ -82,10 +82,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			wl = testing.MakeWorkload("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("LocalQueue %s doesn't exist", "")
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			gomega.Eventually(func() int {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				return len(updatedQueueWorkload.Status.Conditions)
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(1))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).Should(gomega.HaveLen(1))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
 				gomega.BeComparableTo(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
@@ -105,10 +105,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			wl = testing.MakeWorkload("two", ns.Name).Queue("non-created-queue").Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("LocalQueue %s doesn't exist", "non-created-queue")
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			gomega.Eventually(func() int {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				return len(updatedQueueWorkload.Status.Conditions)
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(1))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).Should(gomega.HaveLen(1))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
 				gomega.BeComparableTo(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
@@ -132,10 +132,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			wl = testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("ClusterQueue %s doesn't exist", "fooclusterqueue")
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			gomega.Eventually(func() []metav1.Condition {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				return updatedQueueWorkload.Status.Conditions
-			}, util.Timeout, util.Interval).ShouldNot(gomega.BeNil())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
 				gomega.BeComparableTo(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
@@ -213,15 +213,17 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("creating the workload, the check conditions should be added", func() {
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-				gomega.Eventually(func() []string {
-					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					return slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
-				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check1", "check2"))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return c.Name
+					})).Should(gomega.ConsistOf("check1", "check2"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the check conditions", func() {
-				gomega.Eventually(func() error {
-					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
@@ -232,7 +234,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						State:   kueue.CheckStateRetry,
 						Message: "check rejected",
 					})
-					return k8sClient.Status().Update(ctx, &createdWl)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -243,17 +245,19 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("updating the queue checks, the changes should propagate to the workload", func() {
 				createdQueue := kueue.ClusterQueue{}
 				queueKey := client.ObjectKeyFromObject(clusterQueue)
-				gomega.Eventually(func() error {
-					gomega.Expect(k8sClient.Get(ctx, queueKey, &createdQueue)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, queueKey, &createdQueue)).To(gomega.Succeed())
 					createdQueue.Spec.AdmissionChecks = []string{"check2", "check3"}
-					return k8sClient.Update(ctx, &createdQueue)
+					g.Expect(k8sClient.Update(ctx, &createdQueue)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				createdWl := kueue.Workload{}
-				gomega.Eventually(func() []string {
-					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					return slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
-				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check2", "check3"))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return c.Name
+					})).Should(gomega.ConsistOf("check2", "check3"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				check2Cond := workload.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
 				gomega.Expect(check2Cond).To(gomega.Equal(oldCheck2Cond))
@@ -266,10 +270,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("creating the workload, the check conditions should be added", func() {
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-				gomega.Eventually(func() []string {
-					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					return slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
-				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check1", "check2"))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return c.Name
+					})).Should(gomega.ConsistOf("check1", "check2"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("reserving quota for a Workload", func() {
@@ -279,14 +285,14 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			})
 
 			ginkgo.By("setting the check conditions", func() {
-				gomega.Eventually(func() error {
-					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
 					})
-					return k8sClient.Status().Update(ctx, &createdWl)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -319,10 +325,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("creating the workload, the check conditions should be added", func() {
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-				gomega.Eventually(func() []string {
-					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					return slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
-				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check1", "check2"))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return c.Name
+					})).Should(gomega.ConsistOf("check1", "check2"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting quota reservation and the checks ready, should admit the workload", func() {
@@ -331,8 +339,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &createdWl, testing.MakeAdmission(clusterQueue.Name).Obj())).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				gomega.Eventually(func() error {
-					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
@@ -343,7 +351,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						State:   kueue.CheckStateReady,
 						Message: "check ready",
 					})
-					return k8sClient.Status().Update(ctx, &createdWl)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -409,10 +417,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			wl = testing.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 				PriorityClass("workload-priority-class").PriorityClassSource(constants.WorkloadPriorityClassSource).Priority(200).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			gomega.Eventually(func() []metav1.Condition {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				return updatedQueueWorkload.Status.Conditions
-			}, util.Timeout, util.Interval).ShouldNot(gomega.BeNil())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			initialPriority := int32(200)
 			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
 
@@ -421,10 +429,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			updatedWorkloadPriorityClass = workloadPriorityClass.DeepCopy()
 			workloadPriorityClass.Value = updatedPriority
 			gomega.Expect(k8sClient.Update(ctx, workloadPriorityClass)).To(gomega.Succeed())
-			gomega.Eventually(func() int32 {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workloadPriorityClass), updatedWorkloadPriorityClass)).To(gomega.Succeed())
-				return updatedWorkloadPriorityClass.Value
-			}, util.Timeout, util.Interval).Should(gomega.Equal(updatedPriority))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workloadPriorityClass), updatedWorkloadPriorityClass)).To(gomega.Succeed())
+				g.Expect(updatedWorkloadPriorityClass.Value).Should(gomega.Equal(updatedPriority))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
 			gomega.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
 		})
