@@ -122,9 +122,9 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", ginkgo.Ordered, ginkgo.Continue
 				out, err := cmd.CombinedOutput()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%q", string(out))
 
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, key, obj)
-				}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, obj)).Should(testing.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		},
 		ginkgo.Entry("Workload", "workload", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'", "--yes"),
