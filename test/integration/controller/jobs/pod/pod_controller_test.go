@@ -869,10 +869,10 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				ginkgo.By("Failing the running pod")
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod)
 				createdPod := &corev1.Pod{}
-				gomega.Consistently(func(g gomega.Gomega) []string {
+				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).To(gomega.Succeed())
-					return createdPod.Finalizers
-				}, util.ConsistentDuration, util.Interval).Should(gomega.ContainElement(constants.ManagedByKueueLabel), "Pod should have finalizer")
+					g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabel), "Pod should have finalizer")
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodFailed))
 
 				ginkgo.By("Checking that WaitingForReplacementPods status is set to true", func() {
@@ -1039,17 +1039,15 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				ginkgo.By("checking that the pod group is not finalized if the group has failed", func() {
 					util.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod1, pod2)
 
-					gomega.Consistently(func(g gomega.Gomega) []string {
+					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
-						return createdPod.Finalizers
-					}, util.ConsistentDuration, util.Interval).Should(gomega.ContainElement(constants.ManagedByKueueLabel),
-						"Pod should have finalizer")
+						g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabel), "Pod should have finalizer")
+					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 
-					gomega.Consistently(func(g gomega.Gomega) []string {
+					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, pod2LookupKey, createdPod)).To(gomega.Succeed())
-						return createdPod.Finalizers
-					}, util.ConsistentDuration, util.Interval).Should(gomega.ContainElement(constants.ManagedByKueueLabel),
-						"Pod should have finalizer")
+						g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.ManagedByKueueLabel), "Pod should have finalizer")
+					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 				})
 
 				// Create replacement pod with 'retriable-in-group' = false annotation

@@ -150,9 +150,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					for _, origPod := range group[:2] {
 						var p corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
-						g.Expect(p.Spec.SchedulingGates).
-							To(gomega.ContainElement(corev1.PodSchedulingGate{
-								Name: pod.SchedulingGateName}))
+						g.Expect(p.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: pod.SchedulingGateName}))
 					}
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
