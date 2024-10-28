@@ -382,6 +382,7 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 		}
 		log.V(3).Info("Workload is evicted because the LocalQueue is stopped", "localQueue", klog.KRef(wl.Namespace, wl.Spec.QueueName))
 		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByLocalQueueStopped, "The LocalQueue is stopped")
+		workload.ResetChecksOnEviction(wl)
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 		if err == nil {
 			cqName := string(lq.Spec.ClusterQueue)
@@ -429,6 +430,7 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", cqName))
 		message := "The ClusterQueue is stopped"
 		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByClusterQueueStopped, message)
+		workload.ResetChecksOnEviction(wl)
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 		if err == nil {
 			workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByClusterQueueStopped, message)
@@ -507,6 +509,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	}
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String())
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, message)
+	workload.ResetChecksOnEviction(wl)
 	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 	if err == nil {
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
