@@ -1,6 +1,7 @@
 module sigs.k8s.io/kueue
 
-go 1.23
+go 1.23.0
+
 require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-logr/logr v1.4.2
