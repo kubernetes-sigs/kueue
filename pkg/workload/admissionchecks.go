@@ -86,6 +86,19 @@ func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName string) *k
 	return nil
 }
 
+// ResetChecksOnEviction sets all AdmissionChecks to Pending
+func ResetChecksOnEviction(w *kueue.Workload) {
+	checks := w.Status.AdmissionChecks
+	for i := range checks {
+		checks[i] = kueue.AdmissionCheckState{
+			Name:               checks[i].Name,
+			State:              kueue.CheckStatePending,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            "Reset to Pending after eviction. Previously: " + string(checks[i].State),
+		}
+	}
+}
+
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
 func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState) {
 	if checks == nil {
