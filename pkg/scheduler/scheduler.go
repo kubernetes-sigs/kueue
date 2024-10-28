@@ -465,7 +465,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	cq := snap.ClusterQueues[wl.ClusterQueue]
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, s.fairSharing.Enable, preemption.NewOracle(s.preemptor, snap))
 	fullAssignment := flvAssigner.Assign(log, nil)
-	var faPreemtionTargets []*preemption.Target
+	var faPreemptionTargets []*preemption.Target
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
@@ -473,20 +473,23 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	}
 
 	if arm == flavorassigner.Preempt {
-		faPreemtionTargets = s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
+		faPreemptionTargets = s.preemptor.GetTargets(log, *wl, fullAssignment, snap)
 	}
 
 	// if the feature gate is not enabled or we can preempt
-	if !features.Enabled(features.PartialAdmission) || len(faPreemtionTargets) > 0 {
-		return fullAssignment, faPreemtionTargets
+	if !features.Enabled(features.PartialAdmission) || len(faPreemptionTargets) > 0 {
+		return fullAssignment, faPreemptionTargets
 	}
 
 	if wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
 			assignment := flvAssigner.Assign(log, nextCounts)
-			if assignment.RepresentativeMode() == flavorassigner.Fit {
+			mode := assignment.RepresentativeMode()
+			if mode == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
-			} else if assignment.RepresentativeMode() == flavorassigner.Preempt {
+			}
+
+			if mode == flavorassigner.Preempt {
 				preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
 				if len(preemptionTargets) > 0 {
 					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
@@ -676,12 +679,13 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 
 	if e.status == notNominated || e.status == skipped {
-		patch := workload.AdmissionStatusPatch(e.Obj, true)
+		patch := workload.BaseSSAWorkload(e.Obj)
+		workload.AdmissionStatusPatch(e.Obj, patch, true)
 		if workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg) {
 			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, patch); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 		}
-		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
+		s.recorder.Eventf(e.Obj, corev1.EventTypeWarning, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
 	}
 }
