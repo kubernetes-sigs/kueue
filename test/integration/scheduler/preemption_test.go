@@ -424,19 +424,19 @@ var _ = ginkgo.Describe("Preemption", func() {
 			gomega.Expect(k8sClient.Create(ctx, gammaWl)).To(gomega.Succeed())
 
 			var evictedWorkloads []*kueue.Workload
-			gomega.Eventually(func() int {
+			gomega.Eventually(func(g gomega.Gomega) {
 				evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
-				return len(evictedWorkloads)
-			}, util.Timeout, util.Interval).Should(gomega.Equal(1), "Number of evicted workloads")
+				g.Expect(evictedWorkloads).Should(gomega.HaveLen(1), "Number of evicted workloads")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing eviction for first set of preempted workloads")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, alphaWl, gammaWl)
 
-			gomega.Eventually(func() int {
+			gomega.Eventually(func(g gomega.Gomega) {
 				evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
-				return len(evictedWorkloads)
-			}, util.Timeout, util.Interval).Should(gomega.Equal(2), "Number of evicted workloads")
+				g.Expect(evictedWorkloads).Should(gomega.HaveLen(2), "Number of evicted workloads")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing eviction for second set of preempted workloads")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)

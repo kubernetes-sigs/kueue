@@ -312,7 +312,7 @@ func finishRunningWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
 
 func finishEvictionOfWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
 	finished := sets.New[types.UID]()
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) int {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var wList kueue.WorkloadList
 		g.Expect(k8sClient.List(ctx, &wList)).To(gomega.Succeed())
 		for i := 0; i < len(wList.Items) && finished.Len() < n; i++ {
@@ -328,6 +328,6 @@ func finishEvictionOfWorkloadsInCQ(cq *kueue.ClusterQueue, n int) {
 				finished.Insert(wl.UID)
 			}
 		}
-		return finished.Len()
-	}, util.Timeout, util.Interval).Should(gomega.Equal(n), "Not enough workloads evicted")
+		g.Expect(finished.Len()).Should(gomega.Equal(n), "Not enough workloads evicted")
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
