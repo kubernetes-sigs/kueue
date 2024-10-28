@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,6 +34,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
+)
+
+var (
+	replicatedJobsPath = field.NewPath("spec", "replicatedJobs")
 )
 
 type JobSetWebhook struct {
@@ -105,7 +110,7 @@ func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating create", "jobset", klog.KObj(jobSet))
-	return nil, jobframework.ValidateJobOnCreate(jobSet).ToAggregate()
+	return nil, w.validateCreate(jobSet).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -114,9 +119,30 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating update", "jobset", klog.KObj(newJobSet))
-	allErrs := jobframework.ValidateJobOnUpdate(oldJobSet, newJobSet)
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJobSet)...)
-	return nil, allErrs.ToAggregate()
+	return nil, w.validateUpdate(oldJobSet, newJobSet).ToAggregate()
+}
+
+func (w *JobSetWebhook) validateUpdate(oldJob, newJob *JobSet) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob)...)
+	allErrs = append(allErrs, w.validateCreate(newJob)...)
+	return allErrs
+}
+
+func (w *JobSetWebhook) validateCreate(jobSet *JobSet) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet)...)
+	allErrs = append(allErrs, w.validateTopologyRequest(jobSet)...)
+	return allErrs
+}
+
+func (w *JobSetWebhook) validateTopologyRequest(jobSet *JobSet) field.ErrorList {
+	var allErrs field.ErrorList
+	for i := range jobSet.Spec.ReplicatedJobs {
+		replicaMetaPath := replicatedJobsPath.Index(i).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &jobSet.Spec.ReplicatedJobs[i].Template.ObjectMeta)...)
+	}
+	return allErrs
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
