@@ -533,6 +533,11 @@ func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueu
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
 }
 
+// ApplyStatusPatch applies the patch of status fields of a workload with SSA.
+func ApplyStatusPatch(ctx context.Context, c client.Client, patch *kueue.Workload) error {
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.WorkloadControllerName))
+}
+
 type Ordering struct {
 	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
 }

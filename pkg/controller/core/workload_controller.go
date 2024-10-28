@@ -346,6 +346,9 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
 		return false, client.IgnoreNotFound(err)
 	}
+	if err := workload.SetAllChecksToPending(ctx, r.client, wl); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
 	cqName, _ := r.queues.ClusterQueueForWorkload(wl)
 	workload.ReportEvictedWorkload(r.recorder, wl, cqName, kueue.WorkloadEvictedByAdmissionCheck, message)
 	return true, nil
