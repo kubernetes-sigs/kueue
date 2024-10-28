@@ -137,8 +137,8 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			ginkgo.By("Fetching the workload created for the job")
 			createdWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(parentJob.Name, parentJob.UID), Namespace: ns.Name}
-			gomega.Eventually(func() error {
-				return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Admitting the workload created for the job")
@@ -169,8 +169,8 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			ginkgo.By("Checking that the child cluster is not suspended")
 			childClusterKey := client.ObjectKeyFromObject(childCluster)
 			gomega.Eventually(func(g gomega.Gomega) {
-				gomega.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).To(gomega.Succeed())
-				gomega.Expect(childCluster.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+				g.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).To(gomega.Succeed())
+				g.Expect(childCluster.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

@@ -93,8 +93,8 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
 
 				createdPod := &corev1.Pod{}
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, lookupKey, createdPod)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).To(
@@ -117,8 +117,8 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 
 				lookupKey := types.NamespacedName{Name: pod.Name, Namespace: "kube-system"}
 				createdPod := &corev1.Pod{}
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, lookupKey, createdPod)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
@@ -151,8 +151,8 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
 
 				createdPod := &corev1.Pod{}
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, lookupKey, createdPod)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
@@ -225,8 +225,8 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 
 				lookupKey := types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
 				createdPod := &corev1.Pod{}
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, lookupKey, createdPod)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).To(
@@ -249,8 +249,8 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 
 				lookupKey := types.NamespacedName{Name: pod.Name, Namespace: "kube-system"}
 				createdPod := &corev1.Pod{}
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, lookupKey, createdPod)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(

@@ -189,13 +189,13 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		}()
 
-		gomega.Eventually(func() error {
+		gomega.Eventually(func(g gomega.Gomega) {
 			var updateAC kueue.AdmissionCheck
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
 			updateAC.Spec.Parameters.APIGroup = "ref.api.group2"
 			updateAC.Spec.Parameters.Kind = "RefKind2"
 			updateAC.Spec.Parameters.Name = "ref-name2"
-			return k8sClient.Update(ctx, &updateAC)
+			g.Expect(k8sClient.Update(ctx, &updateAC)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -211,11 +211,11 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		}()
 
-		gomega.Eventually(func() error {
+		gomega.Eventually(func(g gomega.Gomega) {
 			var updateAC kueue.AdmissionCheck
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
 			updateAC.Spec.Parameters = nil
-			return k8sClient.Update(ctx, &updateAC)
+			g.Expect(k8sClient.Update(ctx, &updateAC)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -231,12 +231,12 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		}()
 
-		gomega.Eventually(func() error {
+		gomega.Eventually(func(g gomega.Gomega) {
 			var updateAC kueue.AdmissionCheck
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
 			updateAC.Spec.Parameters.Name = ""
-			return k8sClient.Update(ctx, &updateAC)
-		}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
+			g.Expect(k8sClient.Update(ctx, &updateAC)).Should(testing.BeInvalidError())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should fail to update AdmissionCheck when breaking parameters", func() {
@@ -251,11 +251,11 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 		}()
 
-		gomega.Eventually(func() error {
+		gomega.Eventually(func(g gomega.Gomega) {
 			var updateAC kueue.AdmissionCheck
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &updateAC)).Should(gomega.Succeed())
 			updateAC.Spec.ControllerName = "controller-name2"
-			return k8sClient.Update(ctx, &updateAC)
-		}, util.Timeout, util.Interval).Should(testing.BeAPIError(testing.InvalidError))
+			g.Expect(k8sClient.Update(ctx, &updateAC)).Should(testing.BeInvalidError())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
