@@ -389,12 +389,10 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("checking the job remains suspended", func() {
 				createdJob := &batchv1.Job{}
 				jobKey := client.ObjectKeyFromObject(sampleJob)
-				gomega.Consistently(func() bool {
-					if err := k8sClient.Get(ctx, jobKey, createdJob); err != nil {
-						return false
-					}
-					return ptr.Deref(createdJob.Spec.Suspend, false)
-				}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the check as successful", func() {

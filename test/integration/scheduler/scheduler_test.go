@@ -1721,11 +1721,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, strictFIFOClusterQ.Name, wl1)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			// wl3 doesn't even get a scheduling attempt, so can't check for conditions.
-			gomega.Consistently(func() bool {
+			gomega.Consistently(func(g gomega.Gomega) {
 				lookupKey := types.NamespacedName{Name: wl3.Name, Namespace: wl3.Namespace}
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, wl3)).Should(gomega.Succeed())
-				return !workload.HasQuotaReservation(wl3)
-			}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+				g.Expect(k8sClient.Get(ctx, lookupKey, wl3)).Should(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(wl3)).Should(gomega.BeFalse())
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 2, 0)
 			util.ExpectReservingActiveWorkloadsMetric(strictFIFOClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(strictFIFOClusterQ, 1)
@@ -1860,11 +1860,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Delete clusterQueue")
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
-			gomega.Consistently(func() []string {
+			gomega.Consistently(func(g gomega.Gomega) {
 				var newCQ kueue.ClusterQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
-				return newCQ.GetFinalizers()
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
+				g.Expect(newCQ.GetFinalizers()).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("New created workloads should be frozen")
 			wl2 := testing.MakeWorkload("workload2", ns.Name).Queue(queue.Name).Obj()
