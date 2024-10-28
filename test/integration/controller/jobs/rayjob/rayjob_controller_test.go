@@ -646,7 +646,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, highPriorityLookupKey, highPriorityWL)).To(gomega.Succeed())
-			g.Expect(apimeta.IsStatusConditionTrue(highPriorityWL.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
+			g.Expect(highPriorityWL.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Low priority workload should not be admitted")
@@ -674,7 +674,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		createdWorkload = &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lowPriorityLookupKey, createdWorkload)).To(gomega.Succeed())
-			g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
+			g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Low priority rayJob should be unsuspended")

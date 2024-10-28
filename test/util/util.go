@@ -311,8 +311,7 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var wl kueue.Workload
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
-		g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)).
-			To(gomega.BeTrueBecause("it's finished"))
+		g.Expect(wl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadFinished), "it's finished")
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 

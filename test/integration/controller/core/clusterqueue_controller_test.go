@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -885,7 +884,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				key := client.ObjectKeyFromObject(wl)
 				updatedWl := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, key, updatedWl)).To(gomega.Succeed())
-				g.Expect(apimeta.IsStatusConditionTrue(updatedWl.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")

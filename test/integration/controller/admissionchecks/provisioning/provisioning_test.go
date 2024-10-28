@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq)).Should(gomega.Succeed())
-				g.Expect(apimeta.IsStatusConditionTrue(lq.Status.Conditions, kueue.LocalQueueActive)).To(gomega.BeTrue())
+				g.Expect(lq.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.LocalQueueActive))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			wl := testing.MakeWorkload("wl", ns.Name).
