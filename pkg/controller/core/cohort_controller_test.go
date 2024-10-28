@@ -42,7 +42,11 @@ func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 	cohort := utiltesting.MakeCohort("cohort").Obj()
 	_ = cache.AddOrUpdateCohort(cohort)
 	qManager.AddOrUpdateCohort(ctx, cohort)
-	if _, ok := cache.Snapshot(ctx).Cohorts["cohort"]; !ok {
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	if _, ok := snapshot.Cohorts["cohort"]; !ok {
 		t.Fatal("expected Cohort in snapshot")
 	}
 
@@ -53,7 +57,11 @@ func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 		t.Fatal("unexpected error")
 	}
 
-	if _, ok := cache.Snapshot(ctx).Cohorts["cohort"]; ok {
+	snapshot, err = cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	if _, ok := snapshot.Cohorts["cohort"]; ok {
 		t.Fatal("unexpected Cohort in snapshot")
 	}
 }
@@ -66,7 +74,11 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 	qManager := queue.NewManager(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
-	if _, ok := cache.Snapshot(ctx).Cohorts["cohort"]; ok {
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	if _, ok := snapshot.Cohorts["cohort"]; ok {
 		t.Fatal("unexpected Cohort in snapshot")
 	}
 
@@ -78,7 +90,11 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 		t.Fatal("unexpected error")
 	}
 
-	if _, ok := cache.Snapshot(ctx).Cohorts["cohort"]; ok {
+	snapshot, err = cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	if _, ok := snapshot.Cohorts["cohort"]; ok {
 		t.Fatal("unexpected Cohort in snapshot")
 	}
 }
@@ -141,7 +157,11 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 	cohort := utiltesting.MakeCohort("cohort").Obj()
 	_ = cache.AddOrUpdateCohort(cohort)
 	qManager.AddOrUpdateCohort(ctx, cohort)
-	if _, ok := cache.Snapshot(ctx).Cohorts["cohort"]; !ok {
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	if _, ok := snapshot.Cohorts["cohort"]; !ok {
 		t.Fatal("expected Cohort in snapshot")
 	}
 
@@ -152,7 +172,11 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	if _, ok := cache.Snapshot(ctx).Cohorts["cohort"]; !ok {
+	snapshot, err = cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	if _, ok := snapshot.Cohorts["cohort"]; !ok {
 		t.Fatal("expected Cohort in snapshot")
 	}
 }
@@ -176,7 +200,11 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatal("unexpected error")
 		}
 
-		cohortSnap, ok := cache.Snapshot(ctx).Cohorts["cohort"]
+		snapshot, err := cache.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error while building snapshot: %v", err)
+		}
+		cohortSnap, ok := snapshot.Cohorts["cohort"]
 		if !ok {
 			t.Fatal("expected Cohort in snapshot")
 		}
@@ -207,7 +235,11 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatal("unexpected error")
 		}
 
-		cohortSnap, ok := cache.Snapshot(ctx).Cohorts["cohort"]
+		snapshot, err := cache.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error while building snapshot: %v", err)
+		}
+		cohortSnap, ok := snapshot.Cohorts["cohort"]
 		if !ok {
 			t.Fatal("expected Cohort in snapshot")
 		}
@@ -232,7 +264,11 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 			t.Fatal("unexpected error")
 		}
 
-		if _, ok := cache.Snapshot(ctx).Cohorts["cohort"]; ok {
+		snapshot, err := cache.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error while building snapshot: %v", err)
+		}
+		if _, ok := snapshot.Cohorts["cohort"]; ok {
 			t.Fatal("unexpected Cohort in snapshot")
 		}
 	}

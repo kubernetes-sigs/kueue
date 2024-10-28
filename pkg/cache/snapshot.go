@@ -18,12 +18,12 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"maps"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -78,7 +78,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 	}
 }
 
-func (c *Cache) Snapshot(ctx context.Context) Snapshot {
+func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -99,11 +99,10 @@ func (c *Cache) Snapshot(ctx context.Context) Snapshot {
 	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		log := ctrl.LoggerFrom(ctx)
 		for key, cache := range c.tasCache.Clone() {
 			s, err := cache.snapshot(ctx)
 			if err != nil {
-				log.Error(err, "failed to construct snapshot for TAS flavor", "flavor", key)
+				return nil, fmt.Errorf("%w: failed to construct snapshot for TAS flavor: %q", err, key)
 			} else {
 				tasSnapshots[key] = s
 			}
@@ -131,7 +130,7 @@ func (c *Cache) Snapshot(ctx context.Context) Snapshot {
 		// Shallow copy is enough
 		snap.ResourceFlavors[name] = rf
 	}
-	return snap
+	return &snap, nil
 }
 
 // snapshotClusterQueue creates a copy of ClusterQueue that includes

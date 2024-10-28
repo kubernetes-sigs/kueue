@@ -382,7 +382,10 @@ func TestFitInCohort(t *testing.T) {
 				_ = cache.AddClusterQueue(context.Background(), cq)
 			}
 
-			snapshot := cache.Snapshot(ctx)
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			cq := snapshot.ClusterQueues["CQ"]
 			cq.AddUsage(tc.usage)
 
@@ -468,7 +471,10 @@ func TestClusterQueueUpdate(t *testing.T) {
 			if err := cqCache.UpdateClusterQueue(tc.newcq); err != nil {
 				t.Fatalf("Updating clusterQueue %s in cache: %v", tc.newcq.Name, err)
 			}
-			snapshot := cqCache.Snapshot(ctx)
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			if diff := cmp.Diff(
 				tc.wantLastAssignmentGeneration,
 				snapshot.ClusterQueues["eng-alpha"].AllocatableResourceGeneration); diff != "" {
@@ -1195,8 +1201,10 @@ func TestDominantResourceShare(t *testing.T) {
 				_ = cache.AddClusterQueue(context.Background(), tc.lendingClusterQueue)
 			}
 
-			snapshot := cache.Snapshot(ctx)
-
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltesting.MakeAdmission("cq")

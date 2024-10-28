@@ -899,8 +899,11 @@ func TestSnapshot(t *testing.T) {
 			for _, wl := range tc.wls {
 				cache.AddOrUpdateWorkload(wl)
 			}
-			snapshot := cache.Snapshot(ctx)
-			if diff := cmp.Diff(tc.wantSnapshot, snapshot, snapCmpOpts...); len(diff) != 0 {
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantSnapshot, *snapshot, snapCmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)
 			}
 			for _, cq := range snapshot.ClusterQueues {
@@ -982,7 +985,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
 	}
-	initialSnapshot := cqCache.Snapshot(ctx)
+	initialSnapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
 	initialCohortResources := initialSnapshot.ClusterQueues["c1"].Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []string
@@ -992,7 +998,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		"no-op remove add": {
 			remove: []string{"/c1-cpu", "/c2-cpu-1"},
 			add:    []string{"/c1-cpu", "/c2-cpu-1"},
-			want:   initialSnapshot,
+			want:   *initialSnapshot,
 		},
 		"remove all": {
 			remove: []string{"/c1-cpu", "/c1-memory-alpha", "/c1-memory-beta", "/c2-cpu-1", "/c2-cpu-2"},
@@ -1193,14 +1199,17 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			snap := cqCache.Snapshot(ctx)
+			snap, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			for _, name := range tc.remove {
 				snap.RemoveWorkload(wlInfos[name])
 			}
 			for _, name := range tc.add {
 				snap.AddWorkload(wlInfos[name])
 			}
-			if diff := cmp.Diff(tc.want, snap, cmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
 			}
 		})
@@ -1270,7 +1279,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
 	}
-	initialSnapshot := cqCache.Snapshot(ctx)
+	initialSnapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
 	initialCohortResources := initialSnapshot.ClusterQueues["lend-a"].Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []string
@@ -1280,7 +1292,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		"remove all then add all": {
 			remove: []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			want:   initialSnapshot,
+			want:   *initialSnapshot,
 		},
 		"remove all": {
 			remove: []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
@@ -1669,14 +1681,17 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			snap := cqCache.Snapshot(ctx)
+			snap, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			for _, name := range tc.remove {
 				snap.RemoveWorkload(wlInfos[name])
 			}
 			for _, name := range tc.add {
 				snap.AddWorkload(wlInfos[name])
 			}
-			if diff := cmp.Diff(tc.want, snap, cmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
 			}
 		})

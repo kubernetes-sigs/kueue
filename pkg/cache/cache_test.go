@@ -33,7 +33,9 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/hierarchy"
@@ -3761,4 +3763,69 @@ func TestCohortCycles(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestSnapshotError tests the negative scenario when an error is returned while
+// using TopologyAwareScheduling
+func TestSnapshotError(t *testing.T) {
+	const (
+		tasHostLabel = "kubernetes.io/hostname"
+	)
+	var (
+		connectionRefusedErr = errors.New("connection refused")
+	)
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	topology := kueuealpha.Topology{
+		Spec: kueuealpha.TopologySpec{
+			Levels: []kueuealpha.TopologyLevel{
+				{
+					NodeLabel: tasHostLabel,
+				},
+			},
+		},
+	}
+	flavor := *utiltesting.MakeResourceFlavor("tas-default").
+		TopologyName("default").
+		Obj()
+	localQueue := *utiltesting.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()
+	clusterQueue := utiltesting.MakeClusterQueue("cq").
+		ResourceGroup(
+			utiltesting.MakeFlavorQuotas("tas-default").
+				ResourceQuotaWrapper("cpu").NominalQuota("8").Append().
+				FlavorQuotas,
+		).ClusterQueue
+
+	clientBuilder := utiltesting.NewClientBuilder()
+	clientBuilder.WithObjects(&topology)
+	clientBuilder.WithObjects(&localQueue)
+	clientBuilder.WithObjects(&clusterQueue)
+	kcBuilder := clientBuilder.
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				_, isNodeList := list.(*corev1.NodeList)
+				if isNodeList {
+					if connectionRefusedErr != nil {
+						return connectionRefusedErr
+					}
+				}
+				return client.List(ctx, list, opts...)
+			},
+		})
+	kcBuilder.WithObjects(&flavor)
+	client := kcBuilder.Build()
+	cache := New(client)
+	cache.AddOrUpdateResourceFlavor(&flavor)
+	if flavor.Spec.TopologyName != nil {
+		tasFlavorCache := cache.tasCache.NewTASFlavorCache([]string{tasHostLabel}, flavor.Spec.NodeLabels)
+		cache.tasCache.Set(kueue.ResourceFlavorReference(flavor.Name), tasFlavorCache)
+	}
+	if err := cache.AddClusterQueue(ctx, &clusterQueue); err != nil {
+		t.Fatalf("failed to add CQ: %v", err)
+	}
+	_, gotErr := cache.Snapshot(ctx)
+	if diff := cmp.Diff(connectionRefusedErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+		t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
+	}
 }
