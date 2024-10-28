@@ -17,13 +17,11 @@ limitations under the License.
 package workload
 
 import (
-	"context"
 	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -89,20 +87,16 @@ func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName string) *k
 }
 
 // SetAllChecksToPending sets all AdmissionChecks to Pending
-func SetAllChecksToPending(ctx context.Context, c client.Client, w *kueue.Workload) error {
-	wlCopy := BaseSSAWorkload(w)
-	message := "AdmissionCheck pending after retry"
-	checks := make([]kueue.AdmissionCheckState, len(w.Status.AdmissionChecks))
-	for i := range w.Status.AdmissionChecks {
+func SetAllChecksToPending(w *kueue.Workload, message string) {
+	checks := w.Status.AdmissionChecks
+	for i := range checks {
 		checks[i] = kueue.AdmissionCheckState{
-			Name:               w.Status.AdmissionChecks[i].Name,
+			Name:               checks[i].Name,
 			State:              kueue.CheckStatePending,
 			LastTransitionTime: metav1.NewTime(time.Now()),
 			Message:            message,
 		}
 	}
-	wlCopy.Status.AdmissionChecks = checks
-	return ApplyStatusPatch(ctx, c, wlCopy)
 }
 
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
