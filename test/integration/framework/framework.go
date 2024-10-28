@@ -179,13 +179,10 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			// wait for the webhook server to get ready
 			dialer := &net.Dialer{Timeout: time.Second}
 			addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
-			gomega.Eventually(func() error {
+			gomega.Eventually(func(g gomega.Gomega) {
 				conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
-				if err != nil {
-					return err
-				}
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				conn.Close()
-				return nil
 			}).Should(gomega.Succeed())
 		}
 	})
