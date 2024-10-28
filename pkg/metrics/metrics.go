@@ -102,6 +102,14 @@ The label 'result' can have the following values:
 		}, []string{"cluster_queue", "status"},
 	)
 
+	LocalQueuePendingWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_pending_workloads",
+			Help:      `The number of pending workloads, per 'local_queue' in a namespace.`,
+		}, []string{"local_queue", "namespace"},
+	)
+
 	QuotaReservedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -283,6 +291,10 @@ func ReportPendingWorkloads(cqName string, active, inadmissible int) {
 	PendingWorkloads.WithLabelValues(cqName, PendingStatusInadmissible).Set(float64(inadmissible))
 }
 
+func ReportLocalQueueMetrics(lqName, namespace string, pending int) {
+	LocalQueuePendingWorkloads.WithLabelValues(lqName, namespace).Set(float64(pending))
+}
+
 func ReportEvictedWorkloads(cqName, reason string) {
 	EvictedWorkloadsTotal.WithLabelValues(cqName, reason).Inc()
 }
@@ -303,6 +315,11 @@ func ClearClusterQueueMetrics(cqName string) {
 	admissionChecksWaitTime.DeleteLabelValues(cqName)
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
+}
+
+func ClearLocalQueueMetrics(lqName, namespace string) {
+	LocalQueuePendingWorkloads.WithLabelValues(lqName, namespace, PendingStatusActive)
+	LocalQueuePendingWorkloads.WithLabelValues(lqName, namespace, PendingStatusInadmissible)
 }
 
 func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
@@ -405,6 +422,7 @@ func Register() {
 		admissionAttemptDuration,
 		AdmissionCyclePreemptionSkips,
 		PendingWorkloads,
+		LocalQueuePendingWorkloads,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
 		QuotaReservedWorkloadsTotal,

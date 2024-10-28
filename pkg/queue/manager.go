@@ -20,6 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -46,6 +49,7 @@ var (
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadInfoOptions         []workload.InfoOption
+	metricsOptions              config.ControllerMetrics
 }
 
 // Option configures the manager.
@@ -54,6 +58,7 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	workloadInfoOptions:         []workload.InfoOption{},
+	metricsOptions:              config.ControllerMetrics{},
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -68,6 +73,13 @@ func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	return func(o *options) {
 		o.workloadInfoOptions = append(o.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
+	}
+}
+
+// WithLocalQueueMetrics indicates if the metrics configurations for local queues.
+func WithLocalQueueMetrics(metricsOptions config.ControllerMetrics) Option {
+	return func(o *options) {
+		o.metricsOptions = metricsOptions
 	}
 }
 
@@ -93,7 +105,8 @@ type Manager struct {
 
 	workloadInfoOptions []workload.InfoOption
 
-	hm hierarchy.Manager[*ClusterQueue, *cohort]
+	hm             hierarchy.Manager[*ClusterQueue, *cohort]
+	metricsOptions config.ControllerMetrics
 }
 
 func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
@@ -111,6 +124,7 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 			PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 		},
 		workloadInfoOptions: options.workloadInfoOptions,
+		metricsOptions:      options.metricsOptions,
 		hm:                  hierarchy.NewManager[*ClusterQueue, *cohort](newCohort),
 	}
 	m.cond.L = &m.RWMutex
@@ -214,7 +228,18 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	if _, ok := m.localQueues[key]; ok {
 		return fmt.Errorf("queue %q already exists", q.Name)
 	}
-	qImpl := newLocalQueue(q)
+
+	shouldCollectMetrics, err := m.shouldCollectMetrics(ctx, q)
+	if err != nil {
+		return fmt.Errorf("unable to evaluate if local metrics need to be collected: %w", err)
+	}
+
+	var qImpl *LocalQueue
+	if shouldCollectMetrics {
+		qImpl = newLocalQueue(q, withMetricsEnabled())
+	}
+	qImpl = newLocalQueue(q)
+
 	m.localQueues[key] = qImpl
 	// Iterate through existing workloads, as workloads corresponding to this
 	// queue might have been added earlier.
@@ -574,6 +599,12 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq *ClusterQueue) {
 		active = 0
 	}
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
+
+	for _, localQueue := range m.localQueues {
+		if localQueue.ShouldCollectMetrics() {
+
+		}
+	}
 }
 
 func (m *Manager) GetClusterQueueNames() []string {
@@ -659,4 +690,38 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	m.snapshotsMutex.Lock()
 	defer m.snapshotsMutex.Unlock()
 	delete(m.snapshots, cq.Name)
+}
+
+func (m *Manager) shouldCollectMetrics(ctx context.Context, q *kueue.LocalQueue) (bool, error) {
+	if m.metricsOptions.LocalQueueMetrics == nil || !m.metricsOptions.LocalQueueMetrics.Enable {
+		return false, nil
+	}
+
+	namespaceMatches := true
+	if m.metricsOptions.LocalQueueMetrics.NamespaceSelector != nil {
+		nsSelector, err := metav1.LabelSelectorAsSelector(m.metricsOptions.LocalQueueMetrics.NamespaceSelector)
+		if err != nil {
+			return false, fmt.Errorf("failed to convert namespace label selector: %w", err)
+		}
+
+		namespace := &corev1.Namespace{}
+		if err := m.client.Get(ctx, client.ObjectKey{Name: q.GetNamespace()}, namespace); err != nil {
+			return false, err
+		}
+
+		nsLabels := labels.Set(namespace.Labels)
+		namespaceMatches = nsSelector.Matches(nsLabels)
+	}
+
+	localQueueMatches := true
+	if m.metricsOptions.LocalQueueMetrics.LocalQueueSelector != nil {
+		lqSelector, err := metav1.LabelSelectorAsSelector(m.metricsOptions.LocalQueueMetrics.LocalQueueSelector)
+		if err != nil {
+			return false, fmt.Errorf("failed to convert local queue label selector: %w", err)
+		}
+
+		lqLabels := labels.Set(q.Labels)
+		localQueueMatches = lqSelector.Matches(lqLabels)
+	}
+	return namespaceMatches && localQueueMatches, nil
 }

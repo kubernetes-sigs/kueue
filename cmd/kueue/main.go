@@ -159,7 +159,7 @@ func main() {
 	queueOptions := []queue.Option{queue.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg))}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
 		cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
-		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
+		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes), queue.WithLocalQueueMetrics(cfg.Metrics))
 	}
 	if features.Enabled(features.ConfigurableResourceTransformations) && cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
 		cacheOptions = append(cacheOptions, cache.WithResourceTransformations(cfg.Resources.Transformations))
