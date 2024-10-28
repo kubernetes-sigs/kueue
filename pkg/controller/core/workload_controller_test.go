@@ -596,8 +596,9 @@ func TestReconcile(t *testing.T) {
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
-					Name:  "check",
-					State: kueue.CheckStateReady,
+					Name:    "check",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
 				}).
 				Generation(1).
 				Condition(metav1.Condition{
@@ -690,8 +691,9 @@ func TestReconcile(t *testing.T) {
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
-					Name:  "check",
-					State: kueue.CheckStateReady,
+					Name:    "check",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
 				}).
 				Generation(1).
 				Condition(metav1.Condition{
