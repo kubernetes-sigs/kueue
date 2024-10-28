@@ -83,10 +83,10 @@ func expectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Con
 	if deleteNow {
 		gomega.ExpectWithOffset(2, client.IgnoreNotFound(DeleteObject(ctx, k8sClient, o))).To(gomega.Succeed())
 	}
-	gomega.EventuallyWithOffset(2, func() error {
+	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		newObj := PtrT(new(T))
-		return k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)
-	}, timeout, Interval).Should(testing.BeNotFoundError())
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(testing.BeNotFoundError())
+	}, timeout, Interval).Should(gomega.Succeed())
 }
 
 // DeleteNamespace deletes all objects the tests typically create in the namespace.
@@ -216,9 +216,9 @@ func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.Lo
 
 func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...*kueue.Workload) {
 	for _, w := range workloads {
-		gomega.EventuallyWithOffset(1, func() error {
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			var newWL kueue.Workload
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
 			newWL.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
 				Type:               kueue.WorkloadFinished,
 				Status:             metav1.ConditionTrue,
@@ -226,23 +226,23 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 				Reason:             "ByTest",
 				Message:            "Finished by test",
 			})
-			return k8sClient.Status().Update(ctx, &newWL)
+			g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
 
 func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(1, func() int {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		admitted := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
-			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			if workload.HasQuotaReservation(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
 				admitted++
 			}
 		}
-		return admitted
-	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
+		g.Expect(admitted).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func FilterAdmittedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
@@ -268,11 +268,11 @@ func filterWorkloads(ctx context.Context, k8sClient client.Client, filter func(*
 }
 
 func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(1, func() int {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		pending := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
-			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 			if cond == nil {
 				continue
@@ -281,8 +281,8 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 				pending++
 			}
 		}
-		return pending
-	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
+		g.Expect(pending).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
@@ -294,17 +294,17 @@ func ExpectWorkloadsToBeAdmittedCount(ctx context.Context, k8sClient client.Clie
 }
 
 func expectWorkloadsToBeAdmittedCountWithOffset(ctx context.Context, offset int, k8sClient client.Client, count int, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(offset, func() int {
+	gomega.EventuallyWithOffset(offset, func(g gomega.Gomega) {
 		admitted := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
-			gomega.ExpectWithOffset(offset, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted) {
 				admitted++
 			}
 		}
-		return admitted
-	}, Timeout, Interval).Should(gomega.Equal(count), "Not enough workloads are admitted")
+		g.Expect(admitted).Should(gomega.Equal(count), "Not enough workloads are admitted")
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
@@ -359,11 +359,11 @@ func ExpectWorkloadToHaveRequeueState(ctx context.Context, k8sClient client.Clie
 }
 
 func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(1, func() int {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		preempted := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
-			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadEvicted)
 			if cond == nil {
 				continue
@@ -372,16 +372,16 @@ func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, 
 				preempted++
 			}
 		}
-		return preempted
-	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are preempted")
+		g.Expect(preempted).Should(gomega.Equal(len(wls)), "Not enough workloads are preempted")
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(1, func() int {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		pending := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
-			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 			if cond == nil {
 				continue
@@ -390,16 +390,16 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 				pending++
 			}
 		}
-		return pending
-	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are waiting")
+		g.Expect(pending).Should(gomega.Equal(len(wls)), "Not enough workloads are waiting")
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq string, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(1, func() int {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		frozen := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
-			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 			if cond == nil {
 				continue
@@ -409,16 +409,16 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 				frozen++
 			}
 		}
-		return frozen
-	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are frozen")
+		g.Expect(frozen).Should(gomega.Equal(len(wls)), "Not enough workloads are frozen")
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) {
 	var updatedWorkload kueue.Workload
-	gomega.EventuallyWithOffset(1, func() *kueue.Admission {
-		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-		return updatedWorkload.Status.Admission
-	}, Timeout, Interval).Should(gomega.BeComparableTo(admission))
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+		g.Expect(updatedWorkload.Status.Admission).Should(gomega.BeComparableTo(admission))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 var attemptStatuses = []metrics.AdmissionResult{metrics.AdmissionResultInadmissible, metrics.AdmissionResultSuccess}
@@ -428,11 +428,11 @@ func ExpectAdmissionAttemptsMetric(pending, admitted int) {
 
 	for i, status := range attemptStatuses {
 		metric := metrics.AdmissionAttemptsTotal.WithLabelValues(string(status))
-		gomega.EventuallyWithOffset(1, func() int {
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			v, err := testutil.GetCounterMetricValue(metric)
-			gomega.Expect(err).ToNot(gomega.HaveOccurred())
-			return int(v)
-		}, Timeout, Interval).Should(gomega.Equal(vals[i]), "pending_workloads with status=%s", status)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+			g.Expect(int(v)).Should(gomega.Equal(vals[i]), "pending_workloads with status=%s", status)
+		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
 
@@ -442,21 +442,21 @@ func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible i
 	vals := []int{active, inadmissible}
 	for i, status := range pendingStatuses {
 		metric := metrics.PendingWorkloads.WithLabelValues(cq.Name, status)
-		gomega.EventuallyWithOffset(1, func() int {
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			v, err := testutil.GetGaugeMetricValue(metric)
-			gomega.Expect(err).ToNot(gomega.HaveOccurred())
-			return int(v)
-		}, Timeout, Interval).Should(gomega.Equal(vals[i]), "pending_workloads with status=%s", status)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+			g.Expect(int(v)).Should(gomega.Equal(vals[i]), "pending_workloads with status=%s", status)
+		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
 
-func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
+func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	metric := metrics.ReservingActiveWorkloads.WithLabelValues(cq.Name)
-	gomega.EventuallyWithOffset(1, func() int {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
-		return int(v)
-	}, Timeout, Interval).Should(gomega.Equal(v))
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(int(v)).To(gomega.Equal(value))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
@@ -494,48 +494,48 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 			wantV = 1
 		}
 		metric := metrics.ClusterQueueByStatus.WithLabelValues(cq.Name, string(s))
-		gomega.EventuallyWithOffset(1, func() float64 {
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			v, err := testutil.GetGaugeMetricValue(metric)
-			gomega.Expect(err).ToNot(gomega.HaveOccurred())
-			return v
-		}, Timeout, Interval).Should(gomega.Equal(wantV), "cluster_queue_status with status=%s", s)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+			g.Expect(v).Should(gomega.Equal(wantV), "cluster_queue_status with status=%s", s)
+		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
 
-func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, v int64) {
+func ExpectClusterQueueWeightedShareMetric(cq *kueue.ClusterQueue, value int64) {
 	metric := metrics.ClusterQueueWeightedShare.WithLabelValues(cq.Name)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		count, err := testutil.GetGaugeMetricValue(metric)
+		v, err := testutil.GetGaugeMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(int64(count)).Should(gomega.Equal(v))
+		g.Expect(int64(v)).Should(gomega.Equal(value))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
 	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
-	gomega.EventuallyWithOffset(1, func() float64 {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
-		return v
-	}, Timeout, Interval).Should(gomega.Equal(v))
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(v).Should(gomega.Equal(value))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
 	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
-	gomega.EventuallyWithOffset(1, func() float64 {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
-		return v
-	}, Timeout, Interval).Should(gomega.Equal(v))
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(v).Should(gomega.Equal(value))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
 	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
-	gomega.EventuallyWithOffset(1, func() float64 {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
-		return v
-	}, Timeout, Interval).Should(gomega.Equal(v))
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(v).Should(gomega.Equal(value))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
@@ -562,49 +562,45 @@ func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Cli
 }
 
 func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(1, func() int {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		evicting := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
-			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			if cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadEvicted); cond != nil && cond.Status == metav1.ConditionTrue {
 				evicting++
 			}
 		}
-		return evicting
-	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were marked for eviction")
+		g.Expect(evicting).Should(gomega.Equal(len(wls)), "Not enough workloads were marked for eviction")
+	}, Timeout, Interval).Should(gomega.Succeed())
 	// unset the quota reservation
 	for i := range wls {
 		key := client.ObjectKeyFromObject(wls[i])
-		gomega.EventuallyWithOffset(1, func() error {
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			var updatedWorkload kueue.Workload
-			if err := k8sClient.Get(ctx, key, &updatedWorkload); err != nil {
-				return err
-			}
-
+			g.Expect(k8sClient.Get(ctx, key, &updatedWorkload)).Should(gomega.Succeed())
 			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved) {
 				workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test", time.Now())
-				return workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)
+				g.Expect(workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)).Should(
+					gomega.Succeed(),
+					fmt.Sprintf("Unable to unset quota reservation for %q", key),
+				)
 			}
-			return nil
-		}, Timeout, Interval).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
+		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
 
 func SetAdmissionCheckActive(ctx context.Context, k8sClient client.Client, admissionCheck *kueue.AdmissionCheck, status metav1.ConditionStatus) {
-	gomega.EventuallyWithOffset(1, func() error {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var updatedAc kueue.AdmissionCheck
-		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &updatedAc)
-		if err != nil {
-			return err
-		}
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &updatedAc)).Should(gomega.Succeed())
 		apimeta.SetStatusCondition(&updatedAc.Status.Conditions, metav1.Condition{
 			Type:    kueue.AdmissionCheckActive,
 			Status:  status,
 			Reason:  "ByTest",
 			Message: "by test",
 		})
-		return k8sClient.Status().Update(ctx, &updatedAc)
+		g.Expect(k8sClient.Status().Update(ctx, &updatedAc)).Should(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
@@ -627,18 +623,16 @@ func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl
 }
 
 func AwaitAndVerifyWorkloadQueueName(ctx context.Context, client client.Client, createdWorkload *kueue.Workload, wlLookupKey types.NamespacedName, jobQueueName string) {
-	gomega.EventuallyWithOffset(1, func() bool {
-		if err := client.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-			return false
-		}
-		return createdWorkload.Spec.QueueName == jobQueueName
-	}, Timeout, Interval).Should(gomega.BeTrue())
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		g.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(jobQueueName))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func AwaitAndVerifyCreatedWorkload(ctx context.Context, client client.Client, wlLookupKey types.NamespacedName, createdJob metav1.Object) *kueue.Workload {
 	createdWorkload := &kueue.Workload{}
-	gomega.EventuallyWithOffset(1, func() error {
-		return client.Get(ctx, wlLookupKey, createdWorkload)
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 	gomega.ExpectWithOffset(1, metav1.IsControlledBy(createdWorkload, createdJob)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
 	return createdWorkload
@@ -685,10 +679,10 @@ func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client
 func ExpectPodsFinalized(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
 	for _, key := range keys {
 		createdPod := &corev1.Pod{}
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) []string {
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
-			return createdPod.Finalizers
-		}, Timeout, Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+			g.Expect(createdPod.Finalizers).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
 
