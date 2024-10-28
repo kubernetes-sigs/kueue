@@ -99,6 +99,21 @@ func ResetChecksOnEviction(w *kueue.Workload) {
 	}
 }
 
+func ResetChecksOnDeactivation(w *kueue.Workload) {
+	checks := w.Status.AdmissionChecks
+	for i := range checks {
+		if checks[i].State == kueue.CheckStatePending || checks[i].State == kueue.CheckStateRejected {
+			continue
+		}
+		checks[i] = kueue.AdmissionCheckState{
+			Name:               checks[i].Name,
+			State:              kueue.CheckStatePending,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			Message:            "Reset to Pending after deactivation. Previously: " + string(checks[i].State),
+		}
+	}
+}
+
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
 func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState) {
 	if checks == nil {
