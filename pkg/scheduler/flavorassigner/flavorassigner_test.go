@@ -1948,7 +1948,11 @@ func TestAssignFlavors(t *testing.T) {
 				cache.AddOrUpdateResourceFlavor(rf)
 			}
 
-			clusterQueue := cache.Snapshot(ctx).ClusterQueues[tc.clusterQueue.Name]
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			clusterQueue := snapshot.ClusterQueues[tc.clusterQueue.Name]
 
 			if clusterQueue == nil {
 				t.Fatalf("Failed to create CQ snapshot")
@@ -2105,7 +2109,10 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				cache.AddOrUpdateResourceFlavor(rf)
 			}
 
-			snapshot := cache.Snapshot(ctx)
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			otherClusterQueue := snapshot.ClusterQueues["other-clusterqueue"]
 			otherClusterQueue.AddUsage(tc.otherClusterQueueUsage)
 
@@ -2230,7 +2237,11 @@ func TestDeletedFlavors(t *testing.T) {
 			for _, flavor := range flavorMap {
 				cache.AddOrUpdateResourceFlavor(flavor)
 			}
-			clusterQueue := cache.Snapshot(ctx).ClusterQueues[tc.clusterQueue.Name]
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			clusterQueue := snapshot.ClusterQueues[tc.clusterQueue.Name]
 			if clusterQueue == nil {
 				t.Fatalf("Failed to create CQ snapshot")
 			}

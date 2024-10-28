@@ -209,8 +209,12 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	startTime := time.Now()
 
 	// 2. Take a snapshot of the cache.
-	snapshot := s.cache.Snapshot(ctx)
-	logSnapshotIfVerbose(log, &snapshot)
+	snapshot, err := s.cache.Snapshot(ctx)
+	if err != nil {
+		log.Error(err, "failed to build snapshot for scheduling")
+		return wait.SlowDown
+	}
+	logSnapshotIfVerbose(log, snapshot)
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	entries := s.nominate(ctx, headWorkloads, snapshot)
@@ -401,7 +405,7 @@ func (e *entry) netUsage() resources.FlavorResourceQuantities {
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot.
-func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap cache.Snapshot) []entry {
+func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *cache.Snapshot) []entry {
 	log := ctrl.LoggerFrom(ctx)
 	entries := make([]entry, 0, len(workloads))
 	for _, w := range workloads {
@@ -428,7 +432,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if err := s.validateLimitRange(ctx, &w); err != nil {
 			e.inadmissibleMsg = err.Error()
 		} else {
-			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
+			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, snap)
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
 			if s.fairSharing.Enable && e.assignment.RepresentativeMode() != flavorassigner.NoFit {

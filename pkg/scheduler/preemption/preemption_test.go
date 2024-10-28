@@ -1458,12 +1458,18 @@ func TestPreemption(t *testing.T) {
 				return nil
 			}
 
-			startingSnapshot := cqCache.Snapshot(ctx)
-			// make a working copy of the snapshot than preemption can temporarily modify
-			snapshot := cqCache.Snapshot(ctx)
+			startingSnapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			// make a working copy of the snapshotWorkingCopy than preemption can temporarily modify
+			snapshotWorkingCopy, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, &snapshot)
+			targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
 			preempted, err := preemptor.IssuePreemptions(ctx, wlInfo, targets)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
@@ -1474,7 +1480,7 @@ func TestPreemption(t *testing.T) {
 			if preempted != tc.wantPreempted.Len() {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted.Len())
 			}
-			if diff := cmp.Diff(startingSnapshot, snapshot, snapCmpOpts...); diff != "" {
+			if diff := cmp.Diff(startingSnapshot, snapshotWorkingCopy, snapCmpOpts...); diff != "" {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
@@ -1971,7 +1977,10 @@ func TestFairPreemptions(t *testing.T) {
 				PreemptionStrategies: tc.strategies,
 			}, clocktesting.NewFakeClock(now))
 
-			snapshot := cqCache.Snapshot(ctx)
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
@@ -1980,7 +1989,7 @@ func TestFairPreemptions(t *testing.T) {
 						Name: "default", Mode: flavorassigner.Preempt,
 					},
 				},
-			), &snapshot)
+			), snapshot)
 			gotTargets := sets.New(slices.Map(targets, func(t **Target) string {
 				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)

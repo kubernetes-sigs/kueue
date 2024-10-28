@@ -372,8 +372,10 @@ func TestAvailable(t *testing.T) {
 				_ = cache.AddOrUpdateCohort(&cohort)
 			}
 
-			snapshot := cache.Snapshot(ctx)
-
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			// before adding usage
 			{
 				gotAvailable := make(map[string]resources.FlavorResourceQuantities, len(snapshot.ClusterQueues))
