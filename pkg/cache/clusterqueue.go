@@ -419,8 +419,8 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 	slices.Sort(inactive)
 	slices.Sort(flavorIndependentCheckOnFlavors)
 	slices.Sort(perFlavorMultiKueueChecks)
-	multiKueueAdmissionChecksList := sets.List(multiKueueAdmissionChecks)
-	provisioningChecksList := sets.List(provisioningAdmissionChecks)
+	multiKueueChecks := sets.List(multiKueueAdmissionChecks)
+	provisioningChecks := sets.List(provisioningAdmissionChecks)
 
 	update := false
 	if !slices.Equal(c.missingAdmissionChecks, missing) {
@@ -455,13 +455,13 @@ func (c *clusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionChec
 		}
 	}
 
-	if !slices.Equal(c.multiKueueAdmissionChecks, multiKueueAdmissionChecksList) {
-		c.multiKueueAdmissionChecks = multiKueueAdmissionChecksList
+	if !slices.Equal(c.multiKueueAdmissionChecks, multiKueueChecks) {
+		c.multiKueueAdmissionChecks = multiKueueChecks
 		update = true
 	}
 
-	if !slices.Equal(c.provisioningAdmissionChecks, provisioningChecksList) {
-		c.provisioningAdmissionChecks = provisioningChecksList
+	if !slices.Equal(c.provisioningAdmissionChecks, provisioningChecks) {
+		c.provisioningAdmissionChecks = provisioningChecks
 		update = true
 	}
 
