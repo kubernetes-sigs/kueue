@@ -380,7 +380,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	// at this point we know a Workload has at least one Retry AdmissionCheck
 	message := "At least one admission check is false"
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, message)
-	workload.SetAllChecksToPending(wl, "AdmissionCheck pending after retry")
+	workload.SetAllChecksToPending(wl, "Reset to Pending after eviction. Previously: ")
 	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
 		return false, client.IgnoreNotFound(err)
 	}

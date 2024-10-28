@@ -543,11 +543,11 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:    "check-1",
 					State:   kueue.CheckStatePending,
-					Message: "AdmissionCheck pending after retry",
+					Message: "Reset to Pending after eviction. Previously: Retry",
 				}, kueue.AdmissionCheckState{
 					Name:    "check-2",
 					State:   kueue.CheckStatePending,
-					Message: "AdmissionCheck pending after retry",
+					Message: "Reset to Pending after eviction. Previously: Ready",
 				}).
 				Condition(metav1.Condition{
 					Type:    "Evicted",

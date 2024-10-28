@@ -94,7 +94,7 @@ func SetAllChecksToPending(w *kueue.Workload, message string) {
 			Name:               checks[i].Name,
 			State:              kueue.CheckStatePending,
 			LastTransitionTime: metav1.NewTime(time.Now()),
-			Message:            message,
+			Message:            message + string(checks[i].State),
 		}
 	}
 }
