@@ -31,6 +31,21 @@ func TestParseTimeLimit(t *testing.T) {
 		wantErr error
 	}{
 		"empty value": {},
+		"-1": {
+			val: "-1",
+		},
+		"INFINITE": {
+			val: "INFINITE",
+		},
+		"UNLIMITED": {
+			val: "UNLIMITED",
+		},
+		"infinite": {
+			val: "infinite",
+		},
+		"unlimited": {
+			val: "unlimited",
+		},
 		"not supported chars": {
 			val:     "12-0m-23",
 			wantErr: invalidTimeFormatErr,

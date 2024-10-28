@@ -95,6 +95,9 @@ func isValidTimeSpec(val string) bool {
 // - "days-hours"
 // - "days-hours:minutes"
 // - "days-hours:minutes:seconds"
+// - "INFINITE"
+// - "UNLIMITED"
+// - "-1"
 //
 // For more details, see https://slurm.schedmd.com/sbatch.html#OPT_time.
 //
@@ -102,7 +105,7 @@ func isValidTimeSpec(val string) bool {
 func TimeLimitToSeconds(val string) (*int32, error) {
 	val = strings.TrimSpace(val)
 
-	if val == "" {
+	if val == "" || strings.EqualFold(val, "-1") || strings.EqualFold(val, "INFINITE") || strings.EqualFold(val, "UNLIMITED") {
 		return nil, nil
 	}
 
