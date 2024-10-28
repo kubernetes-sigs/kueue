@@ -22,6 +22,10 @@ import (
 const (
 	JobSetNameKey         string = "jobset.sigs.k8s.io/jobset-name"
 	ReplicatedJobReplicas string = "jobset.sigs.k8s.io/replicatedjob-replicas"
+	// GlobalReplicasKey is a label/annotation set to the total number of replicatedJob replicas.
+	// For each JobSet, this value will be equal to the sum of `replicas`, where `replicas`
+	// is equal to jobset.spec.replicatedJobs[*].replicas.
+	GlobalReplicasKey string = "jobset.sigs.k8s.io/global-replicas"
 	// ReplicatedJobNameKey is used to index into a Jobs labels and retrieve the name of the parent ReplicatedJob
 	ReplicatedJobNameKey string = "jobset.sigs.k8s.io/replicatedjob-name"
 	// JobIndexKey is a label/annotation set to the index of the Job replica within its parent replicatedJob.
@@ -38,6 +42,7 @@ const (
 	// job placement per topology group (defined as the label value).
 	// If set at the ReplicatedJob level, all child jobs from the target ReplicatedJobs will be scheduled
 	// using exclusive job placement per topology group.
+	// Exclusive placement is enforced within a priority level.
 	ExclusiveKey string = "alpha.jobset.sigs.k8s.io/exclusive-topology"
 	// NodeSelectorStrategyKey is an annotation that acts as a flag, the value does not matter.
 	// If set, the JobSet controller will automatically inject nodeSelectors for the JobSetNameKey label to
@@ -302,12 +307,30 @@ type FailurePolicy struct {
 	// A restart is achieved by recreating all active child jobs.
 	MaxRestarts int32 `json:"maxRestarts,omitempty"`
 
+	// RestartStrategy defines the strategy to use when restarting the JobSet.
+	// Defaults to Recreate.
+	// +optional
+	// +kubebuilder:default=Recreate
+	RestartStrategy JobSetRestartStrategy `json:"restartStrategy,omitempty"`
+
 	// List of failure policy rules for this JobSet.
 	// For a given Job failure, the rules will be evaluated in order,
 	// and only the first matching rule will be executed.
 	// If no matching rule is found, the RestartJobSet action is applied.
 	Rules []FailurePolicyRule `json:"rules,omitempty"`
 }
+
+// +kubebuilder:validation:Enum=Recreate;BlockingRecreate
+type JobSetRestartStrategy string
+
+const (
+	// Recreate Jobs on a Job-by-Job basis.
+	Recreate JobSetRestartStrategy = "Recreate"
+
+	// BlockingRecreate ensures that all Jobs (and Pods) from a previous iteration are deleted before
+	// creating new Jobs.
+	BlockingRecreate JobSetRestartStrategy = "BlockingRecreate"
+)
 
 type SuccessPolicy struct {
 	// Operator determines either All or Any of the selected jobs should succeed to consider the JobSet successful
