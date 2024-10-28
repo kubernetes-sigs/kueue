@@ -88,6 +88,13 @@ func schema_jobset_api_jobset_v1alpha2_FailurePolicy(ref common.ReferenceCallbac
 							Format:      "int32",
 						},
 					},
+					"restartStrategy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RestartStrategy defines the strategy to use when restarting the JobSet. Defaults to Recreate.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 					"rules": {
 						SchemaProps: spec.SchemaProps{
 							Description: "List of failure policy rules for this JobSet. For a given Job failure, the rules will be evaluated in order, and only the first matching rule will be executed. If no matching rule is found, the RestartJobSet action is applied.",
