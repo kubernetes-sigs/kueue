@@ -379,7 +379,7 @@ func TestFitInCohort(t *testing.T) {
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f2").Obj())
 
 			for _, cq := range tc.clusterQueue {
-				_ = cache.AddClusterQueue(context.Background(), cq)
+				_ = cache.AddClusterQueue(ctx, cq)
 			}
 
 			snapshot, err := cache.Snapshot(ctx)
@@ -1194,11 +1194,11 @@ func TestDominantResourceShare(t *testing.T) {
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("on-demand").Obj())
 			cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("spot").Obj())
 
-			_ = cache.AddClusterQueue(context.Background(), tc.clusterQueue)
+			_ = cache.AddClusterQueue(ctx, tc.clusterQueue)
 
 			if tc.lendingClusterQueue != nil {
 				// we create a second cluster queue to add lendable capacity to the cohort.
-				_ = cache.AddClusterQueue(context.Background(), tc.lendingClusterQueue)
+				_ = cache.AddClusterQueue(ctx, tc.lendingClusterQueue)
 			}
 
 			snapshot, err := cache.Snapshot(ctx)
