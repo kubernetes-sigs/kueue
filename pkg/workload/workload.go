@@ -656,7 +656,7 @@ func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 
 // ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
 func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueue.Workload) error {
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
 type Ordering struct {
