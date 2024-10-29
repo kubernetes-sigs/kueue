@@ -209,7 +209,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					g.Expect(createdWorkload.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectPodsFinalizedOrGone(ctx, k8sClient, lookupKey)
+				util.ExpectPodsJustFinalized(ctx, k8sClient, lookupKey)
 			})
 
 			ginkgo.It("Should remove finalizers from Pods that are actively deleted after being admitted", func() {
@@ -590,7 +590,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
+					util.ExpectPodsJustFinalized(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
 				})
 			})
 
@@ -660,7 +660,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
+					util.ExpectPodsJustFinalized(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
 				})
 			})
 
@@ -914,7 +914,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 
 				ginkgo.By("Failing the replacement", func() {
-					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, podLookupKey)
+					util.ExpectPodsJustFinalized(ctx, k8sClient, podLookupKey)
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPodLookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 					util.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, replacementPod)
 				})
@@ -958,7 +958,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, replacementPod2)
-				util.ExpectPodsFinalizedOrGone(ctx, k8sClient, replacementPodLookupKey, replacementPod2LookupKey)
+				util.ExpectPodsJustFinalized(ctx, k8sClient, replacementPodLookupKey, replacementPod2LookupKey)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -1065,7 +1065,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 
 				ginkgo.By("checking that the replaced pod is finalized", func() {
-					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod1LookupKey)
+					util.ExpectPodsJustFinalized(ctx, k8sClient, pod1LookupKey)
 				})
 
 				ginkgo.By("checking that pod group is finalized when unretriable pod has failed", func() {
@@ -1076,7 +1076,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod2LookupKey, replacementPod2LookupKey)
+					util.ExpectPodsJustFinalized(ctx, k8sClient, pod2LookupKey, replacementPod2LookupKey)
 				})
 			})
 
@@ -1574,7 +1574,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 
 		ginkgo.By("checking pods are finalized", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				util.ExpectPodsFinalizedOrGone(ctx, k8sClient,
+				util.ExpectPodsJustFinalized(ctx, k8sClient,
 					client.ObjectKeyFromObject(role1Pod1),
 					client.ObjectKeyFromObject(role1Pod2),
 					client.ObjectKeyFromObject(role2Pod1),
