@@ -136,28 +136,19 @@ func DeleteAllJobsetsInNamespace(ctx context.Context, c client.Client, ns *corev
 }
 
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name))
-	if err != nil && !apierrors.IsNotFound(err) {
+	if err := client.IgnoreNotFound(c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name))); err != nil {
 		return fmt.Errorf("deleting all Pods in namespace %q: %w", ns.Name, err)
 	}
 
-	gomega.Eventually(func() error {
+	gomega.Eventually(func(g gomega.Gomega) {
 		lst := corev1.PodList{}
-		err := c.List(ctx, &lst, client.InNamespace(ns.Name))
-		if err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("listing Pods with a finalizer in namespace %q: %w", ns.Name, err)
-		}
-
+		g.Expect(client.IgnoreNotFound(c.List(ctx, &lst, client.InNamespace(ns.Name)))).
+			Should(gomega.Succeed(), "listing Pods with a finalizer in namespace %q", ns.Name)
 		for _, p := range lst.Items {
 			if controllerutil.RemoveFinalizer(&p, pod.PodFinalizer) {
-				err = c.Update(ctx, &p)
-				if err != nil && !apierrors.IsNotFound(err) {
-					return fmt.Errorf("removing finalizer: %w", err)
-				}
+				g.Expect(client.IgnoreNotFound(c.Update(ctx, &p))).Should(gomega.Succeed(), "removing finalizer")
 			}
 		}
-
-		return nil
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 
 	return nil
@@ -168,23 +159,14 @@ func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1
 		return err
 	}
 
-	gomega.Eventually(func() error {
+	gomega.Eventually(func(g gomega.Gomega) {
 		lst := kueue.WorkloadList{}
-		err := c.List(ctx, &lst, client.InNamespace(ns.Name))
-		if err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("listing Workloads with a finalizer in namespace %q: %w", ns.Name, err)
-		}
-
+		g.Expect(c.List(ctx, &lst, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 		for _, wl := range lst.Items {
 			if controllerutil.RemoveFinalizer(&wl, kueue.ResourceInUseFinalizerName) {
-				err = c.Update(ctx, &wl)
-				if err != nil && !apierrors.IsNotFound(err) {
-					return fmt.Errorf("removing finalizer: %w", err)
-				}
+				g.Expect(client.IgnoreNotFound(c.Update(ctx, &wl))).Should(gomega.Succeed())
 			}
 		}
-
-		return nil
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 
 	return nil
@@ -675,12 +657,32 @@ func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectPodsFinalized(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
+func ExpectPodsJustFinalized(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
 	for _, key := range keys {
 		createdPod := &corev1.Pod{}
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
 			g.Expect(createdPod.Finalizers).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+		}, Timeout, Interval).Should(gomega.Succeed())
+	}
+}
+
+func ExpectPodsFinalizedOrGone(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
+	for _, key := range keys {
+		createdPod := &corev1.Pod{}
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, key, createdPod))).To(gomega.Succeed())
+			g.Expect(createdPod.Finalizers).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+		}, Timeout, Interval).Should(gomega.Succeed())
+	}
+}
+
+func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
+	for _, key := range keys {
+		createdWorkload := &kueue.Workload{}
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, key, createdWorkload))).To(gomega.Succeed())
+			g.Expect(createdWorkload.Finalizers).Should(gomega.BeEmpty(), "Expected workload to be finalized")
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
 }
