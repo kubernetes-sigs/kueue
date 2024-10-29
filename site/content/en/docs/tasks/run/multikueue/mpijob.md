@@ -1,6 +1,6 @@
 ---
 title: "Run MPI Jobs in Multi-Cluster"
-linkTitle: "MPI"
+linkTitle: "MPIJob"
 weight: 3
 date: 2024-10-25
 description: >
@@ -26,12 +26,11 @@ See [MPI Operator Installation](https://www.kubeflow.org/docs/components/trainin
 
 Once the setup is complete you can test it by running a MPI Job [`sample-mpijob.yaml`](/docs/tasks/run/kubeflow/mpijobs/#sample-mpijob). 
 
+{{% alert title="Note" color="primary" %}}
+Note: Kueue defaults the `spec.runPolicy.managedBy` field to `kueue.x-k8s.io/multikueue` on the management cluster for MPIJob. 
 
-### ManagedBy
+This allows the MPI Operator to ignore the Jobs managed by MultiKueue on the management cluster, and in particular skip Pod creation. 
 
-The feature allows you to disable the MPI Operator and delegate reconciliation of that job to the Kueue controller.
-In order to change the controller that reconciles the job to the Kueue you need to set a value of that field to `kueue.x-k8s.io/multikueue`. 
-
-However the `spec.runPolicy.managedBy` field is defaulted to `kueue.x-k8s.io/multikueue` automatically if following conditions are met.
-
-The `kueue.x-k8s.io/queue-name` annotation of the mpijob job points to a Local Queue, whose corresponding Cluster Queue uses the Multi Kueue admission check.
+The pods are created and the actual computation will happen on the mirror copy of the Job on the selected worker cluster. 
+The mirror copy of the Job does not have the field set.
+{{% /alert %}}
