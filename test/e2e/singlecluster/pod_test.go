@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(testing.BeNotFoundError())
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectWorkloadsFinalized(ctx, k8sClient, gKey)
+				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
 			})
 		})
 
@@ -250,7 +250,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
 					g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectPodsFinalized(ctx, k8sClient, client.ObjectKeyFromObject(group[0]))
+				util.ExpectPodsFinalizedOrGone(ctx, k8sClient, client.ObjectKeyFromObject(group[0]))
 			})
 
 			ginkgo.By("Excess pod is deleted", func() {
@@ -404,7 +404,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						var pCopy corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(testing.BeNotFoundError())
 					}
-					util.ExpectWorkloadsFinalized(ctx, k8sClient, gKey)
+					util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
