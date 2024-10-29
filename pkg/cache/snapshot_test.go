@@ -886,7 +886,7 @@ func TestSnapshot(t *testing.T) {
 			for _, cq := range tc.cqs {
 				// Purposely do not make a copy of clusterQueues. Clones of necessary fields are
 				// done in AddClusterQueue.
-				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("Failed adding ClusterQueue: %v", err)
 				}
 			}

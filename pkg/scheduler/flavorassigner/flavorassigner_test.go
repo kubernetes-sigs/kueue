@@ -17,7 +17,6 @@ limitations under the License.
 package flavorassigner
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -1941,7 +1940,7 @@ func TestAssignFlavors(t *testing.T) {
 			})
 
 			cache := cache.New(utiltesting.NewFakeClient())
-			if err := cache.AddClusterQueue(context.Background(), &tc.clusterQueue); err != nil {
+			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
 			for _, rf := range resourceFlavors {
@@ -2099,10 +2098,10 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			}
 
 			cache := cache.New(utiltesting.NewFakeClient())
-			if err := cache.AddClusterQueue(context.Background(), &testCq); err != nil {
+			if err := cache.AddClusterQueue(ctx, &testCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
-			if err := cache.AddClusterQueue(context.Background(), &otherCq); err != nil {
+			if err := cache.AddClusterQueue(ctx, &otherCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
 			for _, rf := range resourceFlavors {
@@ -2223,7 +2222,7 @@ func TestDeletedFlavors(t *testing.T) {
 			})
 
 			cache := cache.New(utiltesting.NewFakeClient())
-			if err := cache.AddClusterQueue(context.Background(), &tc.clusterQueue); err != nil {
+			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
 
