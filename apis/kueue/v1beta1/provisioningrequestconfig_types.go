@@ -21,6 +21,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	// ProvisioningRequestControllerName is the name used by the Provisioning
+	// Request admission check controller.
+	ProvisioningRequestControllerName = "kueue.x-k8s.io/provisioning-request"
+)
+
 // ProvisioningRequestConfigSpec defines the desired state of ProvisioningRequestConfig
 type ProvisioningRequestConfigSpec struct {
 	// ProvisioningClassName describes the different modes of provisioning the resources.

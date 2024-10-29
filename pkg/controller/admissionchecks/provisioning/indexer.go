@@ -65,7 +65,7 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
 		return fmt.Errorf("setting index on workloads checks: %w", err)
 	}
 
-	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(ControllerName, configGVK)); err != nil {
+	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.ProvisioningRequestControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
 	return nil

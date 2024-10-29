@@ -37,7 +37,7 @@ var _ reconcile.Reconciler = (*acReconciler)(nil)
 
 func (a *acReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	ac := &kueue.AdmissionCheck{}
-	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != ControllerName {
+	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != kueue.ProvisioningRequestControllerName {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 

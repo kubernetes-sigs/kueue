@@ -18,7 +18,6 @@ package provisioning
 
 const (
 	ConfigKind                       = "ProvisioningRequestConfig"
-	ControllerName                   = "kueue.x-k8s.io/provisioning-request"
 	DeprecatedConsumesAnnotationKey  = "cluster-autoscaler.kubernetes.io/consume-provisioning-request"
 	DeprecatedClassNameAnnotationKey = "cluster-autoscaler.kubernetes.io/provisioning-class-name"
 	ConsumesAnnotationKey            = "autoscaling.x-k8s.io/consume-provisioning-request"
