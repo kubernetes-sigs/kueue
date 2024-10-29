@@ -50,7 +50,7 @@ spec:
 
 By default, Kueue will set `suspend` to true via webhook and unsuspend it when the MPIJob is admitted.
 
-## Sample MPI Job
+## Sample MPIJob
 
 This example is based on https://github.com/kubeflow/mpi-operator/blob/ccf2756f749336d652fa6b10a732e241a40c7aa6/examples/v2beta1/pi/pi.yaml.
 

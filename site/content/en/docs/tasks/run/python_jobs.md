@@ -313,7 +313,7 @@ When Kueue is ready:
 kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/site/static/examples/admin/single-clusterqueue-setup.yaml
 ```
 
-Now try running the example MPI job.
+Now try running the example MPIJob.
 
 ```bash
 python sample-mpijob.py
