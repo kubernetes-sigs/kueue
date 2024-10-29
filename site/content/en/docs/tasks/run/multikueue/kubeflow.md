@@ -31,3 +31,10 @@ See [Training Operator Installation](https://www.kubeflow.org/docs/components/tr
 ## MultiKueue integration
 
 Once the setup is complete you can test it by running one of the Kubeflow Jobs e.g. PyTorchJob [`sample-pytorchjob.yaml`](/docs/tasks/run/kubeflow/pytorchjobs/#sample-pytorchjob). 
+
+
+## Working alongside MPI Operator
+In order for MPI-operator and Training-operator to work on the same cluster it is required that:
+1. `kubeflow.org_mpijobs.yaml` entry is removed from `base/crds/kustomization.yaml` - https://github.com/kubeflow/training-operator/issues/1930
+2. Training Operator deployment is modified to enable all kubeflow jobs except for MPI -  https://github.com/kubeflow/training-operator/issues/1777
+  
