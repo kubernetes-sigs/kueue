@@ -1,10 +1,10 @@
 ---
-title: "Run MPI Jobs in Multi-Cluster"
+title: "Run MPIJobs in Multi-Cluster"
 linkTitle: "MPIJob"
 weight: 3
 date: 2024-10-25
 description: >
-  Run a MultiKueue scheduled MPI Jobs.
+  Run a MultiKueue scheduled MPIJobs.
 ---
 
 ## Before you begin
@@ -24,7 +24,7 @@ See [MPI Operator Installation](https://www.kubeflow.org/docs/components/trainin
 
 ## MultiKueue integration
 
-Once the setup is complete you can test it by running a MPI Job [`sample-mpijob.yaml`](/docs/tasks/run/kubeflow/mpijobs/#sample-mpijob). 
+Once the setup is complete you can test it by running a MPIJob [`sample-mpijob.yaml`](/docs/tasks/run/kubeflow/mpijobs/#sample-mpijob).
 
 {{% alert title="Note" color="primary" %}}
 Note: Kueue defaults the `spec.runPolicy.managedBy` field to `kueue.x-k8s.io/multikueue` on the management cluster for MPIJob. 
