@@ -24,6 +24,8 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 )
 
 // BaseWebhook applies basic defaulting and validation for jobs.
@@ -39,9 +41,9 @@ func DefaultWebhookFactory(job GenericJob, fromObject func(runtime.Object) Gener
 			ManageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 			FromObject:                 fromObject,
 		}
-		return ctrl.NewWebhookManagedBy(mgr).
+		return webhook.WebhookManagedBy(mgr).
 			For(job.Object()).
-			WithDefaulter(wh).
+			WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), job.Object(), wh)).
 			WithValidator(wh).
 			Complete()
 	}
