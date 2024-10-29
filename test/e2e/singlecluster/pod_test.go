@@ -404,8 +404,8 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						var pCopy corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(testing.BeNotFoundError())
 					}
-					util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
 			})
 		})
 

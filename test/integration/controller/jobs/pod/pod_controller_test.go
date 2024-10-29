@@ -660,8 +660,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod1LookupKey)
-					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod2LookupKey)
+					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
 				})
 			})
 
