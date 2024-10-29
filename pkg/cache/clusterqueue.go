@@ -173,14 +173,14 @@ func (c *clusterQueue) updateClusterQueue(cycleChecker hierarchy.CycleChecker, i
 
 	c.AdmissionChecks = utilac.NewAdmissionChecks(in)
 
-	c.UpdateWithFlavors(resourceFlavors)
-	c.updateWithAdmissionChecks(admissionChecks)
-
 	if in.Spec.Preemption != nil {
 		c.Preemption = *in.Spec.Preemption
 	} else {
 		c.Preemption = defaultPreemption
 	}
+
+	c.UpdateWithFlavors(resourceFlavors)
+	c.updateWithAdmissionChecks(admissionChecks)
 
 	if in.Spec.FlavorFungibility != nil {
 		c.FlavorFungibility = *in.Spec.FlavorFungibility

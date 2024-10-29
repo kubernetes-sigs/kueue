@@ -27,14 +27,10 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/limitrange"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestFindTopologyAssignment(t *testing.T) {
@@ -805,51 +801,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 				},
 			},
 		},
-		"don't double-count TAS pods when computing the capacity": {
-			nodes: []corev1.Node{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "x1",
-						Labels: map[string]string{
-							tasHostLabel: "x1",
-						},
-					},
-					Status: corev1.NodeStatus{
-						Allocatable: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-					},
-				},
-			},
-			pods: []corev1.Pod{
-				*testingpod.MakePod("test-tas", "test-ns").NodeName("x1").
-					Request(corev1.ResourceCPU, "400m").
-					NodeSelector(tasHostLabel, "x1").
-					Label(kueuealpha.TASLabel, "true").
-					StatusPhase(corev1.PodRunning).
-					Obj(),
-			},
-			request: kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasHostLabel),
-			},
-			levels: defaultOneLevel,
-			requests: resources.Requests{
-				corev1.ResourceCPU: 600,
-			},
-			count: 1,
-			wantAssignment: &kueue.TopologyAssignment{
-				Levels: defaultOneLevel,
-				Domains: []kueue.TopologyDomainAssignment{
-					{
-						Count: 1,
-						Values: []string{
-							"x1",
-						},
-					},
-				},
-			},
-		},
 		"include usage from pending scheduled non-TAS pods, blocked assignment": {
 			// there is not enough free capacity on the only node x1
 			nodes: []corev1.Node{
@@ -994,23 +945,6 @@ func TestFindTopologyAssignment(t *testing.T) {
 
 			tasCache := NewTASCache(client)
 			tasFlavorCache := tasCache.NewTASFlavorCache(tc.levels, tc.nodeLabels)
-
-			// account for usage from TAS pods for the need of the unit tests.
-			// note that in practice the usage is accounted based on TAS
-			// Workloads.
-			for _, pod := range tc.pods {
-				if _, ok := pod.Labels[kueuealpha.TASLabel]; ok {
-					levelValues := utiltas.LevelValues(tc.levels, pod.Spec.NodeSelector)
-					requests := limitrange.TotalRequests(&pod.Spec)
-					usage := resources.NewRequests(requests)
-					tasFlavorCache.addUsage([]workload.TopologyDomainRequests{
-						{
-							Values:   levelValues,
-							Requests: usage,
-						},
-					})
-				}
-			}
 
 			snapshot, err := tasFlavorCache.snapshot(ctx)
 			if err != nil {
