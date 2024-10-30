@@ -202,7 +202,6 @@ type ProvisioningRequestRetryStrategy struct {
 	// other workloads will have a chance to be admitted.
 	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 	//
-	// Defaults to 3.
 	// +optional
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 
@@ -211,13 +210,15 @@ type ProvisioningRequestRetryStrategy struct {
 	//
 	// Defaults to 60.
 	// +optional
-	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+	// +kubebuilder:default=60
+	BackoffBaseSeconds int32 `json:"backoffBaseSeconds,omitempty"`
 
 	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
 	// Defaults to 1800.
 	// +optional
-	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
+	// +kubebuilder:default=1800
+	BackoffMaxSeconds int32 `json:"backoffMaxSeconds,omitempty"`
 }
 ```
 

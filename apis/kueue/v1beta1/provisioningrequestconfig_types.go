@@ -19,7 +19,6 @@ package v1beta1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -67,17 +66,11 @@ type ProvisioningRequestConfigSpec struct {
 	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
 }
 
-const (
-	DefaultBackoffLimitCount  int32 = 3
-	DefaultBackoffBaseSeconds int32 = 60   // 1 min
-	DefaultBackoffMaxSeconds  int32 = 1800 // 30 min
-)
-
 var (
 	DefaultRetryStrategy = ProvisioningRequestRetryStrategy{
-		BackoffLimitCount:  ptr.To(DefaultBackoffLimitCount),
-		BackoffBaseSeconds: ptr.To(DefaultBackoffBaseSeconds),
-		BackoffMaxSeconds:  ptr.To(DefaultBackoffMaxSeconds),
+		BackoffLimitCount:  nil,
+		BackoffBaseSeconds: 60,   // 1 min
+		BackoffMaxSeconds:  1800, // 30 min
 	}
 )
 
@@ -94,7 +87,6 @@ type ProvisioningRequestRetryStrategy struct {
 	// other workloads will have a chance to be admitted.
 	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 	//
-	// Defaults to 3.
 	// +optional
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 
@@ -103,13 +95,15 @@ type ProvisioningRequestRetryStrategy struct {
 	//
 	// Defaults to 60.
 	// +optional
-	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+	// +kubebuilder:default=60
+	BackoffBaseSeconds int32 `json:"backoffBaseSeconds,omitempty"`
 
 	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
 	// Defaults to 1800.
 	// +optional
-	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
+	// +kubebuilder:default=1800
+	BackoffMaxSeconds int32 `json:"backoffMaxSeconds,omitempty"`
 }
 
 // Parameter is limited to 255 characters.

@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -81,14 +80,11 @@ func requestWithConditions(r *autoscaling.ProvisioningRequest, conditions []meta
 	return r
 }
 
-func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType string, status metav1.ConditionStatus, timestamp *metav1.Time) *autoscaling.ProvisioningRequest {
+func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType string, status metav1.ConditionStatus) *autoscaling.ProvisioningRequest {
 	r = r.DeepCopy()
 	cond := metav1.Condition{
 		Type:   conditionType,
 		Status: status,
-	}
-	if timestamp != nil {
-		cond.LastTransitionTime = *timestamp
 	}
 	apimeta.SetStatusCondition(&r.Status.Conditions, cond)
 	return r
@@ -102,6 +98,18 @@ func provReqConfigWithRetryLimit(prc *kueue.ProvisioningRequestConfig, limit int
 		prc.Spec.RetryStrategy = &retryStrategy
 	} else {
 		prc.Spec.RetryStrategy.BackoffLimitCount = ptr.To(limit)
+	}
+	return prc
+}
+
+func provReqConfigWithBaseBackoff(prc *kueue.ProvisioningRequestConfig, baseBackoff int32) *kueue.ProvisioningRequestConfig {
+	prc = prc.DeepCopy()
+	if prc.Spec.RetryStrategy == nil {
+		retryStrategy := kueue.DefaultRetryStrategy
+		retryStrategy.BackoffBaseSeconds = baseBackoff
+		prc.Spec.RetryStrategy = &retryStrategy
+	} else {
+		prc.Spec.RetryStrategy.BackoffBaseSeconds = baseBackoff
 	}
 	return prc
 }
@@ -516,9 +524,9 @@ func TestReconcile(t *testing.T) {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig, 2)},
+			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithBaseBackoff(provReqConfigWithRetryLimit(baseConfig, 2), 0)},
 			requests: []autoscaling.ProvisioningRequest{
-				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue, ptr.To(metav1.NewTime(time.Now().Add(time.Hour*(-1))))),
+				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue),
 			},
 			enableGates: []featuregate.Feature{features.KeepQuotaForProvReqRetry},
 			templates:   []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
@@ -548,7 +556,7 @@ func TestReconcile(t *testing.T) {
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig, 2)},
 			requests: []autoscaling.ProvisioningRequest{
-				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue, nil),
+				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue),
 			},
 			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
@@ -571,7 +579,7 @@ func TestReconcile(t *testing.T) {
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			configs:  []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig, 0)},
 			requests: []autoscaling.ProvisioningRequest{
-				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue, nil),
+				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue),
 			},
 			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
@@ -592,7 +600,7 @@ func TestReconcile(t *testing.T) {
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
-				*requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue, nil),
+				*requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue),
 			},
 			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
@@ -1073,7 +1081,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			checks:      []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:     []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:     []kueue.ProvisioningRequestConfig{*provReqConfigWithRetryLimit(baseConfig, 1)},
+			configs:     []kueue.ProvisioningRequestConfig{*provReqConfigWithBaseBackoff(provReqConfigWithRetryLimit(baseConfig, 1), 0)},
 			enableGates: []featuregate.Feature{features.KeepQuotaForProvReqRetry},
 			requests: []autoscaling.ProvisioningRequest{
 				*requestWithConditions(baseRequest,
@@ -1091,9 +1099,8 @@ func TestReconcile(t *testing.T) {
 							Status: metav1.ConditionTrue,
 						},
 						{
-							Type:               autoscaling.BookingExpired,
-							Status:             metav1.ConditionTrue,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(time.Hour * (-1))),
+							Type:   autoscaling.BookingExpired,
+							Status: metav1.ConditionTrue,
 						},
 					}),
 			},
@@ -1177,9 +1184,8 @@ func TestReconcile(t *testing.T) {
 							Status: metav1.ConditionTrue,
 						},
 						{
-							Type:               autoscaling.BookingExpired,
-							Status:             metav1.ConditionTrue,
-							LastTransitionTime: metav1.NewTime(time.Now().Add(time.Hour * (-1))),
+							Type:   autoscaling.BookingExpired,
+							Status: metav1.ConditionTrue,
 						},
 					}),
 			},
@@ -1429,7 +1435,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 		},
 	}
 	pr1Failed := baseRequest.DeepCopy()
-	pr1Failed = requestWithCondition(pr1Failed, autoscaling.Failed, metav1.ConditionTrue, nil)
+	pr1Failed = requestWithCondition(pr1Failed, autoscaling.Failed, metav1.ConditionTrue)
 	pr2Created := baseRequest.DeepCopy()
 	pr2Created.Name = "wl-check-2"
 

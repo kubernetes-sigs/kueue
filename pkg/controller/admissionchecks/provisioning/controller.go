@@ -225,7 +225,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				ac != nil && ac.State == kueue.CheckStatePending {
 				// if the workload is in Retry/Rejected state we don't create another ProvReq
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
-				if attempt <= ptr.Deref(retryStrategy.BackoffLimitCount, kueue.DefaultBackoffLimitCount) {
+				if retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
 					if !features.Enabled(features.KeepQuotaForProvReqRetry) {
 						shouldCreatePr = true
 						attempt += 1
@@ -301,8 +301,11 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 
 func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32, prc *kueue.ProvisioningRequestConfig) time.Duration {
 	retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
-	backoffDuration := time.Duration(ptr.Deref(retryStrategy.BackoffBaseSeconds, kueue.DefaultBackoffBaseSeconds)) * time.Second
-	maxBackoffDuration := time.Duration(ptr.Deref(retryStrategy.BackoffMaxSeconds, kueue.DefaultBackoffMaxSeconds)) * time.Second
+	if prc.Spec.RetryStrategy != nil {
+
+	}
+	backoffDuration := time.Duration(retryStrategy.BackoffBaseSeconds) * time.Second
+	maxBackoffDuration := time.Duration(retryStrategy.BackoffMaxSeconds) * time.Second
 	var cond *metav1.Condition
 	if isFailed(pr) {
 		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
@@ -513,7 +516,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 				if checkState.State == kueue.CheckStateRejected {
 					break
 				}
-				if attempt := getAttempt(log, pr, wl.Name, check); attempt <= ptr.Deref(retryStrategy.BackoffLimitCount, kueue.DefaultBackoffLimitCount) {
+				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
 					// it is going to be retried
 					message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
 					updated = updateCheckMessage(&checkState, message) || updated
@@ -522,9 +525,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 					} else {
 						updated = true
 						updateCheckState(&checkState, kueue.CheckStateRetry)
-						workload.UpdateRequeueState(wlPatch,
-							ptr.Deref(retryStrategy.BackoffBaseSeconds, kueue.DefaultBackoffBaseSeconds),
-							ptr.Deref(retryStrategy.BackoffMaxSeconds, kueue.DefaultBackoffMaxSeconds))
+						workload.UpdateRequeueState(wlPatch, retryStrategy.BackoffBaseSeconds, retryStrategy.BackoffMaxSeconds)
 					}
 				} else {
 					updated = true
@@ -543,7 +544,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 				if workload.IsAdmitted(wl) {
 					break
 				}
-				if attempt := getAttempt(log, pr, wl.Name, check); attempt <= ptr.Deref(retryStrategy.BackoffLimitCount, kueue.DefaultBackoffLimitCount) {
+				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
 					// it is going to be retried
 					message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
 					updated = updateCheckMessage(&checkState, message) || updated
@@ -552,9 +553,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 					} else {
 						updated = true
 						updateCheckState(&checkState, kueue.CheckStateRetry)
-						workload.UpdateRequeueState(wlPatch,
-							ptr.Deref(retryStrategy.BackoffBaseSeconds, kueue.DefaultBackoffBaseSeconds),
-							ptr.Deref(retryStrategy.BackoffMaxSeconds, kueue.DefaultBackoffMaxSeconds))
+						workload.UpdateRequeueState(wlPatch, retryStrategy.BackoffBaseSeconds, retryStrategy.BackoffMaxSeconds)
 					}
 				} else {
 					updated = true
