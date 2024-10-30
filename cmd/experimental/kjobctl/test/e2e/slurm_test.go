@@ -106,7 +106,8 @@ var _ = ginkgo.Describe("Slurm", ginkgo.Ordered, func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
 			gomega.Expect(out).NotTo(gomega.BeEmpty())
 
-			jobName, configMapName, serviceName = parseSlurmCreateOutput(out, profile.Name)
+			jobName, configMapName, serviceName, err = parseSlurmCreateOutput(out, profile.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(jobName).NotTo(gomega.BeEmpty())
 			gomega.Expect(configMapName).NotTo(gomega.BeEmpty())
 			gomega.Expect(serviceName).NotTo(gomega.BeEmpty())
@@ -283,30 +284,23 @@ var _ = ginkgo.Describe("Slurm", ginkgo.Ordered, func() {
 	)
 })
 
-func parseSlurmCreateOutput(output []byte, profileName string) (string, string, string) {
+func parseSlurmCreateOutput(output []byte, profileName string) (string, string, string, error) {
 	output = bytes.ReplaceAll(output, []byte("\n"), []byte(""))
 	re := regexp.MustCompile(fmt.Sprintf(`^job\.batch\/(%[1]s-slurm-.{5}) createdconfigmap\/(%[1]s-slurm-.{5}) createdservice\/(%[1]s-slurm-.{5}) created$`, profileName))
 	matches := re.FindSubmatch(output)
 
-	var jobName, configMapName, serviceName string
-	if len(matches) > 1 {
-		jobName = string(matches[1])
-	}
-	if len(matches) > 2 {
-		configMapName = string(matches[2])
-	}
-	if len(matches) > 3 {
-		serviceName = string(matches[3])
+	if len(matches) < 4 {
+		return "", "", "", fmt.Errorf("unexpected output format: %s", output)
 	}
 
-	return jobName, configMapName, serviceName
+	return string(matches[1]), string(matches[2]), string(matches[3]), nil
 }
 
 func parseSlurmEnvOutput(output []byte) map[string]string {
 	parts := bytes.Split(output, []byte{'\n'})
 	gotOut := make(map[string]string, len(parts))
 	for _, part := range parts {
-		pair := bytes.Split(part, []byte{'='})
+		pair := bytes.SplitN(part, []byte{'='}, 2)
 		if len(pair) == 2 {
 			gotOut[string(pair[0])] = string(pair[1])
 		}
