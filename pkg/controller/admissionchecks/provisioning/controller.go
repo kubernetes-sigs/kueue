@@ -43,6 +43,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -51,10 +52,7 @@ import (
 )
 
 const (
-	defaultMaxRetries        = 3
-	defaultMinBackoffSeconds = 60   // 1 min
-	defaultMaxBackoffSeconds = 1800 // 30 min
-	objNameHashLength        = 5
+	objNameHashLength = 5
 	// 253 is the maximal length for a CRD name. We need to subtract one for '-', and the hash length.
 	objNameMaxPrefixLength = 252 - objNameHashLength
 	podTemplatesPrefix     = "ppt"
@@ -71,34 +69,17 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 }
 
 type Controller struct {
-	client            client.Client
-	record            record.EventRecorder
-	helper            *provisioningConfigHelper
-	maxRetries        int32
-	minBackoffSeconds int32
-	maxBackoffSeconds int32
+	client client.Client
+	record record.EventRecorder
+	helper *provisioningConfigHelper
+}
+
+type workloadInfo struct {
+	checkStates  []kueue.AdmissionCheckState
+	requeueState *kueue.RequeueState
 }
 
 var _ reconcile.Reconciler = (*Controller)(nil)
-
-type options struct {
-	maxRetries        int32
-	minBackoffSeconds int32
-}
-
-// Option configures the provisioning controller.
-type Option func(*options)
-
-func WithMaxRetries(maxRetries int32) Option {
-	return func(o *options) {
-		o.maxRetries = maxRetries
-	}
-}
-func WithMinBackoffSeconds(minBackoffSeconds int32) Option {
-	return func(o *options) {
-		o.minBackoffSeconds = minBackoffSeconds
-	}
-}
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 // +kubebuilder:rbac:groups="",resources=podtemplates,verbs=get;list;watch;create;delete;update
@@ -108,28 +89,15 @@ func WithMinBackoffSeconds(minBackoffSeconds int32) Option {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
-
-func NewController(client client.Client, record record.EventRecorder, opts ...Option) (*Controller, error) {
+func NewController(client client.Client, record record.EventRecorder) (*Controller, error) {
 	helper, err := newProvisioningConfigHelper(client)
 	if err != nil {
 		return nil, err
 	}
-
-	options := options{
-		maxRetries:        defaultMaxRetries,
-		minBackoffSeconds: defaultMinBackoffSeconds,
-	}
-	for _, opt := range opts {
-		opt(&options)
-	}
-
 	return &Controller{
-		client:            client,
-		record:            record,
-		helper:            helper,
-		maxRetries:        options.maxRetries,
-		minBackoffSeconds: options.minBackoffSeconds,
-		maxBackoffSeconds: defaultMaxBackoffSeconds,
+		client: client,
+		record: record,
+		helper: helper,
 	}, nil
 }
 
@@ -162,7 +130,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	ownedPrs := list.Items
 	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, relevantChecks, ownedPrs)
 
-	err = c.syncCheckStates(ctx, wl, relevantChecks, activeOrLastPRForChecks)
+	wlInfo, err := c.syncCheckStates(ctx, wl, relevantChecks, activeOrLastPRForChecks)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -173,7 +141,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	requeAfter, err := c.syncOwnedProvisionRequest(ctx, wl, relevantChecks, activeOrLastPRForChecks)
+	requeAfter, err := c.syncOwnedProvisionRequest(ctx, wl, wlInfo, relevantChecks, activeOrLastPRForChecks)
 	if err != nil {
 		// this can also delete unneeded checks
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed")
@@ -224,9 +192,9 @@ func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, owned
 	return nil
 }
 
-func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Workload, relevantChecks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) (*time.Duration, error) {
+func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo, relevantChecks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) (*time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
-	var requeAfter *time.Duration
+	var requeueAfter *time.Duration
 	for _, checkName := range relevantChecks {
 		// get the config
 		prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
@@ -234,6 +202,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			// the check is not active
 			continue
 		}
+		retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
 		if !c.reqIsNeeded(wl, prc) {
 			continue
 		}
@@ -247,16 +216,18 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		attempt := int32(1)
 		shouldCreatePr := false
 		if exists {
-			if isFailed(oldPr) || (isBookingExpired(oldPr) && !workload.IsAdmitted(wl)) {
+			if (isFailed(oldPr) || (isBookingExpired(oldPr) && !workload.IsAdmitted(wl))) &&
 				// if the workload is Admitted we don't want to retry on BookingExpired
+				ac != nil && ac.State == kueue.CheckStatePending {
+				// if the workload is in Retry/Rejected state we don't create another ProvReq
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
-				if attempt <= c.maxRetries {
-					remainingTime := c.remainingTimeToRetry(oldPr, attempt)
-					if remainingTime <= 0 {
+				if attempt <= ptr.Deref(retryStrategy.BackoffLimitCount, kueue.DefaultBackoffLimitCount) {
+					remainingTimeToRetry := c.remainingTimeToRetry(wlInfo, oldPr, attempt, prc)
+					if remainingTimeToRetry <= 0 {
 						shouldCreatePr = true
 						attempt += 1
-					} else if requeAfter == nil || remainingTime < *requeAfter {
-						requeAfter = &remainingTime
+					} else {
+						requeueAfter = &remainingTimeToRetry
 					}
 				}
 			}
@@ -317,12 +288,17 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			return nil, err
 		}
 	}
-	return requeAfter, nil
+	return requeueAfter, nil
 }
 
-func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32) time.Duration {
-	backoffDuration := time.Duration(c.minBackoffSeconds) * time.Second
-	maxBackoffDuration := time.Duration(c.maxBackoffSeconds) * time.Second
+func (c *Controller) remainingTimeToRetry(wlInfo *workloadInfo, pr *autoscaling.ProvisioningRequest, failuresCount int32, prc *kueue.ProvisioningRequestConfig) time.Duration {
+	if !features.Enabled(features.KeepQuotaForProvReqRetry) {
+		return wlInfo.requeueState.RequeueAt.Sub(time.Now())
+	}
+	// KeepQuotaForProvReqRetry enabled
+	retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
+	backoffDuration := time.Duration(ptr.Deref(retryStrategy.BackoffBaseSeconds, kueue.DefaultBackoffBaseSeconds)) * time.Second
+	maxBackoffDuration := time.Duration(ptr.Deref(retryStrategy.BackoffMaxSeconds, kueue.DefaultBackoffMaxSeconds)) * time.Second
 	var cond *metav1.Condition
 	if isFailed(pr) {
 		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
@@ -487,8 +463,19 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 	return true
 }
 
-func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
+func updateWorkloadInfo(wl *kueue.Workload, wlInfo *workloadInfo) {
+	for _, check := range wl.Status.AdmissionChecks {
+		if exists := workload.FindAdmissionCheck(wlInfo.checkStates, check.Name); exists != nil {
+			wlInfo.checkStates = append(wlInfo.checkStates, check)
+		}
+	}
+	wlInfo.requeueState = wl.Status.RequeueState
+}
+
+func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) (*workloadInfo, error) {
 	log := ctrl.LoggerFrom(ctx)
+	wlInfo := workloadInfo{}
+	updateWorkloadInfo(wl, &wlInfo)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl)
 	recorderMessages := make([]string, 0, len(checks))
@@ -508,9 +495,8 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 		} else {
 			pr := activeOrLastPRForChecks[check]
 			if pr == nil {
-				return nil
+				return nil, nil
 			}
-
 			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 				"check", check,
 				"prName", pr.Name,
@@ -519,19 +505,29 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 				"accepted", isAccepted(pr),
 				"bookingExpired", isBookingExpired(pr),
 				"capacityRevoked", isCapacityRevoked(pr))
+			retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
 			switch {
 			case isFailed(pr):
-				if checkState.State != kueue.CheckStateRejected {
-					if attempt := getAttempt(log, pr, wl.Name, check); attempt <= c.maxRetries {
-						// it is going to be retried
-						message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
+				if checkState.State == kueue.CheckStateRejected {
+					break
+				}
+				if attempt := getAttempt(log, pr, wl.Name, check); attempt <= ptr.Deref(retryStrategy.BackoffLimitCount, kueue.DefaultBackoffLimitCount) {
+					// it is going to be retried
+					message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
+					updated = updateCheckMessage(&checkState, message) || updated
+					if features.Enabled(features.KeepQuotaForProvReqRetry) {
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
-						updated = updateCheckMessage(&checkState, message) || updated
 					} else {
 						updated = true
-						checkState.State = kueue.CheckStateRejected
-						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
+						updateCheckState(&checkState, kueue.CheckStateRetry)
+						workload.UpdateRequeueState(wlPatch,
+							ptr.Deref(retryStrategy.BackoffBaseSeconds, kueue.DefaultBackoffBaseSeconds),
+							ptr.Deref(retryStrategy.BackoffMaxSeconds, kueue.DefaultBackoffMaxSeconds))
 					}
+				} else {
+					updated = true
+					checkState.State = kueue.CheckStateRejected
+					checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 				}
 			case isCapacityRevoked(pr):
 				if workload.IsActive(wl) && !workload.IsFinished(wl) {
@@ -542,18 +538,26 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 					updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
 				}
 			case isBookingExpired(pr):
-				if !workload.IsAdmitted(wl) {
-					attempt := getAttempt(log, pr, wl.Name, check)
-					if attempt <= c.maxRetries {
-						// it is going to be retried
-						message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
+				if workload.IsAdmitted(wl) {
+					break
+				}
+				if attempt := getAttempt(log, pr, wl.Name, check); attempt <= ptr.Deref(retryStrategy.BackoffLimitCount, kueue.DefaultBackoffLimitCount) {
+					// it is going to be retried
+					message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
+					updated = updateCheckMessage(&checkState, message) || updated
+					if features.Enabled(features.KeepQuotaForProvReqRetry) {
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
-						updated = updateCheckMessage(&checkState, message) || updated
 					} else {
 						updated = true
-						checkState.State = kueue.CheckStateRejected
-						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message
+						updateCheckState(&checkState, kueue.CheckStateRetry)
+						workload.UpdateRequeueState(wlPatch,
+							ptr.Deref(retryStrategy.BackoffBaseSeconds, kueue.DefaultBackoffBaseSeconds),
+							ptr.Deref(retryStrategy.BackoffMaxSeconds, kueue.DefaultBackoffMaxSeconds))
 					}
+				} else {
+					updated = true
+					checkState.State = kueue.CheckStateRejected
+					checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 				}
 			case isProvisioned(pr):
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
@@ -587,13 +591,14 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 	}
 	if updated {
 		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.ProvisioningRequestControllerName), client.ForceOwnership); err != nil {
-			return err
+			return nil, err
 		}
 		for i := range recorderMessages {
 			c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
-	return nil
+	updateWorkloadInfo(wlPatch, &wlInfo)
+	return &wlInfo, nil
 }
 
 func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []kueue.PodSetUpdate {

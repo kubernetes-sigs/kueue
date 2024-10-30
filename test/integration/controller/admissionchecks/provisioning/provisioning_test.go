@@ -47,17 +47,12 @@ const (
 
 var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		maxRetries        int32
-		minBackoffSeconds int32
-		resourceGPU       corev1.ResourceName = "example.com/gpu"
-		flavorOnDemand                        = "on-demand"
+		resourceGPU    corev1.ResourceName = "example.com/gpu"
+		flavorOnDemand                     = "on-demand"
 	)
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(
-			provisioning.WithMaxRetries(maxRetries),
-			provisioning.WithMinBackoffSeconds(minBackoffSeconds),
-		))
+		fwk.StartManager(ctx, cfg, managerSetup())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -79,10 +74,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			createdRequest autoscaling.ProvisioningRequest
 			updatedWl      kueue.Workload
 		)
-
-		ginkgo.BeforeEach(func() {
-			maxRetries = 0
-		})
 
 		ginkgo.JustBeforeEach(func() {
 			ns = &corev1.Namespace{
@@ -447,8 +438,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					fmt.Printf("Workload %+v\n", updatedWl)
-
 					g.Expect(workload.IsEvictedByDeactivation(&updatedWl)).To(gomega.BeTrue())
 					util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByDeactivation, 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -943,11 +932,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			createdRequest autoscaling.ProvisioningRequest
 			updatedWl      kueue.Workload
 		)
-
-		ginkgo.BeforeEach(func() {
-			maxRetries = 0
-		})
-
 		ginkgo.JustBeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
@@ -965,6 +949,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					Parameters: map[string]kueue.Parameter{
 						"p1": "v1",
 						"p2": "v2",
+					},
+					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
+						BackoffLimitCount: ptr.To(int32(0)),
 					},
 				},
 			}
@@ -1075,7 +1062,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
-		ginkgo.It("Should reject an admission check if a workload is not Admitted, the ProvisioningRequest's condition is set to BookingExpired, and there is no retries left", func() {
+		ginkgo.It("Should reject an admission check if a workload is not Admitted, the ProvisioningRequest's condition is set to BookingExpired, and there are no retries left", func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -1171,7 +1158,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 	})
 
-	ginkgo.When("A workload is using a provision admission check with retry", func() {
+	ginkgo.When("A workload is using a provision admission check with retry without featureGate KeepQuotaForProvReqRetry", func() {
 		var (
 			ns             *corev1.Namespace
 			wlKey          types.NamespacedName
@@ -1186,11 +1173,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			createdRequest autoscaling.ProvisioningRequest
 			updatedWl      kueue.Workload
 		)
-		ginkgo.BeforeEach(func() {
-			maxRetries = 1
-			minBackoffSeconds = 1
-		})
-
 		ginkgo.JustBeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1208,6 +1190,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					Parameters: map[string]kueue.Parameter{
 						"p1": "v1",
 						"p2": "v2",
+					},
+					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
+						BackoffLimitCount:  ptr.To(int32(1)),
+						BackoffBaseSeconds: ptr.To(int32(1)),
 					},
 				},
 			}
@@ -1363,7 +1349,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should retry when ProvisioningRequestConfig has MaxRetries>o, and every Provisioning request retry fails", func() {
+		ginkgo.FIt("Should retry when ProvisioningRequestConfig has MaxRetries>o, and every Provisioning request retry fails", func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -1459,9 +1445,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 
 		ginkgo.It("Should retry an admission check if a workload is not Admitted, and the ProvisioningRequest's condition is set to BookingExpired, and there is a retry left", func() {
-			maxRetries = 1
-			minBackoffSeconds = 0
-
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())

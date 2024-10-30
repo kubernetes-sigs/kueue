@@ -180,9 +180,6 @@ func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 	if wInfo.Obj.Status.RequeueState == nil || wInfo.Obj.Status.RequeueState.RequeueAt == nil {
 		return true
 	}
-	if _, evictedByTimeout := workload.IsEvictedByPodsReadyTimeout(wInfo.Obj); !evictedByTimeout {
-		return true
-	}
 	// It needs to verify the requeueAt by "Equal" function
 	// since the "After" function evaluates the nanoseconds despite the metav1.Time is seconds level precision.
 	return c.clock.Now().After(wInfo.Obj.Status.RequeueState.RequeueAt.Time) ||

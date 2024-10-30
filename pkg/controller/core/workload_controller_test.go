@@ -306,6 +306,7 @@ func TestSyncCheckStates(t *testing.T) {
 
 var (
 	workloadCmpOpts = []cmp.Option{
+		cmpopts.EquateApproxTime(2 * time.Second),
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(
 			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",

@@ -28,6 +28,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -471,6 +472,33 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		changed = true
 	}
 	return changed
+}
+
+// UpdateRequeueState calculate requeueAt time and update requeuingCount
+func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMaxSeconds int32) {
+	if wl.Status.RequeueState == nil {
+		wl.Status.RequeueState = &kueue.RequeueState{}
+	}
+	requeuingCount := ptr.Deref(wl.Status.RequeueState.Count, 0) + 1
+
+	// Every backoff duration is about "60s*2^(n-1)+Rand" where:
+	// - "n" represents the "requeuingCount",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and other
+	// workloads will have a chance to be admitted.
+	backoff := &wait.Backoff{
+		Duration: time.Duration(backoffBaseSeconds) * time.Second,
+		Factor:   2,
+		Jitter:   0.0001,
+		Steps:    int(requeuingCount),
+	}
+	var waitDuration time.Duration
+	for backoff.Steps > 0 {
+		waitDuration = min(backoff.Step(), time.Duration(backoffMaxSeconds)*time.Second)
+	}
+
+	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(time.Now().Add(waitDuration)))
+	wl.Status.RequeueState.Count = &requeuingCount
 }
 
 // SetRequeuedCondition sets the WorkloadRequeued condition to true

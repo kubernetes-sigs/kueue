@@ -19,6 +19,7 @@ package v1beta1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -57,6 +58,58 @@ type ProvisioningRequestConfigSpec struct {
 	// +listType=set
 	// +kubebuilder:validation:MaxItems=100
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
+
+	// retryStrategy defines strategy for retrying ProvisioningRequest
+	// if nil then default configuration will be applied
+	// to switch off retry mechanism completely, set retryStrategy.backoffLimitCount to 0.
+	//
+	// +optional
+	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
+}
+
+const (
+	DefaultBackoffLimitCount  int32 = 3
+	DefaultBackoffBaseSeconds int32 = 60   // 1 min
+	DefaultBackoffMaxSeconds  int32 = 1800 // 30 min
+)
+
+var (
+	DefaultRetryStrategy = ProvisioningRequestRetryStrategy{
+		BackoffLimitCount:  ptr.To(DefaultBackoffLimitCount),
+		BackoffBaseSeconds: ptr.To(DefaultBackoffBaseSeconds),
+		BackoffMaxSeconds:  ptr.To(DefaultBackoffMaxSeconds),
+	}
+)
+
+type ProvisioningRequestRetryStrategy struct {
+	// BackoffLimitCount defines the maximum number of re-queuing retries.
+	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	// When it is null, the workloads will repeatedly and endless re-queueing.
+	//
+	// Every backoff duration is about "b*2^(n-1)+Rand" where:
+	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
+	// - "n" represents the "workloadStatus.requeueState.count",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and
+	// other workloads will have a chance to be admitted.
+	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
+	//
+	// Defaults to 3.
+	// +optional
+	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+
+	// BackoffBaseSeconds defines the base for the exponential backoff for
+	// re-queuing an evicted workload.
+	//
+	// Defaults to 60.
+	// +optional
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	//
+	// Defaults to 1800.
+	// +optional
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 
 // Parameter is limited to 255 characters.

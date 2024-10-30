@@ -190,14 +190,6 @@ type ProvisioningRequestConfigSpec struct {
 }
 
 type ProvisioningRequestRetryStrategy struct {
-	// Timestamp defines the timestamp used for re-queuing a Workload
-	// that was evicted due to Pod readiness. The possible values are:
-	//
-	// - `Eviction` (default) indicates from Workload `Evicted` condition with `PodsReadyTimeout` reason.
-	// - `Creation` indicates from Workload .metadata.creationTimestamp.
-	//
-	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
-
 	// BackoffLimitCount defines the maximum number of re-queuing retries.
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	// When it is null, the workloads will repeatedly and endless re-queueing.

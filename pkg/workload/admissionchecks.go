@@ -82,7 +82,6 @@ func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName string) *k
 			return &checks[i]
 		}
 	}
-
 	return nil
 }
 
@@ -128,8 +127,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 // RejectedChecks returns the list of Rejected admission checks
 func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
 	rejectedChecks := make([]kueue.AdmissionCheckState, 0, len(wl.Status.AdmissionChecks))
-	for i := range wl.Status.AdmissionChecks {
-		ac := wl.Status.AdmissionChecks[i]
+	for _, ac := range wl.Status.AdmissionChecks {
 		if ac.State == kueue.CheckStateRejected {
 			rejectedChecks = append(rejectedChecks, ac)
 		}
@@ -139,8 +137,8 @@ func RejectedChecks(wl *kueue.Workload) []kueue.AdmissionCheckState {
 
 // HasAllChecksReady returns true if all the checks of the workload are ready.
 func HasAllChecksReady(wl *kueue.Workload) bool {
-	for i := range wl.Status.AdmissionChecks {
-		if wl.Status.AdmissionChecks[i].State != kueue.CheckStateReady {
+	for _, ac := range wl.Status.AdmissionChecks {
+		if ac.State != kueue.CheckStateReady {
 			return false
 		}
 	}
@@ -166,9 +164,8 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
 
 // HasRetryChecks returns true if any of the workloads checks is Retry
 func HasRetryChecks(wl *kueue.Workload) bool {
-	for i := range wl.Status.AdmissionChecks {
-		state := wl.Status.AdmissionChecks[i].State
-		if state == kueue.CheckStateRetry {
+	for _, ac := range wl.Status.AdmissionChecks {
+		if ac.State == kueue.CheckStateRetry {
 			return true
 		}
 	}
@@ -177,9 +174,8 @@ func HasRetryChecks(wl *kueue.Workload) bool {
 
 // HasRejectedChecks returns true if any of the workloads checks is Rejected
 func HasRejectedChecks(wl *kueue.Workload) bool {
-	for i := range wl.Status.AdmissionChecks {
-		state := wl.Status.AdmissionChecks[i].State
-		if state == kueue.CheckStateRejected {
+	for _, ac := range wl.Status.AdmissionChecks {
+		if ac.State == kueue.CheckStateRejected {
 			return true
 		}
 	}
