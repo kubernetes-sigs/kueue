@@ -82,11 +82,10 @@ func requestWithConditions(r *autoscaling.ProvisioningRequest, conditions []meta
 
 func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType string, status metav1.ConditionStatus) *autoscaling.ProvisioningRequest {
 	r = r.DeepCopy()
-	cond := metav1.Condition{
+	apimeta.SetStatusCondition(&r.Status.Conditions, metav1.Condition{
 		Type:   conditionType,
 		Status: status,
-	}
-	apimeta.SetStatusCondition(&r.Status.Conditions, cond)
+	})
 	return r
 }
 
