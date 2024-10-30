@@ -396,7 +396,7 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotPodSets := tc.job.PodSets()
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets); diff != "" {
-				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
+				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
