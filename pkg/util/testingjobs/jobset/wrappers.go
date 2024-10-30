@@ -43,13 +43,14 @@ var TestPodSpec = corev1.PodSpec{
 }
 
 type ReplicatedJobRequirements struct {
-	Name        string
-	Replicas    int32
-	Parallelism int32
-	Completions int32
-	Annotations map[string]string
-	Image       string
-	Args        []string
+	Name           string
+	Replicas       int32
+	Parallelism    int32
+	Completions    int32
+	Annotations    map[string]string
+	PodAnnotations map[string]string
+	Image          string
+	Args           []string
 }
 
 // MakeJobSet creates a wrapper for a suspended JobSet
@@ -76,6 +77,7 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		jt.Annotations = req.Annotations
 		jt.Spec.Parallelism = ptr.To(req.Parallelism)
 		jt.Spec.Completions = ptr.To(req.Completions)
+		jt.Spec.Template.Annotations = req.PodAnnotations
 		if len(req.Image) > 0 {
 			jt.Spec.BackoffLimit = ptr.To[int32](0)
 			spec := &jt.Spec.Template.Spec
