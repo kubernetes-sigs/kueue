@@ -223,19 +223,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(prodWl1)).Should(gomega.BeTrue())
+				g.Expect(prodWl1.Status.Conditions).ShouldNot(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("determining the time of admission as LastTransitionTime for the Admitted condition")
-			admittedAt := apimeta.FindStatusCondition(prodWl1.Status.Conditions, kueue.WorkloadQuotaReserved).LastTransitionTime.Time
-
 			ginkgo.By("wait for the 'prod1' workload to be evicted")
+			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl1), podsReadyTimeout)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
-				if time.Since(admittedAt) < podsReadyTimeout {
-					g.Expect(prodWl1.Status.Conditions).ShouldNot(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted), "the workload should not be evicted until the timeout expires")
-				} else {
-					g.Expect(prodWl1.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
-				}
 				g.Expect(ptr.Deref(prodWl1.Status.RequeueState, kueue.RequeueState{})).Should(gomega.BeComparableTo(kueue.RequeueState{
 					Count: ptr.To[int32](1),
 				}, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt")))
