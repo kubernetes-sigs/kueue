@@ -128,7 +128,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 	ownedPrs := list.Items
-	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, relevantChecks, ownedPrs)
+	activeOrLastPRForChecks, latestStalePR := c.activeOrLastPRForChecks(ctx, wl, relevantChecks, ownedPrs)
 
 	wlInfo := workloadInfo{
 		checkStates: make([]kueue.AdmissionCheckState, 0),
@@ -144,7 +144,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	requeAfter, err := c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, relevantChecks, activeOrLastPRForChecks)
+	requeAfter, err := c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, relevantChecks, activeOrLastPRForChecks, latestStalePR)
 	if err != nil {
 		// this can also delete unneeded checks
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed")
@@ -157,8 +157,9 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return reconcile.Result{}, nil
 }
 
-func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Workload, relevantChecks []string, ownedPrs []autoscaling.ProvisioningRequest) map[string]*autoscaling.ProvisioningRequest {
+func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Workload, relevantChecks []string, ownedPrs []autoscaling.ProvisioningRequest) (map[string]*autoscaling.ProvisioningRequest, map[string]*autoscaling.ProvisioningRequest) {
 	activeOrLastPRForChecks := make(map[string]*autoscaling.ProvisioningRequest)
+	latestStalePR := make(map[string]*autoscaling.ProvisioningRequest)
 	log := ctrl.LoggerFrom(ctx)
 	for _, checkName := range relevantChecks {
 		for i := range ownedPrs {
@@ -167,6 +168,18 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
 				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
 				if err == nil && c.reqIsNeeded(wl, prc) && provReqSyncedWithConfig(req, prc) {
+					if !features.Enabled(features.KeepQuotaForProvReqRetry) {
+						// we avoid processing stale ProvisioningRequests after Retry
+						// and the race condition between WorkloadController that resets check to Pending after retry
+						// and ProvisioningController that has just set CheckState to Retry
+						check := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName)
+						if wl.Status.RequeueState != nil && getAttempt(log, req, wl.Name, checkName) <= ptr.Deref(wl.Status.RequeueState.Count, 0) && check.State == kueue.CheckStatePending {
+							if currPr, exists := latestStalePR[checkName]; !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
+								latestStalePR[checkName] = req
+							}
+							continue
+						}
+					}
 					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
 					}
@@ -174,7 +187,7 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 			}
 		}
 	}
-	return activeOrLastPRForChecks
+	return activeOrLastPRForChecks, latestStalePR
 }
 
 func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPrs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
@@ -195,7 +208,8 @@ func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, owned
 	return nil
 }
 
-func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo, relevantChecks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) (*time.Duration, error) {
+func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo,
+	relevantChecks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest, latestStalePR map[string]*autoscaling.ProvisioningRequest) (*time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
 	var requeAfter *time.Duration
 	for _, checkName := range relevantChecks {
@@ -236,6 +250,9 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				}
 			}
 		} else {
+			if oldPr, exists := latestStalePR[checkName]; exists {
+				attempt = getAttempt(log, oldPr, wl.Name, checkName) + 1
+			}
 			shouldCreatePr = true
 		}
 		requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
@@ -506,7 +523,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 			retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
 			switch {
 			case isFailed(pr):
-				if checkState.State == kueue.CheckStateRejected {
+				if checkState.State == kueue.CheckStateRejected || checkState.State == kueue.CheckStateRetry {
 					break
 				}
 				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
@@ -534,7 +551,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 					updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
 				}
 			case isBookingExpired(pr):
-				if workload.IsAdmitted(wl) {
+				if workload.IsAdmitted(wl) || checkState.State == kueue.CheckStateRejected || checkState.State == kueue.CheckStateRetry {
 					break
 				}
 				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
