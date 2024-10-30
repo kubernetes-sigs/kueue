@@ -423,7 +423,8 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 
 	status := &Status{}
 	requests = filterRequestedResources(requests, resourceGroup.CoveredResources)
-	podSpec := &a.wl.Obj.Spec.PodSets[psID].Template.Spec
+	ps := &a.wl.Obj.Spec.PodSets[psID]
+	podSpec := &ps.Template.Spec
 
 	var bestAssignment ResourceAssignment
 	bestAssignmentMode := noFit
@@ -440,6 +441,20 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			log.Error(nil, "Flavor not found", "Flavor", fName)
 			status.append(fmt.Sprintf("flavor %s not found", fName))
 			continue
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			// For PodSets which require TAS skip resource flavors which don't support it
+			if ps.TopologyRequest != nil && flavor.Spec.TopologyName == nil {
+				log.Error(nil, "Flavor does not support TopologyAwareScheduling", "Flavor", fName)
+				status.append(fmt.Sprintf("flavor %s does not support TopologyAwareScheduling", fName))
+				continue
+			}
+			// For PodSets which don't use TAS skip resource flavors which are only for TAS
+			if ps.TopologyRequest == nil && flavor.Spec.TopologyName != nil {
+				log.Error(nil, "Flavor supports only TopologyAwareScheduling", "Flavor", fName)
+				status.append(fmt.Sprintf("flavor %s supports only TopologyAwareScheduling", fName))
+				continue
+			}
 		}
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, podSpec.Tolerations, func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
