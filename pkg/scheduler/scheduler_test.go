@@ -3896,7 +3896,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 	}
-	defaultResourceFlavor := kueue.ResourceFlavor{
+	defaultTASFlavor := kueue.ResourceFlavor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "tas-default",
 		},
@@ -3908,9 +3908,6 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 	}
 	defaultClusterQueue := *utiltesting.MakeClusterQueue("tas-main").
-		Preemption(kueue.ClusterQueuePreemption{
-			WithinClusterQueue: kueue.PreemptionPolicyNever,
-		}).
 		ResourceGroup(*utiltesting.MakeFlavorQuotas("tas-default").
 			Resource(corev1.ResourceCPU, "50").Obj()).
 		Obj()
@@ -3925,6 +3922,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 	}
+	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
 	cases := map[string]struct {
 		nodes           []corev1.Node
 		pods            []corev1.Pod
@@ -3933,19 +3931,21 @@ func TestScheduleForTAS(t *testing.T) {
 		clusterQueues   []kueue.ClusterQueue
 		workloads       []kueue.Workload
 
-		// wantNewAssignments is a summary of all the admissions in the cache after this cycle.
+		// wantNewAssignments is a summary of all new admissions in the cache after this cycle.
 		wantNewAssignments map[string]kueue.Admission
 		// wantLeft is the workload keys that are left in the queues after this cycle.
 		wantLeft map[string][]string
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
 		wantInadmissibleLeft map[string][]string
-		// wantEvents ignored if empty, the Message is ignored (it contains the duration)
+		// wantEvents asserts on the events, the comparison options are passed by eventCmpOpts
 		wantEvents []utiltesting.EventRecord
+		// eventCmpOpts are the comparison options for the events
+		eventCmpOpts []cmp.Option
 	}{
 		"workload required TAS gets scheduled": {
 			nodes:           defaultSingleNode,
 			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultResourceFlavor},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
@@ -3972,6 +3972,7 @@ func TestScheduleForTAS(t *testing.T) {
 						},
 					}).Obj(),
 			},
+			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
@@ -3988,7 +3989,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload does not get scheduled as it does not fit within the node capacity": {
 			nodes:           defaultSingleNode,
 			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultResourceFlavor},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
@@ -4002,11 +4003,19 @@ func TestScheduleForTAS(t *testing.T) {
 			wantInadmissibleLeft: map[string][]string{
 				"tas-main": {"default/foo"},
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: "Warning",
+					Reason:    "Pending",
+					Message:   "couldn't assign flavors to pod set one: Workload cannot fit within the TAS ResourceFlavor",
+				},
+			},
 		},
 		"workload does not get scheduled as the node capacity is already used by another TAS workload": {
 			nodes:           defaultSingleNode,
 			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultResourceFlavor},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
@@ -4044,6 +4053,14 @@ func TestScheduleForTAS(t *testing.T) {
 			wantInadmissibleLeft: map[string][]string{
 				"tas-main": {"default/foo"},
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: "Warning",
+					Reason:    "Pending",
+					Message:   "couldn't assign flavors to pod set one: Workload cannot fit within the TAS ResourceFlavor",
+				},
+			},
 		},
 		"workload does not get scheduled as the node capacity is already used by a non-TAS pod": {
 			nodes: defaultSingleNode,
@@ -4054,7 +4071,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultResourceFlavor},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
@@ -4068,6 +4085,14 @@ func TestScheduleForTAS(t *testing.T) {
 			wantInadmissibleLeft: map[string][]string{
 				"tas-main": {"default/foo"},
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: "Warning",
+					Reason:    "Pending",
+					Message:   "couldn't assign flavors to pod set one: Workload cannot fit within the TAS ResourceFlavor",
+				},
+			},
 		},
 		"workload gets scheduled as the usage of TAS pods and workloads is not double-counted": {
 			nodes: defaultSingleNode,
@@ -4080,7 +4105,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultResourceFlavor},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "default").
@@ -4130,6 +4155,19 @@ func TestScheduleForTAS(t *testing.T) {
 							},
 						},
 					}).Obj(),
+			},
+			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
 			},
 		},
 	}
@@ -4185,8 +4223,6 @@ func TestScheduleForTAS(t *testing.T) {
 			for _, w := range tc.workloads {
 				if workload.IsAdmitted(&w) {
 					initiallyAdmittedWorkloads.Insert(workload.Key(&w))
-				} else {
-					qManager.AddOrUpdateWorkload(&w)
 				}
 			}
 			scheduler := New(qManager, cqCache, cl, recorder)
@@ -4241,10 +4277,8 @@ func TestScheduleForTAS(t *testing.T) {
 			if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
 				t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
 			}
-			if len(tc.wantEvents) > 0 {
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
-					t.Errorf("unexpected events (-want/+got):\n%s", diff)
-				}
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}
