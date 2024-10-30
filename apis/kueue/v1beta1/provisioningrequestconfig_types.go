@@ -59,9 +59,9 @@ type ProvisioningRequestConfigSpec struct {
 	// +kubebuilder:validation:MaxItems=100
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
 
-	// retryStrategy defines strategy for retrying ProvisioningRequest
-	// if nil then default configuration will be applied
-	// to switch off retry mechanism completely, set retryStrategy.backoffLimitCount to 0.
+	// retryStrategy defines strategy for retrying ProvisioningRequest.
+	// If null, then the default configuration is applied. To switch off retry mechanism
+	//  set retryStrategy.backoffLimitCount to 0.
 	//
 	// +optional
 	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`

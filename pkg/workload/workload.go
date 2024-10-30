@@ -763,6 +763,14 @@ func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
 	return cond, true
 }
 
+func IsEvictedByAdmissionCheck(w *kueue.Workload) (*metav1.Condition, bool) {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != kueue.WorkloadEvictedByAdmissionCheck {
+		return nil, false
+	}
+	return cond, true
+}
+
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
 		return c.Update(ctx, wl)
