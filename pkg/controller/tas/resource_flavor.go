@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/queue"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 const (
@@ -152,7 +153,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			}, &topology); err != nil {
 				return reconcile.Result{}, err
 			}
-			levels := r.levels(&topology)
+			levels := utiltas.Levels(&topology)
 			tasInfo := r.tasCache.NewTASFlavorCache(levels, flv.Spec.NodeLabels)
 			r.tasCache.Set(kueue.ResourceFlavorReference(flv.Name), tasInfo)
 		}
@@ -220,12 +221,4 @@ func nodeBelongsToFlavor(node *corev1.Node, nodeLabels map[string]string, levels
 		}
 	}
 	return true
-}
-
-func (r *rfReconciler) levels(topology *kueuealpha.Topology) []string {
-	result := make([]string, len(topology.Spec.Levels))
-	for i, level := range topology.Spec.Levels {
-		result[i] = level.NodeLabel
-	}
-	return result
 }

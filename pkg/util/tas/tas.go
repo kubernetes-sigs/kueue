@@ -18,6 +18,8 @@ package tas
 
 import (
 	"strings"
+
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
 type TopologyDomainID string
@@ -40,4 +42,12 @@ func LevelValues(levelKeys []string, objectLabels map[string]string) []string {
 		levelValues[levelIdx] = objectLabels[levelKey]
 	}
 	return levelValues
+}
+
+func Levels(topology *kueuealpha.Topology) []string {
+	result := make([]string, len(topology.Spec.Levels))
+	for i, level := range topology.Spec.Levels {
+		result[i] = level.NodeLabel
+	}
+	return result
 }
