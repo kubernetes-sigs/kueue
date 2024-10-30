@@ -476,7 +476,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration,
 					)))
-				}, maxExecTime, util.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 		ginkgo.It("should deactivate the workload when the time expires with multiple admissions", func() {
