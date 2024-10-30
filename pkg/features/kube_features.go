@@ -202,13 +202,3 @@ func LogFeatureGates(log logr.Logger) {
 	}
 	log.V(2).Info("Loaded feature gates", "featureGates", features)
 }
-
-func PrintFeatureGates() {
-	features := make(map[featuregate.Feature]bool, len(defaultFeatureGates))
-	for f := range utilfeature.DefaultMutableFeatureGate.GetAll() {
-		if _, ok := defaultFeatureGates[f]; ok {
-			features[f] = Enabled(f)
-		}
-	}
-	fmt.Printf("PATRYK Loaded feature gates %+v", features)
-}

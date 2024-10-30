@@ -19,6 +19,7 @@ package v1beta1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -59,8 +60,13 @@ type ProvisioningRequestConfigSpec struct {
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
 
 	// retryStrategy defines strategy for retrying ProvisioningRequest.
-	// If null, then the default configuration is applied. To switch off retry mechanism
-	//  set retryStrategy.backoffLimitCount to 0.
+	// If null, then the default configuration is applied with the following parameter values:
+	// BackoffLimitCount:  3
+	// BackoffBaseSeconds: 60 - 1 min
+	// BackoffMaxSeconds:  1800 - 30 mins
+	//
+	// To switch off retry mechanism
+	// set retryStrategy.backoffLimitCount to 0.
 	//
 	// +optional
 	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
@@ -68,7 +74,7 @@ type ProvisioningRequestConfigSpec struct {
 
 var (
 	DefaultRetryStrategy = ProvisioningRequestRetryStrategy{
-		BackoffLimitCount:  nil,
+		BackoffLimitCount:  ptr.To(int32(3)),
 		BackoffBaseSeconds: 60,   // 1 min
 		BackoffMaxSeconds:  1800, // 30 min
 	}

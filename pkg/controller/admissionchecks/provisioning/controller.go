@@ -197,7 +197,7 @@ func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, owned
 
 func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo, relevantChecks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) (*time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
-	var requeueAfter *time.Duration
+	var requeAfter *time.Duration
 	for _, checkName := range relevantChecks {
 		// get the config
 		prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
@@ -205,11 +205,9 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			// the check is not active
 			continue
 		}
-		retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
 		if !c.reqIsNeeded(wl, prc) {
 			continue
 		}
-		fmt.Printf("check states: %+v, checkName: %+v", wlInfo.checkStates, checkName)
 		ac := workload.FindAdmissionCheck(wlInfo.checkStates, checkName)
 		if ac != nil && ac.State == kueue.CheckStateReady {
 			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
@@ -225,18 +223,16 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				ac != nil && ac.State == kueue.CheckStatePending {
 				// if the workload is in Retry/Rejected state we don't create another ProvReq
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
-				if retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
-					if !features.Enabled(features.KeepQuotaForProvReqRetry) {
-						shouldCreatePr = true
-						attempt += 1
-					}
-					remainingTime := c.remainingTimeToRetry(oldPr, attempt, prc)
-					if remainingTime <= 0 {
-						shouldCreatePr = true
-						attempt += 1
-					} else if requeueAfter == nil || remainingTime < *requeueAfter {
-						requeueAfter = &remainingTime
-					}
+				if !features.Enabled(features.KeepQuotaForProvReqRetry) {
+					shouldCreatePr = true
+					attempt += 1
+				}
+				remainingTime := c.remainingTimeToRetry(oldPr, attempt, prc)
+				if remainingTime <= 0 {
+					shouldCreatePr = true
+					attempt += 1
+				} else if requeAfter == nil || remainingTime < *requeAfter {
+					requeAfter = &remainingTime
 				}
 			}
 		} else {
@@ -296,14 +292,11 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			return nil, err
 		}
 	}
-	return requeueAfter, nil
+	return requeAfter, nil
 }
 
 func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32, prc *kueue.ProvisioningRequestConfig) time.Duration {
 	retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
-	if prc.Spec.RetryStrategy != nil {
-
-	}
 	backoffDuration := time.Duration(retryStrategy.BackoffBaseSeconds) * time.Second
 	maxBackoffDuration := time.Duration(retryStrategy.BackoffMaxSeconds) * time.Second
 	var cond *metav1.Condition
