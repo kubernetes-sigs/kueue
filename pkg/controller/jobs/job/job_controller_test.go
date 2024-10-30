@@ -325,31 +325,71 @@ func TestPodSetsInfo(t *testing.T) {
 }
 
 func TestPodSets(t *testing.T) {
-	podTemplate := utiltestingjob.MakeJob("job", "ns").Spec.Template.DeepCopy()
+	jobTemplate := utiltestingjob.MakeJob("job", "ns")
+
 	cases := map[string]struct {
 		job         *Job
 		wantPodSets []kueue.PodSet
 	}{
 		"no partial admission": {
-			job: (*Job)(utiltestingjob.MakeJob("job", "ns").Parallelism(3).Obj()),
+			job: (*Job)(jobTemplate.Clone().Parallelism(3).Obj()),
 			wantPodSets: []kueue.PodSet{
 				{
 					Name:     kueue.DefaultPodSetName,
-					Template: *podTemplate.DeepCopy(),
+					Template: *jobTemplate.Clone().Spec.Template.DeepCopy(),
 					Count:    3,
 				},
 			},
 		},
 		"partial admission": {
-			job: (*Job)(utiltestingjob.MakeJob("job", "ns").Parallelism(3).SetAnnotation(JobMinParallelismAnnotation, "2").Obj()),
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(JobMinParallelismAnnotation, "2").
+					Obj(),
+			),
 			wantPodSets: []kueue.PodSet{
 				{
 					Name:     kueue.DefaultPodSetName,
-					Template: *podTemplate.DeepCopy(),
+					Template: *jobTemplate.Clone().Spec.Template.DeepCopy(),
 					Count:    3,
 					MinCount: ptr.To[int32](2),
 				},
 			},
+		},
+		"with required topology annotation": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				{
+					Name: kueue.DefaultPodSetName,
+					Template: jobTemplate.Clone().
+						PodAnnotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+						Spec.Template,
+					Count:           3,
+					TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+				},
+			},
+		},
+		"with preferred topology annotation": {
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{{
+				Name: kueue.DefaultPodSetName,
+				Template: jobTemplate.Clone().
+					PodAnnotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+					Spec.Template,
+				Count:           3,
+				TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+			}},
 		},
 	}
 	for name, tc := range cases {
