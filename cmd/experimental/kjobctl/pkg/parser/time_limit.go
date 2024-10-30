@@ -20,8 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"k8s.io/utils/ptr"
 )
 
 var (
@@ -64,7 +62,11 @@ func isValidTimeSpec(val string) bool {
 	}
 
 	if dash > 0 {
-		if colon == 1 && digit > 3 {
+		if colon == 0 && digit != 2 {
+			return false
+		}
+
+		if colon == 1 && digit < 3 {
 			return false
 		}
 
@@ -137,5 +139,10 @@ func TimeLimitToSeconds(val string) (*int32, error) {
 		}
 	}
 
-	return ptr.To(d + h + m + s), nil
+	res := d + h + m + s
+	if res == int32(0) {
+		return nil, nil
+	}
+
+	return &res, nil
 }

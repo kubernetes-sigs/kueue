@@ -46,6 +46,31 @@ func TestParseTimeLimit(t *testing.T) {
 		"unlimited": {
 			val: "unlimited",
 		},
+		"incomplete formats 12-": {
+			val:     "12-",
+			wantErr: invalidTimeFormatErr,
+		},
+		"incomplete formats 12:": {
+			val:     "12:",
+			wantErr: invalidTimeFormatErr,
+		},
+		"incomplete formats 12-05:": {
+			val:     "12-05:",
+			wantErr: invalidTimeFormatErr,
+		},
+		"single digit minimal values 0": {
+			val: "0",
+		},
+		"single digit minimal values 0:0:0": {
+			val: "0:0:0",
+		},
+		"single digit minimal values 0-0:0:0": {
+			val: "0-0:0:0",
+		},
+		"single digit minimal values 1-0:0:0": {
+			val:  "1-0:0:0",
+			want: ptr.To[int32](24 * 60 * 60),
+		},
 		"not supported chars": {
 			val:     "12-0m-23",
 			wantErr: invalidTimeFormatErr,
