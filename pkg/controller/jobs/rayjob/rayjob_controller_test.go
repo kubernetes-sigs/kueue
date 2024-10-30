@@ -23,103 +23,186 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/podset"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
 
 func TestPodSets(t *testing.T) {
-	job := testingrayutil.MakeJob("job", "ns").
-		WithHeadGroupSpec(
-			rayv1.HeadGroupSpec{
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "head_c",
-							},
+	testCases := map[string]struct {
+		rayJob      *RayJob
+		wantPodSets func(rayJob *RayJob) []kueue.PodSet
+	}{
+		"no annotations": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
 						},
 					},
-				},
-			},
-		).
-		WithWorkerGroups(
-			rayv1.WorkerGroupSpec{
-				GroupName: "group1",
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "group1_c",
-							},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
 					},
-				},
-			},
-			rayv1.WorkerGroupSpec{
-				GroupName: "group2",
-				Replicas:  ptr.To[int32](3),
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "group2_c",
-							},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
 						},
 					},
-				},
-			},
-		).
-		Obj()
-
-	wantPodSets := []kueue.PodSet{
-		{
-			Name:  "head",
-			Count: 1,
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name: "head_c",
-						},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     headGroupPodSetName,
+						Count:    1,
+						Template: *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
 					},
-				},
+					{
+						Name:     "group1",
+						Count:    1,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:     "group2",
+						Count:    3,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
 			},
 		},
-		{
-			Name:  "group1",
-			Count: 1,
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name: "group1_c",
+		"with required topology annotation": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
 						},
 					},
-				},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            headGroupPodSetName,
+						Count:           1,
+						Template:        *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:            rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName,
+						Count:           1,
+						Template:        *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:     rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName,
+						Count:    3,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
 			},
 		},
-		{
-			Name:  "group2",
-			Count: 3,
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name: "group2_c",
+		"with preferred topology annotation": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
 						},
 					},
-				},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            headGroupPodSetName,
+						Count:           1,
+						Template:        *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:     rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName,
+						Count:    1,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:            rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName,
+						Count:           3,
+						Template:        *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+				}
 			},
 		},
 	}
-
-	result := ((*RayJob)(job)).PodSets()
-
-	if diff := cmp.Diff(wantPodSets, result); diff != "" {
-		t.Errorf("PodSets() mismatch (-want +got):\n%s", diff)
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.wantPodSets(tc.rayJob), tc.rayJob.PodSets()); diff != "" {
+				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
