@@ -32,6 +32,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 )
 
+var (
+	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
+	headGroupMetaPath    = headGroupSpecsPath.Child("template, metadata")
+	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
+)
+
 type RayJobWebhook struct {
 	manageJobsWithoutQueueName bool
 }
@@ -115,7 +121,22 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) field.ErrorList {
 	}
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
+	allErrors = append(allErrors, w.validateTopologyRequest(job)...)
+
 	return allErrors
+}
+
+func (w *RayJobWebhook) validateTopologyRequest(rayJob *rayv1.RayJob) field.ErrorList {
+	var allErrs field.ErrorList
+	if rayJob.Spec.RayClusterSpec == nil {
+		return allErrs
+	}
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
+	for i := range rayJob.Spec.RayClusterSpec.WorkerGroupSpecs {
+		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+	}
+	return allErrs
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
