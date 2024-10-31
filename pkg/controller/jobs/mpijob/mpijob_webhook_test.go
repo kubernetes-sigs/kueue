@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -67,6 +68,56 @@ func TestValidateCreate(t *testing.T) {
 			name:    "with prebuilt workload",
 			job:     testingutil.MakeMPIJob("job", "default").Queue("queue").Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
 			wantErr: nil,
+		},
+		{
+			name: "valid topology request",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+		},
+		{
+			name: "invalid topology request",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec.mpiReplicaSpecs[Launcher].template.metadata.annotations"),
+					field.OmitValueType{},
+					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
+				),
+				field.Invalid(
+					field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations"),
+					field.OmitValueType{},
+					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
+				),
+			}.ToAggregate(),
 		},
 	}
 

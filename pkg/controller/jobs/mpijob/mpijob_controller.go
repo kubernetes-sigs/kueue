@@ -119,9 +119,10 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, mpiReplicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
-			Name:     strings.ToLower(string(mpiReplicaType)),
-			Template: *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
-			Count:    podsCount(&j.Spec, mpiReplicaType),
+			Name:            strings.ToLower(string(mpiReplicaType)),
+			Template:        *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
+			Count:           podsCount(&j.Spec, mpiReplicaType),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta),
 		}
 	}
 	return podSets
