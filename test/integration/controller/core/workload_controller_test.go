@@ -281,7 +281,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("reserving quota for a Workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &createdWl, testing.MakeAdmission(clusterQueue.Name).Obj())).To(gomega.Succeed())
-				}).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the check conditions", func() {

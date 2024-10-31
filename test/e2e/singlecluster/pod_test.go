@@ -112,7 +112,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 							"instance-type": "on-demand",
 						}))
 					}
-				}).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				util.ExpectWorkloadToFinish(ctx, k8sClient, gKey)
 			})
