@@ -113,14 +113,17 @@ func (j *RayCluster) PodSets() []kueue.PodSet {
 	// workers
 	for index := range j.Spec.WorkerGroupSpecs {
 		wgs := &j.Spec.WorkerGroupSpecs[index]
-		replicas := int32(1)
+		count := int32(1)
 		if wgs.Replicas != nil {
-			replicas = *wgs.Replicas
+			count = *wgs.Replicas
+		}
+		if wgs.NumOfHosts > 1 {
+			count *= wgs.NumOfHosts
 		}
 		podSets[index+1] = kueue.PodSet{
 			Name:            strings.ToLower(wgs.GroupName),
 			Template:        *wgs.Template.DeepCopy(),
-			Count:           replicas,
+			Count:           count,
 			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta),
 		}
 	}

@@ -150,6 +150,15 @@ func (j *ClusterWrapper) WithWorkerPriorityClassName(value string) *ClusterWrapp
 	return j
 }
 
+func (j *ClusterWrapper) WithNumOfHosts(groupName string, value int32) *ClusterWrapper {
+	for index, group := range j.Spec.WorkerGroupSpecs {
+		if group.GroupName == groupName {
+			j.Spec.WorkerGroupSpecs[index].NumOfHosts = value
+		}
+	}
+	return j
+}
+
 // WorkloadPriorityClass updates job workloadpriorityclass.
 func (j *ClusterWrapper) WorkloadPriorityClass(wpc string) *ClusterWrapper {
 	if j.Labels == nil {
