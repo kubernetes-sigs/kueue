@@ -89,6 +89,7 @@ var _ reconcile.Reconciler = (*Controller)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
+
 func NewController(client client.Client, record record.EventRecorder) (*Controller, error) {
 	helper, err := newProvisioningConfigHelper(client)
 	if err != nil {
@@ -240,13 +241,14 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				if !features.Enabled(features.KeepQuotaForProvReqRetry) {
 					shouldCreatePr = true
 					attempt += 1
-				}
-				remainingTime := c.remainingTimeToRetry(oldPr, attempt, prc)
-				if remainingTime <= 0 {
-					shouldCreatePr = true
-					attempt += 1
-				} else if requeAfter == nil || remainingTime < *requeAfter {
-					requeAfter = &remainingTime
+				} else {
+					remainingTime := c.remainingTimeToRetry(oldPr, attempt, prc)
+					if remainingTime <= 0 {
+						shouldCreatePr = true
+						attempt += 1
+					} else if requeAfter == nil || remainingTime < *requeAfter {
+						requeAfter = &remainingTime
+					}
 				}
 			}
 		} else {
@@ -485,7 +487,6 @@ func (wlInfo *workloadInfo) update(wl *kueue.Workload) {
 		workload.SetAdmissionCheckState(&wlInfo.checkStates, check)
 	}
 	wlInfo.requeueState = wl.Status.RequeueState
-
 }
 
 func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {

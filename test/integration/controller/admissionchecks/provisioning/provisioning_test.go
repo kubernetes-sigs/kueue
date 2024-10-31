@@ -1536,8 +1536,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 
 	ginkgo.FWhen("Workload uses a provision admission check with BackoffLimitCount=1", func() {
 		var (
-			ns    *corev1.Namespace
-			wlKey types.NamespacedName
+			ns             *corev1.Namespace
+			wlKey          types.NamespacedName
 			ac             *kueue.AdmissionCheck
 			readyAC        *kueue.AdmissionCheck
 			prc            *kueue.ProvisioningRequestConfig
