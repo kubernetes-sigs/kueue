@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/test/util"
@@ -30,7 +31,9 @@ import (
 
 var (
 	kjobctlPath string
+	cfg         *rest.Config
 	k8sClient   client.Client
+	restClient  *rest.RESTClient
 	ctx         context.Context
 )
 
@@ -44,6 +47,8 @@ func TestE2E(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	dir, _ := util.GetProjectDir()
 	kjobctlPath = filepath.Join(dir, "bin", "kubectl-kjob")
-	k8sClient, _ = util.CreateClientUsingCluster("")
+	cfg = util.GetConfigWithContext("")
+	k8sClient = util.CreateClient(cfg)
+	restClient = util.CreateRestClient(cfg)
 	ctx = context.Background()
 })
