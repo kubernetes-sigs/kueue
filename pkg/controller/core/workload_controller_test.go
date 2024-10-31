@@ -522,23 +522,29 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"admitted workload with retry checks": {
+		"workload with retry checks should be evicted and checks should be pending": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				Admitted(true).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-				AdmissionCheck(kueue.AdmissionCheckState{
-					Name:  "check",
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check-1",
 					State: kueue.CheckStateRetry,
+				}, kueue.AdmissionCheckState{
+					Name:  "check-2",
+					State: kueue.CheckStateReady,
 				}).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				Admitted(true).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-				AdmissionCheck(kueue.AdmissionCheckState{
-					Name:  "check",
-					State: kueue.CheckStateRetry,
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:    "check-1",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Retry",
+				}, kueue.AdmissionCheckState{
+					Name:    "check-2",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
 				}).
 				Condition(metav1.Condition{
 					Type:    "Evicted",
@@ -587,8 +593,9 @@ func TestReconcile(t *testing.T) {
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
-					Name:  "check",
-					State: kueue.CheckStateReady,
+					Name:    "check",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
 				}).
 				Generation(1).
 				Condition(metav1.Condition{
@@ -681,8 +688,9 @@ func TestReconcile(t *testing.T) {
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
 				AdmissionCheck(kueue.AdmissionCheckState{
-					Name:  "check",
-					State: kueue.CheckStateReady,
+					Name:    "check",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
 				}).
 				Generation(1).
 				Condition(metav1.Condition{

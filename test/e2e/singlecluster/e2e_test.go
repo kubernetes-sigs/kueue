@@ -460,7 +460,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				"instance-type": "on-demand",
 			})
 
-			ginkgo.By("setting the check as failed (Retry)", func() {
+			ginkgo.By("setting the check as Rejected", func() {
 				gomega.Eventually(func() error {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return err
@@ -468,7 +468,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					patch := workload.BaseSSAWorkload(createdWorkload)
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check1",
-						State: kueue.CheckStateRetry,
+						State: kueue.CheckStateRejected,
 					})
 					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
