@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -89,4 +90,16 @@ func onlyFlavor(ra ResourceAssignment) (*kueue.ResourceFlavorReference, error) {
 		return result, nil
 	}
 	return nil, errors.New("no flavor assigned")
+}
+
+func checkPodSetAndFlavorMatchForTAS(ps *kueue.PodSet, flavor *kueue.ResourceFlavor) *string {
+	// For PodSets which require TAS skip resource flavors which don't support it
+	if ps.TopologyRequest != nil && flavor.Spec.TopologyName == nil {
+		return ptr.To(fmt.Sprintf("Flavor %q does not support TopologyAwareScheduling", flavor.Name))
+	}
+	// For PodSets which don't use TAS skip resource flavors which are only for TAS
+	if ps.TopologyRequest == nil && flavor.Spec.TopologyName != nil {
+		return ptr.To(fmt.Sprintf("Flavor %q supports only TopologyAwareScheduling", flavor.Name))
+	}
+	return nil
 }

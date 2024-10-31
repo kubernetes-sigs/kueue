@@ -443,16 +443,9 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			continue
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			// For PodSets which require TAS skip resource flavors which don't support it
-			if ps.TopologyRequest != nil && flavor.Spec.TopologyName == nil {
-				log.Error(nil, "Flavor does not support TopologyAwareScheduling", "Flavor", fName)
-				status.append(fmt.Sprintf("flavor %s does not support TopologyAwareScheduling", fName))
-				continue
-			}
-			// For PodSets which don't use TAS skip resource flavors which are only for TAS
-			if ps.TopologyRequest == nil && flavor.Spec.TopologyName != nil {
-				log.Error(nil, "Flavor supports only TopologyAwareScheduling", "Flavor", fName)
-				status.append(fmt.Sprintf("flavor %s supports only TopologyAwareScheduling", fName))
+			if message := checkPodSetAndFlavorMatchForTAS(ps, flavor); message != nil {
+				log.Error(nil, *message)
+				status.append(*message)
 				continue
 			}
 		}
