@@ -183,7 +183,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 				conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				conn.Close()
-			}).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		}
 	})
 }
