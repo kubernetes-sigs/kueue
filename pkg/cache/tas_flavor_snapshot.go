@@ -209,6 +209,11 @@ func (s *TASFlavorSnapshot) FindTopologyAssignment(
 	return s.buildAssignment(currFitDomain)
 }
 
+func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
+	_, found := s.resolveLevelIdx(r)
+	return found
+}
+
 func (s *TASFlavorSnapshot) resolveLevelIdx(
 	topologyRequest *kueue.PodSetTopologyRequest) (int, bool) {
 	var levelKey string

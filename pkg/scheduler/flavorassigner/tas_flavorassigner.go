@@ -92,10 +92,23 @@ func onlyFlavor(ra ResourceAssignment) (*kueue.ResourceFlavorReference, error) {
 	return nil, errors.New("no flavor assigned")
 }
 
-func checkPodSetAndFlavorMatchForTAS(ps *kueue.PodSet, flavor *kueue.ResourceFlavor) *string {
+func checkPodSetAndFlavorMatchForTAS(cq *cache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor) *string {
 	// For PodSets which require TAS skip resource flavors which don't support it
-	if ps.TopologyRequest != nil && flavor.Spec.TopologyName == nil {
-		return ptr.To(fmt.Sprintf("Flavor %q does not support TopologyAwareScheduling", flavor.Name))
+	if ps.TopologyRequest != nil {
+		if flavor.Spec.TopologyName == nil {
+			return ptr.To(fmt.Sprintf("Flavor %q does not support TopologyAwareScheduling", flavor.Name))
+		}
+		s := cq.TASFlavors[kueue.ResourceFlavorReference(flavor.Name)]
+		if s == nil {
+			// Skip Flavors if they don't have TAS information. This should generally
+			// not happen, but possible in race-situation when the ResourceFlavor
+			// API object was recently added but is not cached yet.
+			return ptr.To(fmt.Sprintf("Flavor %q information missing in TAS cache", flavor.Name))
+		}
+		if !s.HasLevel(ps.TopologyRequest) {
+			// Skip flavors which don't have the requested level
+			return ptr.To(fmt.Sprintf("Flavor %q does not contain the requested level", flavor.Name))
+		}
 	}
 	// For PodSets which don't use TAS skip resource flavors which are only for TAS
 	if ps.TopologyRequest == nil && flavor.Spec.TopologyName != nil {

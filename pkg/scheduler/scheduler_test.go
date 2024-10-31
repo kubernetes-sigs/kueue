@@ -4162,6 +4162,124 @@ func TestScheduleForTAS(t *testing.T) {
 				},
 			},
 		},
+		"workload requests topology level which is not present in topology": {
+			nodes:           defaultSingleNode,
+			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						RequiredTopologyRequest("cloud.com/non-existing").
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[string][]string{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					EventType: "Warning",
+					Reason:    "Pending",
+					Message:   "failed to assign flavors to pod set one: no flavor assigned",
+				},
+			},
+		},
+		"workload requests topology level which is only present in second flavor": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "x1",
+						Labels: map[string]string{
+							"tas-node":               "true",
+							"cloud.com/custom-level": "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					},
+				},
+			},
+			topologies: []kueuealpha.Topology{defaultSingleLevelTopology,
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "tas-custom-topology",
+					},
+					Spec: kueuealpha.TopologySpec{
+						Levels: []kueuealpha.TopologyLevel{
+							{
+								NodeLabel: "cloud.com/custom-level",
+							},
+						},
+					},
+				},
+			},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor,
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "tas-custom-flavor",
+					},
+					Spec: kueue.ResourceFlavorSpec{
+						NodeLabels: map[string]string{
+							"tas-node": "true",
+						},
+						TopologyName: ptr.To("tas-custom-topology"),
+					},
+				},
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("tas-main").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("tas-default").
+							Resource(corev1.ResourceCPU, "50").Obj(),
+						*utiltesting.MakeFlavorQuotas("tas-custom-flavor").
+							Resource(corev1.ResourceCPU, "50").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						RequiredTopologyRequest("cloud.com/custom-level").
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[string]kueue.Admission{
+				"default/foo": *utiltesting.MakeAdmission("tas-main", "one").
+					Assignment(corev1.ResourceCPU, "tas-custom-flavor", "1").
+					AssignmentPodCount(1).
+					TopologyAssignment(&kueue.TopologyAssignment{
+						Levels: []string{"cloud.com/custom-level"},
+						Domains: []kueue.TopologyDomainAssignment{
+							{
+								Count: 1,
+								Values: []string{
+									"x1",
+								},
+							},
+						},
+					}).Obj(),
+			},
+			eventCmpOpts: []cmp.Option{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
 		"workload does not get scheduled as it does not fit within the node capacity": {
 			nodes:           defaultSingleNode,
 			topologies:      []kueuealpha.Topology{defaultSingleLevelTopology},
