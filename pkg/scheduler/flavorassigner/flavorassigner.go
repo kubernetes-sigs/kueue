@@ -443,7 +443,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 			continue
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			if message := checkPodSetAndFlavorMatchForTAS(ps, flavor); message != nil {
+			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor); message != nil {
 				log.Error(nil, *message)
 				status.append(*message)
 				continue
