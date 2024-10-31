@@ -671,7 +671,12 @@ func ExpectPodsFinalizedOrGone(ctx context.Context, k8sClient client.Client, key
 	for _, key := range keys {
 		createdPod := &corev1.Pod{}
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, key, createdPod))).To(gomega.Succeed())
+			err := k8sClient.Get(ctx, key, createdPod)
+			// Skip further checks to avoid verifying finalizers on the old Pod object.
+			if apierrors.IsNotFound(err) {
+				return
+			}
+			g.Expect(err).To(gomega.Succeed())
 			g.Expect(createdPod.Finalizers).Should(gomega.BeEmpty(), "Expected pod to be finalized")
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
@@ -681,7 +686,12 @@ func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client
 	for _, key := range keys {
 		createdWorkload := &kueue.Workload{}
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, key, createdWorkload))).To(gomega.Succeed())
+			err := k8sClient.Get(ctx, key, createdWorkload)
+			// Skip further checks to avoid verifying finalizers on the old Workload object.
+			if apierrors.IsNotFound(err) {
+				return
+			}
+			g.Expect(err).To(gomega.Succeed())
 			g.Expect(createdWorkload.Finalizers).Should(gomega.BeEmpty(), "Expected workload to be finalized")
 		}, Timeout, Interval).Should(gomega.Succeed())
 	}
