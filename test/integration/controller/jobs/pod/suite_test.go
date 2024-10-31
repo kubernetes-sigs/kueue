@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -74,6 +75,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(
+	setupTASControllers bool,
 	enableScheduler bool,
 	configuration *config.Configuration,
 	opts ...jobframework.Option,
@@ -126,6 +128,11 @@ func managerSetup(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		failedWebhook, err := webhooks.Setup(mgr)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+		if setupTASControllers {
+			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
+		}
 
 		if enableScheduler {
 			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
