@@ -10,6 +10,7 @@
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
+    - [Story 4](#story-4)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Integration support](#integration-support)
       - [Job](#job)
@@ -141,6 +142,16 @@ indicate that (1) all worker Pods are contained within a "rack", but also all
 Pods in the workload are contained within a "block".
 
 Note: not planned for [Alpha](#alpha), to be evaluated for [Beta](#beta).
+
+#### Story 4
+
+Extension to [Story 1](#story-1), as a AI/ML researcher I use ML frameworks
+were the majority of communication happens between Pods with consecutive indexes
+(ranks). The order of Pods correspond to their indexes for the Job and JobSet
+CRDs that I use. So, for optimal performance I would like the Pods with
+consecutive ranks to be placed within the same topology domain (if possible).
+
+Extension: support for indicating the order of pods for external Jobs.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -665,8 +676,8 @@ well covered. In particular, the following scenarios need coverage:
 
 #### Alpha:
 
-- support for all built-in integrations: Job and JobSet
-- support single-level hierarchy
+- support for all built-in integrations
+- support multi-level hierarchy
 - support TAS with minimal cross to other features (no cohorts, no preemption,
   no reclaimable pods)
 
@@ -682,8 +693,8 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 
 #### Beta
 
-- support for all other integrations
-- support multi-level hierarchy
+- support rank-aware packing of pods, so that pods with consecutive ranks are
+  placed within the same topology domain, if possible ([story 4](#story-4)).
 - support replacement timeout in WaitForPodsReady
 - re-evaluate accounting for used resources by watching DaemonSets
 - re-evaluate the need for the "auto" mode which does not require a user to
@@ -696,6 +707,7 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 
 #### Stable
 
+- support indicating the order of Pods for external Jobs (see extension to [Story 4](#story-4))
 Consider the following improvements and implement if feasible:
 - put pods with consecutive indexes of an IndexedJob on close nodes
 - support the following features: reclaimable, pods, cohorts preemption
