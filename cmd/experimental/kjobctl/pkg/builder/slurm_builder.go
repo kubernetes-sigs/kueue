@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/parser"
@@ -81,14 +82,15 @@ var (
 type slurmBuilder struct {
 	*Builder
 
-	objectName      string
-	scriptContent   string
-	template        *template.Template
-	arrayIndexes    parser.ArrayIndexes
-	cpusOnNode      *resource.Quantity
-	cpusPerGpu      *resource.Quantity
-	totalMemPerNode *resource.Quantity
-	totalGpus       *resource.Quantity
+	objectName              string
+	scriptContent           string
+	template                *template.Template
+	arrayIndexes            parser.ArrayIndexes
+	cpusOnNode              *resource.Quantity
+	cpusPerGpu              *resource.Quantity
+	totalMemPerNode         *resource.Quantity
+	totalGpus               *resource.Quantity
+	maxExecutionTimeSeconds *int32
 }
 
 var _ builder = (*slurmBuilder)(nil)
@@ -143,6 +145,13 @@ func (b *slurmBuilder) complete() error {
 		}
 		if b.arrayIndexes.Parallelism != nil {
 			b.nodes = b.arrayIndexes.Parallelism
+		}
+	}
+
+	if b.timeLimit != "" {
+		b.maxExecutionTimeSeconds, err = parser.TimeLimitToSeconds(b.timeLimit)
+		if err != nil {
+			return fmt.Errorf("cannot parse '%s': %w", b.timeLimit, err)
 		}
 	}
 
@@ -204,6 +213,9 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		TypeMeta:   metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"},
 		ObjectMeta: objectMeta,
 		Spec:       template.Template.Spec,
+	}
+	if b.maxExecutionTimeSeconds != nil {
+		job.Labels[constants.MaxExecTimeSecondsLabel] = fmt.Sprint(ptr.Deref(b.maxExecutionTimeSeconds, 0))
 	}
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
 	job.Spec.Template.Spec.Subdomain = b.objectName
@@ -688,6 +700,10 @@ func (b *slurmBuilder) getSbatchEnvs() error {
 		b.partition = os.Getenv("SBATCH_PARTITION")
 	}
 
+	if b.timeLimit == "" {
+		b.timeLimit = os.Getenv("SBATCH_TIMELIMIT")
+	}
+
 	return nil
 }
 
@@ -751,6 +767,10 @@ func (b *slurmBuilder) replaceScriptFlags() error {
 
 	if len(b.partition) == 0 {
 		b.partition = scriptFlags.Partition
+	}
+
+	if b.timeLimit == "" {
+		b.timeLimit = scriptFlags.TimeLimit
 	}
 
 	return nil

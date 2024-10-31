@@ -87,6 +87,7 @@ const (
 	jobNameFlagName     = string(v1alpha1.JobNameFlag)
 	partitionFlagName   = string(v1alpha1.PartitionFlag)
 	priorityFlagName    = string(v1alpha1.PriorityFlag)
+	timeFlagName        = string(v1alpha1.TimeFlag)
 )
 
 var (
@@ -196,6 +197,7 @@ type CreateOptions struct {
 	JobName                  string
 	Partition                string
 	Priority                 string
+	TimeLimit                string
 	IgnoreUnknown            bool
 	SkipLocalQueueValidation bool
 	SkipPriorityValidation   bool
@@ -398,6 +400,13 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"Local queue name.")
 			o.SlurmFlagSet.StringVarP(&o.ChangeDir, changeDirFlagName, "D", "",
 				"Change directory before executing the script.")
+			o.SlurmFlagSet.StringVarP(&o.TimeLimit, timeFlagName, "t", "",
+				`Set a limit on the total run time of the job. 
+A time limit of zero requests that no time limit be imposed. 
+Acceptable time formats include "minutes", "minutes:seconds", 
+"hours:minutes:seconds", "days-hours", "days-hours:minutes" 
+and "days-hours:minutes:seconds".`,
+			)
 		},
 	},
 }
@@ -656,6 +665,7 @@ func (o *CreateOptions) Run(ctx context.Context, clientGetter util.ClientGetter,
 		WithChangeDir(o.ChangeDir).
 		WithFirstNodeIP(o.FirstNodeIP).
 		WithFirstNodeIPTimeout(o.FirstNodeIPTimeout).
+		WithTimeLimit(o.TimeLimit).
 		Do(ctx)
 	if err != nil {
 		return err

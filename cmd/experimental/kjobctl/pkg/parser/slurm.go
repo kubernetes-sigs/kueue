@@ -51,6 +51,7 @@ type ParsedSlurmFlags struct {
 	Input       string
 	JobName     string
 	Partition   string
+	TimeLimit   string
 }
 
 func SlurmFlags(script string, ignoreUnknown bool) (ParsedSlurmFlags, error) {
@@ -137,6 +138,8 @@ func SlurmFlags(script string, ignoreUnknown bool) (ParsedSlurmFlags, error) {
 			flags.Output = val
 		case "p", string(v1alpha1.PartitionFlag):
 			flags.Partition = val
+		case "t", string(v1alpha1.TimeFlag):
+			flags.TimeLimit = val
 		default:
 			if !ignoreUnknown {
 				return ParsedSlurmFlags{}, fmt.Errorf("unknown flag: %s", key)
