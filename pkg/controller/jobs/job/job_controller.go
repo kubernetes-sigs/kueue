@@ -253,7 +253,7 @@ func (j *Job) PodSets() []kueue.PodSet {
 			Template:        *cleanManagedLabels(j.Spec.Template.DeepCopy()),
 			Count:           j.podsCount(),
 			MinCount:        j.minPodsCount(),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.Template),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.Template.ObjectMeta),
 		},
 	}
 }

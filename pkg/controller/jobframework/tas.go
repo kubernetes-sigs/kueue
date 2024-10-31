@@ -17,21 +17,21 @@ limitations under the License.
 package jobframework
 
 import (
-	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-func PodSetTopologyRequest(template *corev1.PodTemplateSpec) *kueue.PodSetTopologyRequest {
-	requiredValue, requiredFound := template.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
+func PodSetTopologyRequest(meta *metav1.ObjectMeta) *kueue.PodSetTopologyRequest {
+	requiredValue, requiredFound := meta.Annotations[kueuealpha.PodSetRequiredTopologyAnnotation]
 	if requiredFound {
 		return &kueue.PodSetTopologyRequest{
 			Required: ptr.To(requiredValue),
 		}
 	}
-	preferredValue, preferredFound := template.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
+	preferredValue, preferredFound := meta.Annotations[kueuealpha.PodSetPreferredTopologyAnnotation]
 	if preferredFound {
 		return &kueue.PodSetTopologyRequest{
 			Preferred: ptr.To(preferredValue),

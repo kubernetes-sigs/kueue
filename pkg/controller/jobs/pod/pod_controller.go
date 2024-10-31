@@ -368,6 +368,7 @@ func (p *Pod) PodSets() []kueue.PodSet {
 			Template: corev1.PodTemplateSpec{
 				Spec: *p.pod.Spec.DeepCopy(),
 			},
+			TopologyRequest: jobframework.PodSetTopologyRequest(&p.pod.ObjectMeta),
 		},
 	}
 }

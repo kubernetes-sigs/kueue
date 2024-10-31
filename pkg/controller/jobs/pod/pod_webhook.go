@@ -51,8 +51,9 @@ const (
 )
 
 var (
-	labelsPath                     = field.NewPath("metadata", "labels")
-	annotationsPath                = field.NewPath("metadata", "annotations")
+	metaPath                       = field.NewPath("metadata")
+	labelsPath                     = metaPath.Child("labels")
+	annotationsPath                = metaPath.Child("annotations")
 	managedLabelPath               = labelsPath.Key(ManagedLabelKey)
 	groupNameLabelPath             = labelsPath.Key(GroupNameLabel)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(GroupTotalCountAnnotation)
@@ -203,11 +204,9 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Validating create")
+
 	allErrs := jobframework.ValidateJobOnCreate(pod)
-
-	allErrs = append(allErrs, validateManagedLabel(pod)...)
-
-	allErrs = append(allErrs, validatePodGroupMetadata(pod)...)
+	allErrs = append(allErrs, validateCommon(pod)...)
 
 	if warn := warningForPodManagedLabel(pod); warn != "" {
 		warnings = append(warnings, warn)
@@ -223,14 +222,11 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	newPod := FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&newPod.pod))
 	log.V(5).Info("Validating update")
-	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod)
 
-	allErrs = append(allErrs, validateManagedLabel(newPod)...)
+	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod)
+	allErrs = append(allErrs, validateCommon(newPod)...)
 
 	allErrs = append(allErrs, validation.ValidateImmutableField(podGroupName(newPod.pod), podGroupName(oldPod.pod), groupNameLabelPath)...)
-
-	allErrs = append(allErrs, validatePodGroupMetadata(newPod)...)
-
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 
 	if warn := warningForPodManagedLabel(newPod); warn != "" {
@@ -242,6 +238,13 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 
 func (w *PodWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
+}
+
+func validateCommon(pod *Pod) field.ErrorList {
+	allErrs := validateManagedLabel(pod)
+	allErrs = append(allErrs, validatePodGroupMetadata(pod)...)
+	allErrs = append(allErrs, validateTopologyRequest(pod)...)
+	return allErrs
 }
 
 func validateManagedLabel(pod *Pod) field.ErrorList {
@@ -296,6 +299,10 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 	}
 
 	return allErrs
+}
+
+func validateTopologyRequest(pod *Pod) field.ErrorList {
+	return jobframework.ValidateTASPodSetRequest(metaPath, &pod.pod.ObjectMeta)
 }
 
 func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.ErrorList {

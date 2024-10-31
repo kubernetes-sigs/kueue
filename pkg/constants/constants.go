@@ -41,6 +41,6 @@ const (
 
 	DefaultPendingWorkloadsLimit = 1000
 
-	// Label that signalize that an object is managed by Kueue
+	// ManagedByKueueLabel label that signalize that an object is managed by Kueue
 	ManagedByKueueLabel = "kueue.x-k8s.io/managed"
 )

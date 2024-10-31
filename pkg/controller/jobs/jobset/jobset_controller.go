@@ -121,7 +121,7 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 			Name:            replicatedJob.Name,
 			Template:        *replicatedJob.Template.Spec.Template.DeepCopy(),
 			Count:           podsCount(&replicatedJob),
-			TopologyRequest: jobframework.PodSetTopologyRequest(&replicatedJob.Template.Spec.Template),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&replicatedJob.Template.Spec.Template.ObjectMeta),
 		}
 	}
 	return podSets

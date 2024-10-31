@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -121,6 +122,65 @@ func TestRun(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodSets(t *testing.T) {
+	testCases := map[string]struct {
+		pod         *Pod
+		wantPodSets func(pod *Pod) []kueue.PodSet
+	}{
+		"no annotations": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").Obj()),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     kueue.DefaultPodSetName,
+						Count:    1,
+						Template: corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
+					},
+				}
+			},
+		},
+		"with required topology annotation": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            kueue.DefaultPodSetName,
+						Count:           1,
+						Template:        corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					},
+				}
+			},
+		},
+		"with required topology preferred": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueuealpha.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            kueue.DefaultPodSetName,
+						Count:           1,
+						Template:        corev1.PodTemplateSpec{Spec: *pod.pod.Spec.DeepCopy()},
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+				}
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.wantPodSets(tc.pod), tc.pod.PodSets()); diff != "" {
+				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
