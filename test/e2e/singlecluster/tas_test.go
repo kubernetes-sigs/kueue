@@ -196,19 +196,34 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 		ginkgo.It("should admit a JobSet via TAS", func() {
 			jobSet := testingjobset.MakeJobSet("test-jobset", ns.Name).
 				Queue(localQueue.Name).
-				ReplicatedJobs(testingjobset.ReplicatedJobRequirements{
-					Name:        "rj1",
-					Replicas:    1,
-					Parallelism: 1,
-					Completions: 1,
-					PodAnnotations: map[string]string{
-						kueuealpha.PodSetRequiredTopologyAnnotation: topologyLevel,
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "rj1",
+						Replicas:    1,
+						Parallelism: 1,
+						Completions: 1,
+						PodAnnotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: topologyLevel,
+						},
+						Image: util.E2eTestSleepImage,
+						Args:  []string{"1ms"},
 					},
-					Image: util.E2eTestSleepImage,
-					Args:  []string{"1ms"},
-				}).
-				Request("rj1", "cpu", "700m").
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "rj2",
+						Replicas:    1,
+						Parallelism: 1,
+						Completions: 1,
+						PodAnnotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: topologyLevel,
+						},
+						Image: util.E2eTestSleepImage,
+						Args:  []string{"1ms"},
+					},
+				).
+				Request("rj1", "cpu", "200m").
 				Request("rj1", "memory", "20Mi").
+				Request("rj2", "cpu", "200m").
+				Request("rj2", "memory", "20Mi").
 				Obj()
 
 			ginkgo.By("Creating the JobSet", func() {
@@ -216,9 +231,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 			})
 
 			ginkgo.By("waiting for the JobSet to be unsuspended", func() {
-				jobKey := client.ObjectKeyFromObject(jobSet)
+				jobSetKey := client.ObjectKeyFromObject(jobSet)
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, jobKey, jobSet)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, jobSetKey, jobSet)).To(gomega.Succeed())
 					g.Expect(jobSet.Spec.Suspend).Should(gomega.Equal(ptr.To(false)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -239,8 +254,18 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					&kueue.TopologyAssignment{
+						Levels: []string{topologyLevel},
+						Domains: []kueue.TopologyDomainAssignment{{
+							Count:  1,
+							Values: []string{"kind-worker"},
+						}},
+					},
+				))
+				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
 						Levels: []string{topologyLevel},
 						Domains: []kueue.TopologyDomainAssignment{{
