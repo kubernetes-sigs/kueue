@@ -196,6 +196,53 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 		},
+		"with NumOfHosts > 1": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName:  "group1",
+						NumOfHosts: 4,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName:  "group2",
+						Replicas:   ptr.To[int32](3),
+						NumOfHosts: 4,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     headGroupPodSetName,
+						Count:    1,
+						Template: *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+					},
+					{
+						Name:     "group1",
+						Count:    4,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:     "group2",
+						Count:    12,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
