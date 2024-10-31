@@ -28,11 +28,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -53,6 +55,180 @@ var (
 		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"),
 	}
 )
+
+func TestPodSets(t *testing.T) {
+	testCases := map[string]struct {
+		rayCluster  *RayCluster
+		wantPodSets func(rayJob *RayCluster) []kueue.PodSet
+	}{
+		"no annotations": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     headGroupPodSetName,
+						Count:    1,
+						Template: *rayJob.Spec.HeadGroupSpec.Template.DeepCopy(),
+					},
+					{
+						Name:     "group1",
+						Count:    1,
+						Template: *rayJob.Spec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:     "group2",
+						Count:    3,
+						Template: *rayJob.Spec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
+			},
+		},
+		"with required topology annotation": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            headGroupPodSetName,
+						Count:           1,
+						Template:        *rayJob.Spec.HeadGroupSpec.Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:            "group1",
+						Count:           1,
+						Template:        *rayJob.Spec.WorkerGroupSpecs[0].Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:     "group2",
+						Count:    3,
+						Template: *rayJob.Spec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
+			},
+		},
+		"with preferred topology annotation": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            headGroupPodSetName,
+						Count:           1,
+						Template:        *rayJob.Spec.HeadGroupSpec.Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:     "group1",
+						Count:    1,
+						Template: *rayJob.Spec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:            "group2",
+						Count:           3,
+						Template:        *rayJob.Spec.WorkerGroupSpecs[1].Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+				}
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.wantPodSets(tc.rayCluster), tc.rayCluster.PodSets()); diff != "" {
+				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
