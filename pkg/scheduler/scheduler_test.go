@@ -3881,6 +3881,12 @@ func TestScheduleForTAS(t *testing.T) {
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
 				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
 			},
 		},
 	}
@@ -4201,6 +4207,12 @@ func TestScheduleForTAS(t *testing.T) {
 					Status: corev1.NodeStatus{
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
 						},
 					},
 				},

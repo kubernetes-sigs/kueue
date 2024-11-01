@@ -55,6 +55,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
 				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
 			},
 		},
 		{
@@ -70,6 +76,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Allocatable: corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
 				},
 			},
 		},
@@ -87,6 +99,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
 				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
 			},
 		},
 		{
@@ -102,6 +120,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Allocatable: corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
 				},
 			},
 		},
@@ -119,6 +143,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
 				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
 			},
 		},
 		{
@@ -134,6 +164,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 				Allocatable: corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("2"),
 					corev1.ResourceMemory: resource.MustParse("4Gi"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
 				},
 			},
 		},
@@ -185,6 +221,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("2"),
 						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				},
 				{
@@ -199,6 +241,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Status: corev1.NodeStatus{
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
 						},
 					},
 				},
@@ -215,6 +263,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("1"),
 						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				},
 				{
@@ -229,6 +283,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Status: corev1.NodeStatus{
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
 						},
 					},
 				},
@@ -245,6 +305,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("1"),
 						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				},
 				{
@@ -259,6 +325,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 					Status: corev1.NodeStatus{
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
 						},
 					},
 				},
@@ -656,6 +728,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
 						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				},
 			},
@@ -698,6 +776,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
 						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				},
 			},
@@ -725,6 +809,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
 						},
 					},
 				},
@@ -767,6 +857,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
 						},
 					},
 				},
@@ -816,6 +912,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
 						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				},
 			},
@@ -849,6 +951,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
 						},
 					},
 				},
@@ -885,6 +993,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
 						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
 					},
 				},
 				{
@@ -898,6 +1012,12 @@ func TestFindTopologyAssignment(t *testing.T) {
 						Allocatable: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionTrue,
+							},
 						},
 					},
 				},
@@ -926,6 +1046,47 @@ func TestFindTopologyAssignment(t *testing.T) {
 					},
 				},
 			},
+		},
+		"no assignment as node is not ready": {
+			nodes: []corev1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "b1-r1-x1",
+						Labels: map[string]string{
+							"zone":       "zone-a",
+							tasHostLabel: "x1",
+						},
+					},
+					Status: corev1.NodeStatus{
+						Allocatable: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Conditions: []corev1.NodeCondition{
+							{
+								Type:   corev1.NodeReady,
+								Status: corev1.ConditionFalse,
+							},
+							{
+								Type:   corev1.NodeNetworkUnavailable,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+			request: kueue.PodSetTopologyRequest{
+				Required: ptr.To(tasHostLabel),
+			},
+			nodeLabels: map[string]string{
+				"zone": "zone-a",
+			},
+			levels: defaultOneLevel,
+			requests: resources.Requests{
+				corev1.ResourceCPU: 1000,
+			},
+			count:          1,
+			wantAssignment: nil,
 		},
 	}
 	for name, tc := range cases {
