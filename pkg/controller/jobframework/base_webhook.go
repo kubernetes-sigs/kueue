@@ -78,7 +78,7 @@ func validateCreate(job GenericJob) field.ErrorList {
 func (w *BaseWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	oldJob := w.FromObject(oldObj)
 	newJob := w.FromObject(newObj)
-	log := ctrl.LoggerFrom(ctx).WithName("mxjob-webhook")
+	log := ctrl.LoggerFrom(ctx)
 	log.Info("Validating update", "job", klog.KObj(newJob.Object()))
 	allErrs := ValidateJobOnUpdate(oldJob, newJob)
 	return nil, allErrs.ToAggregate()
