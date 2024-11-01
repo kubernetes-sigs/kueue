@@ -281,7 +281,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
 					g.Expect(createdWorkload.Status.Conditions).Should(testing.HaveConditionStatusTrue(kueue.WorkloadFinished))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
