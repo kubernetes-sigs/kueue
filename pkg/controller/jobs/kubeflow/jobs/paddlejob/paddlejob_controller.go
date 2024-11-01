@@ -112,6 +112,10 @@ func (j *JobControl) ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.Repli
 	return j.Spec.PaddleReplicaSpecs
 }
 
+func (j *JobControl) ReplicaSpecsFieldName() string {
+	return "paddleReplicaSpecs"
+}
+
 func (j *JobControl) JobStatus() *kftraining.JobStatus {
 	return &j.Status
 }
