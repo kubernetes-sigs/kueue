@@ -31,95 +31,109 @@ import (
 )
 
 func TestPodSets(t *testing.T) {
-	job := testingrayutil.MakeJob("job", "ns").
-		WithHeadGroupSpec(
-			rayv1.HeadGroupSpec{
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "head_c",
-							},
+	testCases := map[string]struct {
+		rayJob      *RayJob
+		wantPodSets func(rayJob *RayJob) []kueue.PodSet
+	}{
+		"no annotations": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
 						},
 					},
-				},
-			},
-		).
-		WithWorkerGroups(
-			rayv1.WorkerGroupSpec{
-				GroupName: "group1",
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "group1_c",
-							},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
 					},
-				},
-			},
-			rayv1.WorkerGroupSpec{
-				GroupName: "group2",
-				Replicas:  ptr.To[int32](3),
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "group2_c",
-							},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
 						},
 					},
-				},
-			},
-		).
-		Obj()
-
-	wantPodSets := []kueue.PodSet{
-		{
-			Name:  "head",
-			Count: 1,
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name: "head_c",
-						},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     headGroupPodSetName,
+						Count:    1,
+						Template: *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
 					},
-				},
+					{
+						Name:     "group1",
+						Count:    1,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:     "group2",
+						Count:    3,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
 			},
 		},
-		{
-			Name:  "group1",
-			Count: 1,
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name: "group1_c",
+		"with NumOfHosts > 1": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
 						},
 					},
-				},
-			},
-		},
-		{
-			Name:  "group2",
-			Count: 3,
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name: "group2_c",
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName:  "group1",
+						NumOfHosts: 4,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
 					},
-				},
+					rayv1.WorkerGroupSpec{
+						GroupName:  "group2",
+						Replicas:   ptr.To[int32](3),
+						NumOfHosts: 4,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     headGroupPodSetName,
+						Count:    1,
+						Template: *rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+					},
+					{
+						Name:     "group1",
+						Count:    4,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:     "group2",
+						Count:    12,
+						Template: *rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
 			},
 		},
 	}
-
-	result := ((*RayJob)(job)).PodSets()
-
-	if diff := cmp.Diff(wantPodSets, result); diff != "" {
-		t.Errorf("PodSets() mismatch (-want +got):\n%s", diff)
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.wantPodSets(tc.rayJob), tc.rayJob.PodSets()); diff != "" {
+				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
