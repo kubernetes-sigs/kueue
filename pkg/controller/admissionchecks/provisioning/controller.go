@@ -108,13 +108,25 @@ func NewController(client client.Client, record record.EventRecorder) (*Controll
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	wl := &kueue.Workload{}
 	log := ctrl.LoggerFrom(ctx)
-
 	err := c.client.Get(ctx, req.NamespacedName, wl)
 	if err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) {
+	log.V(2).Info("cd", "PATRYK wl status.conds", wl.Status.Conditions)
+	log.V(2).Info("cd", "PATRYK wl status.acs", wl.Status.AdmissionChecks)
+
+	// 1) Race condition #1 - ProvisioningController reconciles right after Eviction without dismissing Quota
+	// Retry -> Pending & Evicted=True & Quota=True
+	// Evicted
+
+	// 2) Race condition #2 - ProvisioningController reconciles right after setting Status to Retry, even before eviction
+
+	// 3) Standard flow
+	// Retry -> Eviction -> Requeued -> Pending & Quota=True & Requeued=True
+	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) || workload.IsEvicted(wl) {
+		log.V(2).Info("PATRYK reconcile loop finished")
+
 		return reconcile.Result{}, nil
 	}
 
@@ -169,18 +181,18 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
 				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
 				if err == nil && c.reqIsNeeded(wl, prc) && provReqSyncedWithConfig(req, prc) {
-					if !features.Enabled(features.KeepQuotaForProvReqRetry) {
-						// we avoid processing stale ProvisioningRequests after Retry
-						// and the race condition between WorkloadController that resets check to Pending after retry
-						// and ProvisioningController that has just set CheckState to Retry
-						check := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName)
-						if wl.Status.RequeueState != nil && getAttempt(log, req, wl.Name, checkName) <= ptr.Deref(wl.Status.RequeueState.Count, 0) && check.State == kueue.CheckStatePending {
-							if currPr, exists := latestStalePR[checkName]; !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
-								latestStalePR[checkName] = req
-							}
-							continue
-						}
-					}
+					// if !features.Enabled(features.KeepQuotaForProvReqRetry) {
+					// 	// we avoid processing stale ProvisioningRequests after Retry
+					// 	// and the race condition between WorkloadController that resets check to Pending after retry
+					// 	// and ProvisioningController that has just set CheckState to Retry
+					// 	check := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName)
+					// 	if wl.Status.RequeueState != nil && getAttempt(log, req, wl.Name, checkName) <= ptr.Deref(wl.Status.RequeueState.Count, 0) && check.State == kueue.CheckStatePending {
+					// 		if currPr, exists := latestStalePR[checkName]; !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
+					// 			latestStalePR[checkName] = req
+					// 		}
+					// 		continue
+					// 	}
+					// }
 					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
 					}
@@ -228,11 +240,16 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
 			continue
 		}
+		log.V(2).Info("cd", "PATRYK ac", ac)
 
+		log.V(2).Info("cd", "PATRYK activerOrLast", activeOrLastPRForChecks)
 		oldPr, exists := activeOrLastPRForChecks[checkName]
 		attempt := int32(1)
 		shouldCreatePr := false
 		if exists {
+			log.V(2).Info("cd", "PATRYK exists - oldPR:", oldPr)
+			log.V(2).Info("cd", "PATRYK exists - oldPR.conds:", oldPr.Status.Conditions)
+			log.V(2).Info("cd", "PATRYK ac", ac)
 			if (isFailed(oldPr) || (isBookingExpired(oldPr) && !workload.IsAdmitted(wl))) &&
 				// if the workload is Admitted we don't want to retry on BookingExpired
 				ac != nil && ac.State == kueue.CheckStatePending {
@@ -252,9 +269,9 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				}
 			}
 		} else {
-			if oldPr, exists := latestStalePR[checkName]; exists {
-				attempt = getAttempt(log, oldPr, wl.Name, checkName) + 1
-			}
+			// if oldPr, exists := latestStalePR[checkName]; exists {
+			// attempt = getAttempt(log, oldPr, wl.Name, checkName) + 1
+			// }
 			shouldCreatePr = true
 		}
 		requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
@@ -492,6 +509,7 @@ func (wlInfo *workloadInfo) update(wl *kueue.Workload) {
 func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
 	log := ctrl.LoggerFrom(ctx)
 	wlInfo.update(wl)
+	log.V(2).Info("cd", "PATRYK wlInfo before update", wlInfo.checkStates)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl)
 	recorderMessages := make([]string, 0, len(checks))
@@ -525,6 +543,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 			switch {
 			case isFailed(pr):
 				if checkState.State == kueue.CheckStateRejected || checkState.State == kueue.CheckStateRetry {
+					log.V(2).Info("cd", "PATRYK break because of ", checkState)
 					break
 				}
 				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
@@ -533,12 +552,15 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 					updated = updateCheckMessage(&checkState, message) || updated
 					if features.Enabled(features.KeepQuotaForProvReqRetry) {
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
-					} else {
+					} else if wl.Status.RequeueState == nil || getAttempt(log, pr, wl.Name, check) > ptr.Deref(wl.Status.RequeueState.Count, 0) {
+						// We don't want to Retry on old ProvisioningRequests
+						log.V(2).Info("cd", "PATRYK changing into Retry:", checkState)
 						updated = true
 						updateCheckState(&checkState, kueue.CheckStateRetry)
 						workload.UpdateRequeueState(wlPatch, retryStrategy.BackoffBaseSeconds, retryStrategy.BackoffMaxSeconds)
 					}
 				} else {
+					log.V(2).Info("PATRYK rejected")
 					updated = true
 					checkState.State = kueue.CheckStateRejected
 					checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
@@ -552,24 +574,27 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 					updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
 				}
 			case isBookingExpired(pr):
+				log.V(2).Info("PATRYK BookingExpired", "PATRYK checkState", checkState)
 				if workload.IsAdmitted(wl) || checkState.State == kueue.CheckStateRejected || checkState.State == kueue.CheckStateRetry {
 					break
 				}
 				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
+					log.V(2).Info("PATRYK retry")
 					// it is going to be retried
 					message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
 					updated = updateCheckMessage(&checkState, message) || updated
 					if features.Enabled(features.KeepQuotaForProvReqRetry) {
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
-					} else {
+					} else if wl.Status.RequeueState == nil || getAttempt(log, pr, wl.Name, check) > ptr.Deref(wl.Status.RequeueState.Count, 0) {
 						updated = true
 						updateCheckState(&checkState, kueue.CheckStateRetry)
 						workload.UpdateRequeueState(wlPatch, retryStrategy.BackoffBaseSeconds, retryStrategy.BackoffMaxSeconds)
 					}
 				} else {
+					log.V(2).Info("PATRYK reject")
 					updated = true
 					checkState.State = kueue.CheckStateRejected
-					checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
+					checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message
 				}
 			case isProvisioned(pr):
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
@@ -601,8 +626,10 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 		}
 		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
 	}
+	log.V(2).Info("PATRYK before patch")
 	if updated {
 		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.ProvisioningRequestControllerName), client.ForceOwnership); err != nil {
+			log.V(2).Info("PATRYK Patch error", "PATRYK err:", err)
 			return err
 		}
 		for i := range recorderMessages {
@@ -610,6 +637,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 		}
 	}
 	wlInfo.update(wlPatch)
+	log.V(2).Info("cd", "PATRYK wlInfo after update", wlInfo.checkStates)
 	return nil
 }
 

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -94,6 +95,9 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					Parameters: map[string]kueue.Parameter{
 						"p1": "v1",
 						"p2": "v2",
+					},
+					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
+						BackoffLimitCount: ptr.To(int32(0)),
 					},
 				},
 			}
@@ -919,7 +923,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 	})
 
-	ginkgo.When("A workload is using a pending provision admission check", func() {
+	ginkgo.When("Feature KeepQuotaForProvReqRetry is enabled and a workload is using a pending provision admission check with BackOffLimitCount=0", func() {
 		var (
 			ns             *corev1.Namespace
 			wlKey          types.NamespacedName
@@ -935,6 +939,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			updatedWl      kueue.Workload
 		)
 		ginkgo.JustBeforeEach(func() {
+			ginkgo.By("Enabling KeepQuotaForProvReqRetry feature", func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KeepQuotaForProvReqRetry, true)
+			})
+
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "provisioning-",
@@ -1064,7 +1072,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
-		ginkgo.It("Should reject an admission check if a workload is not Admitted, the ProvisioningRequest's condition is set to BookingExpired, and there are no retries left", func() {
+		ginkgo.It("Should reject an admission check if a workload is not Admitted, the ProvisioningRequest's condition is set to BookingExpired", func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -1160,7 +1168,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 	})
 
-	ginkgo.When("FeatureGate KeepQuotaForProvReqRetry is enabled, and a workload is using a provision admission check with retry with", func() {
+	ginkgo.When("FeatureGate KeepQuotaForProvReqRetry is enabled, and a workload is using a provision admission check with  BackoffLimitCount=1", func() {
 		var (
 			ns             *corev1.Namespace
 			wlKey          types.NamespacedName
@@ -1176,6 +1184,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			updatedWl      kueue.Workload
 		)
 		ginkgo.JustBeforeEach(func() {
+			ginkgo.By("Enabling KeepQuotaForProvReqRetry feature", func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KeepQuotaForProvReqRetry, true)
+			})
+
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "provisioning-",
@@ -1193,8 +1205,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						"p2": "v2",
 					},
 					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount:  ptr.To(int32(2)),
-						BackoffBaseSeconds: int32(1),
+						BackoffLimitCount:  ptr.To(int32(1)),
+						BackoffBaseSeconds: int32(0),
 					},
 				},
 			}
@@ -1282,7 +1294,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
-		ginkgo.It("Should retry when ProvisioningRequestConfig has MaxRetries=2, the succeeded if the second Provisioning request succeeds", func() {
+		ginkgo.It("Should set check as Pending after the first ProvisioningRequest fails, then as Ready if the second Provisioning request succeeds", func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -1350,7 +1362,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should retry when ProvisioningRequestConfig has MaxRetries>o, and every Provisioning request retry fails", func() {
+		ginkgo.It("Should set check as Rejected, if every ProvisioningRequest retry fails", func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -1445,7 +1457,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should retry an admission check if a workload is not Admitted, and the ProvisioningRequest's condition is set to BookingExpired, and there is a retry left", func() {
+		ginkgo.It("Should set a check as Pending if a workload is not Admitted, and the ProvisioningRequest's condition is set to BookingExpired", func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
@@ -1534,7 +1546,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 		})
 	})
 
-	ginkgo.FWhen("Workload uses a provision admission check with BackoffLimitCount=1", func() {
+	ginkgo.When("Workload uses a provision admission check with BackoffLimitCount=1", func() {
 		var (
 			ns             *corev1.Namespace
 			wlKey          types.NamespacedName
@@ -1647,7 +1659,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
 
-		ginkgo.It("Should retry if a ProvisioningRequest fails, the succeed if the second Provisioning request succeeds", func() {
+		ginkgo.It("Should retry if a ProvisioningRequest fails, then succeed if the second Provisioning request succeeds", func() {
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())

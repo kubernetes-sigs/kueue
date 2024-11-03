@@ -380,6 +380,8 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	message := "At least one admission check is false"
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, message)
 	workload.ResetChecksOnEviction(wl)
+	log.V(2).Info("PATRYK evicted")
+
 	if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
 		return false, client.IgnoreNotFound(err)
 	}

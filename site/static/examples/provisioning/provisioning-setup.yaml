@@ -52,4 +52,7 @@ spec:
   provisioningClassName: queued-provisioning.gke.io
   managedResources:
   - nvidia.com/gpu
+  retryStrategy:
+    backoffBaseSeconds: 10
+    backoffMaxSeconds: 10
 

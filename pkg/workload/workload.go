@@ -771,6 +771,10 @@ func IsEvictedByAdmissionCheck(w *kueue.Workload) (*metav1.Condition, bool) {
 	return cond, true
 }
 
+func IsEvicted(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, kueue.WorkloadEvicted, metav1.ConditionTrue)
+}
+
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
 		return c.Update(ctx, wl)

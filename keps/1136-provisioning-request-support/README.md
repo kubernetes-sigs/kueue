@@ -1,24 +1,25 @@
 # KEP-1136: ProvisioningRequest support
 
 <!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-- [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1](#story-1)
-    - [Story 2](#story-2)
-  - [Risks and Mitigations](#risks-and-mitigations)
-    - [BookingExpired condition](#bookingexpired-condition)
-- [Design Details](#design-details)
-  - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
-    - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
-  - [Graduation Criteria](#graduation-criteria)
-- [Implementation History](#implementation-history)
-- [Alternatives](#alternatives)
+- [KEP-1136: ProvisioningRequest support](#kep-1136-provisioningrequest-support)
+	- [Summary](#summary)
+	- [Motivation](#motivation)
+		- [Goals](#goals)
+		- [Non-Goals](#non-goals)
+	- [Proposal](#proposal)
+		- [User Stories (Optional)](#user-stories-optional)
+			- [Story 1](#story-1)
+			- [Story 2](#story-2)
+		- [Risks and Mitigations](#risks-and-mitigations)
+			- [BookingExpired condition](#bookingexpired-condition)
+	- [Design Details](#design-details)
+		- [Test Plan](#test-plan)
+				- [Prerequisite testing updates](#prerequisite-testing-updates)
+			- [Unit Tests](#unit-tests)
+			- [Integration tests](#integration-tests)
+		- [Graduation Criteria](#graduation-criteria)
+	- [Implementation History](#implementation-history)
+	- [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -209,16 +210,16 @@ type ProvisioningRequestRetryStrategy struct {
 	// re-queuing an evicted workload.
 	//
 	// Defaults to 60.
-	// +optional
+	// +required
 	// +kubebuilder:default=60
-	BackoffBaseSeconds int32 `json:"backoffBaseSeconds,omitempty"`
+	BackoffBaseSeconds int32 `json:"backoffBaseSeconds"`
 
 	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
 	// Defaults to 1800.
-	// +optional
+	// +required
 	// +kubebuilder:default=1800
-	BackoffMaxSeconds int32 `json:"backoffMaxSeconds,omitempty"`
+	BackoffMaxSeconds int32 `json:"backoffMaxSeconds"`
 }
 ```
 
