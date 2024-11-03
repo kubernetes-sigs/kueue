@@ -142,7 +142,7 @@ const (
 
 	// owner: @pbundyra
 	// alpha: v0.9
-	// deprecated: v0.9
+	// Deprecated: v0.9
 	//
 	// Workloads keeps allocated quota and preserves QuotaReserved=True when ProvisioningRequest fails
 	KeepQuotaForProvReqRetry featuregate.Feature = "KeepQuotaForProvReqRetry"
