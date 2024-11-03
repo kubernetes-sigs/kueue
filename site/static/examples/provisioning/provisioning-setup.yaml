@@ -53,6 +53,7 @@ spec:
   managedResources:
   - nvidia.com/gpu
   retryStrategy:
-    backoffBaseSeconds: 10
-    backoffMaxSeconds: 10
+    backoffLimitCount: 2
+    backoffBaseSeconds: 60
+    backoffMaxSeconds: 1800
 

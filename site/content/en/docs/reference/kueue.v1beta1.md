@@ -1922,7 +1922,7 @@ By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</
 </ul>
 </td>
 </tr>
-<tr><td><code>backoffBaseSeconds</code><br/>
+<tr><td><code>backoffBaseSeconds</code> <B>[Required]</B><br/>
 <code>int32</code>
 </td>
 <td>
@@ -1931,7 +1931,7 @@ re-queuing an evicted workload.</p>
 <p>Defaults to 60.</p>
 </td>
 </tr>
-<tr><td><code>backoffMaxSeconds</code><br/>
+<tr><td><code>backoffMaxSeconds</code> <B>[Required]</B><br/>
 <code>int32</code>
 </td>
 <td>
