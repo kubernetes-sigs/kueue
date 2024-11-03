@@ -26,11 +26,12 @@ Kjob provides support for executing Slurm scripts by offering several options th
 | Option              | Description |
 |---------------------|-------------|
 | -a, --array         | See [array option](https://slurm.schedmd.com/sbatch.html#OPT_array) for the specification. |
-| --cpus-per-task     | Specifies how many CPUs a container inside a pod requires. |
+| -c, --cpus-per-task | Specifies how many CPUs a container inside a pod requires. |
 | -e, --error         | Specifies where to redirect the standard error stream of a task. If not passed, it proceeds to stdout and is available via `kubectl logs`. |
 | --gpus-per-task     | Specifies how many GPUs a container inside a pod requires. |
 | -i, --input         | Specifies what to pipe into the script. |
 | -J, --job-name=<jobname> | Specifies the job name. |
+| --mem               | Specifies how much memory a pod requires. |
 | --mem-per-cpu       | Specifies how much memory a container requires, multiplying the number of requested CPUs per task by mem-per-cpu. |
 | --mem-per-gpu       | Specifies how much memory a container requires, multiplying the number of requested GPUs per task by mem-per-gpu. |
 | --mem-per-task      | Specifies how much memory a container requires. |
@@ -38,20 +39,42 @@ Kjob provides support for executing Slurm scripts by offering several options th
 | -n, --ntasks        | Specifies the number of identical containers inside of a pod, usually 1. |
 | -o, --output        | Specifies where to redirect the standard output stream of a task. If not passed, it proceeds to stdout and is available via `kubectl logs`. |
 | --partition         | Specifies the local queue name. See [Local Queue](https://kueue.sigs.k8s.io/docs/concepts/local_queue/) for more information. |
+| -D, --chdir         | Change directory before executing the script. |
 | -t, --time          | Set a limit on the total run time of the job. A time limit of zero requests that no time limit be imposed. Acceptable time formats include "minutes", "minutes:seconds", "hours:minutes:seconds", "days-hours", "days-hours:minutes" and "days-hours:minutes:seconds". |
 
 If an unsupported flag is passed in the script, the command will fail with an error unless `--ignore-unknown-flags` is given.
 
-### Supported Environment Variables
+### Supported Input Environment Variables
+
+> NOTE: Environment variables will override any options set in a batch script, and command line 
+> options will override any environment variables.
+
+| Name                  | Description             |
+|-----------------------|-------------------------|
+| $SBATCH_ARRAY_INX     | Same as -a, --array     |
+| $SBATCH_GPUS_PER_TASK | Same as --gpus-per-task |
+| $SBATCH_MEM_PER_NODE  | Same as --mem           |
+| $SBATCH_MEM_PER_CPU   | Same as --mem-per-cpu   |
+| $SBATCH_MEM_PER_GPU   | Same as --mem-per-gpu   |
+| $SBATCH_OUTPUT        | Same as -o, --output    |
+| $SBATCH_ERROR         | Same as -e, --error     |
+| $SBATCH_INPUT         | Same as -i, --input     |
+| $SBATCH_JOB_NAME      | Same as -J, --job-name  |
+| $SBATCH_PARTITION     | Same as -p, --partition |
+| $SBATCH_TIMELIMIT     | Same as -t, --time      |
+
+### Supported Output Environment Variables
 
 | Name                         | Description |
 |------------------------------|-------------|
+| $SLURM_ARRAY_TASK_ID         | Job array ID (index) number. |
 | $SLURM_JOB_ID                | The Job ID. |
 | $SLURM_JOBID                 | Deprecated. Same as $SLURM_JOB_ID. |
 | $SLURM_SUBMIT_DIR            | The path of the job submission directory. |
 | $SLURM_SUBMIT_HOST           | The hostname of the node used for job submission. |
-| $SLURM_JOB_NODELIST          | Contains the definition (list) of the nodes (actually pods) that is assigned to the job. To be supported later. |
-| $SLURM_NODELIST              | Deprecated. Same as $SLURM_JOB_NODELIST. |
+| $SLURM_JOB_NODELIST          | Contains the definition (list) of the nodes (actually pods) that is assigned to the job. |
+| $SLURM_JOB_FIRST_NODE        | First element of  SLURM_JOB_NODELIST. |
+| $SLURM_JOB_FIRST_NODE_IP     | IP of the first element, obtained via nslookup. |
 | $SLURM_CPUS_PER_TASK         | Number of CPUs per task. |
 | $SLURM_CPUS_ON_NODE          | Number of CPUs on the allocated node (actually pod). |
 | $SLURM_JOB_CPUS_PER_NODE     | Count of processors available to the job on this node. |
