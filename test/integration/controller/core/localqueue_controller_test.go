@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.AfterAll(func() {

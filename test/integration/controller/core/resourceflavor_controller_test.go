@@ -34,7 +34,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Ordered, ginkgo.Cont
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.AfterAll(func() {

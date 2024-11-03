@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -475,7 +476,7 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 }
 
 // UpdateRequeueState calculate requeueAt time and update requeuingCount
-func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMaxSeconds int32) {
+func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMaxSeconds int32, clock clock.Clock) {
 	if wl.Status.RequeueState == nil {
 		wl.Status.RequeueState = &kueue.RequeueState{}
 	}
@@ -497,7 +498,7 @@ func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMax
 		waitDuration = min(backoff.Step(), time.Duration(backoffMaxSeconds)*time.Second)
 	}
 
-	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(time.Now().Add(waitDuration)))
+	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(clock.Now().Add(waitDuration)))
 	wl.Status.RequeueState.Count = &requeuingCount
 }
 

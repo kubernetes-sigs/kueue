@@ -30,8 +30,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -40,7 +38,7 @@ import (
 
 // +kubebuilder:docs-gen:collapse=Imports
 
-var _ = ginkgo.FDescribe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns                           *corev1.Namespace
 		updatedQueueWorkload         kueue.Workload
@@ -54,7 +52,7 @@ var _ = ginkgo.FDescribe("Workload controller", ginkgo.Ordered, ginkgo.ContinueO
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
 
 	ginkgo.AfterAll(func() {
@@ -317,50 +315,6 @@ var _ = ginkgo.FDescribe("Workload controller", ginkgo.Ordered, ginkgo.ContinueO
 					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
 					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByDeactivation, 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-		})
-
-		ginkgo.FIt("Should evict workload, reset checks to Pending, and wait for backoff time before requeuing, when a check is set to Retry", func() {
-			wl := testing.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
-			wlKey := client.ObjectKeyFromObject(wl)
-			createdWl := kueue.Workload{}
-			ginkgo.By("creating the workload, the check conditions should be added", func() {
-				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			})
-
-			ginkgo.By("setting quota reservation and the checks to Retry, should evict the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					g.Expect(util.SetQuotaReservation(ctx, k8sClient, &createdWl, testing.MakeAdmission(clusterQueue.Name).Obj())).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:    "check1",
-						State:   kueue.CheckStateRetry,
-						Message: "check retry",
-					})
-					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
-						Name:    "check2",
-						State:   kueue.CheckStateReady,
-						Message: "check ready",
-					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					_, evicted := workload.IsEvictedByAdmissionCheck(&createdWl)
-					g.Expect(evicted).To(gomega.BeTrue())
-					state := workload.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check1")
-					g.Expect(state).NotTo(gomega.BeNil())
-					g.Expect(state.State).To(gomega.Equal(kueue.CheckStatePending))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Setting Requeued to False should change Requeue to True after backoff time", func() {
-
 			})
 		})
 

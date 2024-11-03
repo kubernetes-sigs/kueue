@@ -1493,7 +1493,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				t.Fatalf("Setting up the provisioning request controller: %v", err)
 			}
 
-			gotResult, _ := controller.activeOrLastPRForChecks(ctx, workload, relevantChecks, tc.requests)
+			gotResult := controller.activeOrLastPRForChecks(ctx, workload, relevantChecks, tc.requests)
 			if diff := cmp.Diff(tc.wantResult, gotResult, reqCmpOptions...); diff != "" {
 				t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
 			}
