@@ -40,6 +40,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -311,7 +312,7 @@ func (r *topologyUngater) podsForDomain(ctx context.Context, ns, wlName, psName 
 	if err := r.client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{
 		kueuealpha.PodSetLabel: psName,
 	}, client.MatchingFields{
-		workloadNameKey: wlName,
+		indexer.WorkloadNameKey: wlName,
 	}); err != nil {
 		return nil, err
 	}

@@ -38,6 +38,7 @@ import (
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 )
 
 const (
@@ -875,7 +876,7 @@ func TestReconcile(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
 
