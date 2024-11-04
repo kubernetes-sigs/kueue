@@ -304,8 +304,8 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 
 func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32, prc *kueue.ProvisioningRequestConfig) time.Duration {
 	retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
-	backoffDuration := time.Duration(ptr.Deref(retryStrategy.BackoffBaseSeconds, *kueue.DefaultRetryStrategy.BackoffBaseSeconds)) * time.Second
-	maxBackoffDuration := time.Duration(ptr.Deref(retryStrategy.BackoffMaxSeconds, *kueue.DefaultRetryStrategy.BackoffMaxSeconds)) * time.Second
+	backoffDuration := time.Duration(*retryStrategy.BackoffBaseSeconds) * time.Second
+	maxBackoffDuration := time.Duration(*retryStrategy.BackoffMaxSeconds) * time.Second
 	var cond *metav1.Condition
 	if isFailed(pr) {
 		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
@@ -510,8 +510,9 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 				"bookingExpired", isBookingExpired(pr),
 				"capacityRevoked", isCapacityRevoked(pr))
 			retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
-			backoffBaseSeconds := ptr.Deref(retryStrategy.BackoffBaseSeconds, *kueue.DefaultRetryStrategy.BackoffBaseSeconds)
-			backoffMaxSeconds := ptr.Deref(retryStrategy.BackoffMaxSeconds, *kueue.DefaultRetryStrategy.BackoffMaxSeconds)
+			log.V(2).Info("cd", "PATRKY retryStrat", retryStrategy)
+			backoffBaseSeconds := *retryStrategy.BackoffBaseSeconds
+			backoffMaxSeconds := *retryStrategy.BackoffMaxSeconds
 			switch {
 			case isFailed(pr):
 				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
