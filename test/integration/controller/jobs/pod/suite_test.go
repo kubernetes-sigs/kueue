@@ -73,12 +73,20 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
+func managerSetup(
+	enableScheduler bool,
+	configuration *config.Configuration,
+	opts ...jobframework.Option,
+) framework.ManagerSetup {
 	if configuration == nil {
 		configuration = &config.Configuration{}
 	}
 	if configuration.WaitForPodsReady != nil {
 		opts = append(opts, jobframework.WithWaitForPodsReady(configuration.WaitForPodsReady))
+	}
+	var queueOptions []queue.Option
+	if configuration.Resources != nil && len(configuration.Resources.ExcludeResourcePrefixes) > 0 {
+		queueOptions = append([]queue.Option{}, queue.WithExcludedResourcePrefixes(configuration.Resources.ExcludeResourcePrefixes))
 	}
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -107,43 +115,6 @@ func managerSetup(configuration *config.Configuration, opts ...jobframework.Opti
 		jobframework.EnableIntegration(job.FrameworkName)
 
 		cCache := cache.New(mgr.GetClient())
-		queues := queue.NewManager(mgr.GetClient(), cCache)
-
-		mgr.GetScheme().Default(configuration)
-
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
-
-		err = pod.SetupWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		failedWebhook, err := webhooks.Setup(mgr)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
-	}
-}
-
-func managerAndSchedulerSetup(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
-	if configuration == nil {
-		configuration = &config.Configuration{}
-	}
-	queueOptions := []queue.Option{}
-	if configuration.Resources != nil && len(configuration.Resources.ExcludeResourcePrefixes) > 0 {
-		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(configuration.Resources.ExcludeResourcePrefixes))
-	}
-	return func(ctx context.Context, mgr manager.Manager) {
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		reconciler := pod.NewReconciler(
-			mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
-			opts...)
-		err = reconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		cCache := cache.New(mgr.GetClient())
 		queues := queue.NewManager(mgr.GetClient(), cCache, queueOptions...)
 
 		mgr.GetScheme().Default(configuration)
@@ -153,12 +124,13 @@ func managerAndSchedulerSetup(configuration *config.Configuration, opts ...jobfr
 
 		err = pod.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		failedWebhook, err := webhooks.Setup(mgr)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
-		err = sched.Start(ctx)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if enableScheduler {
+			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+			err := sched.Start(ctx)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	}
 }
