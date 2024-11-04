@@ -108,21 +108,17 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 	snapshot := newTASFlavorSnapshot(log, c.Levels)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
-		ready := false
-		for _, cond := range node.Status.Conditions {
+		if ready := utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady, corev1.ConditionTrue); !ready {
 			// Only healthy and ready to accept pods nodes are considered for scheduling calculation
-			ready = (cond.Type == corev1.NodeReady && cond.Status == corev1.ConditionTrue)
+			log.V(3).Info("Node was excluded from TAS Flavor snapshot", "ready", ready)
+			continue
 		}
-		if ready {
-			levelValues := utiltas.LevelValues(c.Levels, node.Labels)
-			capacity := resources.NewRequests(node.Status.Allocatable)
-			domainID := utiltas.DomainID(levelValues)
-			snapshot.levelValuesPerDomain[domainID] = levelValues
-			snapshot.addCapacity(domainID, capacity)
-			nodeToDomain[node.Name] = domainID
-		} else {
-			log.V(3).Info("Node was excluded from TAS Flavor snapshot", "nodeName", node.Name, "nodeStatusConditions", node.Status.Conditions)
-		}
+		levelValues := utiltas.LevelValues(c.Levels, node.Labels)
+		capacity := resources.NewRequests(node.Status.Allocatable)
+		domainID := utiltas.DomainID(levelValues)
+		snapshot.levelValuesPerDomain[domainID] = levelValues
+		snapshot.addCapacity(domainID, capacity)
+		nodeToDomain[node.Name] = domainID
 	}
 	snapshot.initialize()
 	for domainID, usage := range c.usage {
