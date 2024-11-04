@@ -65,6 +65,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.BeforeAll(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(
+				false,
 				nil,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
@@ -1412,7 +1413,8 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 
 	ginkgo.BeforeAll(func() {
 		configuration := configapi.Configuration{Resources: &configapi.Resources{ExcludeResourcePrefixes: []string{"networking.example.com/"}}}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+		fwk.StartManager(ctx, cfg, managerSetup(
+			true,
 			&configuration,
 			jobframework.WithManageJobsWithoutQueueName(false),
 			jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
@@ -1668,6 +1670,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 			},
 		}
 		fwk.StartManager(ctx, cfg, managerSetup(
+			false,
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
 				PodSelector: &metav1.LabelSelector{},
