@@ -93,7 +93,9 @@ type ProvisioningRequestRetryStrategy struct {
 	// other workloads will have a chance to be admitted.
 	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 	//
+	// Defaults to 3.
 	// +optional
+	// +kubebuilder:default=3
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 
 	// BackoffBaseSeconds defines the base for the exponential backoff for

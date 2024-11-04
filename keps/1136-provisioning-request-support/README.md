@@ -1,24 +1,25 @@
 # KEP-1136: ProvisioningRequest support
 
 <!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-- [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1](#story-1)
-    - [Story 2](#story-2)
-  - [Risks and Mitigations](#risks-and-mitigations)
-    - [BookingExpired condition](#bookingexpired-condition)
-- [Design Details](#design-details)
-  - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
-    - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
-  - [Graduation Criteria](#graduation-criteria)
-- [Implementation History](#implementation-history)
-- [Alternatives](#alternatives)
+- [KEP-1136: ProvisioningRequest support](#kep-1136-provisioningrequest-support)
+	- [Summary](#summary)
+	- [Motivation](#motivation)
+		- [Goals](#goals)
+		- [Non-Goals](#non-goals)
+	- [Proposal](#proposal)
+		- [User Stories (Optional)](#user-stories-optional)
+			- [Story 1](#story-1)
+			- [Story 2](#story-2)
+		- [Risks and Mitigations](#risks-and-mitigations)
+			- [BookingExpired condition](#bookingexpired-condition)
+	- [Design Details](#design-details)
+		- [Test Plan](#test-plan)
+				- [Prerequisite testing updates](#prerequisite-testing-updates)
+			- [Unit Tests](#unit-tests)
+			- [Integration tests](#integration-tests)
+		- [Graduation Criteria](#graduation-criteria)
+	- [Implementation History](#implementation-history)
+	- [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -202,23 +203,25 @@ type ProvisioningRequestRetryStrategy struct {
 	// other workloads will have a chance to be admitted.
 	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 	//
+	// Defaults to 3.
 	// +optional
+	// +kubebuilder:default=3
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 
 	// BackoffBaseSeconds defines the base for the exponential backoff for
 	// re-queuing an evicted workload.
 	//
 	// Defaults to 60.
-	// +required
+	// +optional
 	// +kubebuilder:default=60
-	BackoffBaseSeconds int32 `json:"backoffBaseSeconds"`
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 
 	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
 	// Defaults to 1800.
-	// +required
+	// +optional
 	// +kubebuilder:default=1800
-	BackoffMaxSeconds int32 `json:"backoffMaxSeconds"`
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 ```
 

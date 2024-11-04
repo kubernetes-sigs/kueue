@@ -111,6 +111,7 @@ spec:
                     format: int32
                     type: integer
                   backoffLimitCount:
+                    default: 3
                     description: |-
                       BackoffLimitCount defines the maximum number of re-queuing retries.
                       Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
@@ -123,6 +124,8 @@ spec:
                       During this time, the workload is taken as an inadmissible and
                       other workloads will have a chance to be admitted.
                       By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
+
+                      Defaults to 3.
                     format: int32
                     type: integer
                   backoffMaxSeconds:

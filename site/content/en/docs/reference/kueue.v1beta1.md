@@ -1920,6 +1920,7 @@ During this time, the workload is taken as an inadmissible and
 other workloads will have a chance to be admitted.
 By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</li>
 </ul>
+<p>Defaults to 3.</p>
 </td>
 </tr>
 <tr><td><code>backoffBaseSeconds</code><br/>
