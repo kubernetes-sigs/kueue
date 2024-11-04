@@ -394,7 +394,7 @@ The minimum index value is 0. The maximum index value is 2147483647.`)
 				"Where to redirect std error stream of a task. If not passed it proceeds to stdout, and is available via kubectl logs.")
 			o.SlurmFlagSet.StringVar(&o.Input, inputFlagName, "",
 				"What to pipe into the script.")
-			o.SlurmFlagSet.StringVar(&o.JobName, jobNameFlagName, "",
+			o.SlurmFlagSet.StringVarP(&o.JobName, jobNameFlagName, "J", "",
 				"What is the job name.")
 			o.SlurmFlagSet.StringVar(&o.Partition, partitionFlagName, "",
 				"Local queue name.")
