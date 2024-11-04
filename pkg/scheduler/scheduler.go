@@ -22,7 +22,6 @@ import (
 	"maps"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -351,7 +350,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		}
 	}
 	reportSkippedPreemptions(skippedPreemptions)
-	metrics.AdmissionAttempt(result, time.Since(startTime))
+	metrics.AdmissionAttempt(result, s.clock.Since(startTime))
 	if result != metrics.AdmissionResultSuccess {
 		return wait.SlowDown
 	}
