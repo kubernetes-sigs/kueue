@@ -1119,6 +1119,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 	const (
 		nodeGroupLabel = "node-group"
 		tasBlockLabel  = "cloud.com/topology-block"
+		tasRackLabel   = "cloud.com/topology-rack"
 	)
 
 	var (
@@ -1151,10 +1152,11 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 		nodes = []corev1.Node{
 			{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "b1",
+					Name: "b1r1",
 					Labels: map[string]string{
 						nodeGroupLabel: "tas",
 						tasBlockLabel:  "b1",
+						tasRackLabel:   "r1",
 					},
 				},
 				Status: corev1.NodeStatus{
@@ -1171,7 +1173,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 		}
 
 		topology = testing.MakeTopology("default").Levels([]string{
-			tasBlockLabel,
+			tasBlockLabel, tasRackLabel,
 		}).Obj()
 		gomega.Expect(k8sClient.Create(ctx, topology)).Should(gomega.Succeed())
 
@@ -1221,7 +1223,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 					Parallelism: 1,
 					Completions: 1,
 					PodAnnotations: map[string]string{
-						kueuealpha.PodSetRequiredTopologyAnnotation: tasBlockLabel,
+						kueuealpha.PodSetPreferredTopologyAnnotation: tasRackLabel,
 					},
 					Image: util.E2eTestSleepImage,
 					Args:  []string{"1ms"},
@@ -1230,7 +1232,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 			Request("rj1", "cpu", "100m").
 			Request("rj2", "cpu", "100m").
 			Obj()
-		ginkgo.By("creating a JobSet which requires block", func() {
+		ginkgo.By("creating a JobSet", func() {
 			gomega.Expect(k8sClient.Create(ctx, jobSet)).Should(gomega.Succeed())
 		})
 
@@ -1255,7 +1257,7 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 						Name:  "rj2",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(tasBlockLabel),
+							Preferred: ptr.To(tasRackLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
@@ -1274,14 +1276,14 @@ var _ = ginkgo.Describe("JobSet controller when TopologyAwareScheduling enabled"
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1"}}},
+						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
 					&kueue.TopologyAssignment{
-						Levels:  []string{tasBlockLabel},
-						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1"}}},
+						Levels:  []string{tasBlockLabel, tasRackLabel},
+						Domains: []kueue.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					},
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
