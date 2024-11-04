@@ -19,6 +19,8 @@ package tas
 import (
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
@@ -50,4 +52,13 @@ func Levels(topology *kueuealpha.Topology) []string {
 		result[i] = level.NodeLabel
 	}
 	return result
+}
+
+func IsNodeStatusConditionTrue(conditions []corev1.NodeCondition, conditionType corev1.NodeConditionType, conditionStatus corev1.ConditionStatus) bool {
+	for _, cond := range conditions {
+		if cond.Type == conditionType {
+			return cond.Status == conditionStatus
+		}
+	}
+	return false
 }

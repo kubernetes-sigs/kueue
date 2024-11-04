@@ -34,6 +34,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 
@@ -63,6 +64,8 @@ func TestDefault(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
+		enableTopologyAwareScheduling bool
+
 		initObjects                []client.Object
 		pod                        *corev1.Pod
 		manageJobsWithoutQueueName bool
@@ -285,10 +288,30 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
+		"pod with TAS": {
+			enableTopologyAwareScheduling: true,
+			initObjects:                   []client.Object{defaultNamespace},
+			podSelector:                   &metav1.LabelSelector{},
+			namespaceSelector:             defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueuealpha.PodSetRequiredTopologyAnnotation, "block").
+				Label(constants.ManagedByKueueLabel, "true").
+				Label(kueuealpha.TASLabel, "true").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			builder := utiltesting.NewClientBuilder()
 			builder = builder.WithObjects(tc.initObjects...)
