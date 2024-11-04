@@ -399,6 +399,20 @@ func TestBuilder(t *testing.T) {
 			},
 			wantErr: noPartitionSpecifiedErr,
 		},
+		"shouldn't build job because priority not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.PriorityFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noPrioritySpecifiedErr,
+		},
 		"should build job": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",

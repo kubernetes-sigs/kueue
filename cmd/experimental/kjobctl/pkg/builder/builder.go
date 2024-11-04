@@ -69,6 +69,7 @@ var (
 	noNTasksSpecifiedErr                   = errors.New("no ntasks specified")
 	noOutputSpecifiedErr                   = errors.New("no output specified")
 	noPartitionSpecifiedErr                = errors.New("no partition specified")
+	noPrioritySpecifiedErr                 = errors.New("no priority specified")
 	noTimeSpecifiedErr                     = errors.New("no time specified")
 )
 
@@ -459,6 +460,10 @@ func (b *Builder) validateFlags() error {
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.PartitionFlag) && b.partition == "" {
 		return noPartitionSpecifiedErr
+	}
+
+	if slices.Contains(b.mode.RequiredFlags, v1alpha1.PriorityFlag) && b.priority == "" {
+		return noPrioritySpecifiedErr
 	}
 
 	if slices.Contains(b.mode.RequiredFlags, v1alpha1.TimeFlag) && b.timeLimit == "" {
