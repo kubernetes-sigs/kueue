@@ -22,6 +22,7 @@ import (
 	"maps"
 	"sort"
 	"strings"
+	"testing"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -84,6 +85,7 @@ type Scheduler struct {
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 config.FairSharing
+	clock                       clock.Clock
 }
 
 // Option configures the reconciler.
@@ -106,6 +108,12 @@ func WithFairSharing(fs *config.FairSharing) Option {
 		if fs != nil {
 			o.fairSharing = *fs
 		}
+	}
+}
+
+func WithClock(_ testing.TB, c clock.Clock) Option {
+	return func(o *options) {
+		o.clock = c
 	}
 }
 
