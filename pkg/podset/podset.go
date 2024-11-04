@@ -95,7 +95,7 @@ func FromUpdate(update *kueue.PodSetUpdate) PodSetInfo {
 	}
 }
 
-// FromPodSet returns a PodSeeInfo based on the provided PodSet
+// FromPodSet returns a PodSetInfo based on the provided PodSet
 func FromPodSet(ps *kueue.PodSet) PodSetInfo {
 	return PodSetInfo{
 		Name:            ps.Name,
