@@ -32,13 +32,13 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
-	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 )
 
 const (

@@ -28,10 +28,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 )
 
 func TestFindTopologyAssignment(t *testing.T) {
