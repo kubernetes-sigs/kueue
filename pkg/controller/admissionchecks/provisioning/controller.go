@@ -512,9 +512,6 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 			retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
 			switch {
 			case isFailed(pr):
-				if checkState.State == kueue.CheckStateRejected || checkState.State == kueue.CheckStateRetry {
-					break
-				}
 				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
 					// it is going to be retried
 					message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
@@ -541,24 +538,23 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 					updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
 				}
 			case isBookingExpired(pr):
-				if workload.IsAdmitted(wl) || checkState.State == kueue.CheckStateRejected || checkState.State == kueue.CheckStateRetry {
-					break
-				}
-				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
-					// it is going to be retried
-					message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
-					updated = updateCheckMessage(&checkState, message) || updated
-					if features.Enabled(features.KeepQuotaForProvReqRetry) {
-						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
-					} else if wl.Status.RequeueState == nil || getAttempt(log, pr, wl.Name, check) > ptr.Deref(wl.Status.RequeueState.Count, 0) {
+				if !workload.IsAdmitted(wl) {
+					if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
+						// it is going to be retried
+						message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
+						updated = updateCheckMessage(&checkState, message) || updated
+						if features.Enabled(features.KeepQuotaForProvReqRetry) {
+							updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
+						} else if wl.Status.RequeueState == nil || getAttempt(log, pr, wl.Name, check) > ptr.Deref(wl.Status.RequeueState.Count, 0) {
+							updated = true
+							updateCheckState(&checkState, kueue.CheckStateRetry)
+							workload.UpdateRequeueState(wlPatch, retryStrategy.BackoffBaseSeconds, retryStrategy.BackoffMaxSeconds, c.clock)
+						}
+					} else {
 						updated = true
-						updateCheckState(&checkState, kueue.CheckStateRetry)
-						workload.UpdateRequeueState(wlPatch, retryStrategy.BackoffBaseSeconds, retryStrategy.BackoffMaxSeconds, c.clock)
+						checkState.State = kueue.CheckStateRejected
+						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message
 					}
-				} else {
-					updated = true
-					checkState.State = kueue.CheckStateRejected
-					checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message
 				}
 			case isProvisioned(pr):
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
