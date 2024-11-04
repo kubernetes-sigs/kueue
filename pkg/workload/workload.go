@@ -700,6 +700,9 @@ func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 			return &evictedCond.LastTransitionTime
 		}
 	}
+	if evictedCond, evictedByCheck := IsEvictedByAdmissionCheck(w); evictedByCheck {
+		return &evictedCond.LastTransitionTime
+	}
 	if !features.Enabled(features.PrioritySortingWithinCohort) {
 		if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil &&
 			preemptedCond.Status == metav1.ConditionTrue &&
