@@ -470,11 +470,30 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				Active(false).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmissionCheck",
+						Message: "Admission check(s) were rejected",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmittedByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmissionCheck",
+						Message: "Admission check(s): [check], were rejected",
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -498,24 +517,37 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
-				Active(false).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
-				Conditions(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionTrue,
-					Reason:  "AdmittedByTest",
-					Message: "Admitted by ClusterQueue q1",
-				},
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmittedByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
 					metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
 						Status:  metav1.ConditionTrue,
 						Reason:  "ByTest",
 						Message: "Admitted by ClusterQueue q1",
-					}).
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmissionCheck",
+						Message: "Admission check(s): [check], were rejected",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmissionCheck",
+						Message: "Admission check(s) were rejected",
+					},
+				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{

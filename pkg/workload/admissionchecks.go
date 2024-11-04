@@ -102,9 +102,6 @@ func ResetChecksOnEviction(w *kueue.Workload) {
 func ResetChecksOnDeactivation(w *kueue.Workload) {
 	checks := w.Status.AdmissionChecks
 	for i := range checks {
-		if checks[i].State == kueue.CheckStatePending || checks[i].State == kueue.CheckStateRejected {
-			continue
-		}
 		checks[i] = kueue.AdmissionCheckState{
 			Name:               checks[i].Name,
 			State:              kueue.CheckStatePending,
