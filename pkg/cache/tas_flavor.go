@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -80,7 +81,7 @@ func (c *TASFlavorCache) snapshot(ctx context.Context) (*TASFlavorSnapshot, erro
 	}
 	requiredLabelKeys := client.HasLabels{}
 	requiredLabelKeys = append(requiredLabelKeys, c.Levels...)
-	err := c.client.List(ctx, nodes, requiredLabels, requiredLabelKeys)
+	err := c.client.List(ctx, nodes, requiredLabels, requiredLabelKeys, client.MatchingFields{indexer.ReadyNode: "true"})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes for TAS: %w", err)
 	}
@@ -108,11 +109,6 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 	snapshot := newTASFlavorSnapshot(log, c.Levels)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
-		if ready := utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady, corev1.ConditionTrue); !ready {
-			// Only healthy and ready to accept pods nodes are considered for scheduling calculation
-			log.V(3).Info("Node was excluded from TAS Flavor snapshot", "ready", ready)
-			continue
-		}
 		levelValues := utiltas.LevelValues(c.Levels, node.Labels)
 		capacity := resources.NewRequests(node.Status.Allocatable)
 		domainID := utiltas.DomainID(levelValues)

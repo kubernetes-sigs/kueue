@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 )
 
 func TestFindTopologyAssignment(t *testing.T) {
@@ -1102,6 +1103,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			}
 			clientBuilder := utiltesting.NewClientBuilder()
 			clientBuilder.WithObjects(initialObjects...)
+			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			client := clientBuilder.Build()
 
 			tasCache := NewTASCache(client)
