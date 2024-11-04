@@ -18,9 +18,11 @@ package mpijob
 
 import (
 	"context"
+	"sort"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,6 +36,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+)
+
+var (
+	mpiReplicaSpecsPath = field.NewPath("spec", "mpiReplicaSpecs")
 )
 
 type MpiJobWebhook struct {
@@ -108,7 +114,7 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating create", "mpijob", klog.KObj(mpiJob))
-	return nil, jobframework.ValidateJobOnCreate(mpiJob).ToAggregate()
+	return nil, w.validateCommon(mpiJob).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -118,11 +124,30 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating update", "mpijob", klog.KObj(newMpiJob))
 	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob)
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newMpiJob)...)
+	allErrs = append(allErrs, w.validateCommon(newMpiJob)...)
 	return nil, allErrs.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *MpiJobWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
+}
+
+func (w *MpiJobWebhook) validateCommon(mpiJob *MPIJob) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = jobframework.ValidateJobOnCreate(mpiJob)
+	allErrs = append(allErrs, w.validateTopologyRequest(mpiJob)...)
+	return allErrs
+}
+
+func (w *MpiJobWebhook) validateTopologyRequest(mpiJob *MPIJob) field.ErrorList {
+	var allErrs field.ErrorList
+	for replicaType, replicaSpec := range mpiJob.Spec.MPIReplicaSpecs {
+		replicaMetaPath := mpiReplicaSpecsPath.Key(string(replicaType)).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &replicaSpec.Template.ObjectMeta)...)
+	}
+	sort.Slice(allErrs, func(i, j int) bool {
+		return allErrs[i].Field < allErrs[j].Field
+	})
+	return allErrs
 }
