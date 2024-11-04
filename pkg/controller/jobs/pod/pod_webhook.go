@@ -34,9 +34,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 const (
@@ -181,6 +184,11 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		pod.pod.Labels[ManagedLabelKey] = ManagedLabelValue
 
 		gate(&pod.pod)
+
+		if features.Enabled(features.TopologyAwareScheduling) && jobframework.PodSetTopologyRequest(&pod.pod.ObjectMeta) != nil {
+			pod.pod.Labels[kueuealpha.TASLabel] = "true"
+			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
+		}
 
 		if podGroupName(pod.pod) != "" {
 			if err := pod.addRoleHash(); err != nil {

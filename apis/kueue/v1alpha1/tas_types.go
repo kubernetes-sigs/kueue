@@ -40,7 +40,8 @@ const (
 
 	// TopologySchedulingGate is used to delay scheduling of a Pod until the
 	// nodeSelectors corresponding to the assigned topology domain are injected
-	// into the Pod.
+	// into the Pod. For the Pod-based integrations the gate is added in webhook
+	// during the Pod creation.
 	TopologySchedulingGate = "kueue.x-k8s.io/topology"
 
 	// WorkloadAnnotation is an annotation set on the Job's PodTemplate to
@@ -55,7 +56,8 @@ const (
 
 	// TASLabel is a label set on the Job's PodTemplate to indicate that the
 	// PodSet is admitted using TopologyAwareScheduling, and all Pods created
-	// from the Job's PodTemplate also have the label.
+	// from the Job's PodTemplate also have the label. For the Pod-based
+	// integrations the label is added in webhook during the Pod creation.
 	TASLabel = "kueue.x-k8s.io/tas"
 )
 
