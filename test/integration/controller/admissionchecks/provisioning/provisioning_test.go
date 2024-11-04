@@ -1204,7 +1204,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					},
 					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
 						BackoffLimitCount:  ptr.To(int32(1)),
-						BackoffBaseSeconds: int32(1),
+						BackoffBaseSeconds: ptr.To(int32(1)),
 					},
 				},
 			}
@@ -1573,7 +1573,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 					ProvisioningClassName: "provisioning-class",
 					RetryStrategy: ptr.To(kueue.ProvisioningRequestRetryStrategy{
 						BackoffLimitCount:  ptr.To(int32(1)),
-						BackoffBaseSeconds: 2,
+						BackoffBaseSeconds: ptr.To(int32(2)),
 					}),
 				},
 			}

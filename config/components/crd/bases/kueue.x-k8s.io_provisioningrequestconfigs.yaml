@@ -118,9 +118,6 @@ spec:
                       Defaults to 1800.
                     format: int32
                     type: integer
-                required:
-                - backoffBaseSeconds
-                - backoffMaxSeconds
                 type: object
             required:
             - provisioningClassName

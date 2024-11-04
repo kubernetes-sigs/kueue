@@ -75,8 +75,8 @@ type ProvisioningRequestConfigSpec struct {
 var (
 	DefaultRetryStrategy = ProvisioningRequestRetryStrategy{
 		BackoffLimitCount:  ptr.To(int32(3)),
-		BackoffBaseSeconds: 60,   // 1 min
-		BackoffMaxSeconds:  1800, // 30 min
+		BackoffBaseSeconds: ptr.To(int32(60)),   // 1 min
+		BackoffMaxSeconds:  ptr.To(int32(1800)), // 30 min
 	}
 )
 
@@ -100,16 +100,16 @@ type ProvisioningRequestRetryStrategy struct {
 	// re-queuing an evicted workload.
 	//
 	// Defaults to 60.
-	// +required
+	// +optional
 	// +kubebuilder:default=60
-	BackoffBaseSeconds int32 `json:"backoffBaseSeconds"`
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 
 	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
 	// Defaults to 1800.
-	// +required
+	// +optional
 	// +kubebuilder:default=1800
-	BackoffMaxSeconds int32 `json:"backoffMaxSeconds"`
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 
 // Parameter is limited to 255 characters.

@@ -105,10 +105,10 @@ func provReqConfigWithBaseBackoff(prc *kueue.ProvisioningRequestConfig, baseBack
 	prc = prc.DeepCopy()
 	if prc.Spec.RetryStrategy == nil {
 		retryStrategy := kueue.DefaultRetryStrategy
-		retryStrategy.BackoffBaseSeconds = baseBackoff
+		retryStrategy.BackoffBaseSeconds = &baseBackoff
 		prc.Spec.RetryStrategy = &retryStrategy
 	} else {
-		prc.Spec.RetryStrategy.BackoffBaseSeconds = baseBackoff
+		prc.Spec.RetryStrategy.BackoffBaseSeconds = &baseBackoff
 	}
 	return prc
 }

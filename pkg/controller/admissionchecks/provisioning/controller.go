@@ -304,8 +304,8 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 
 func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32, prc *kueue.ProvisioningRequestConfig) time.Duration {
 	retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
-	backoffDuration := time.Duration(retryStrategy.BackoffBaseSeconds) * time.Second
-	maxBackoffDuration := time.Duration(retryStrategy.BackoffMaxSeconds) * time.Second
+	backoffDuration := time.Duration(ptr.Deref(retryStrategy.BackoffBaseSeconds, *kueue.DefaultRetryStrategy.BackoffBaseSeconds)) * time.Second
+	maxBackoffDuration := time.Duration(ptr.Deref(retryStrategy.BackoffMaxSeconds, *kueue.DefaultRetryStrategy.BackoffMaxSeconds)) * time.Second
 	var cond *metav1.Condition
 	if isFailed(pr) {
 		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
@@ -510,6 +510,8 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 				"bookingExpired", isBookingExpired(pr),
 				"capacityRevoked", isCapacityRevoked(pr))
 			retryStrategy := ptr.Deref(prc.Spec.RetryStrategy, kueue.DefaultRetryStrategy)
+			backoffBaseSeconds := ptr.Deref(retryStrategy.BackoffBaseSeconds, *kueue.DefaultRetryStrategy.BackoffBaseSeconds)
+			backoffMaxSeconds := ptr.Deref(retryStrategy.BackoffMaxSeconds, *kueue.DefaultRetryStrategy.BackoffMaxSeconds)
 			switch {
 			case isFailed(pr):
 				if attempt := getAttempt(log, pr, wl.Name, check); retryStrategy.BackoffLimitCount == nil || attempt <= *retryStrategy.BackoffLimitCount {
@@ -522,7 +524,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 						// We don't want to Retry on old ProvisioningRequests
 						updated = true
 						updateCheckState(&checkState, kueue.CheckStateRetry)
-						workload.UpdateRequeueState(wlPatch, retryStrategy.BackoffBaseSeconds, retryStrategy.BackoffMaxSeconds, c.clock)
+						workload.UpdateRequeueState(wlPatch, backoffBaseSeconds, backoffMaxSeconds, c.clock)
 					}
 				} else {
 					updated = true
@@ -548,7 +550,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wl
 						} else if wl.Status.RequeueState == nil || getAttempt(log, pr, wl.Name, check) > ptr.Deref(wl.Status.RequeueState.Count, 0) {
 							updated = true
 							updateCheckState(&checkState, kueue.CheckStateRetry)
-							workload.UpdateRequeueState(wlPatch, retryStrategy.BackoffBaseSeconds, retryStrategy.BackoffMaxSeconds, c.clock)
+							workload.UpdateRequeueState(wlPatch, backoffBaseSeconds, backoffMaxSeconds, c.clock)
 						}
 					} else {
 						updated = true
