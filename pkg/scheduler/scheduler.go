@@ -93,6 +93,7 @@ type Option func(*options)
 
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
+	clock:                       realClock,
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
