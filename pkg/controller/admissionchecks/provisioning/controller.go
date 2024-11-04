@@ -229,10 +229,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				ac != nil && ac.State == kueue.CheckStatePending {
 				// if the workload is in Retry/Rejected state we don't create another ProvReq
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
-				if !features.Enabled(features.KeepQuotaForProvReqRetry) {
-					shouldCreatePr = true
-					attempt += 1
-				} else {
+				if features.Enabled(features.KeepQuotaForProvReqRetry) {
 					remainingTime := c.remainingTimeToRetry(oldPr, attempt, prc)
 					if remainingTime <= 0 {
 						shouldCreatePr = true
@@ -240,6 +237,9 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 					} else if requeAfter == nil || remainingTime < *requeAfter {
 						requeAfter = &remainingTime
 					}
+				} else {
+					shouldCreatePr = true
+					attempt += 1
 				}
 			}
 		} else {
