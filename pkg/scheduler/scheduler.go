@@ -132,10 +132,10 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, realClock),
+		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, options.clock),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
-		clock:                   realClock,
+		clock:                   options.clock,
 	}
 	s.applyAdmission = s.applyAdmissionWithSSA
 	return s
