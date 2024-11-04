@@ -62,6 +62,17 @@ Used on: [Plain Pods](/docs/tasks/run/plain_pods/).
 The label key that indicates which pods are managed by Kueuue.
 
 
+### kueue.x-k8s.io/max-exec-time-seconds
+
+Type: Label
+
+Example: `kueue.x-k8s.io/max-exec-time-seconds: "120"`
+
+Used on: Kueue-managed Jobs.
+
+The value of this label is passed in the Job's Workload `spec.maximumExecutionTimeSeconds` and used by the [Maximum execution time](/docs/concepts/workload/#maximum-execution-time) feature.
+
+
 ### kueue.x-k8s.io/multikueue-origin
 
 Type: Label
