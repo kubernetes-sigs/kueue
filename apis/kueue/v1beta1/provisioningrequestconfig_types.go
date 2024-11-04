@@ -100,16 +100,16 @@ type ProvisioningRequestRetryStrategy struct {
 	// re-queuing an evicted workload.
 	//
 	// Defaults to 60.
-	// +optional
+	// +required
 	// +kubebuilder:default=60
-	BackoffBaseSeconds int32 `json:"backoffBaseSeconds,omitempty"`
+	BackoffBaseSeconds int32 `json:"backoffBaseSeconds"`
 
 	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
 	// Defaults to 1800.
-	// +optional
+	// +required
 	// +kubebuilder:default=1800
-	BackoffMaxSeconds int32 `json:"backoffMaxSeconds,omitempty"`
+	BackoffMaxSeconds int32 `json:"backoffMaxSeconds"`
 }
 
 // Parameter is limited to 255 characters.
