@@ -186,9 +186,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		gate(&pod.pod)
 
 		if features.Enabled(features.TopologyAwareScheduling) && jobframework.PodSetTopologyRequest(&pod.pod.ObjectMeta) != nil {
-			// The label is added during the creation of pods that request TAS.
 			pod.pod.Labels[kueuealpha.TASLabel] = "true"
-			// The scheduling gate is added during the creation of pods that request TAS.
 			utilpod.Gate(&pod.pod, kueuealpha.TopologySchedulingGate)
 		}
 
