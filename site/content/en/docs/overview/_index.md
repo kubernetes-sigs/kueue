@@ -40,7 +40,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 | Feature                                                                                                         | Batch&nbsp;Job | JobSet | MXJob | PaddleJob | PytorchJob | TFJob | XGBoostJob | MPIJob | Pod | RayCluster | RayJob |
 |-----------------------------------------------------------------------------------------------------------------|----------------|--------|-------|-----------|------------|-------|------------|--------|-----|------------|--------|
 | [Dynamic Reclaim](/docs/concepts/workload/#dynamic-reclaim)                                                     | +              | +      |       |           |            |       |            |        | +   |            |        |
-| [MultiKueue](/docs/concepts/multikueue/)                                                                        | +              | +      |       | +         | +          | +     | +          |        |     |            |        |
+| [MultiKueue](/docs/concepts/multikueue/)                                                                        | +              | +      |       | +         | +          | +     | +          | +      |     |            |        |
 | [MultiKueueBatchJobWithManagedBy](/docs/concepts/multikueue/#multikueuebatchjobwithmanagedby-enabled)           | +              |        |       |           |            |       |            |        |     |            |        |
 | [PartialAdmission](/docs/tasks/run/jobs/#partial-admission)                                                     | +              |        |       |           |            |       |            |        |     |            |        |
 | [Workload Priority Class](/docs/concepts/workload_priority_class/)                                              | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
@@ -52,6 +52,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 | [LendingLimit](/docs/concepts/cluster_queue/#lendinglimit)                                                      | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
 | [All-or-nothing with ready Pods](/docs/concepts/workload/#all-or-nothing-semantics-for-job-resource-assignment) | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
 | [Fair Sharing](/docs/concepts/preemption/#fair-sharing)                                                         | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
+| [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling)                                           | +              | +      | +     | +         | +          | +     | +          | +      | +   | +          | +      |
 
 ## High-level Kueue operation
 
