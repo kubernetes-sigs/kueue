@@ -203,7 +203,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			wl.Status.RequeueState = nil
 			updated = true
 		}
-		updated = updated || workload.ResetChecksOnDeactivation(&wl)
+		updated = workload.ResetChecksOnDeactivation(&wl) || updated
 		if updated {
 			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
