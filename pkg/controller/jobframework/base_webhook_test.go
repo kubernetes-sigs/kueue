@@ -44,7 +44,7 @@ type testGenericJob struct {
 }
 
 var _ jobframework.GenericJob = (*testGenericJob)(nil)
-var _ jobframework.JobWithValidation = (*testGenericJob)(nil)
+var _ jobframework.JobWithCustomValidation = (*testGenericJob)(nil)
 
 func (t *testGenericJob) Object() client.Object {
 	return t.Job

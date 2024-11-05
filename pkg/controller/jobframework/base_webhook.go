@@ -67,7 +67,7 @@ func (w *BaseWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (a
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Validating create", "job", klog.KObj(job.Object()))
 	allErrs := ValidateJobOnCreate(job)
-	if jobWithValidation, ok := job.(JobWithValidation); ok {
+	if jobWithValidation, ok := job.(JobWithCustomValidation); ok {
 		allErrs = append(allErrs, jobWithValidation.ValidateOnCreate()...)
 	}
 	return nil, allErrs.ToAggregate()
@@ -80,7 +80,7 @@ func (w *BaseWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Validating update", "job", klog.KObj(newJob.Object()))
 	allErrs := ValidateJobOnUpdate(oldJob, newJob)
-	if jobWithValidation, ok := newJob.(JobWithValidation); ok {
+	if jobWithValidation, ok := newJob.(JobWithCustomValidation); ok {
 		allErrs = append(allErrs, jobWithValidation.ValidateOnUpdate(oldJob)...)
 	}
 	return nil, allErrs.ToAggregate()
