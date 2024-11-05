@@ -31,6 +31,8 @@ type KFJobControl interface {
 	RunPolicy() *kftraining.RunPolicy
 	// ReplicaSpecs returns the ReplicaSpecs for the KFJob.
 	ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.ReplicaSpec
+	// ReplicaSpecsFieldName returns the field name of the ReplicaSpecs.
+	ReplicaSpecsFieldName() string
 	// JobStatus returns the JobStatus for the KFJob.
 	JobStatus() *kftraining.JobStatus
 	// OrderedReplicaTypes returns the ordered list of ReplicaTypes for the KFJob.

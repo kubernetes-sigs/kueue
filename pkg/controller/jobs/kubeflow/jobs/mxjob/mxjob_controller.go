@@ -109,6 +109,10 @@ func (j *JobControl) ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.Repli
 	return j.Spec.MXReplicaSpecs
 }
 
+func (j *JobControl) ReplicaSpecsFieldName() string {
+	return "mxReplicaSpecs"
+}
+
 func (j *JobControl) JobStatus() *kftraining.JobStatus {
 	return &j.Status
 }

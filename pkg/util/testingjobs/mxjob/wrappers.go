@@ -138,6 +138,15 @@ func (j *MXJobWrapper) Annotations(annotations map[string]string) *MXJobWrapper 
 	return j
 }
 
+// PodAnnotation sets annotation at the pod template level
+func (j *MXJobWrapper) PodAnnotation(replicaType kftraining.ReplicaType, k, v string) *MXJobWrapper {
+	if j.Spec.MXReplicaSpecs[replicaType].Template.Annotations == nil {
+		j.Spec.MXReplicaSpecs[replicaType].Template.Annotations = make(map[string]string)
+	}
+	j.Spec.MXReplicaSpecs[replicaType].Template.Annotations[k] = v
+	return j
+}
+
 // Request adds a resource request to the default container.
 func (j *MXJobWrapper) Request(replicaType kftraining.ReplicaType, r corev1.ResourceName, v string) *MXJobWrapper {
 	j.Spec.MXReplicaSpecs[replicaType].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)

@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -105,6 +106,15 @@ type JobWithSkip interface {
 type JobWithPriorityClass interface {
 	// PriorityClass returns the job's priority class name.
 	PriorityClass() string
+}
+
+// JobWithValidation optional interface that allows custom webhook validation
+// for Jobs that use BaseWebhook.
+type JobWithValidation interface {
+	// ValidateOnCreate returns list of webhook create validation errors.
+	ValidateOnCreate() field.ErrorList
+	// ValidateOnUpdate returns list of webhook update validation errors.
+	ValidateOnUpdate(oldJob GenericJob) field.ErrorList
 }
 
 // ComposableJob interface should be implemented by generic jobs that

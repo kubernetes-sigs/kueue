@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -67,11 +66,11 @@ func (w *BaseWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (a
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Validating create", "job", klog.KObj(job.Object()))
-	return nil, validateCreate(job).ToAggregate()
-}
-
-func validateCreate(job GenericJob) field.ErrorList {
-	return ValidateJobOnCreate(job)
+	allErrs := ValidateJobOnCreate(job)
+	if jobWithValidation, ok := job.(JobWithValidation); ok {
+		allErrs = append(allErrs, jobWithValidation.ValidateOnCreate()...)
+	}
+	return nil, allErrs.ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -81,6 +80,9 @@ func (w *BaseWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Validating update", "job", klog.KObj(newJob.Object()))
 	allErrs := ValidateJobOnUpdate(oldJob, newJob)
+	if jobWithValidation, ok := newJob.(JobWithValidation); ok {
+		allErrs = append(allErrs, jobWithValidation.ValidateOnUpdate(oldJob)...)
+	}
 	return nil, allErrs.ToAggregate()
 }
 
