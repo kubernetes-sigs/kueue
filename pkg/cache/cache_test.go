@@ -2844,6 +2844,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 func TestWaitForPodsReadyCancelled(t *testing.T) {
 	cache := New(utiltesting.NewFakeClient(), WithPodsReadyTracking(true))
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	log := ctrl.LoggerFrom(ctx)
 
 	go cache.CleanUpOnContext(ctx)

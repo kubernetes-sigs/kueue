@@ -271,6 +271,7 @@ func TestClusterQueueToActive(t *testing.T) {
 	wgCounterEnd.Add(1)
 	condRec := make(chan struct{})
 	counterCtx, counterCancel := context.WithCancel(ctx)
+	defer counterCancel()
 	go func() {
 		manager.cond.L.Lock()
 		defer manager.cond.L.Unlock()
