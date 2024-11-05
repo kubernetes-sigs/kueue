@@ -50,8 +50,8 @@ The following table lists the configurable parameters of the kueue chart and the
 | `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
 | `enableVisibilityAPF`                                  | enable APF for the visibility API                      | `false`                                     |
 | `controllerManager.kubeRbacProxy.image`                | controllerManager.kubeRbacProxy's image                | `gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0` |
-| `controllerManager.manager.image`                      | controllerManager.manager's image                      | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue` |
-| `controllerManager.manager.tag`                        | controllerManager.manager's tag                        | `main`                                      |
+| `controllerManager.manager.image.repository`           | controllerManager.manager's repository and image       | `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue` |
+| `controllerManager.manager.image.tag`                  | controllerManager.manager's tag                        | `main`                                      |
 | `controllerManager.manager.resources`                  | controllerManager.manager's resources                  | abbr.                                       |
 | `controllerManager.replicas`                           | ControllerManager's replicaCount                       | `1`                                         |
 | `controllerManager.imagePullSecrets`                   | ControllerManager's imagePullSecrets                   | `[]`                                        |
