@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 
 			if errorType == isInvalid {
 				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError), "error: %v", err)
+				gomega.Expect(err).Should(testing.BeInvalidError())
 			} else {
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			}

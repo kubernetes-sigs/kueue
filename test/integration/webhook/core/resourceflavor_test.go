@@ -19,7 +19,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -100,7 +99,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		err := k8sClient.Create(ctx, resourceFlavor)
 		if isInvalid {
 			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(errors.IsInvalid(err)).To(gomega.BeTrue(), "error: %v", err)
+			gomega.Expect(err).Should(testing.BeInvalidError())
 		} else {
 			gomega.Expect(err).To(gomega.Succeed())
 			defer func() {
@@ -141,7 +140,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 			ginkgo.By("Updating the resourceFlavor with invalid labels")
 			err := k8sClient.Update(ctx, &created)
 			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError))
+			gomega.Expect(err).Should(testing.BeInvalidError())
 		})
 	})
 
@@ -155,10 +154,10 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		switch errorType {
 		case isForbidden:
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeAPIError(testing.ForbiddenError), "error: %v", err)
+			gomega.Expect(err).Should(testing.BeForbiddenError())
 		case isInvalid:
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError), "error: %v", err)
+			gomega.Expect(err).Should(testing.BeInvalidError())
 		default:
 			gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 		}
