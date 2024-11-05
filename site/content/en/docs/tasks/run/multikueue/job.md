@@ -11,25 +11,30 @@ description: >
 
 Check the [MultiKueue installation guide](/docs/tasks/manage/setup_multikueue) on how to properly setup MultiKueue clusters.
 
-For the ease of setup and use we recommend using at least Kueue v0.8.1.
+For the ease of setup and use we recommend using at least Kueue v0.8.1 and Kubernetes v1.30.0.
 
 ## Run Kubernetes Job example
 
 Once the setup is complete you can test it by running the [`job-sample.yaml`](/docs/tasks/run/jobs/#1-define-the-job) Job. 
 
+The recommended way of running MultiKueue depends on the configuration of the `JobManagedBy` feature gate in your cluster. 
 
-## ManagedBy
+NOTE: The `JobManagedBy` feature gate is disabled in 1.30 and 1.31 by default, and will be enabled in 1.32 by default.
 
-The batch/Job can work in two different ways depending on the state of `MultiKueueBatchJobWithManagedBy` feature gate.
+## Cluster with JobManagedBy enabled
 
-When `MultiKueueBatchJobWithManagedBy` is disabled, the management cluster keeps the status of the Job `Pending` during the remote job execution.
-The sync happens only when the remote workload is marked as `Finished`.
+When `JobManagedBy` is enabled in your cluster we recommend configuring Kueue to enable the `MultiKueueBatchJobWithManagedBy` feature gate. 
 
-When `MultiKueueBatchJobWithManagedBy` is enabled, Kueue defaults the `spec.managedBy` field to `kueue.x-k8s.io/multikueue`.
-This allows the Jobs Controller to ignore the Jobs managed by MultiKueue on the management cluster, while 
-the status of the Job is synchronized during the remote job execution.
+When `MultiKueueBatchJobWithManagedBy` is enabled Kueue defaults the `spec.managedBy` field to `kueue.x-k8s.io/multikueue`. This allows to disable processing of the Job by the built-in controller, and allows MultiKueue
+to send live updates reflecting the status of the mirror Job on the worker.
 
-{{% alert title="Note" color="primary" %}}
-Note: The MultiKueue admission check controller will `Reject` the workload that does not have the `spec.managedBy` field set to `kueue.x-k8s.io/multikueue`, causing it to be marked as `Finished` with an error indicating the cause.
+## Cluster with JobManagedBy disabled
 
-{{% /alert %}}
+When `JobManagedBy` is disabled in your cluster you should make sure `MultiKueueBatchJobWithManagedBy` 
+is also disabled in Kueue. 
+
+This is important so that MultiKueue does not conflict with the build-in Job controller
+on the management cluster. 
+
+Note that Kueue will not perform live updates of the mirror Job from a worker 
+cluster.
