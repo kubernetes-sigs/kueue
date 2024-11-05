@@ -95,7 +95,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						"p2": "v2",
 					},
 					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount: ptr.To(int32(0)),
+						BackoffLimitCount: ptr.To[int32](0),
 					},
 				},
 			}
@@ -959,7 +959,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						"p2": "v2",
 					},
 					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount: ptr.To(int32(0)),
+						BackoffLimitCount: ptr.To[int32](0),
 					},
 				},
 			}
@@ -1203,8 +1203,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						"p2": "v2",
 					},
 					RetryStrategy: &kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount:  ptr.To(int32(1)),
-						BackoffBaseSeconds: ptr.To(int32(1)),
+						BackoffLimitCount:  ptr.To[int32](1),
+						BackoffBaseSeconds: ptr.To[int32](1),
 					},
 				},
 			}
@@ -1572,8 +1572,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				Spec: kueue.ProvisioningRequestConfigSpec{
 					ProvisioningClassName: "provisioning-class",
 					RetryStrategy: ptr.To(kueue.ProvisioningRequestRetryStrategy{
-						BackoffLimitCount:  ptr.To(int32(1)),
-						BackoffBaseSeconds: ptr.To(int32(2)),
+						BackoffLimitCount:  ptr.To[int32](1),
+						BackoffBaseSeconds: ptr.To[int32](2),
 					}),
 				},
 			}

@@ -181,18 +181,23 @@ type ProvisioningRequestConfigSpec struct {
 	// +kubebuilder:validation:MaxItems=100
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
 
-	// retryStrategy defines strategy for retrying ProvisioningRequest
-	// if nil then default configuration will be applied
-	// to switch off retry mechanism completely, set retryStrategy.backoffLimitCount to 0.
+	// retryStrategy defines strategy for retrying ProvisioningRequest.
+	// If null, then the default configuration is applied with the following parameter values:
+	// backoffLimitCount:  3
+	// backoffBaseSeconds: 60 - 1 min
+	// backoffMaxSeconds:  1800 - 30 mins
+	//
+	// To switch off retry mechanism
+	// set retryStrategy.backoffLimitCount to 0.
 	//
 	// +optional
-	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy, omitempty"`
+	// +kubebuilder:default={backoffLimitCount:3,backoffBaseSeconds:60,backoffMaxSeconds:1800}
+	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
 	// BackoffLimitCount defines the maximum number of re-queuing retries.
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
-	// When it is null, the workloads will repeatedly and endless re-queueing.
 	//
 	// Every backoff duration is about "b*2^(n-1)+Rand" where:
 	// - "b" represents the base set by "BackoffBaseSeconds" parameter,

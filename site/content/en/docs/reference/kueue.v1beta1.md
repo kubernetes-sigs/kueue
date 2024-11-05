@@ -1880,9 +1880,9 @@ the workload is considered ready.</p>
 <td>
    <p>retryStrategy defines strategy for retrying ProvisioningRequest.
 If null, then the default configuration is applied with the following parameter values:
-BackoffLimitCount:  3
-BackoffBaseSeconds: 60 - 1 min
-BackoffMaxSeconds:  1800 - 30 mins</p>
+backoffLimitCount:  3
+backoffBaseSeconds: 60 - 1 min
+backoffMaxSeconds:  1800 - 30 mins</p>
 <p>To switch off retry mechanism
 set retryStrategy.backoffLimitCount to 0.</p>
 </td>
@@ -1909,8 +1909,7 @@ set retryStrategy.backoffLimitCount to 0.</p>
 </td>
 <td>
    <p>BackoffLimitCount defines the maximum number of re-queuing retries.
-Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).
-When it is null, the workloads will repeatedly and endless re-queueing.</p>
+Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).</p>
 <p>Every backoff duration is about &quot;b*2^(n-1)+Rand&quot; where:</p>
 <ul>
 <li>&quot;b&quot; represents the base set by &quot;BackoffBaseSeconds&quot; parameter,</li>

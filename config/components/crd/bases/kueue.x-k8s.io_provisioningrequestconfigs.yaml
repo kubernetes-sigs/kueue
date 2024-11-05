@@ -76,12 +76,16 @@ spec:
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
               retryStrategy:
+                default:
+                  backoffBaseSeconds: 60
+                  backoffLimitCount: 3
+                  backoffMaxSeconds: 1800
                 description: |-
                   retryStrategy defines strategy for retrying ProvisioningRequest.
                   If null, then the default configuration is applied with the following parameter values:
-                  BackoffLimitCount:  3
-                  BackoffBaseSeconds: 60 - 1 min
-                  BackoffMaxSeconds:  1800 - 30 mins
+                  backoffLimitCount:  3
+                  backoffBaseSeconds: 60 - 1 min
+                  backoffMaxSeconds:  1800 - 30 mins
 
                   To switch off retry mechanism
                   set retryStrategy.backoffLimitCount to 0.
@@ -100,7 +104,6 @@ spec:
                     description: |-
                       BackoffLimitCount defines the maximum number of re-queuing retries.
                       Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
-                      When it is null, the workloads will repeatedly and endless re-queueing.
 
                       Every backoff duration is about "b*2^(n-1)+Rand" where:
                       - "b" represents the base set by "BackoffBaseSeconds" parameter,

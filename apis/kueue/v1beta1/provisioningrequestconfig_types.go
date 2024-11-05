@@ -19,7 +19,6 @@ package v1beta1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -61,29 +60,21 @@ type ProvisioningRequestConfigSpec struct {
 
 	// retryStrategy defines strategy for retrying ProvisioningRequest.
 	// If null, then the default configuration is applied with the following parameter values:
-	// BackoffLimitCount:  3
-	// BackoffBaseSeconds: 60 - 1 min
-	// BackoffMaxSeconds:  1800 - 30 mins
+	// backoffLimitCount:  3
+	// backoffBaseSeconds: 60 - 1 min
+	// backoffMaxSeconds:  1800 - 30 mins
 	//
 	// To switch off retry mechanism
 	// set retryStrategy.backoffLimitCount to 0.
 	//
 	// +optional
+	// +kubebuilder:default={backoffLimitCount:3,backoffBaseSeconds:60,backoffMaxSeconds:1800}
 	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
 }
-
-var (
-	DefaultRetryStrategy = ProvisioningRequestRetryStrategy{
-		BackoffLimitCount:  ptr.To(int32(3)),
-		BackoffBaseSeconds: ptr.To(int32(60)),   // 1 min
-		BackoffMaxSeconds:  ptr.To(int32(1800)), // 30 min
-	}
-)
 
 type ProvisioningRequestRetryStrategy struct {
 	// BackoffLimitCount defines the maximum number of re-queuing retries.
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
-	// When it is null, the workloads will repeatedly and endless re-queueing.
 	//
 	// Every backoff duration is about "b*2^(n-1)+Rand" where:
 	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
