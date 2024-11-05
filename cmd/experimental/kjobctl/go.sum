@@ -38,8 +38,8 @@ github.com/exponent-io/jsonpath v0.0.0-20151013193312-d6023ce2651d h1:105gxyaGwC
 github.com/exponent-io/jsonpath v0.0.0-20151013193312-d6023ce2651d/go.mod h1:ZZMPRZwes7CROmyNKgQzC3XPs6L/G2EJLHddWejkmf4=
 github.com/fatih/camelcase v1.0.0 h1:hxNvNX/xYBp0ovncs8WyWZrOrpBNub/JfaMvbURyft8=
 github.com/fatih/camelcase v1.0.0/go.mod h1:yN2Sb0lFhZJUdVvtELVWefmrXpuZESvPmqwoZc+/fpc=
-github.com/fsnotify/fsnotify v1.7.0 h1:8JEhPFa5W2WU7YfeZzPNqzMP6Lwt7L2715Ggo0nosvA=
-github.com/fsnotify/fsnotify v1.7.0/go.mod h1:40Bi/Hjc2AVfZrqy+aj+yEI+/bRxZnMJyTJwOpGvigM=
+github.com/fsnotify/fsnotify v1.8.0 h1:dAwr6QBTBZIkG8roQaJjGof0pp0EeF+tNV7YBP3F/8M=
+github.com/fsnotify/fsnotify v1.8.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/fxamacker/cbor/v2 v2.7.0 h1:iM5WgngdRBanHcxugY4JySA0nk1wZorNOpTgCMedv5E=
 github.com/fxamacker/cbor/v2 v2.7.0/go.mod h1:pxXPTn3joSm21Gbwsv0w9OSA2y1HFR9qXEeXQVeNoDQ=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
@@ -316,8 +316,8 @@ sigs.k8s.io/controller-runtime v0.19.1 h1:Son+Q40+Be3QWb+niBXAg2vFiYWolDjjRfO8hn
 sigs.k8s.io/controller-runtime v0.19.1/go.mod h1:iRmWllt8IlaLjvTTDLhRBXIEtkCK6hwVBJJsYS9Ajf4=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd h1:EDPBXCAspyGV4jQlpZSudPeMmr1bNJefnuqLsRAsHZo=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd/go.mod h1:B8JuhiUyNFVKdsE8h686QcCxMaH6HrOAZj4vswFpcB0=
-sigs.k8s.io/kueue v0.9.0-rc.1.0.20241025140252-9bd0fccfb464 h1:uUjcarzMzpLa+/D2b6dUzqR9DxvaPaXbIh5AFKEkHCE=
-sigs.k8s.io/kueue v0.9.0-rc.1.0.20241025140252-9bd0fccfb464/go.mod h1:UIxhCljX7R0VIHbsGqd4KRkL16w5xTUkFTnTEDRm2MY=
+sigs.k8s.io/kueue v0.9.0 h1:vcbCv6AaF3wekC83djaa/9Z7cRaW05TNausgZ9u17Jg=
+sigs.k8s.io/kueue v0.9.0/go.mod h1:9t5SwZ0XH/xK0+XSuLea4stzCC/PIja5JpFZzip2/Oo=
 sigs.k8s.io/kustomize/api v0.17.3 h1:6GCuHSsxq7fN5yhF2XrC+AAr8gxQwhexgHflOAD/JJU=
 sigs.k8s.io/kustomize/api v0.17.3/go.mod h1:TuDH4mdx7jTfK61SQ/j1QZM/QWR+5rmEiNjvYlhzFhc=
 sigs.k8s.io/kustomize/kyaml v0.17.2 h1:+AzvoJUY0kq4QAhH/ydPHHMRLijtUKiyVyh7fOSshr0=

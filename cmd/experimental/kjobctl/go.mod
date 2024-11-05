@@ -1,6 +1,6 @@
 module sigs.k8s.io/kueue/cmd/experimental/kjobctl
 
-go 1.23
+go 1.23.0
 
 require (
 	github.com/google/go-cmp v0.6.0
@@ -18,7 +18,7 @@ require (
 	k8s.io/kubectl v0.31.2
 	k8s.io/utils v0.0.0-20240902221715-702e33fdd3c3
 	sigs.k8s.io/controller-runtime v0.19.1
-	sigs.k8s.io/kueue v0.9.0-rc.1.0.20241025140252-9bd0fccfb464
+	sigs.k8s.io/kueue v0.9.0
 )
 
 require (
@@ -33,7 +33,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.0 // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20151013193312-d6023ce2651d // indirect
 	github.com/fatih/camelcase v1.0.0 // indirect
-	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-errors/errors v1.4.2 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
