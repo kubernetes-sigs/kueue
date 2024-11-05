@@ -111,8 +111,7 @@ func TestCreateOptions_Complete(t *testing.T) {
 }
 
 type createCmdTestCase struct {
-	beforeTest     func(tc *createCmdTestCase) error
-	afterTest      func(tc *createCmdTestCase) error
+	beforeTest     func(t *testing.T, tc *createCmdTestCase)
 	tempFile       string
 	ns             string
 	args           func(tc *createCmdTestCase) []string
@@ -127,24 +126,23 @@ type createCmdTestCase struct {
 	wantErr        string
 }
 
-func beforeSlurmTest(tc *createCmdTestCase) error {
+func beforeSlurmTest(t *testing.T, tc *createCmdTestCase) {
 	file, err := os.CreateTemp("", "slurm")
 	if err != nil {
-		return err
+		t.Fatal(err)
 	}
 	defer file.Close()
+	t.Cleanup(func() {
+		if err := os.Remove(tc.tempFile); err != nil {
+			t.Fatal(err)
+		}
+	})
 
 	if _, err := file.WriteString("#!/bin/bash\nsleep 300'"); err != nil {
-		return err
+		t.Fatal(err)
 	}
 
 	tc.tempFile = file.Name()
-
-	return nil
-}
-
-func afterSlurmTest(tc *createCmdTestCase) error {
-	return os.Remove(tc.tempFile)
 }
 
 func TestCreateCmd(t *testing.T) {
@@ -893,7 +891,6 @@ func TestCreateCmd(t *testing.T) {
 		},
 		"should create slurm": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{"slurm", "--profile", "profile", "--", tc.tempFile}
 			},
@@ -1087,7 +1084,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 		},
 		"should create slurm with flags": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1355,7 +1351,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"should create slurm with --ntasks flag": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1418,7 +1413,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"should divide --mem exactly across containers": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1488,7 +1482,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"should handle non-exact --mem division across containers": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1558,7 +1551,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"should create slurm with --mem-per-cpu flag": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1631,7 +1623,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"shouldn't create slurm with --mem-per-cpu flag because --cpus-per-task flag not specified": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1654,7 +1645,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"should create slurm with --priority flag": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1718,7 +1708,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"should create slurm with --mem-per-gpu flag": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1793,7 +1782,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"shouldn't create slurm with --mem-per-gpu flag because --gpus-per-task flag not specified": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1816,7 +1804,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"should create slurm with --priority flag and skip workload priority class validation": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1875,7 +1862,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"should create slurm with --time flag": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -1933,7 +1919,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 		},
 		"should create slurm with -t flag": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			args: func(tc *createCmdTestCase) []string {
 				return []string{
 					"slurm",
@@ -2013,18 +1998,7 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			if tc.beforeTest != nil {
-				if err := tc.beforeTest(&tc); err != nil {
-					t.Error(err)
-					return
-				}
-			}
-
-			if tc.afterTest != nil {
-				defer func() {
-					if err := tc.afterTest(&tc); err != nil {
-						t.Error(err)
-					}
-				}()
+				tc.beforeTest(t, &tc)
 			}
 
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
