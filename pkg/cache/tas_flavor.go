@@ -53,6 +53,9 @@ type TASFlavorCache struct {
 
 	client client.Client
 
+	// topologyName indicates the name of the topology specified in the
+	// ResourceFlavor spec.topologyName field.
+	topologyName string
 	// nodeLabels is a map of nodeLabels defined in the ResourceFlavor object.
 	NodeLabels map[string]string
 	// levels is a list of levels defined in the Topology object referenced
@@ -63,12 +66,13 @@ type TASFlavorCache struct {
 	usage map[utiltas.TopologyDomainID]resources.Requests
 }
 
-func (t *TASCache) NewTASFlavorCache(labels []string, nodeLabels map[string]string) *TASFlavorCache {
+func (t *TASCache) NewTASFlavorCache(topologyName string, labels []string, nodeLabels map[string]string) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:     t.client,
-		Levels:     slices.Clone(labels),
-		NodeLabels: maps.Clone(nodeLabels),
-		usage:      make(map[utiltas.TopologyDomainID]resources.Requests),
+		client:       t.client,
+		topologyName: topologyName,
+		Levels:       slices.Clone(labels),
+		NodeLabels:   maps.Clone(nodeLabels),
+		usage:        make(map[utiltas.TopologyDomainID]resources.Requests),
 	}
 }
 
@@ -106,7 +110,7 @@ func (c *TASFlavorCache) snapshotForNodes(log logr.Logger, nodes []corev1.Node, 
 
 	log.V(3).Info("Constructing TAS snapshot", "nodeLabels", c.NodeLabels,
 		"levels", c.Levels, "nodeCount", len(nodes), "podCount", len(pods))
-	snapshot := newTASFlavorSnapshot(log, c.Levels)
+	snapshot := newTASFlavorSnapshot(log, c.topologyName, c.Levels)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		levelValues := utiltas.LevelValues(c.Levels, node.Labels)

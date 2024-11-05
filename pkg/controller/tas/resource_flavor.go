@@ -154,7 +154,7 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 				return reconcile.Result{}, err
 			}
 			levels := utiltas.Levels(&topology)
-			tasInfo := r.tasCache.NewTASFlavorCache(levels, flv.Spec.NodeLabels)
+			tasInfo := r.tasCache.NewTASFlavorCache(topology.Name, levels, flv.Spec.NodeLabels)
 			r.tasCache.Set(kueue.ResourceFlavorReference(flv.Name), tasInfo)
 		}
 

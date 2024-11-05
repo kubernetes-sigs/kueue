@@ -463,7 +463,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      4,
-			wantReason: "topology domain(s) allow to fit only 3 out of 4 pods",
+			wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)`,
 		},
 		"block required; single Pod fits in a block": {
 			nodes: defaultNodes,
@@ -531,7 +531,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 4000,
 			},
 			count:      1,
-			wantReason: "topology domain(s) don't allow to fit any of 1 pods",
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
 		},
 		"block required; too many Pods to fit requested": {
 			nodes: defaultNodes,
@@ -543,7 +543,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      5,
-			wantReason: "topology domain(s) allow to fit only 4 out of 5 pods",
+			wantReason: `topology "default" allows to fit only 4 out of 5 pod(s)`,
 		},
 		"rack required; single Pod requiring memory": {
 			nodes: defaultNodes,
@@ -682,7 +682,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      10,
-			wantReason: "topology domain(s) allow to fit only 7 out of 10 pods",
+			wantReason: `topology "default" allows to fit only 7 out of 10 pod(s)`,
 		},
 		"only nodes with matching labels are considered; no matching node": {
 			nodes: []corev1.Node{
@@ -937,7 +937,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 600,
 			},
 			count:      1,
-			wantReason: "topology domain(s) don't allow to fit any of 1 pods",
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
 		},
 		"include usage from running non-TAS pods, blocked assignment": {
 			// there is not enough free capacity on the only node x1
@@ -977,7 +977,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 600,
 			},
 			count:      1,
-			wantReason: "topology domain(s) don't allow to fit any of 1 pods",
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
 		},
 		"include usage from running non-TAS pods, found free capacity on another node": {
 			// there is not enough free capacity on the node x1 as the
@@ -1108,7 +1108,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 			client := clientBuilder.Build()
 
 			tasCache := NewTASCache(client)
-			tasFlavorCache := tasCache.NewTASFlavorCache(tc.levels, tc.nodeLabels)
+			tasFlavorCache := tasCache.NewTASFlavorCache("default", tc.levels, tc.nodeLabels)
 
 			snapshot, err := tasFlavorCache.snapshot(ctx)
 			if err != nil {

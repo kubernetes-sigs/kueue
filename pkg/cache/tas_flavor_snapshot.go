@@ -59,6 +59,10 @@ type statePerDomain map[utiltas.TopologyDomainID]int32
 type TASFlavorSnapshot struct {
 	log logr.Logger
 
+	// topologyName indicates the name of the topology specified in the
+	// ResourceFlavor spec.topologyName field.
+	topologyName string
+
 	// levelKeys denotes the ordered list of topology keys set as label keys
 	// on the Topology object
 	levelKeys []string
@@ -87,9 +91,10 @@ type TASFlavorSnapshot struct {
 	state statePerDomain
 }
 
-func newTASFlavorSnapshot(log logr.Logger, levels []string) *TASFlavorSnapshot {
+func newTASFlavorSnapshot(log logr.Logger, topologyName string, levels []string) *TASFlavorSnapshot {
 	snapshot := &TASFlavorSnapshot{
 		log:                       log,
+		topologyName:              topologyName,
 		levelKeys:                 slices.Clone(levels),
 		freeCapacityPerLeafDomain: make(map[utiltas.TopologyDomainID]resources.Requests),
 		levelValuesPerDomain:      make(map[utiltas.TopologyDomainID][]string),
@@ -250,7 +255,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 	topDomain := sortedDomain[0]
 	if s.state[topDomain.id] < count {
 		if required {
-			return 0, nil, notFitMessage(s.state[topDomain.id], count)
+			return 0, nil, s.notFitMessage(s.state[topDomain.id], count)
 		}
 		if levelIdx > 0 {
 			return s.findLevelWithFitDomains(levelIdx-1, required, count)
@@ -262,7 +267,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 			remainingCount -= s.state[sortedDomain[lastIdx].id]
 		}
 		if remainingCount > 0 {
-			return 0, nil, notFitMessage(count-remainingCount, count)
+			return 0, nil, s.notFitMessage(count-remainingCount, count)
 		}
 		return 0, sortedDomain[:lastIdx+1], ""
 	}
@@ -346,9 +351,9 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests) {
 	}
 }
 
-func notFitMessage(fitCount, totalCount int32) string {
+func (s *TASFlavorSnapshot) notFitMessage(fitCount, totalCount int32) string {
 	if fitCount == 0 {
-		return fmt.Sprintf("topology domain(s) don't allow to fit any of %v pods", totalCount)
+		return fmt.Sprintf("topology %q doesn't allow to fit any of %v pod(s)", s.topologyName, totalCount)
 	}
-	return fmt.Sprintf("topology domain(s) allow to fit only %v out of %v pods", fitCount, totalCount)
+	return fmt.Sprintf("topology %q allows to fit only %v out of %v pod(s)", s.topologyName, fitCount, totalCount)
 }
