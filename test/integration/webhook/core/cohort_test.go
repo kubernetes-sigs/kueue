@@ -17,7 +17,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -38,10 +37,10 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			switch errorType {
 			case isForbidden:
 				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+				gomega.Expect(err).Should(testing.BeForbiddenError())
 			case isInvalid:
 				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(testing.BeAPIError(testing.InvalidError), "error: %v", err)
+				gomega.Expect(err).Should(testing.BeInvalidError())
 			default:
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			}

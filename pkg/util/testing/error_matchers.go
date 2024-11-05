@@ -25,58 +25,58 @@ import (
 )
 
 func BeNotFoundError() types.GomegaMatcher {
-	return BeAPIError(NotFoundError)
+	return BeError(NotFoundError)
 }
 
 func BeForbiddenError() types.GomegaMatcher {
-	return BeAPIError(ForbiddenError)
+	return BeError(ForbiddenError)
 }
 
 func BeInvalidError() types.GomegaMatcher {
-	return BeAPIError(InvalidError)
+	return BeError(InvalidError)
 }
 
-type errorMatcher int
+type ErrorType int
 
 const (
-	NotFoundError errorMatcher = iota
+	NotFoundError ErrorType = iota
 	ForbiddenError
 	InvalidError
 )
 
-func (em errorMatcher) String() string {
+func (em ErrorType) String() string {
 	return []string{"NotFoundError", "ForbiddenError", "InvalidError"}[em]
 }
 
-type apiError func(error) bool
+type isError func(error) bool
 
-func (em errorMatcher) isAPIError(err error) bool {
-	return []apiError{apierrors.IsNotFound, apierrors.IsForbidden, apierrors.IsInvalid}[em](err)
+func (em ErrorType) IsError(err error) bool {
+	return []isError{apierrors.IsNotFound, apierrors.IsForbidden, apierrors.IsInvalid}[em](err)
 }
 
-type isErrorMatch struct {
-	name errorMatcher
+type errorMatcher struct {
+	errorType ErrorType
 }
 
-func BeAPIError(name errorMatcher) types.GomegaMatcher {
-	return &isErrorMatch{
-		name: name,
+func BeError(errorType ErrorType) types.GomegaMatcher {
+	return &errorMatcher{
+		errorType: errorType,
 	}
 }
 
-func (matcher *isErrorMatch) Match(actual interface{}) (success bool, err error) {
+func (matcher *errorMatcher) Match(actual interface{}) (success bool, err error) {
 	err, ok := actual.(error)
 	if !ok {
-		return false, fmt.Errorf("%s expects an error", matcher.name.String())
+		return false, fmt.Errorf("Error matcher expects an error.  Got:\n%s", format.Object(actual, 1))
 	}
 
-	return err != nil && matcher.name.isAPIError(err), nil
+	return err != nil && matcher.errorType.IsError(err), nil
 }
 
-func (matcher *isErrorMatch) FailureMessage(actual interface{}) (message string) {
-	return format.Message(actual, "to be a %s", matcher.name.String())
+func (matcher *errorMatcher) FailureMessage(actual interface{}) (message string) {
+	return fmt.Sprintf("Expected %s, but got:\n%s", matcher.errorType.String(), format.Object(actual, 1))
 }
 
-func (matcher *isErrorMatch) NegatedFailureMessage(actual interface{}) (message string) {
-	return format.Message(actual, "not to be %s", matcher.name.String())
+func (matcher *errorMatcher) NegatedFailureMessage(interface{}) (message string) {
+	return fmt.Sprintf("Expected not to be %s", matcher.errorType.String())
 }

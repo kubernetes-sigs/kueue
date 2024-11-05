@@ -30,7 +30,7 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 		ginkgo.It("Should reject bad value for spec.clusterQueue", func() {
 			ginkgo.By("Creating a new Queue")
 			obj := testing.MakeLocalQueue(queueName, ns.Name).ClusterQueue("invalid_name").Obj()
-			gomega.Expect(k8sClient.Create(ctx, obj)).Should(testing.BeAPIError(testing.InvalidError))
+			gomega.Expect(k8sClient.Create(ctx, obj)).Should(testing.BeInvalidError())
 		})
 		ginkgo.It("Should reject the change of spec.clusterQueue", func() {
 			ginkgo.By("Creating a new Queue")

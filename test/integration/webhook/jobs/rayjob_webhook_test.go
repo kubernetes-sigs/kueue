@@ -20,10 +20,10 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			job := testingjob.MakeJob("rayjob", ns.Name).Queue("indexed_job").Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(apierrors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+			gomega.Expect(err).Should(testing.BeForbiddenError())
 		})
 
 		ginkgo.It("invalid configuration shutdown after job finishes", func() {
@@ -65,7 +65,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 				Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(apierrors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+			gomega.Expect(err).Should(testing.BeForbiddenError())
 		})
 	})
 })
