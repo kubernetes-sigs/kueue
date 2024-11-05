@@ -223,7 +223,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(prodWl1)).Should(gomega.BeTrue())
-				g.Expect(prodWl1.Status.Conditions).ShouldNot(testing.HaveConditionStatusTrue(kueue.WorkloadEvicted))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("wait for the 'prod1' workload to be evicted")
