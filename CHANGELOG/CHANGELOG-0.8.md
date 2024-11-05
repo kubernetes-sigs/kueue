@@ -1,3 +1,14 @@
+## v0.8.3
+
+Changes since `v0.8.2`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Workload is requeued with all AdmissionChecks set to Pending if there was an AdmissionCheck in Retry state. (#3323, @PBundyra)
+- Account for NumOfHosts when calculating PodSet assignments for RayJob and RayCluster (#3384, @andrewsykim)
+
 ## v0.8.2
 
 Changes since `v0.8.1`:
@@ -17,8 +28,6 @@ Changes since `v0.8.1`:
   It also fixes a scenario of partial re-admission when some of the Pods are already reclaimed. (#3207, @trasc)
 - Prevent job webhooks from dropping fields for newer API fields when Kueue libraries are behind the latest released CRDs. (#3358, @mbobrovskyi)
 - RayJob's implementation of Finished() now inspects at JobDeploymentStatus (#3128, @andrewsykim)
-- Workload is requeued with all AdmissionChecks set to Pending if there was an AdmissionCheck in Retry state. (#3323, @PBundyra)
-- Account for NumOfHosts when calculating PodSet assignments for RayJob and RayCluster (#3384, @andrewsykim)
 
 ### Other (Cleanup or Flake)
 
