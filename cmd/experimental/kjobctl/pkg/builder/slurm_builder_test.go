@@ -44,8 +44,7 @@ import (
 )
 
 type slurmBuilderTestCase struct {
-	beforeTest       func(tc *slurmBuilderTestCase) error
-	afterTest        func(tc *slurmBuilderTestCase) error
+	beforeTest       func(t *testing.T, tc *slurmBuilderTestCase)
 	tempFile         string
 	namespace        string
 	profile          string
@@ -72,24 +71,23 @@ type slurmBuilderTestCase struct {
 	cmpopts          []cmp.Option
 }
 
-func beforeSlurmTest(tc *slurmBuilderTestCase) error {
+func beforeSlurmTest(t *testing.T, tc *slurmBuilderTestCase) {
 	file, err := os.CreateTemp("", "slurm")
 	if err != nil {
-		return err
+		t.Fatal(err)
 	}
 	defer file.Close()
+	t.Cleanup(func() {
+		if err := os.Remove(file.Name()); err != nil {
+			t.Fatal(err)
+		}
+	})
 
 	if _, err := file.WriteString("#!/bin/bash\nsleep 300'"); err != nil {
-		return err
+		t.Fatal(err)
 	}
 
 	tc.tempFile = file.Name()
-
-	return nil
-}
-
-func afterSlurmTest(tc *slurmBuilderTestCase) error {
-	return os.Remove(tc.tempFile)
 }
 
 func TestSlurmBuilderDo(t *testing.T) {
@@ -110,7 +108,6 @@ func TestSlurmBuilderDo(t *testing.T) {
 		},
 		"shouldn't build slurm job because template not found": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			namespace:  metav1.NamespaceDefault,
 			profile:    "profile",
 			mode:       v1alpha1.SlurmMode,
@@ -123,7 +120,6 @@ func TestSlurmBuilderDo(t *testing.T) {
 		},
 		"should build slurm job": {
 			beforeTest: beforeSlurmTest,
-			afterTest:  afterSlurmTest,
 			namespace:  metav1.NamespaceDefault,
 			profile:    "profile",
 			mode:       v1alpha1.SlurmMode,
@@ -291,18 +287,7 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			if tc.beforeTest != nil {
-				if err := tc.beforeTest(&tc); err != nil {
-					t.Error(err)
-					return
-				}
-			}
-
-			if tc.afterTest != nil {
-				defer func() {
-					if err := tc.afterTest(&tc); err != nil {
-						t.Error(err)
-					}
-				}()
+				tc.beforeTest(t, &tc)
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
