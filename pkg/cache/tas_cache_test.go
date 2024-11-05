@@ -197,6 +197,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		requests       resources.Requests
 		count          int32
 		wantAssignment *kueue.TopologyAssignment
+		wantReason     string
 	}{
 		"minimize the number of used racks before optimizing the number of nodes": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x3,x4,x5,x6]
@@ -461,8 +462,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:          4,
-			wantAssignment: nil,
+			count:      4,
+			wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)`,
 		},
 		"block required; single Pod fits in a block": {
 			nodes: defaultNodes,
@@ -529,8 +530,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 4000,
 			},
-			count:          1,
-			wantAssignment: nil,
+			count:      1,
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
 		},
 		"block required; too many Pods to fit requested": {
 			nodes: defaultNodes,
@@ -541,8 +542,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:          5,
-			wantAssignment: nil,
+			count:      5,
+			wantReason: `topology "default" allows to fit only 4 out of 5 pod(s)`,
 		},
 		"rack required; single Pod requiring memory": {
 			nodes: defaultNodes,
@@ -680,8 +681,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:          10,
-			wantAssignment: nil,
+			count:      10,
+			wantReason: `topology "default" allows to fit only 7 out of 10 pod(s)`,
 		},
 		"only nodes with matching labels are considered; no matching node": {
 			nodes: []corev1.Node{
@@ -711,8 +712,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:          1,
-			wantAssignment: nil,
+			count:      1,
+			wantReason: "no topology domains at level: kubernetes.io/hostname",
 		},
 		"only nodes with matching labels are considered; matching node is found": {
 			nodes: []corev1.Node{
@@ -793,8 +794,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:          1,
-			wantAssignment: nil,
+			count:      1,
+			wantReason: "no topology domains at level: cloud.com/topology-rack",
 		},
 		"don't consider unscheduled Pods when computing capacity": {
 			// the Pod is not scheduled (no NodeName set, so is not blocking capacity)
@@ -935,8 +936,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 600,
 			},
-			count:          1,
-			wantAssignment: nil,
+			count:      1,
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
 		},
 		"include usage from running non-TAS pods, blocked assignment": {
 			// there is not enough free capacity on the only node x1
@@ -975,8 +976,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 600,
 			},
-			count:          1,
-			wantAssignment: nil,
+			count:      1,
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
 		},
 		"include usage from running non-TAS pods, found free capacity on another node": {
 			// there is not enough free capacity on the node x1 as the
@@ -1086,8 +1087,8 @@ func TestFindTopologyAssignment(t *testing.T) {
 			requests: resources.Requests{
 				corev1.ResourceCPU: 1000,
 			},
-			count:          1,
-			wantAssignment: nil,
+			count:      1,
+			wantReason: "no topology domains at level: kubernetes.io/hostname",
 		},
 	}
 	for name, tc := range cases {
@@ -1107,15 +1108,18 @@ func TestFindTopologyAssignment(t *testing.T) {
 			client := clientBuilder.Build()
 
 			tasCache := NewTASCache(client)
-			tasFlavorCache := tasCache.NewTASFlavorCache(tc.levels, tc.nodeLabels)
+			tasFlavorCache := tasCache.NewTASFlavorCache("default", tc.levels, tc.nodeLabels)
 
 			snapshot, err := tasFlavorCache.snapshot(ctx)
 			if err != nil {
 				t.Fatalf("failed to build the snapshot: %v", err)
 			}
-			gotAssignment := snapshot.FindTopologyAssignment(&tc.request, tc.requests, tc.count)
+			gotAssignment, reason := snapshot.FindTopologyAssignment(&tc.request, tc.requests, tc.count)
 			if diff := cmp.Diff(tc.wantAssignment, gotAssignment); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
+			}
+			if diff := cmp.Diff(tc.wantReason, reason); diff != "" {
+				t.Errorf("unexpected error (-want,+got): %s", diff)
 			}
 		})
 	}

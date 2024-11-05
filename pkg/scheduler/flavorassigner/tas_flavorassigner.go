@@ -64,13 +64,14 @@ func assignTopology(log logr.Logger,
 			psAssignment.Flavors = nil
 			return
 		}
-		psAssignment.TopologyAssignment = snapshot.FindTopologyAssignment(podSet.TopologyRequest,
+		var reason string
+		psAssignment.TopologyAssignment, reason = snapshot.FindTopologyAssignment(podSet.TopologyRequest,
 			singlePodRequests, podCount)
 		if psAssignment.TopologyAssignment == nil {
 			if psAssignment.Status == nil {
 				psAssignment.Status = &Status{}
 			}
-			psAssignment.Status.append("Workload cannot fit within the TAS ResourceFlavor")
+			psAssignment.Status.append(reason)
 			psAssignment.Flavors = nil
 		}
 		log.Info("TAS PodSet assignment", "tasAssignment", psAssignment.TopologyAssignment)

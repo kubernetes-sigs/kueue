@@ -4315,7 +4315,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
 					EventType: "Warning",
 					Reason:    "Pending",
-					Message:   "couldn't assign flavors to pod set one: Workload cannot fit within the TAS ResourceFlavor",
+					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s)`,
 				},
 			},
 		},
@@ -4365,7 +4365,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
 					EventType: "Warning",
 					Reason:    "Pending",
-					Message:   "couldn't assign flavors to pod set one: Workload cannot fit within the TAS ResourceFlavor",
+					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`,
 				},
 			},
 		},
@@ -4397,7 +4397,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Key:       types.NamespacedName{Namespace: "default", Name: "foo"},
 					EventType: "Warning",
 					Reason:    "Pending",
-					Message:   "couldn't assign flavors to pod set one: Workload cannot fit within the TAS ResourceFlavor",
+					Message:   `couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s)`,
 				},
 			},
 		},
@@ -4507,7 +4507,7 @@ func TestScheduleForTAS(t *testing.T) {
 					t := topologyByName[*flavor.Spec.TopologyName]
 					tasCache := cqCache.TASCache()
 					levels := utiltas.Levels(&t)
-					tasFlavorCache := tasCache.NewTASFlavorCache(levels, flavor.Spec.NodeLabels)
+					tasFlavorCache := tasCache.NewTASFlavorCache(*flavor.Spec.TopologyName, levels, flavor.Spec.NodeLabels)
 					tasCache.Set(kueue.ResourceFlavorReference(flavor.Name), tasFlavorCache)
 				}
 			}

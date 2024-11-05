@@ -18,6 +18,7 @@ package cache
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -58,6 +59,10 @@ type statePerDomain map[utiltas.TopologyDomainID]int32
 type TASFlavorSnapshot struct {
 	log logr.Logger
 
+	// topologyName indicates the name of the topology specified in the
+	// ResourceFlavor spec.topologyName field.
+	topologyName string
+
 	// levelKeys denotes the ordered list of topology keys set as label keys
 	// on the Topology object
 	levelKeys []string
@@ -86,9 +91,10 @@ type TASFlavorSnapshot struct {
 	state statePerDomain
 }
 
-func newTASFlavorSnapshot(log logr.Logger, levels []string) *TASFlavorSnapshot {
+func newTASFlavorSnapshot(log logr.Logger, topologyName string, levels []string) *TASFlavorSnapshot {
 	snapshot := &TASFlavorSnapshot{
 		log:                       log,
+		topologyName:              topologyName,
 		levelKeys:                 slices.Clone(levels),
 		freeCapacityPerLeafDomain: make(map[utiltas.TopologyDomainID]resources.Requests),
 		levelValuesPerDomain:      make(map[utiltas.TopologyDomainID][]string),
@@ -182,20 +188,24 @@ func (s *TASFlavorSnapshot) initializeFreeCapacityPerDomain(domainID utiltas.Top
 func (s *TASFlavorSnapshot) FindTopologyAssignment(
 	topologyRequest *kueue.PodSetTopologyRequest,
 	requests resources.Requests,
-	count int32) *kueue.TopologyAssignment {
+	count int32) (*kueue.TopologyAssignment, string) {
 	required := topologyRequest.Required != nil
-	levelIdx, found := s.resolveLevelIdx(topologyRequest)
+	key := levelKey(topologyRequest)
+	if key == nil {
+		return nil, "topology level not specified"
+	}
+	levelIdx, found := s.resolveLevelIdx(*key)
 	if !found {
-		return nil
+		return nil, fmt.Sprintf("no requested topology level: %s", *key)
 	}
 	// phase 1 - determine the number of pods which can fit in each topology domain
 	s.fillInCounts(requests)
 
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods
-	fitLevelIdx, currFitDomain := s.findLevelWithFitDomains(levelIdx, required, count)
-	if len(currFitDomain) == 0 {
-		return nil
+	fitLevelIdx, currFitDomain, reason := s.findLevelWithFitDomains(levelIdx, required, count)
+	if len(reason) > 0 {
+		return nil, reason
 	}
 
 	// phase 2b: traverse the tree down level-by-level optimizing the number of
@@ -206,22 +216,19 @@ func (s *TASFlavorSnapshot) FindTopologyAssignment(
 		sortedLowerDomains := s.sortedDomains(lowerFitDomains)
 		currFitDomain = s.updateCountsToMinimum(sortedLowerDomains, count)
 	}
-	return s.buildAssignment(currFitDomain)
+	return s.buildAssignment(currFitDomain), ""
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
-	_, found := s.resolveLevelIdx(r)
+	key := levelKey(r)
+	if key == nil {
+		return false
+	}
+	_, found := s.resolveLevelIdx(*key)
 	return found
 }
 
-func (s *TASFlavorSnapshot) resolveLevelIdx(
-	topologyRequest *kueue.PodSetTopologyRequest) (int, bool) {
-	var levelKey string
-	if topologyRequest.Required != nil {
-		levelKey = *topologyRequest.Required
-	} else if topologyRequest.Preferred != nil {
-		levelKey = *topologyRequest.Preferred
-	}
+func (s *TASFlavorSnapshot) resolveLevelIdx(levelKey string) (int, bool) {
 	levelIdx := slices.Index(s.levelKeys, levelKey)
 	if levelIdx == -1 {
 		return levelIdx, false
@@ -229,17 +236,26 @@ func (s *TASFlavorSnapshot) resolveLevelIdx(
 	return levelIdx, true
 }
 
-func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32) (int, []*domain) {
+func levelKey(topologyRequest *kueue.PodSetTopologyRequest) *string {
+	if topologyRequest.Required != nil {
+		return topologyRequest.Required
+	} else if topologyRequest.Preferred != nil {
+		return topologyRequest.Preferred
+	}
+	return nil
+}
+
+func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool, count int32) (int, []*domain, string) {
 	domains := s.domainsPerLevel[levelIdx]
 	if len(domains) == 0 {
-		return 0, nil
+		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[levelIdx])
 	}
 	levelDomains := utilmaps.Values(domains)
 	sortedDomain := s.sortedDomains(levelDomains)
 	topDomain := sortedDomain[0]
 	if s.state[topDomain.id] < count {
 		if required {
-			return 0, nil
+			return 0, nil, s.notFitMessage(s.state[topDomain.id], count)
 		}
 		if levelIdx > 0 {
 			return s.findLevelWithFitDomains(levelIdx-1, required, count)
@@ -251,11 +267,11 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(levelIdx int, required bool,
 			remainingCount -= s.state[sortedDomain[lastIdx].id]
 		}
 		if remainingCount > 0 {
-			return 0, nil
+			return 0, nil, s.notFitMessage(count-remainingCount, count)
 		}
-		return 0, sortedDomain[:lastIdx+1]
+		return 0, sortedDomain[:lastIdx+1], ""
 	}
-	return levelIdx, []*domain{topDomain}
+	return levelIdx, []*domain{topDomain}, ""
 }
 
 func (s *TASFlavorSnapshot) updateCountsToMinimum(domains []*domain, count int32) []*domain {
@@ -333,4 +349,11 @@ func (s *TASFlavorSnapshot) fillInCounts(requests resources.Requests) {
 			}
 		}
 	}
+}
+
+func (s *TASFlavorSnapshot) notFitMessage(fitCount, totalCount int32) string {
+	if fitCount == 0 {
+		return fmt.Sprintf("topology %q doesn't allow to fit any of %v pod(s)", s.topologyName, totalCount)
+	}
+	return fmt.Sprintf("topology %q allows to fit only %v out of %v pod(s)", s.topologyName, fitCount, totalCount)
 }

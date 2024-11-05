@@ -3819,7 +3819,7 @@ func TestSnapshotError(t *testing.T) {
 	cache := New(client)
 	cache.AddOrUpdateResourceFlavor(&flavor)
 	if flavor.Spec.TopologyName != nil {
-		tasFlavorCache := cache.tasCache.NewTASFlavorCache([]string{tasHostLabel}, flavor.Spec.NodeLabels)
+		tasFlavorCache := cache.tasCache.NewTASFlavorCache(*flavor.Spec.TopologyName, []string{tasHostLabel}, flavor.Spec.NodeLabels)
 		cache.tasCache.Set(kueue.ResourceFlavorReference(flavor.Name), tasFlavorCache)
 	}
 	if err := cache.AddClusterQueue(ctx, &clusterQueue); err != nil {
