@@ -39,7 +39,7 @@ Please do not remove items from the checklist
       `make artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=$VERSION`
       to generate the artifacts in the `artifacts` folder.
   - [ ] Upload the files in the `artifacts` folder to the draft release - either
-      via UI or `gh release upload <tag> artifacts/*`.
+      via UI or `gh release --repo kubernetes-sigs/kueue upload <tag> artifacts/*`.
 - [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io),
       updating `registry.k8s.io/images/k8s-staging-kueue/images.yaml` to
       [promote the container images](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io#image-promoter)
