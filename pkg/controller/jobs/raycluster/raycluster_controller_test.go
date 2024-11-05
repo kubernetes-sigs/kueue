@@ -18,6 +18,7 @@ package raycluster
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,11 +27,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -52,7 +56,186 @@ var (
 	}
 )
 
+func TestPodSets(t *testing.T) {
+	testCases := map[string]struct {
+		rayCluster  *RayCluster
+		wantPodSets func(rayJob *RayCluster) []kueue.PodSet
+	}{
+		"no annotations": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     headGroupPodSetName,
+						Count:    1,
+						Template: *rayJob.Spec.HeadGroupSpec.Template.DeepCopy(),
+					},
+					{
+						Name:     "group1",
+						Count:    1,
+						Template: *rayJob.Spec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:     "group2",
+						Count:    3,
+						Template: *rayJob.Spec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
+			},
+		},
+		"with required topology annotation": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            headGroupPodSetName,
+						Count:           1,
+						Template:        *rayJob.Spec.HeadGroupSpec.Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:            "group1",
+						Count:           1,
+						Template:        *rayJob.Spec.WorkerGroupSpecs[0].Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:     "group2",
+						Count:    3,
+						Template: *rayJob.Spec.WorkerGroupSpecs[1].Template.DeepCopy(),
+					},
+				}
+			},
+		},
+		"with preferred topology annotation": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+					rayv1.WorkerGroupSpec{
+						GroupName: "group2",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            headGroupPodSetName,
+						Count:           1,
+						Template:        *rayJob.Spec.HeadGroupSpec.Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+					{
+						Name:     "group1",
+						Count:    1,
+						Template: *rayJob.Spec.WorkerGroupSpecs[0].Template.DeepCopy(),
+					},
+					{
+						Name:            "group2",
+						Count:           3,
+						Template:        *rayJob.Spec.WorkerGroupSpecs[1].Template.DeepCopy(),
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+				}
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.wantPodSets(tc.rayCluster), tc.rayCluster.PodSets()); diff != "" {
+				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
+	// the clock is primarily used with second rounded times
+	// use the current time trimmed.
+	testStartTime := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(testStartTime)
+
 	baseJobWrapper := testingrayutil.MakeCluster("job", "ns").
 		Suspend(true).
 		Queue("foo").
@@ -266,7 +449,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "The workload was deactivated",
 						ObservedGeneration: 1,
 					}).
-					Admitted(true).
+					AdmittedAt(true, testStartTime.Add(-time.Second)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -308,6 +491,7 @@ func TestReconciler(t *testing.T) {
 						}).
 					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
 					Generation(1).
+					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
@@ -340,6 +524,142 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"RayCluster with NumOfHosts > 1": {
+			initObjects: []client.Object{
+				utiltesting.MakeResourceFlavor("unit-test-flavor").NodeLabel("kubernetes.io/arch", "arm64").Obj(),
+			},
+			job: *baseJobWrapper.Clone().
+				WithNumOfHosts("workers-group-0", 2).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				NodeSelectorHeadGroup("kubernetes.io/arch", "arm64").
+				WithNumOfHosts("workers-group-0", 2).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						kueue.PodSet{
+							Name:  "head",
+							Count: int32(1),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+
+									RestartPolicy: corev1.RestartPolicyNever,
+									Containers: []corev1.Container{
+										{
+											Name: "head-container",
+											Resources: corev1.ResourceRequirements{
+												Requests: make(corev1.ResourceList),
+											},
+										},
+									},
+								},
+							},
+						},
+						kueue.PodSet{
+							Name:  "workers-group-0",
+							Count: int32(2),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									RestartPolicy: corev1.RestartPolicyNever,
+
+									Containers: []corev1.Container{
+										{
+											Name: "worker-container",
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													corev1.ResourceCPU: resource.MustParse("10"),
+												},
+											},
+										},
+									},
+								},
+							},
+						}).
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq", "head", "workers-group-0").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(2).
+							Obj(),
+					).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "head",
+							},
+							{
+								Name: "workers-group-0",
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						kueue.PodSet{
+							Name:  "head",
+							Count: int32(1),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									RestartPolicy: corev1.RestartPolicyNever,
+									Containers: []corev1.Container{
+										{
+											Name: "head-container",
+											Resources: corev1.ResourceRequirements{
+												Requests: make(corev1.ResourceList),
+											},
+										},
+									},
+								},
+							},
+						},
+						kueue.PodSet{
+							Name:  "workers-group-0",
+							Count: int32(2),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									RestartPolicy: corev1.RestartPolicyNever,
+									Containers: []corev1.Container{
+										{
+											Name: "worker-container",
+											Resources: corev1.ResourceRequirements{
+												Requests: make(corev1.ResourceList),
+											},
+										},
+									},
+								},
+							},
+						}).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq", "head", "workers-group-0").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(2).
+							Obj(),
+					).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "head",
+							},
+							{
+								Name: "workers-group-0",
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -368,7 +688,7 @@ func TestReconciler(t *testing.T) {
 				}
 			}
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
+			reconciler := NewReconciler(kClient, recorder, append(tc.reconcilerOptions, jobframework.WithClock(t, fakeClock))...)
 
 			jobKey := client.ObjectKeyFromObject(&tc.job)
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{

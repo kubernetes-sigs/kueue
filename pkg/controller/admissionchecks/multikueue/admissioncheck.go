@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
@@ -45,10 +45,10 @@ const (
 	FlavorIndependentCheckMessage = "admission check cannot be applied at ResourceFlavor level"
 )
 
-type multiKueueStoreHelper = admissioncheck.ConfigHelper[*kueuealpha.MultiKueueConfig, kueuealpha.MultiKueueConfig]
+type multiKueueStoreHelper = admissioncheck.ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKueueConfig]
 
 func newMultiKueueStoreHelper(c client.Client) (*multiKueueStoreHelper, error) {
-	return admissioncheck.NewConfigHelper[*kueuealpha.MultiKueueConfig](c)
+	return admissioncheck.NewConfigHelper[*kueue.MultiKueueConfig](c)
 }
 
 // ACReconciler implements the reconciler for all the admission checks controlled by multikueue.
@@ -64,7 +64,7 @@ var _ reconcile.Reconciler = (*ACReconciler)(nil)
 func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	ac := &kueue.AdmissionCheck{}
-	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != kueuealpha.MultiKueueControllerName {
+	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != kueue.MultiKueueControllerName {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -87,7 +87,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		var inactiveClusters []string
 		// check the status of the clusters
 		for _, clusterName := range cfg.Spec.Clusters {
-			cluster := &kueuealpha.MultiKueueCluster{}
+			cluster := &kueue.MultiKueueCluster{}
 			err := a.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster)
 			if client.IgnoreNotFound(err) != nil {
 				log.Error(err, "reading cluster", "multiKueueCluster", clusterName)
@@ -96,7 +96,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 			if err != nil {
 				missingClusters = append(missingClusters, clusterName)
-			} else if !apimeta.IsStatusConditionTrue(cluster.Status.Conditions, kueuealpha.MultiKueueClusterActive) {
+			} else if !apimeta.IsStatusConditionTrue(cluster.Status.Conditions, kueue.MultiKueueClusterActive) {
 				inactiveClusters = append(inactiveClusters, clusterName)
 			}
 		}
@@ -127,28 +127,30 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
 		needsUpdate = true
 	}
-	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue) {
-		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
-			Type:               kueue.AdmissionChecksSingleInstanceInClusterQueue,
-			Status:             metav1.ConditionTrue,
-			Reason:             SingleInstanceReason,
-			Message:            SingleInstanceMessage,
-			ObservedGeneration: ac.Generation,
-		})
-		needsUpdate = true
-	}
 
-	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck) {
-		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
-			Type:               kueue.FlavorIndependentAdmissionCheck,
-			Status:             metav1.ConditionTrue,
-			Reason:             FlavorIndependentCheckReason,
-			Message:            FlavorIndependentCheckMessage,
-			ObservedGeneration: ac.Generation,
-		})
-		needsUpdate = true
-	}
+	if features.Enabled(features.AdmissionCheckValidationRules) {
+		if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue) {
+			apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+				Type:               kueue.AdmissionChecksSingleInstanceInClusterQueue,
+				Status:             metav1.ConditionTrue,
+				Reason:             SingleInstanceReason,
+				Message:            SingleInstanceMessage,
+				ObservedGeneration: ac.Generation,
+			})
+			needsUpdate = true
+		}
 
+		if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.FlavorIndependentAdmissionCheck) {
+			apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+				Type:               kueue.FlavorIndependentAdmissionCheck,
+				Status:             metav1.ConditionTrue,
+				Reason:             FlavorIndependentCheckReason,
+				Message:            FlavorIndependentCheckMessage,
+				ObservedGeneration: ac.Generation,
+			})
+			needsUpdate = true
+		}
+	}
 	if needsUpdate {
 		err := a.client.Status().Update(ctx, ac)
 		if err != nil {
@@ -175,9 +177,10 @@ func newACReconciler(c client.Client, helper *multiKueueStoreHelper) *ACReconcil
 
 func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("multikueue-admissioncheck").
 		For(&kueue.AdmissionCheck{}).
-		Watches(&kueuealpha.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
-		Watches(&kueuealpha.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).
+		Watches(&kueue.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
+		Watches(&kueue.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).
 		Complete(a)
 }
 
@@ -187,8 +190,8 @@ type mkConfigHandler struct {
 
 var _ handler.EventHandler = (*mkConfigHandler)(nil)
 
-func (m *mkConfigHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
+func (m *mkConfigHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	mkc, isMKC := event.Object.(*kueue.MultiKueueConfig)
 	if !isMKC {
 		return
 	}
@@ -198,9 +201,9 @@ func (m *mkConfigHandler) Create(ctx context.Context, event event.CreateEvent, q
 	}
 }
 
-func (m *mkConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	oldMKC, isOldMKC := event.ObjectOld.(*kueuealpha.MultiKueueConfig)
-	newMKC, isNewMKC := event.ObjectNew.(*kueuealpha.MultiKueueConfig)
+func (m *mkConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	oldMKC, isOldMKC := event.ObjectOld.(*kueue.MultiKueueConfig)
+	newMKC, isNewMKC := event.ObjectNew.(*kueue.MultiKueueConfig)
 	if !isOldMKC || !isNewMKC || equality.Semantic.DeepEqual(oldMKC.Spec.Clusters, newMKC.Spec.Clusters) {
 		return
 	}
@@ -210,8 +213,8 @@ func (m *mkConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q
 	}
 }
 
-func (m *mkConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
+func (m *mkConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	mkc, isMKC := event.Object.(*kueue.MultiKueueConfig)
 	if !isMKC {
 		return
 	}
@@ -221,8 +224,8 @@ func (m *mkConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q
 	}
 }
 
-func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
+func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	mkc, isMKC := event.Object.(*kueue.MultiKueueConfig)
 	if !isMKC {
 		return
 	}
@@ -232,7 +235,7 @@ func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent,
 	}
 }
 
-func queueReconcileForConfigUsers(ctx context.Context, config string, c client.Client, q workqueue.RateLimitingInterface) error {
+func queueReconcileForConfigUsers(ctx context.Context, config string, c client.Client, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueue.AdmissionCheckList{}
 
 	if err := c.List(ctx, users, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); err != nil {
@@ -257,8 +260,8 @@ type mkClusterHandler struct {
 
 var _ handler.EventHandler = (*mkClusterHandler)(nil)
 
-func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
+func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	mkc, isMKC := event.Object.(*kueue.MultiKueueCluster)
 	if !isMKC {
 		return
 	}
@@ -268,15 +271,15 @@ func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, 
 	}
 }
 
-func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	oldMKC, isOldMKC := event.ObjectOld.(*kueuealpha.MultiKueueCluster)
-	newMKC, isNewMKC := event.ObjectNew.(*kueuealpha.MultiKueueCluster)
+func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	oldMKC, isOldMKC := event.ObjectOld.(*kueue.MultiKueueCluster)
+	newMKC, isNewMKC := event.ObjectNew.(*kueue.MultiKueueCluster)
 	if !isOldMKC || !isNewMKC {
 		return
 	}
 
-	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueuealpha.MultiKueueClusterActive)
-	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueuealpha.MultiKueueClusterActive)
+	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueue.MultiKueueClusterActive)
+	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueue.MultiKueueClusterActive)
 	if !cmpConditionState(oldActive, newActive) {
 		if err := m.queue(ctx, newMKC, q); err != nil {
 			ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on update event", "multiKueueCluster", klog.KObj(oldMKC))
@@ -284,8 +287,8 @@ func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, 
 	}
 }
 
-func (m *mkClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
+func (m *mkClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	mkc, isMKC := event.Object.(*kueue.MultiKueueCluster)
 	if !isMKC {
 		return
 	}
@@ -295,8 +298,8 @@ func (m *mkClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, 
 	}
 }
 
-func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
+func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	mkc, isMKC := event.Object.(*kueue.MultiKueueCluster)
 	if !isMKC {
 		return
 	}
@@ -306,8 +309,8 @@ func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent
 	}
 }
 
-func (m *mkClusterHandler) queue(ctx context.Context, cluster *kueuealpha.MultiKueueCluster, q workqueue.RateLimitingInterface) error {
-	users := &kueuealpha.MultiKueueConfigList{}
+func (m *mkClusterHandler) queue(ctx context.Context, cluster *kueue.MultiKueueCluster, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+	users := &kueue.MultiKueueConfigList{}
 	if err := m.client.List(ctx, users, client.MatchingFields{UsingMultiKueueClusters: cluster.Name}); err != nil {
 		return err
 	}

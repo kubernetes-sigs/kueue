@@ -2,7 +2,7 @@
 name: New Release
 about: Propose a new release
 title: Release v0.x.0
-assignees: ahg-g, alculquicondor, tenzen-y
+assignees: mimowo, tenzen-y
 
 ---
 
@@ -24,45 +24,49 @@ Please do not remove items from the checklist
   - [ ] Update `RELEASE_BRANCH` and `RELEASE_VERSION` in `Makefile` and run `make prepare-release-branch`
   - [ ] Update the `CHANGELOG`
   - [ ] Submit a pull request with the changes: <!-- example #211 #214 -->
-- [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
-  - [ ] Write the change log into the draft release.
-  - [ ] Run
-      `make artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=$VERSION`
-      to generate the artifacts and upload the files in the `artifacts` folder
-      to the draft release.
 - [ ] An OWNER creates a signed tag running
      `git tag -s $VERSION`
       and inserts the changelog into the tag description.
       To perform this step, you need [a PGP key registered on github](https://docs.github.com/en/authentication/managing-commit-signature-verification/checking-for-existing-gpg-keys).
 - [ ] An OWNER pushes the tag with
-      `git push $VERSION`
+      `git push upstream $VERSION`
   - Triggers prow to build and publish a staging container image
-      `gcr.io/k8s-staging-kueue/kueue:$VERSION`
+      `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`
+- [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
+  - [ ] Create the draft release poiting out to the created tag.
+  - [ ] Write the change log into the draft release.
+  - [ ] Run
+      `make artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=$VERSION`
+      to generate the artifacts in the `artifacts` folder.
+  - [ ] Upload the files in the `artifacts` folder to the draft release - either
+      via UI or `gh release --repo kubernetes-sigs/kueue upload <tag> artifacts/*`.
 - [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io),
       updating `registry.k8s.io/images/k8s-staging-kueue/images.yaml` to
-      [promote the container images](https://github.com/kubernetes/k8s.io/tree/main/k8s.gcr.io#image-promoter)
+      [promote the container images](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io#image-promoter)
       to production: <!-- example kubernetes/k8s.io#3612-->
 - [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
+- [ ] Update the `main` branch :
+  - [ ] Update `RELEASE_VERSION` in `Makefile` and run `make prepare-release-branch`
+  - [ ] Release notes in the `CHANGELOG`
+  - [ ] `SECURITY-INSIGHTS.yaml` values by running `make update-security-insights GIT_TAG=$VERSION`
+  - [ ] Submit a pull request with the changes: <!-- example #3007 -->
+  - [ ] Cherry-pick the pull request onto the `website` branch
 - [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] For major or minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
-- [ ] Update the below files with respective values in `main` branch :
-  - Latest version in `README.md`
-  - Release notes in the `CHANGELOG`
-  - `version` in `site/config.toml`
-  - `appVersion` in `charts/kueue/Chart.yaml`
-  - `last-updated`, `last-reviewed`, `commit-hash`, `project-release`, `distribution-points` and `sbom-file` in `SECURITY-INSIGHTS.yaml`
 - [ ] For a major or minor release, prepare the repo for the next version:
-  - [ ] create an unannotated _devel_ tag in the
+  - [ ] Create an unannotated _devel_ tag in the
         `main` branch, on the first commit that gets merged after the release
          branch has been created (presumably the README update commit above), and, push the tag:
         `DEVEL=v0.$(($MAJ+1)).0-devel; git tag $DEVEL main && git push $DEVEL`
         This ensures that the devel builds on the `main` branch will have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
         <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
+  - [ ] Create the presubmits jobs for the next patch release:
+        <!-- example https://github.com/kubernetes/test-infra/pull/33107 -->
 
 
 ## Changelog

@@ -1,0 +1,6 @@
+- op: replace
+  path: /spec/template/spec/containers/0/imagePullPolicy
+  value: IfNotPresent
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --feature-gates=MultiKueueBatchJobWithManagedBy=true,TopologyAwareScheduling=true

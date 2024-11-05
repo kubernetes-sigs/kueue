@@ -75,6 +75,22 @@ set the initial suspend status of created jobs and validate invariants.
 Add testing files for both the controller and the webhook.  You can check the test files in the other subfolders of `./pkg/controller/jobs/`
 to learn how to implement them.
 
+### Developing a mutation and validation webhook
+
+Once you have implemented the `GenericJob` interface, you can register a webhook for the type by using
+the `BaseWebhookFactory` in `pkg/controller/jobframework`. This webhook ensures that a job is created
+in a suspended state and that queue names don't change when the job is admitted. You can read the
+[MPIJob](https://github.com/kubernetes-sigs/kueue/tree/main/pkg/controller/jobs/mpijob) integration as an example.
+
+For certain use cases, you might need to register a dedicated webhook. In this case, you should use
+Kueue's `LosslessDefaulter`, which ensures that the defaulter is compatible with future versions of the
+CRD, under the assumption that the defaulter does **not** remove any fields from the original object.
+You can read the [BatchJob](https://github.com/kubernetes-sigs/kueue/tree/main/pkg/controller/jobs/job)
+integration as an example for how to use a `LosslessDefaulter`.
+
+If the suggestions above are incompatible with your use case, beware of potential
+[problems when using controller-runtime's CustomDefaulter](https://groups.google.com/a/kubernetes.io/g/wg-batch/c/WAaabCuGCoY).
+
 ### Adjust build system
 
 Add required dependencies to compile your code. For example, using `go get github.com/kubeflow/mpi-operator@0.4.0`.
@@ -111,7 +127,7 @@ Extend the existing webhook for your CRD to invoke Kueue's webhook helper method
    - Your validator should invoke `jobframework.ValidateJobOnCreate` and `jobframework.ValidateJobOnUpdate` in [validation.go](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/validation.go)
 
 Extend your manager's startup procedure to do the following:
-   - Using the `jobframework.NewGenericReconcilerFactory` method, create an instance of Kueue's JobReconicler
+   - Using the `jobframework.NewGenericReconcilerFactory` method, create an instance of Kueue's JobReconciler
      for your CRD and register it with the controller-runtime manager.
    - Invoke `jobframework.SetupWorkloadOwnerIndex` to create an indexer for Workloads owned by your CRD.
 

@@ -9,11 +9,17 @@ linters-settings:
     disabled-checks:
       - appendAssign
       - exitAfterDefer
-  goimports:
-    local-prefixes: sigs.k8s.io/kueue
   govet:
     enable:
       - nilness
+  gci:
+    sections:
+      - standard # Standard section: captures all standard packages.
+      - default # Default section: contains all imports that could not be matched to another section type.
+      - prefix(sigs.k8s.io/kueue/cmd/experimental/kjobctl) # Custom section: groups all imports with the specified Prefix.
+      - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
+      - dot # Dot section: contains all dot imports.
+    skip-generated: true # Skip generated files.
   perfsprint:
     int-conversion: false
     errorf: true
@@ -32,9 +38,9 @@ linters:
     - copyloopvar
     - dupword
     - durationcheck
+    - gci
     - ginkgolinter
     - gocritic
-    - goimports
     - govet
     - loggercheck
     - misspell
@@ -53,6 +59,12 @@ issues:
       - staticcheck
       # TODO(#768): Drop when incrementing the API version.
       text: "SA1019: constants.QueueAnnotation is deprecated"
+    - linters:
+        - staticcheck
+      text: "SA1019: j.RayCluster.Status.State is deprecated: the State field is replaced by the Conditions field."
+    - linters:
+        - staticcheck
+      text: "SA1019: rayCluster.Status.State is deprecated: the State field is replaced by the Conditions field."
   # Show all issues from a linter
   max-issues-per-linter: 0
   # Show all issues with the same text

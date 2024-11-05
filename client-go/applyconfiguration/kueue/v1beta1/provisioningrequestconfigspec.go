@@ -22,15 +22,16 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// ProvisioningRequestConfigSpecApplyConfiguration represents an declarative configuration of the ProvisioningRequestConfigSpec type for use
+// ProvisioningRequestConfigSpecApplyConfiguration represents a declarative configuration of the ProvisioningRequestConfigSpec type for use
 // with apply.
 type ProvisioningRequestConfigSpecApplyConfiguration struct {
-	ProvisioningClassName *string                      `json:"provisioningClassName,omitempty"`
-	Parameters            map[string]v1beta1.Parameter `json:"parameters,omitempty"`
-	ManagedResources      []v1.ResourceName            `json:"managedResources,omitempty"`
+	ProvisioningClassName *string                                             `json:"provisioningClassName,omitempty"`
+	Parameters            map[string]v1beta1.Parameter                        `json:"parameters,omitempty"`
+	ManagedResources      []v1.ResourceName                                   `json:"managedResources,omitempty"`
+	RetryStrategy         *ProvisioningRequestRetryStrategyApplyConfiguration `json:"retryStrategy,omitempty"`
 }
 
-// ProvisioningRequestConfigSpecApplyConfiguration constructs an declarative configuration of the ProvisioningRequestConfigSpec type for use with
+// ProvisioningRequestConfigSpecApplyConfiguration constructs a declarative configuration of the ProvisioningRequestConfigSpec type for use with
 // apply.
 func ProvisioningRequestConfigSpec() *ProvisioningRequestConfigSpecApplyConfiguration {
 	return &ProvisioningRequestConfigSpecApplyConfiguration{}
@@ -65,5 +66,13 @@ func (b *ProvisioningRequestConfigSpecApplyConfiguration) WithManagedResources(v
 	for i := range values {
 		b.ManagedResources = append(b.ManagedResources, values[i])
 	}
+	return b
+}
+
+// WithRetryStrategy sets the RetryStrategy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RetryStrategy field is set to the value of the last call.
+func (b *ProvisioningRequestConfigSpecApplyConfiguration) WithRetryStrategy(value *ProvisioningRequestRetryStrategyApplyConfiguration) *ProvisioningRequestConfigSpecApplyConfiguration {
+	b.RetryStrategy = value
 	return b
 }

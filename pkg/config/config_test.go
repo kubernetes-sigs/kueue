@@ -19,6 +19,7 @@ package config
 import (
 	"errors"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,6 +27,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -38,8 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 func TestLoad(t *testing.T) {
@@ -279,6 +283,31 @@ multiKueue:
 		t.Fatal(err)
 	}
 
+	resourceTransformConfig := filepath.Join(tmpDir, "resourceXForm.yaml")
+	if err := os.WriteFile(resourceTransformConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+namespace: kueue-system
+resources:
+  transformations:
+  - input: nvidia.com/mig-1g.5gb
+    strategy: Replace
+    outputs:
+      example.com/accelerator-memory: 5Gi
+      example.com/credits: 10
+  - input: nvidia.com/mig-2g.10gb
+    strategy: Replace
+    outputs:
+      example.com/accelerator-memory: 10Gi
+      example.com/credits: 15
+  - input: cpu
+    strategy: Retain
+    outputs:
+      example.com/credits: 1
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	invalidConfig := filepath.Join(tmpDir, "invalid-config.yaml")
 	if err := os.WriteFile(invalidConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta1
@@ -303,12 +332,13 @@ webhook:
 		Metrics: metricsserver.Options{
 			BindAddress: configapi.DefaultMetricsBindAddress,
 		},
-		LeaderElection:             true,
-		LeaderElectionID:           configapi.DefaultLeaderElectionID,
-		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-		LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-		RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-		RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+		LeaderElection:                true,
+		LeaderElectionID:              configapi.DefaultLeaderElectionID,
+		LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
+		LeaderElectionReleaseOnCancel: true,
+		LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+		RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+		RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 		WebhookServer: &webhook.DefaultServer{
 			Options: webhook.Options{
 				Port: configapi.DefaultWebhookPort,
@@ -326,6 +356,7 @@ webhook:
 		cmpopts.IgnoreUnexported(ctrl.Options{}),
 		cmpopts.IgnoreUnexported(webhook.DefaultServer{}),
 		cmpopts.IgnoreUnexported(ctrlcache.Options{}),
+		cmpopts.IgnoreUnexported(net.ListenConfig{}),
 		cmpopts.IgnoreFields(ctrl.Options{}, "Scheme", "Logger"),
 	}
 
@@ -392,12 +423,13 @@ webhook:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElection:             true,
-				LeaderElectionID:           configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaderElection:                true,
+				LeaderElectionID:              configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
+				LeaderElectionReleaseOnCancel: true,
+				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -467,12 +499,13 @@ webhook:
 				Metrics: metricsserver.Options{
 					BindAddress: ":38080",
 				},
-				LeaderElection:             true,
-				LeaderElectionID:           "test-id",
-				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaderElection:                true,
+				LeaderElectionID:              "test-id",
+				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
+				LeaderElectionReleaseOnCancel: true,
+				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: 9444,
@@ -538,18 +571,18 @@ webhook:
 				QueueVisibility:            defaultQueueVisibility,
 				MultiKueue:                 defaultMultiKueue,
 			},
-
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElectionID:           configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
-				LeaderElection:             false,
+				LeaderElectionID:              configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
+				LeaderElectionReleaseOnCancel: false,
+				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaderElection:                false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -589,12 +622,13 @@ webhook:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElection:             true,
-				LeaderElectionID:           configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaderElection:                true,
+				LeaderElectionID:              configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
+				LeaderElectionReleaseOnCancel: true,
+				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -649,14 +683,15 @@ webhook:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				PprofBindAddress:           ":8083",
-				LeaderElection:             true,
-				LeaderElectionID:           configapi.DefaultLeaderElectionID,
-				LeaderElectionNamespace:    "namespace",
-				LeaderElectionResourceLock: "lock",
-				LeaseDuration:              ptr.To(time.Second * 100),
-				RenewDeadline:              ptr.To(time.Second * 15),
-				RetryPeriod:                ptr.To(time.Second * 30),
+				PprofBindAddress:              ":8083",
+				LeaderElection:                true,
+				LeaderElectionID:              configapi.DefaultLeaderElectionID,
+				LeaderElectionNamespace:       "namespace",
+				LeaderElectionResourceLock:    "lock",
+				LeaderElectionReleaseOnCancel: true,
+				LeaseDuration:                 ptr.To(time.Second * 100),
+				RenewDeadline:                 ptr.To(time.Second * 15),
+				RetryPeriod:                   ptr.To(time.Second * 30),
 				Controller: runtimeconfig.Controller{
 					GroupKindConcurrency: map[string]int{
 						"workload": 5,
@@ -710,12 +745,13 @@ webhook:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElection:             true,
-				LeaderElectionID:           configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaderElection:                true,
+				LeaderElectionID:              configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
+				LeaderElectionReleaseOnCancel: true,
+				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -749,12 +785,13 @@ webhook:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElection:             true,
-				LeaderElectionID:           configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaderElection:                true,
+				LeaderElectionID:              configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
+				LeaderElectionReleaseOnCancel: true,
+				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -807,12 +844,13 @@ webhook:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElection:             true,
-				LeaderElectionID:           configapi.DefaultLeaderElectionID,
-				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaderElection:                true,
+				LeaderElectionID:              configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
+				LeaderElectionReleaseOnCancel: true,
+				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -838,6 +876,51 @@ webhook:
 					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
 					Origin:            ptr.To("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
+				},
+			},
+			wantOptions: defaultControlOptions,
+		},
+		{
+			name:       "resourceTransform config",
+			configFile: resourceTransformConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
+				QueueVisibility:            defaultQueueVisibility,
+				MultiKueue:                 defaultMultiKueue,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
+							Strategy: ptr.To(configapi.Replace),
+							Outputs: corev1.ResourceList{
+								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("5Gi"),
+								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("10"),
+							},
+						},
+						{
+							Input:    corev1.ResourceName("nvidia.com/mig-2g.10gb"),
+							Strategy: ptr.To(configapi.Replace),
+							Outputs: corev1.ResourceList{
+								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("10Gi"),
+								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("15"),
+							},
+						},
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: ptr.To(configapi.Retain),
+							Outputs: corev1.ResourceList{
+								corev1.ResourceName("example.com/credits"): resourcev1.MustParse("1"),
+							},
+						},
+					},
 				},
 			},
 			wantOptions: defaultControlOptions,

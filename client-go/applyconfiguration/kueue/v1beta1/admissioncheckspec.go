@@ -17,7 +17,7 @@ limitations under the License.
 
 package v1beta1
 
-// AdmissionCheckSpecApplyConfiguration represents an declarative configuration of the AdmissionCheckSpec type for use
+// AdmissionCheckSpecApplyConfiguration represents a declarative configuration of the AdmissionCheckSpec type for use
 // with apply.
 type AdmissionCheckSpecApplyConfiguration struct {
 	ControllerName    *string                                              `json:"controllerName,omitempty"`
@@ -25,7 +25,7 @@ type AdmissionCheckSpecApplyConfiguration struct {
 	Parameters        *AdmissionCheckParametersReferenceApplyConfiguration `json:"parameters,omitempty"`
 }
 
-// AdmissionCheckSpecApplyConfiguration constructs an declarative configuration of the AdmissionCheckSpec type for use with
+// AdmissionCheckSpecApplyConfiguration constructs a declarative configuration of the AdmissionCheckSpec type for use with
 // apply.
 func AdmissionCheckSpec() *AdmissionCheckSpecApplyConfiguration {
 	return &AdmissionCheckSpecApplyConfiguration{}

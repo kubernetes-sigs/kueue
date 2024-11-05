@@ -40,22 +40,24 @@ var jobtemplatesKind = v1alpha1.SchemeGroupVersion.WithKind("JobTemplate")
 
 // Get takes name of the jobTemplate, and returns the corresponding jobTemplate object, and an error if there is any.
 func (c *FakeJobTemplates) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.JobTemplate, err error) {
+	emptyResult := &v1alpha1.JobTemplate{}
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(jobtemplatesResource, c.ns, name), &v1alpha1.JobTemplate{})
+		Invokes(testing.NewGetActionWithOptions(jobtemplatesResource, c.ns, name, options), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.JobTemplate), err
 }
 
 // List takes label and field selectors, and returns the list of JobTemplates that match those selectors.
 func (c *FakeJobTemplates) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.JobTemplateList, err error) {
+	emptyResult := &v1alpha1.JobTemplateList{}
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(jobtemplatesResource, jobtemplatesKind, c.ns, opts), &v1alpha1.JobTemplateList{})
+		Invokes(testing.NewListActionWithOptions(jobtemplatesResource, jobtemplatesKind, c.ns, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 
 	label, _, _ := testing.ExtractFromListOptions(opts)
@@ -74,28 +76,30 @@ func (c *FakeJobTemplates) List(ctx context.Context, opts v1.ListOptions) (resul
 // Watch returns a watch.Interface that watches the requested jobTemplates.
 func (c *FakeJobTemplates) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(jobtemplatesResource, c.ns, opts))
+		InvokesWatch(testing.NewWatchActionWithOptions(jobtemplatesResource, c.ns, opts))
 
 }
 
 // Create takes the representation of a jobTemplate and creates it.  Returns the server's representation of the jobTemplate, and an error, if there is any.
 func (c *FakeJobTemplates) Create(ctx context.Context, jobTemplate *v1alpha1.JobTemplate, opts v1.CreateOptions) (result *v1alpha1.JobTemplate, err error) {
+	emptyResult := &v1alpha1.JobTemplate{}
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(jobtemplatesResource, c.ns, jobTemplate), &v1alpha1.JobTemplate{})
+		Invokes(testing.NewCreateActionWithOptions(jobtemplatesResource, c.ns, jobTemplate, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.JobTemplate), err
 }
 
 // Update takes the representation of a jobTemplate and updates it. Returns the server's representation of the jobTemplate, and an error, if there is any.
 func (c *FakeJobTemplates) Update(ctx context.Context, jobTemplate *v1alpha1.JobTemplate, opts v1.UpdateOptions) (result *v1alpha1.JobTemplate, err error) {
+	emptyResult := &v1alpha1.JobTemplate{}
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(jobtemplatesResource, c.ns, jobTemplate), &v1alpha1.JobTemplate{})
+		Invokes(testing.NewUpdateActionWithOptions(jobtemplatesResource, c.ns, jobTemplate, opts), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.JobTemplate), err
 }
@@ -110,7 +114,7 @@ func (c *FakeJobTemplates) Delete(ctx context.Context, name string, opts v1.Dele
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeJobTemplates) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(jobtemplatesResource, c.ns, listOpts)
+	action := testing.NewDeleteCollectionActionWithOptions(jobtemplatesResource, c.ns, opts, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1alpha1.JobTemplateList{})
 	return err
@@ -118,11 +122,12 @@ func (c *FakeJobTemplates) DeleteCollection(ctx context.Context, opts v1.DeleteO
 
 // Patch applies the patch and returns the patched jobTemplate.
 func (c *FakeJobTemplates) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.JobTemplate, err error) {
+	emptyResult := &v1alpha1.JobTemplate{}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(jobtemplatesResource, c.ns, name, pt, data, subresources...), &v1alpha1.JobTemplate{})
+		Invokes(testing.NewPatchSubresourceActionWithOptions(jobtemplatesResource, c.ns, name, pt, data, opts, subresources...), emptyResult)
 
 	if obj == nil {
-		return nil, err
+		return emptyResult, err
 	}
 	return obj.(*v1alpha1.JobTemplate), err
 }

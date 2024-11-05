@@ -1,5 +1,9 @@
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.30.0
+ENVTEST_K8S_VERSION = 1.31.0
+
+ifeq ($(shell uname),Darwin)
+    GOFLAGS ?= -ldflags=-linkmode=internal
+endif
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -8,12 +12,21 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+CGO_ENABLED ?= 0
+
 GO_CMD ?= go
 GO_FMT ?= gofmt
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ARTIFACTS ?= $(PROJECT_DIR)/bin
 TOOLS_DIR ?= $(PROJECT_DIR)/hack/tools
+CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
+EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
+
+MANIFEST_DIR := $(PROJECT_DIR)/config/crd
+MANIFEST_SOURCES := $(shell find $(MANIFEST_DIR) -name "*.yaml")
+EMBEDDED_MANIFEST_DIR := $(PROJECT_DIR)/pkg/cmd/printcrds/embed
+EMBEDDED_MANIFEST := $(EMBEDDED_MANIFEST_DIR)/manifest.gz
 
 # Number of processes to use during integration tests to run specs within a
 # suite in parallel. Suites still run sequentially. User may set this value to 1
@@ -26,6 +39,12 @@ INTEGRATION_TARGET ?= $(PROJECT_DIR)/test/integration/...
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
+
+# For local testing, we should allow user to use different kind cluster name
+# Default will delete default kind cluster
+KIND_CLUSTER_NAME ?= kind
+E2E_KIND_VERSION ?= kindest/node:v1.31.0
+K8S_VERSION = $(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ##@ General
 
@@ -44,11 +63,20 @@ SHELL = /usr/bin/env bash -o pipefail
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
+##@ Release
+.PHONY: artifacts
+artifacts: kustomize ## Generate release artifacts.
+	if [ -d artifacts ]; then rm -rf artifacts; fi
+	mkdir -p artifacts
+	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
+	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_DIR="artifacts" BUILD_NAME=kubectl-kjob PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kjobctl/main.go
+
 ##@ Development
 
 .PHONY: manifests
 manifests: controller-gen ## Generate ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=config/crd/bases
+	# We need to allow dangerous types because on RayJobSpec still uses float32 type.
+	$(CONTROLLER_GEN) crd:allowDangerousTypes=true paths="./..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: gomod-download controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -56,8 +84,8 @@ generate: gomod-download controller-gen ## Generate code containing DeepCopy, De
 	TOOLS_DIR=${TOOLS_DIR} ./hack/update-codegen.sh $(GO_CMD)
 
 .PHONY: verify
-verify: gomod-verify ci-lint fmt-verify manifests generate
-	git --no-pager diff --exit-code config/crd apis client-go
+verify: gomod-verify ci-lint shell-lint fmt-verify manifests generate generate-kjobctl-docs embeded-manifest
+	git --no-pager diff --exit-code config/crd apis client-go docs pkg/cmd/printcrds/embed
 
 .PHONY: gomod-verify
 gomod-verify:
@@ -68,6 +96,10 @@ gomod-verify:
 ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 15m0s
 
+.PHONY: shell-lint
+shell-lint: ## Run shell linting.
+	$(PROJECT_DIR)/hack/shellcheck/verify.sh
+
 .PHONY: fmt-verify
 fmt-verify:
 	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go')`; \
@@ -75,6 +107,13 @@ fmt-verify:
 	    echo "$$out"; \
 	    exit 1; \
 	fi
+
+$(EMBEDDED_MANIFEST): kustomize $(MANIFEST_SOURCES) 
+	mkdir -p  $(EMBEDDED_MANIFEST_DIR)
+	# This is embedded in the kjobctl binary. 
+	$(KUSTOMIZE) build $(MANIFEST_DIR) | $(GO_CMD) run $(PROJECT_DIR)/hack/tools/gzip/gzip.go > $(EMBEDDED_MANIFEST)
+
+embeded-manifest: $(EMBEDDED_MANIFEST)
 
 .PHONY: gomod-download
 gomod-download:
@@ -85,14 +124,24 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: test
-test: verify gotestsum gomod-download vet envtest ginkgo ## Run tests.
-	# Unit tests
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
-	# Integration tests
+test: verify vet test-unit test-integration test-e2e ## Run all tests.
+
+.PHONY: test-unit
+test-unit: gomod-download gotestsum embeded-manifest ## Run unit tests.
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
+
+.PHONY: test-integration
+test-integration: gomod-download envtest ginkgo embeded-manifest ray-operator-crd ## Run integration tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	KUEUE_BIN=$(PROJECT_DIR)/bin \
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	$(GINKGO) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --race --junit-report=junit-integration.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+
+CREATE_KIND_CLUSTER ?= true
+.PHONY: test-e2e
+test-e2e: kind kubectl-kjob
+	@echo Running e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" GINKGO_ARGS="$(GINKGO_ARGS)" ./hack/e2e-test.sh
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -116,9 +165,21 @@ install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
+
 .PHONY: kubectl-kjob
-kubectl-kjob: ## Build kubectl-kjob binary file to bin directory.
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kjob cmd/main.go
+kubectl-kjob: embeded-manifest ## Build kubectl-kjob binary file to bin directory.
+	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/kubectl-kjob cmd/kjobctl/main.go
+
+.PHONY: kjobctl-docs
+kjobctl-docs: ## Build kjobctl-docs binary file to bin directory.
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kjobctl-docs ./cmd/kjobctl-docs/main.go
+
+.PHONY: generate-kjobctl-docs
+generate-kjobctl-docs: kjobctl-docs ## Generate kjobctl docs.
+	rm -Rf $(PROJECT_DIR)/docs/commands/*
+	$(PROJECT_DIR)/bin/kjobctl-docs \
+		$(PROJECT_DIR)/cmd/kjobctl-docs/templates \
+		$(PROJECT_DIR)/docs/commands
 
 ##@ Dependencies
 
@@ -136,6 +197,7 @@ ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}
 GOLANGCI_LINT_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint)
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
 GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR) && $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 
 ## Tool Binaries
 KUBECTL ?= kubectl
@@ -174,6 +236,19 @@ gotestsum: ## Download gotestsum locally if necessary.
 ginkgo: ## Download ginkgo locally if necessary.
 	$(call go-install-tool,$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo,$(GINKGO_VERSION))
 
+KIND = $(PROJECT_DIR)/bin/kind
+.PHONY: kind
+kind: ## Download kind locally if necessary.
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@$(KIND_VERSION)
+
+##@ External CRDs
+
+RAY_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
+.PHONY: ray-operator-crd
+ray-operator-crd: ## Copy the CRDs from the ray-operator to the dep-crds directory.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/ray-operator/
+	cp -f $(RAY_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/ray-operator/
+
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary (ideally with version)
 # $2 - package url which can be installed
@@ -185,5 +260,6 @@ package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
 GOBIN=$(LOCALBIN) go install $${package} ;\
 mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
-}
+} ;\
+ln -sf $(1) "$$(echo "$(1)" | sed "s/-$(3)$$//")"
 endef

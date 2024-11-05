@@ -27,8 +27,7 @@ import (
 
 type KueueV1alpha1Interface interface {
 	RESTClient() rest.Interface
-	MultiKueueClustersGetter
-	MultiKueueConfigsGetter
+	TopologiesGetter
 }
 
 // KueueV1alpha1Client is used to interact with features provided by the kueue.x-k8s.io group.
@@ -36,12 +35,8 @@ type KueueV1alpha1Client struct {
 	restClient rest.Interface
 }
 
-func (c *KueueV1alpha1Client) MultiKueueClusters() MultiKueueClusterInterface {
-	return newMultiKueueClusters(c)
-}
-
-func (c *KueueV1alpha1Client) MultiKueueConfigs() MultiKueueConfigInterface {
-	return newMultiKueueConfigs(c)
+func (c *KueueV1alpha1Client) Topologies() TopologyInterface {
+	return newTopologies(c)
 }
 
 // NewForConfig creates a new KueueV1alpha1Client for the given config.

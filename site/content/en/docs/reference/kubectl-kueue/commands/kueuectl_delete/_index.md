@@ -7,7 +7,7 @@ no_list: true
 
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/hack/internal/tools/kueuectl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
 -->
 
 ## Synopsis
@@ -219,5 +219,5 @@ Delete a resource
 * [kueuectl delete clusterqueue](kueuectl_delete_clusterqueue/)	 - Pass-through &#34;delete clusterqueue&#34; to kubectl
 * [kueuectl delete localqueue](kueuectl_delete_localqueue/)	 - Pass-through &#34;delete localqueue&#34; to kubectl
 * [kueuectl delete resourceflavor](kueuectl_delete_resourceflavor/)	 - Pass-through &#34;delete resourceflavor&#34; to kubectl
-* [kueuectl delete workload](kueuectl_delete_workload/)	 - Pass-through &#34;delete workload&#34; to kubectl
+* [kueuectl delete workload](kueuectl_delete_workload/)	 - Delete the given Workload and its corresponding Job
 

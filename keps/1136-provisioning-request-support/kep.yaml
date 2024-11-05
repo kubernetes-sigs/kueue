@@ -2,6 +2,7 @@ title: ProvisioningRequest support
 kep-number: 1136
 authors:
   - "@mwielgus"
+  - "@pbundyra"
 status: draft
 creation-date: 2023-09-20
 reviewers:
@@ -21,6 +22,9 @@ latest-milestone: "v0.5"
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
   beta: "v0.5"
+
+feature-gates:
+  - KeepQuotaForProvReqRetry
 
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled

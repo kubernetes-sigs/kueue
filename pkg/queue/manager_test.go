@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -117,7 +118,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Could not re-add ClusterQueue: %v", err)
 	}
-	workloads := popNamesFromCQ(manager.clusterQueues["cq"])
+	workloads := popNamesFromCQ(manager.hm.ClusterQueues["cq"])
 	wantWorkloads := []string{"/b", "/a"}
 	if diff := cmp.Diff(wantWorkloads, workloads); diff != "" {
 		t.Errorf("Workloads popped in the wrong order from clusterQueue:\n%s", diff)
@@ -150,6 +151,8 @@ func TestUpdateClusterQueue(t *testing.T) {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
 		}
+		// Increase the popCycle to ensure that the workload will be added as inadmissible.
+		manager.getClusterQueue(cq.Name).popCycle++
 	}
 	for _, q := range queues {
 		if err := manager.AddLocalQueue(ctx, q); err != nil {
@@ -164,6 +167,20 @@ func TestUpdateClusterQueue(t *testing.T) {
 		manager.RequeueWorkload(ctx, workload.NewInfo(w), RequeueReasonGeneric)
 	}
 
+	// Verify that all workloads are marked as inadmissible after creation.
+	inadmissibleWorkloads := manager.DumpInadmissible()
+	wantInadmissibleWorkloads := map[string][]string{
+		"cq1": {"default/a"},
+		"cq2": {"default/b"},
+	}
+	if diff := cmp.Diff(wantInadmissibleWorkloads, inadmissibleWorkloads); diff != "" {
+		t.Errorf("Unexpected set of inadmissible workloads (-want +got):\n%s", diff)
+	}
+	activeWorkloads := manager.Dump()
+	if diff := cmp.Diff(map[string][]string(nil), activeWorkloads); diff != "" {
+		t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
+	}
+
 	// Put cq2 in the same cohort as cq1.
 	clusterQueues[1].Spec.Cohort = clusterQueues[0].Spec.Cohort
 	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1], true); err != nil {
@@ -173,18 +190,67 @@ func TestUpdateClusterQueue(t *testing.T) {
 	wantCohorts := map[string]sets.Set[string]{
 		"alpha": sets.New("cq1", "cq2"),
 	}
-	if diff := cmp.Diff(manager.cohorts, wantCohorts); diff != "" {
+	gotCohorts := make(map[string]sets.Set[string])
+	for name, cohort := range manager.hm.Cohorts {
+		gotCohorts[name] = sets.New[string]()
+		for _, cq := range cohort.ChildCQs() {
+			gotCohorts[name].Insert(cq.GetName())
+		}
+	}
+	if diff := cmp.Diff(gotCohorts, wantCohorts); diff != "" {
 		t.Errorf("Unexpected ClusterQueues in cohorts (-want,+got):\n%s", diff)
 	}
 
-	// Verify all workloads are active after the update.
-	activeWorkloads := manager.Dump()
+	// Verify that all workloads are active after the update.
+	inadmissibleWorkloads = manager.DumpInadmissible()
+	if diff := cmp.Diff(map[string][]string(nil), inadmissibleWorkloads); diff != "" {
+		t.Errorf("Unexpected set of inadmissible workloads (-want +got):\n%s", diff)
+	}
+	activeWorkloads = manager.Dump()
 	wantActiveWorkloads := map[string][]string{
-		"cq1": []string{"default/a"},
-		"cq2": []string{"default/b"},
+		"cq1": {"default/a"},
+		"cq2": {"default/b"},
 	}
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
 		t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
+	}
+}
+
+func TestRequeueWorkloadsCohortCycle(t *testing.T) {
+	cohorts := []*kueuealpha.Cohort{
+		utiltesting.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+		utiltesting.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
+		utiltesting.MakeCohort("cohort-c").Parent("cohort-a").Obj(),
+	}
+	cq := utiltesting.MakeClusterQueue("cq1").Cohort("cohort-a").Obj()
+	lq := utiltesting.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj()
+	wl := utiltesting.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(time.Now()).Obj()
+	// Setup.
+	ctx := context.Background()
+	cl := utiltesting.NewFakeClient(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace}},
+	)
+	manager := NewManager(cl, nil)
+	for _, cohort := range cohorts {
+		manager.AddOrUpdateCohort(ctx, cohort)
+	}
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding queue %s: %v", lq.Name, err)
+	}
+	if err := cl.Create(ctx, wl); err != nil {
+		t.Fatalf("Failed adding workload to client: %v", err)
+	}
+	// This test will pass with the removal of this line.
+	// Update once we find a solution to #3066.
+	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric)
+
+	// This method is where we do a cycle check. We call it to ensure
+	// it behaves properly when a cycle exists
+	if manager.requeueWorkloadsCohort(ctx, manager.hm.Cohorts["cohort-a"]) {
+		t.Fatal("Expected moveWorkloadsCohort to return false")
 	}
 }
 
@@ -205,6 +271,7 @@ func TestClusterQueueToActive(t *testing.T) {
 	wgCounterEnd.Add(1)
 	condRec := make(chan struct{})
 	counterCtx, counterCancel := context.WithCancel(ctx)
+	defer counterCancel()
 	go func() {
 		manager.cond.L.Lock()
 		defer manager.cond.L.Unlock()
@@ -290,7 +357,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 
 	// Verification.
 	workloadOrders := make(map[string][]string)
-	for name, cq := range manager.clusterQueues {
+	for name, cq := range manager.hm.ClusterQueues {
 		workloadOrders[name] = popNamesFromCQ(cq)
 	}
 	wantWorkloadOrders := map[string][]string{
@@ -748,7 +815,7 @@ func TestUpdateWorkload(t *testing.T) {
 				} else if diff := cmp.Diff(wl, item.Obj); diff != "" {
 					t.Errorf("Object stored in queue differs (-want,+got):\n%s", diff)
 				}
-				cq := manager.clusterQueues[q.ClusterQueue]
+				cq := manager.hm.ClusterQueues[q.ClusterQueue]
 				if cq != nil {
 					item := cq.Info(key)
 					if item == nil {
@@ -759,7 +826,7 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			queueOrder := make(map[string][]string)
-			for name, cq := range manager.clusterQueues {
+			for name, cq := range manager.hm.ClusterQueues {
 				queueOrder[name] = popNamesFromCQ(cq)
 			}
 			if diff := cmp.Diff(tc.wantQueueOrder, queueOrder); diff != "" {

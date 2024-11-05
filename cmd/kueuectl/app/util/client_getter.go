@@ -17,12 +17,15 @@ limitations under the License.
 package util
 
 import (
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"sigs.k8s.io/kueue/client-go/clientset/versioned"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
 type ClientGetter interface {
@@ -30,6 +33,7 @@ type ClientGetter interface {
 
 	KueueClientSet() (versioned.Interface, error)
 	K8sClientSet() (k8s.Interface, error)
+	DynamicClient() (dynamic.Interface, error)
 	NewResourceBuilder() *resource.Builder
 }
 
@@ -45,8 +49,8 @@ func NewClientGetter(clientGetter genericclioptions.RESTClientGetter) ClientGett
 	}
 }
 
-func (f *clientGetterImpl) KueueClientSet() (versioned.Interface, error) {
-	config, err := f.ToRESTConfig()
+func (cg *clientGetterImpl) KueueClientSet() (versioned.Interface, error) {
+	config, err := cg.ToRESTConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -59,12 +63,13 @@ func (f *clientGetterImpl) KueueClientSet() (versioned.Interface, error) {
 	return clientset, nil
 }
 
-func (f *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
-	config, err := f.ToRESTConfig()
+func (cg *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
+	config, err := cg.ToRESTConfig()
 	if err != nil {
 		return nil, err
 	}
 
+	config.ContentType = runtime.ContentTypeProtobuf
 	clientset, err := k8s.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -73,6 +78,20 @@ func (f *clientGetterImpl) K8sClientSet() (k8s.Interface, error) {
 	return clientset, nil
 }
 
-func (f *clientGetterImpl) NewResourceBuilder() *resource.Builder {
-	return resource.NewBuilder(f.RESTClientGetter)
+func (cg *clientGetterImpl) DynamicClient() (dynamic.Interface, error) {
+	config, err := cg.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return dynamicClient, nil
+}
+
+func (cg *clientGetterImpl) NewResourceBuilder() *resource.Builder {
+	return resource.NewBuilder(cg.RESTClientGetter)
 }

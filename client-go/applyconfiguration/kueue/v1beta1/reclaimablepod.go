@@ -17,14 +17,14 @@ limitations under the License.
 
 package v1beta1
 
-// ReclaimablePodApplyConfiguration represents an declarative configuration of the ReclaimablePod type for use
+// ReclaimablePodApplyConfiguration represents a declarative configuration of the ReclaimablePod type for use
 // with apply.
 type ReclaimablePodApplyConfiguration struct {
 	Name  *string `json:"name,omitempty"`
 	Count *int32  `json:"count,omitempty"`
 }
 
-// ReclaimablePodApplyConfiguration constructs an declarative configuration of the ReclaimablePod type for use with
+// ReclaimablePodApplyConfiguration constructs a declarative configuration of the ReclaimablePod type for use with
 // apply.
 func ReclaimablePod() *ReclaimablePodApplyConfiguration {
 	return &ReclaimablePodApplyConfiguration{}

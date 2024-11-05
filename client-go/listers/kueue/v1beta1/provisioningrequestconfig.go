@@ -18,8 +18,8 @@ limitations under the License.
 package v1beta1
 
 import (
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/listers"
 	"k8s.io/client-go/tools/cache"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -38,30 +38,10 @@ type ProvisioningRequestConfigLister interface {
 
 // provisioningRequestConfigLister implements the ProvisioningRequestConfigLister interface.
 type provisioningRequestConfigLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*v1beta1.ProvisioningRequestConfig]
 }
 
 // NewProvisioningRequestConfigLister returns a new ProvisioningRequestConfigLister.
 func NewProvisioningRequestConfigLister(indexer cache.Indexer) ProvisioningRequestConfigLister {
-	return &provisioningRequestConfigLister{indexer: indexer}
-}
-
-// List lists all ProvisioningRequestConfigs in the indexer.
-func (s *provisioningRequestConfigLister) List(selector labels.Selector) (ret []*v1beta1.ProvisioningRequestConfig, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.ProvisioningRequestConfig))
-	})
-	return ret, err
-}
-
-// Get retrieves the ProvisioningRequestConfig from the index for a given name.
-func (s *provisioningRequestConfigLister) Get(name string) (*v1beta1.ProvisioningRequestConfig, error) {
-	obj, exists, err := s.indexer.GetByKey(name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1beta1.Resource("provisioningrequestconfig"), name)
-	}
-	return obj.(*v1beta1.ProvisioningRequestConfig), nil
+	return &provisioningRequestConfigLister{listers.New[*v1beta1.ProvisioningRequestConfig](indexer, v1beta1.Resource("provisioningrequestconfig"))}
 }

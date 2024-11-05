@@ -17,9 +17,8 @@ limitations under the License.
 package util
 
 import (
-	"k8s.io/klog/v2"
-
 	"github.com/spf13/cobra"
+	"k8s.io/klog/v2"
 )
 
 func AddFieldSelectorFlagVar(cmd *cobra.Command, p *string) {
@@ -40,6 +39,11 @@ func AddAllNamespacesFlagVar(cmd *cobra.Command, p *bool) {
 func AddProfileFlagVar(cmd *cobra.Command, p *string) {
 	cmd.Flags().StringVarP(p, "profile", "p", "",
 		"Filter by profile name which is associated with the resource.")
+}
+
+func AddLocalQueueFlagVar(cmd *cobra.Command, p *string) {
+	cmd.Flags().StringVarP(p, "localqueue", "q", "",
+		"Filter by localqueue which is associated with the resource.")
 }
 
 func FlagString(cmd *cobra.Command, flag string) string {

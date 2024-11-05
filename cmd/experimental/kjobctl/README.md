@@ -2,12 +2,14 @@
 ML/AI/Batch Jobs Made Easy
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+The `kubectl-kjob` plugin, `kjobctl`, allows you to list, describe and create jobs.
+
+Read the [overview](docs/_index.md) to learn more.
 
 ## Getting Started
 
 ### Prerequisites
-- go version v1.22.3+
+- go version v1.23+
 - kubectl version v1.27+.
 - Access to a Kubernetes v1.27+ cluster.
 

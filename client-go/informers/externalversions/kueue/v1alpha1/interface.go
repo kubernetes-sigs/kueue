@@ -23,10 +23,8 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
-	// MultiKueueClusters returns a MultiKueueClusterInformer.
-	MultiKueueClusters() MultiKueueClusterInformer
-	// MultiKueueConfigs returns a MultiKueueConfigInformer.
-	MultiKueueConfigs() MultiKueueConfigInformer
+	// Topologies returns a TopologyInformer.
+	Topologies() TopologyInformer
 }
 
 type version struct {
@@ -40,12 +38,7 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
-// MultiKueueClusters returns a MultiKueueClusterInformer.
-func (v *version) MultiKueueClusters() MultiKueueClusterInformer {
-	return &multiKueueClusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
-}
-
-// MultiKueueConfigs returns a MultiKueueConfigInformer.
-func (v *version) MultiKueueConfigs() MultiKueueConfigInformer {
-	return &multiKueueConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+// Topologies returns a TopologyInformer.
+func (v *version) Topologies() TopologyInformer {
+	return &topologyInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

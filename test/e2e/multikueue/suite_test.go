@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -86,6 +88,16 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 			policyRule(jobset.SchemeGroupVersion.Group, "jobsets/status", "get"),
 			policyRule(kueue.SchemeGroupVersion.Group, "workloads", resourceVerbs...),
 			policyRule(kueue.SchemeGroupVersion.Group, "workloads/status", "get", "patch", "update"),
+			policyRule(kftraining.SchemeGroupVersion.Group, "tfjobs", resourceVerbs...),
+			policyRule(kftraining.SchemeGroupVersion.Group, "tfjobs/status", "get"),
+			policyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs", resourceVerbs...),
+			policyRule(kftraining.SchemeGroupVersion.Group, "paddlejobs/status", "get"),
+			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs", resourceVerbs...),
+			policyRule(kftraining.SchemeGroupVersion.Group, "pytorchjobs/status", "get"),
+			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs", resourceVerbs...),
+			policyRule(kftraining.SchemeGroupVersion.Group, "xgboostjobs/status", "get"),
+			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs", resourceVerbs...),
+			policyRule(kfmpi.SchemeGroupVersion.Group, "mpijobs/status", "get"),
 		},
 	}
 	err := c.Create(ctx, cr)
@@ -163,8 +175,29 @@ func kubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 	return clientcmd.Write(cfg)
 }
 
+func cleanKubeconfigForMultiKueueSA(ctx context.Context, c client.Client, ns string, prefix string) error {
+	roleName := prefix + "-role"
+
+	err := c.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}})
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	err = c.Delete(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: prefix + "-sa"}})
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	err = c.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-crb"}})
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	return nil
+}
+
 func makeMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string, kubeconfig []byte) error {
-	w1Secret := &corev1.Secret{
+	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 			Name:      name,
@@ -173,7 +206,17 @@ func makeMultiKueueSecret(ctx context.Context, c client.Client, namespace string
 			"kubeconfig": kubeconfig,
 		},
 	}
-	return c.Create(ctx, w1Secret)
+	return c.Create(ctx, secret)
+}
+
+func cleanMultiKueueSecret(ctx context.Context, c client.Client, namespace string, name string) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+		},
+	}
+	return client.IgnoreNotFound(c.Delete(ctx, secret))
 }
 
 func TestAPIs(t *testing.T) {
@@ -210,7 +253,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue1", worker1Kconfig)).To(gomega.Succeed())
 
-	worker2Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, "kueue-system", "mksa", worker1ClusterName)
+	worker2Kconfig, err := kubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, "kueue-system", "mksa", worker2ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(makeMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue2", worker2Kconfig)).To(gomega.Succeed())
 
@@ -223,10 +266,25 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForJobSetAvailability(ctx, k8sWorker1Client)
 	util.WaitForJobSetAvailability(ctx, k8sWorker2Client)
 
+	// there should not be a kubeflow operator in manager cluster
+	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker1Client)
+	util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker2Client)
+
+	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker1Client)
+	util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker2Client)
+
 	ginkgo.GinkgoLogr.Info("Kueue and JobSet operators are available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(managerCfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	managerK8SVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, "kueue-system", "mksa")).To(gomega.Succeed())
+	gomega.Expect(cleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, "kueue-system", "mksa")).To(gomega.Succeed())
+
+	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue1")).To(gomega.Succeed())
+	gomega.Expect(cleanMultiKueueSecret(ctx, k8sManagerClient, "kueue-system", "multikueue2")).To(gomega.Succeed())
 })

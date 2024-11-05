@@ -22,6 +22,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ClusterQueue Active condition reasons.
+const (
+	ClusterQueueActiveReasonTerminating                                     = "Terminating"
+	ClusterQueueActiveReasonStopped                                         = "Stopped"
+	ClusterQueueActiveReasonFlavorNotFound                                  = "FlavorNotFound"
+	ClusterQueueActiveReasonAdmissionCheckNotFound                          = "AdmissionCheckNotFound"
+	ClusterQueueActiveReasonAdmissionCheckInactive                          = "AdmissionCheckInactive"
+	ClusterQueueActiveReasonMultipleSingleInstanceControllerAdmissionChecks = "MultipleSingleInstanceControllerAdmissionChecks"
+	ClusterQueueActiveReasonFlavorIndependentAdmissionCheckAppliedPerFlavor = "FlavorIndependentAdmissionCheckAppliedPerFlavor"
+	ClusterQueueActiveReasonMultipleMultiKueueAdmissionChecks               = "MultipleMultiKueueAdmissionChecks"
+	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor        = "MultiKueueAdmissionCheckAppliedPerFlavor"
+	ClusterQueueActiveReasonNotSupportedWithTopologyAwareScheduling         = "NotSupportedWithTopologyAwareScheduling"
+	ClusterQueueActiveReasonUnknown                                         = "Unknown"
+	ClusterQueueActiveReasonReady                                           = "Ready"
+)
+
 // ClusterQueueSpec defines the desired state of ClusterQueue
 // +kubebuilder:validation:XValidation:rule="!has(self.cohort) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
 type ClusterQueueSpec struct {
@@ -235,8 +251,7 @@ type ResourceQuota struct {
 	// all the nominalQuota can be borrowed by other clusterQueues in the cohort.
 	// If not null, it must be non-negative.
 	// lendingLimit must be null if spec.cohort is empty.
-	// This field is in alpha stage. To be able to use this field,
-	// enable the feature gate LendingLimit, which is disabled by default.
+	// This field is in beta stage and is enabled by default.
 	// +optional
 	LendingLimit *resource.Quantity `json:"lendingLimit,omitempty"`
 }
@@ -290,6 +305,9 @@ type ClusterQueueStatus struct {
 
 	// PendingWorkloadsStatus contains the information exposed about the current
 	// status of the pending workloads in the cluster queue.
+	// Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
+	// (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
+	// instead.
 	// +optional
 	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatus `json:"pendingWorkloadsStatus"`
 

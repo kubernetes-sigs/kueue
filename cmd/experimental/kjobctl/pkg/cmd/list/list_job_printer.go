@@ -29,6 +29,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
+	kueueconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 )
@@ -52,6 +53,7 @@ func (p *listJobPrinter) PrintObj(obj runtime.Object, out io.Writer) error {
 		ColumnDefinitions: []metav1.TableColumnDefinition{
 			{Name: "Name", Type: "string", Format: "name"},
 			{Name: "Profile", Type: "string"},
+			{Name: "Local Queue", Type: "string"},
 			{Name: "Completions", Type: "string"},
 			{Name: "Duration", Type: "string"},
 			{Name: "Age", Type: "string"},
@@ -106,6 +108,7 @@ func (p *listJobPrinter) printJob(job *batchv1.Job) metav1.TableRow {
 	row.Cells = []any{
 		job.Name,
 		job.ObjectMeta.Labels[constants.ProfileLabel],
+		job.ObjectMeta.Labels[kueueconstants.QueueLabel],
 		fmt.Sprintf("%d/%d", job.Status.Succeeded, ptr.Deref(job.Spec.Completions, 1)),
 		durationStr,
 		duration.HumanDuration(p.clock.Since(job.CreationTimestamp.Time)),

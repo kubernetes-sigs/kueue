@@ -19,14 +19,11 @@ package v1beta1
 
 import (
 	"context"
-	json "encoding/json"
-	"fmt"
-	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	rest "k8s.io/client-go/rest"
+	gentype "k8s.io/client-go/gentype"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
@@ -54,143 +51,18 @@ type WorkloadPriorityClassInterface interface {
 
 // workloadPriorityClasses implements WorkloadPriorityClassInterface
 type workloadPriorityClasses struct {
-	client rest.Interface
+	*gentype.ClientWithListAndApply[*v1beta1.WorkloadPriorityClass, *v1beta1.WorkloadPriorityClassList, *kueuev1beta1.WorkloadPriorityClassApplyConfiguration]
 }
 
 // newWorkloadPriorityClasses returns a WorkloadPriorityClasses
 func newWorkloadPriorityClasses(c *KueueV1beta1Client) *workloadPriorityClasses {
 	return &workloadPriorityClasses{
-		client: c.RESTClient(),
+		gentype.NewClientWithListAndApply[*v1beta1.WorkloadPriorityClass, *v1beta1.WorkloadPriorityClassList, *kueuev1beta1.WorkloadPriorityClassApplyConfiguration](
+			"workloadpriorityclasses",
+			c.RESTClient(),
+			scheme.ParameterCodec,
+			"",
+			func() *v1beta1.WorkloadPriorityClass { return &v1beta1.WorkloadPriorityClass{} },
+			func() *v1beta1.WorkloadPriorityClassList { return &v1beta1.WorkloadPriorityClassList{} }),
 	}
-}
-
-// Get takes name of the workloadPriorityClass, and returns the corresponding workloadPriorityClass object, and an error if there is any.
-func (c *workloadPriorityClasses) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
-	result = &v1beta1.WorkloadPriorityClass{}
-	err = c.client.Get().
-		Resource("workloadpriorityclasses").
-		Name(name).
-		VersionedParams(&options, scheme.ParameterCodec).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// List takes label and field selectors, and returns the list of WorkloadPriorityClasses that match those selectors.
-func (c *workloadPriorityClasses) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.WorkloadPriorityClassList, err error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	result = &v1beta1.WorkloadPriorityClassList{}
-	err = c.client.Get().
-		Resource("workloadpriorityclasses").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Watch returns a watch.Interface that watches the requested workloadPriorityClasses.
-func (c *workloadPriorityClasses) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	opts.Watch = true
-	return c.client.Get().
-		Resource("workloadpriorityclasses").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Watch(ctx)
-}
-
-// Create takes the representation of a workloadPriorityClass and creates it.  Returns the server's representation of the workloadPriorityClass, and an error, if there is any.
-func (c *workloadPriorityClasses) Create(ctx context.Context, workloadPriorityClass *v1beta1.WorkloadPriorityClass, opts v1.CreateOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
-	result = &v1beta1.WorkloadPriorityClass{}
-	err = c.client.Post().
-		Resource("workloadpriorityclasses").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(workloadPriorityClass).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Update takes the representation of a workloadPriorityClass and updates it. Returns the server's representation of the workloadPriorityClass, and an error, if there is any.
-func (c *workloadPriorityClasses) Update(ctx context.Context, workloadPriorityClass *v1beta1.WorkloadPriorityClass, opts v1.UpdateOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
-	result = &v1beta1.WorkloadPriorityClass{}
-	err = c.client.Put().
-		Resource("workloadpriorityclasses").
-		Name(workloadPriorityClass.Name).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(workloadPriorityClass).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Delete takes name of the workloadPriorityClass and deletes it. Returns an error if one occurs.
-func (c *workloadPriorityClasses) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	return c.client.Delete().
-		Resource("workloadpriorityclasses").
-		Name(name).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *workloadPriorityClasses) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	var timeout time.Duration
-	if listOpts.TimeoutSeconds != nil {
-		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
-	}
-	return c.client.Delete().
-		Resource("workloadpriorityclasses").
-		VersionedParams(&listOpts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Body(&opts).
-		Do(ctx).
-		Error()
-}
-
-// Patch applies the patch and returns the patched workloadPriorityClass.
-func (c *workloadPriorityClasses) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.WorkloadPriorityClass, err error) {
-	result = &v1beta1.WorkloadPriorityClass{}
-	err = c.client.Patch(pt).
-		Resource("workloadpriorityclasses").
-		Name(name).
-		SubResource(subresources...).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Apply takes the given apply declarative configuration, applies it and returns the applied workloadPriorityClass.
-func (c *workloadPriorityClasses) Apply(ctx context.Context, workloadPriorityClass *kueuev1beta1.WorkloadPriorityClassApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
-	if workloadPriorityClass == nil {
-		return nil, fmt.Errorf("workloadPriorityClass provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(workloadPriorityClass)
-	if err != nil {
-		return nil, err
-	}
-	name := workloadPriorityClass.Name
-	if name == nil {
-		return nil, fmt.Errorf("workloadPriorityClass.Name must be provided to Apply")
-	}
-	result = &v1beta1.WorkloadPriorityClass{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Resource("workloadpriorityclasses").
-		Name(*name).
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
-		Into(result)
-	return
 }

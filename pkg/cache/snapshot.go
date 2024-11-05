@@ -17,22 +17,23 @@ limitations under the License.
 package cache
 
 import (
+	"context"
+	"fmt"
 	"maps"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Snapshot struct {
-	ClusterQueues            map[string]*ClusterQueueSnapshot
+	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[string]
 }
@@ -42,7 +43,7 @@ type Snapshot struct {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	cq.addOrRemoveUsage(wl.FlavorResourceUsage(), -1)
+	cq.removeUsage(wl.FlavorResourceUsage())
 }
 
 // AddWorkload adds a workload from its corresponding ClusterQueue and
@@ -50,161 +51,114 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	cq.addOrRemoveUsage(wl.FlavorResourceUsage(), 1)
-}
-
-func (c *ClusterQueueSnapshot) addOrRemoveUsage(usage resources.FlavorResourceQuantitiesFlat, m int64) {
-	updateFlavorUsage(usage, c.Usage, m)
-	if c.Cohort != nil {
-		if features.Enabled(features.LendingLimit) {
-			updateCohortUsage(usage, c, m)
-		} else {
-			updateFlavorUsage(usage, c.Cohort.Usage, m)
-		}
-	}
+	cq.AddUsage(wl.FlavorResourceUsage())
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
-	cohorts := make(map[string]*CohortSnapshot)
 	for name, cq := range s.ClusterQueues {
 		cohortName := "<none>"
-		if cq.Cohort != nil {
-			cohortName = cq.Cohort.Name
-			cohorts[cohortName] = cq.Cohort
+		if cq.HasParent() {
+			cohortName = cq.Parent().Name
 		}
 
 		log.Info("Found ClusterQueue",
 			"clusterQueue", klog.KRef("", name),
 			"cohort", cohortName,
 			"resourceGroups", cq.ResourceGroups,
-			"usage", cq.Usage,
+			"usage", cq.ResourceNode.Usage,
 			"workloads", utilmaps.Keys(cq.Workloads),
 		)
 	}
-	for name, cohort := range cohorts {
+	for name, cohort := range s.Cohorts {
 		log.Info("Found cohort",
 			"cohort", name,
-			"resources", cohort.RequestableResources,
-			"usage", cohort.Usage,
+			"resources", cohort.ResourceNode.SubtreeQuota,
+			"usage", cohort.ResourceNode.Usage,
 		)
 	}
 }
 
-func (c *Cache) Snapshot() Snapshot {
+func (c *Cache) Snapshot(ctx context.Context) (*Snapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
 
 	snap := Snapshot{
-		ClusterQueues:            make(map[string]*ClusterQueueSnapshot, len(c.clusterQueues)),
+		Manager:                  hierarchy.NewManager(newCohortSnapshot),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[string](),
 	}
-	for _, cq := range c.clusterQueues {
-		if !cq.Active() {
+	for _, cohort := range c.hm.Cohorts {
+		if c.hm.CycleChecker.HasCycle(cohort) {
+			continue
+		}
+		snap.AddCohort(cohort.Name)
+		snap.Cohorts[cohort.Name].ResourceNode = cohort.resourceNode.Clone()
+		if cohort.HasParent() {
+			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
+		}
+	}
+	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for key, cache := range c.tasCache.Clone() {
+			s, err := cache.snapshot(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("%w: failed to construct snapshot for TAS flavor: %q", err, key)
+			} else {
+				tasSnapshots[key] = s
+			}
+		}
+	}
+	for _, cq := range c.hm.ClusterQueues {
+		if !cq.Active() || (cq.HasParent() && c.hm.CycleChecker.HasCycle(cq.Parent())) {
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
 			continue
 		}
-		snap.ClusterQueues[cq.Name] = cq.snapshot()
+		cqSnapshot := snapshotClusterQueue(cq)
+		snap.AddClusterQueue(cqSnapshot)
+		if cq.HasParent() {
+			snap.UpdateClusterQueueEdge(cq.Name, cq.Parent().Name)
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			for tasFlv, s := range tasSnapshots {
+				if cq.flavorInUse(string(tasFlv)) {
+					cqSnapshot.TASFlavors[tasFlv] = s
+				}
+			}
+		}
 	}
 	for name, rf := range c.resourceFlavors {
 		// Shallow copy is enough
 		snap.ResourceFlavors[name] = rf
 	}
-	for _, cohort := range c.cohorts {
-		cohort.snapshotInto(snap.ClusterQueues)
-	}
-	return snap
+	return &snap, nil
 }
 
-// snapshot creates a copy of ClusterQueue that includes references to immutable
-// objects and deep copies of changing ones. A reference to the cohort is not included.
-func (c *clusterQueue) snapshot() *ClusterQueueSnapshot {
+// snapshotClusterQueue creates a copy of ClusterQueue that includes
+// references to immutable objects and deep copies of changing ones.
+func snapshotClusterQueue(c *clusterQueue) *ClusterQueueSnapshot {
 	cc := &ClusterQueueSnapshot{
 		Name:                          c.Name,
-		ResourceGroups:                c.ResourceGroups, // Shallow copy is enough.
+		ResourceGroups:                make([]ResourceGroup, len(c.ResourceGroups)),
 		FlavorFungibility:             c.FlavorFungibility,
 		FairWeight:                    c.FairWeight,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
-		Usage:                         make(resources.FlavorResourceQuantities, len(c.Usage)),
 		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
 		Status:                        c.Status,
 		AdmissionChecks:               utilmaps.DeepCopySets[kueue.ResourceFlavorReference](c.AdmissionChecks),
-		Quotas:                        c.quotas,
+		ResourceNode:                  c.resourceNode.Clone(),
+		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 	}
-
-	for fName, rUsage := range c.Usage {
-		cc.Usage[fName] = maps.Clone(rUsage)
+	for i, rg := range c.ResourceGroups {
+		cc.ResourceGroups[i] = rg.Clone()
 	}
-	if features.Enabled(features.LendingLimit) {
-		cc.GuaranteedQuota = c.GuaranteedQuota
-	}
-
 	return cc
 }
 
-func (c *cohort) snapshotInto(cqs map[string]*ClusterQueueSnapshot) {
-	cohortSnap := &CohortSnapshot{
-		Name:     c.Name,
-		Members:  make(sets.Set[*ClusterQueueSnapshot], c.Members.Len()),
-		Lendable: c.CalculateLendable(),
-	}
-	cohortSnap.AllocatableResourceGeneration = 0
-	for cq := range c.Members {
-		if cq.Active() {
-			cqSnap := cqs[cq.Name]
-			cqSnap.accumulateResources(cohortSnap)
-			cqSnap.Cohort = cohortSnap
-			cohortSnap.Members.Insert(cqSnap)
-			cohortSnap.AllocatableResourceGeneration += cqSnap.AllocatableResourceGeneration
-		}
-	}
-}
-
-func (c *ClusterQueueSnapshot) accumulateResources(cohort *CohortSnapshot) {
-	if cohort.RequestableResources == nil {
-		cohort.RequestableResources = make(resources.FlavorResourceQuantities, len(c.ResourceGroups))
-	}
-	for _, rg := range c.ResourceGroups {
-		for _, fName := range rg.Flavors {
-			res := cohort.RequestableResources[fName]
-			if res == nil {
-				res = make(map[corev1.ResourceName]int64, len(rg.CoveredResources))
-				cohort.RequestableResources[fName] = res
-			}
-			for rName := range rg.CoveredResources {
-				rQuota := c.QuotaFor(resources.FlavorResource{Flavor: fName, Resource: rName})
-				// When feature LendingLimit enabled, cohort.RequestableResources indicates
-				// the sum of cq.NominalQuota and other cqs' LendingLimit (if not nil).
-				// If LendingLimit is not nil, we should count the lendingLimit as the requestable
-				// resource because we can't borrow more quota than lendingLimit.
-				if features.Enabled(features.LendingLimit) && rQuota.LendingLimit != nil {
-					res[rName] += *rQuota.LendingLimit
-				} else {
-					res[rName] += rQuota.Nominal
-				}
-			}
-		}
-	}
-	if cohort.Usage == nil {
-		cohort.Usage = make(resources.FlavorResourceQuantities, len(c.Usage))
-	}
-	for fName, resUsages := range c.Usage {
-		used := cohort.Usage[fName]
-		if used == nil {
-			used = make(map[corev1.ResourceName]int64, len(resUsages))
-			cohort.Usage[fName] = used
-		}
-		for res, val := range resUsages {
-			// Similar to cohort.RequestableResources, we accumulate the usage above the guaranteed resources,
-			// here we should remove the guaranteed quota as well for that part can not be borrowed.
-			val -= c.guaranteedQuota(fName, res)
-			// if val < 0, it means the cq is not using any quota belongs to LendingLimit
-			if val < 0 {
-				val = 0
-			}
-			used[res] += val
-		}
+func newCohortSnapshot(name string) *CohortSnapshot {
+	return &CohortSnapshot{
+		Name:   name,
+		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot, *CohortSnapshot](),
 	}
 }

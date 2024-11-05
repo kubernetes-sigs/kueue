@@ -17,11 +17,18 @@ limitations under the License.
 package pytorchjob
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
+
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 )
 
 func TestPriorityClass(t *testing.T) {
@@ -211,6 +218,177 @@ func TestOrderedReplicaTypes(t *testing.T) {
 			gotReplicaTypes := pytorchJob.OrderedReplicaTypes()
 			if diff := cmp.Diff(tc.wantReplicaTypes, gotReplicaTypes); len(diff) != 0 {
 				t.Errorf("Unexpected response (-want, +got): %v", diff)
+			}
+		})
+	}
+}
+
+func TestPodSets(t *testing.T) {
+	testCases := map[string]struct {
+		job         *kftraining.PyTorchJob
+		wantPodSets func(job *kftraining.PyTorchJob) []kueue.PodSet
+	}{
+		"no annotations": {
+			job: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecs(
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
+						ReplicaCount: 1,
+					},
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
+						ReplicaCount: 1,
+					},
+				).
+				Obj(),
+			wantPodSets: func(job *kftraining.PyTorchJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:     strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)),
+						Template: job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template,
+						Count:    1,
+					},
+					{
+						Name:     strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)),
+						Template: job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template,
+						Count:    1,
+					},
+				}
+			},
+		},
+		"with required and preferred topology annotation": {
+			job: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecs(
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+						},
+					},
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			wantPodSets: func(job *kftraining.PyTorchJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					{
+						Name:            strings.ToLower(string(kftraining.PyTorchJobReplicaTypeMaster)),
+						Template:        job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template,
+						Count:           1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To("cloud.com/rack")},
+					},
+					{
+						Name:            strings.ToLower(string(kftraining.PyTorchJobReplicaTypeWorker)),
+						Template:        job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template,
+						Count:           1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: ptr.To("cloud.com/block")},
+					},
+				}
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotPodSets := fromObject(tc.job).PodSets()
+			if diff := cmp.Diff(tc.wantPodSets(tc.job), gotPodSets); diff != "" {
+				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidate(t *testing.T) {
+	testCases := map[string]struct {
+		job      *kftraining.PyTorchJob
+		wantErrs field.ErrorList
+	}{
+		"no annotations": {
+			job: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecs(
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
+						ReplicaCount: 1,
+					},
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
+						ReplicaCount: 1,
+					},
+				).
+				Obj(),
+		},
+		"valid TAS request": {
+			job: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecs(
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+						},
+					},
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
+						ReplicaCount: 3,
+						Annotations: map[string]string{
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+		},
+		"invalid TAS request": {
+			job: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecs(
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+					testingpytorchjob.PyTorchReplicaSpecRequirement{
+						ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
+						ReplicaCount: 3,
+						Annotations: map[string]string{
+							kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			wantErrs: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "pytorchReplicaSpecs").
+						Key("Master").
+						Child("template", "metadata", "annotations"),
+					field.OmitValueType{},
+					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
+				),
+				field.Invalid(
+					field.NewPath("spec", "pytorchReplicaSpecs").
+						Key("Worker").
+						Child("template", "metadata", "annotations"),
+					field.OmitValueType{},
+					`must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`,
+				),
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.wantErrs, fromObject(tc.job).ValidateOnCreate()); diff != "" {
+				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantErrs, fromObject(tc.job).ValidateOnUpdate(nil)); diff != "" {
+				t.Errorf("validate create error list mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

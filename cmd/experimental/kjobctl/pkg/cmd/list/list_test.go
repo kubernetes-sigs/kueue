@@ -17,16 +17,22 @@ limitations under the License.
 package list
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayfake "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned/fake"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
-	"k8s.io/client-go/kubernetes/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	testingclock "k8s.io/utils/clock/testing"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
@@ -36,7 +42,8 @@ func TestListCmd(t *testing.T) {
 
 	testCases := map[string]struct {
 		ns         string
-		objs       []runtime.Object
+		k8sObjs    []runtime.Object
+		rayObjs    []runtime.Object
 		args       []string
 		wantOut    string
 		wantOutErr string
@@ -44,9 +51,11 @@ func TestListCmd(t *testing.T) {
 	}{
 		"should print job list with all namespaces": {
 			args: []string{"job", "--all-namespaces"},
-			objs: []runtime.Object{
+			k8sObjs: []runtime.Object{
 				wrappers.MakeJob("j1", "ns1").
 					Profile("profile1").
+					Mode(v1alpha1.JobMode).
+					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
@@ -55,6 +64,8 @@ func TestListCmd(t *testing.T) {
 					Obj(),
 				wrappers.MakeJob("j2", "ns2").
 					Profile("profile2").
+					Mode(v1alpha1.JobMode).
+					LocalQueue("lq1").
 					Completions(3).
 					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
@@ -62,9 +73,102 @@ func TestListCmd(t *testing.T) {
 					Succeeded(3).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   PROFILE    COMPLETIONS   DURATION   AGE
-ns1         j1     profile1   3/3           60m        60m
-ns2         j2     profile2   3/3           60m        60m
+			wantOut: `NAMESPACE   NAME   PROFILE    LOCAL QUEUE   COMPLETIONS   DURATION   AGE
+ns1         j1     profile1   lq1           3/3           60m        60m
+ns2         j2     profile2   lq1           3/3           60m        60m
+`,
+		},
+		"should print slurm job list with all namespaces": {
+			args: []string{"slurm", "--all-namespaces"},
+			k8sObjs: []runtime.Object{
+				wrappers.MakeJob("j1", "ns1").
+					Profile("profile1").
+					Mode(v1alpha1.SlurmMode).
+					LocalQueue("lq1").
+					Completions(3).
+					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Succeeded(3).
+					Obj(),
+				wrappers.MakeJob("j2", "ns2").
+					Profile("profile2").
+					Mode(v1alpha1.SlurmMode).
+					LocalQueue("lq1").
+					Completions(3).
+					CreationTimestamp(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					StartTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					CompletionTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Succeeded(3).
+					Obj(),
+			},
+			wantOut: `NAMESPACE   NAME   PROFILE    LOCAL QUEUE   COMPLETIONS   DURATION   AGE
+ns1         j1     profile1   lq1           3/3           60m        60m
+ns2         j2     profile2   lq1           3/3           60m        60m
+`,
+		},
+		"should print rayjob list with all namespaces": {
+			args: []string{"rayjob", "--all-namespaces"},
+			rayObjs: []runtime.Object{
+				wrappers.MakeRayJob("rj1", metav1.NamespaceDefault).
+					Profile("profile1").
+					LocalQueue("lq1").
+					JobStatus(rayv1.JobStatusSucceeded).
+					RayClusterName("rc1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
+					StartTime(testStartTime.Add(-2 * time.Hour)).
+					EndTime(testStartTime.Add(-1 * time.Hour)).
+					Obj(),
+				wrappers.MakeRayJob("rj2", metav1.NamespaceDefault).
+					Profile("profile2").
+					LocalQueue("lq2").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
+					StartTime(testStartTime.Add(-2 * time.Hour)).
+					EndTime(testStartTime.Add(-1 * time.Hour)).
+					Obj(),
+			},
+			wantOut: fmt.Sprintf(`NAMESPACE   NAME   PROFILE    LOCAL QUEUE   RAY CLUSTER NAME   JOB STATUS   DEPLOYMENT STATUS   START TIME            END TIME              AGE
+default     rj1    profile1   lq1           rc1                SUCCEEDED    Complete            %s   %s   120m
+default     rj2    profile2   lq2                              SUCCEEDED    Complete            %s   %s   120m
+`,
+				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
+				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
+				testStartTime.Add(-2*time.Hour).Format(time.DateTime),
+				testStartTime.Add(-1*time.Hour).Format(time.DateTime),
+			),
+		},
+		"should print raycluster list with all namespaces": {
+			args: []string{"raycluster", "--all-namespaces"},
+			rayObjs: []runtime.Object{
+				wrappers.MakeRayCluster("rc1", metav1.NamespaceDefault).
+					Profile("profile1").
+					LocalQueue("lq1").
+					DesiredWorkerReplicas(2).
+					AvailableWorkerReplicas(3).
+					DesiredCPU(resource.MustParse("5")).
+					DesiredMemory(resource.MustParse("10Gi")).
+					DesiredGPU(resource.MustParse("10")).
+					State(rayv1.Ready).
+					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
+					Obj(),
+				wrappers.MakeRayCluster("rc2", metav1.NamespaceDefault).
+					Profile("profile2").
+					LocalQueue("lq2").
+					DesiredWorkerReplicas(2).
+					AvailableWorkerReplicas(3).
+					DesiredCPU(resource.MustParse("5")).
+					DesiredMemory(resource.MustParse("10Gi")).
+					DesiredGPU(resource.MustParse("10")).
+					State(rayv1.Ready).
+					CreationTimestamp(testStartTime.Add(-2 * time.Hour)).
+					Obj(),
+			},
+			wantOut: `NAMESPACE   NAME   PROFILE    LOCAL QUEUE   DESIRED WORKERS   AVAILABLE WORKERS   CPUS   MEMORY   GPUS   STATUS   AGE
+default     rc1    profile1   lq1           2                 3                   5      10Gi     10     ready    120m
+default     rc2    profile2   lq2           2                 3                   5      10Gi     10     ready    120m
 `,
 		},
 	}
@@ -77,7 +181,8 @@ ns2         j2     profile2   3/3           60m        60m
 				tcg.WithNamespace(tc.ns)
 			}
 
-			tcg.WithK8sClientset(fake.NewSimpleClientset(tc.objs...))
+			tcg.WithK8sClientset(k8sfake.NewSimpleClientset(tc.k8sObjs...))
+			tcg.WithRayClientset(rayfake.NewSimpleClientset(tc.rayObjs...))
 
 			cmd := NewListCmd(tcg, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetArgs(tc.args)

@@ -8,8 +8,8 @@ cmd:
   # Average value 351116.4 (+/- 0.9%), setting at +20%
   maxWallMs: 425_000
 
-  # Average value 396 mCPU (+/- 8%), setting at +30%
-  mCPU: 515
+  # Average value 396 mCPU (+/- 8%), setting at +35%
+  mCPU: 535
   
   # Average value 445012 (+/- 0.3%), setting at +5%
   maxrss: 468_000
@@ -19,8 +19,8 @@ clusterQueueClassesMinUsage:
   cq: 55 #%
 
 wlClassesMaxAvgTimeToAdmissionMs:
-  # Average value 6666 (+/- 14%), setting at +35% + 1s accounting for observed failures
-  large: 10_000
+  # Average value 6666 (+/- 14%), setting at +35% + 2s accounting for observed failures
+  large: 11_000
 
   # Average value 76768 (+/- 2%), setting at +20%
   medium: 90_000

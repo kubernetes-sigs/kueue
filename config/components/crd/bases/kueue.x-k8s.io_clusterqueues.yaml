@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.16.5
   name: clusterqueues.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -102,7 +102,6 @@ spec:
                   cohort that this ClusterQueue belongs to. CQs that belong to the
                   same cohort can borrow unused resources from each other.
 
-
                   A CQ can be a member of a single borrowing cohort. A workload submitted
                   to a queue referencing this CQ can borrow quota from any CQ in the cohort.
                   Only quota for the [resource, flavor] pairs listed in the CQ can be
@@ -110,10 +109,8 @@ spec:
                   If empty, this ClusterQueue cannot borrow from any other ClusterQueue and
                   vice versa.
 
-
                   A cohort is a name that links CQs together, but it doesn't reference any
                   object.
-
 
                   Validation of a cohort name is equivalent to that of object names:
                   subdomain in DNS (RFC 1123).
@@ -154,7 +151,6 @@ spec:
                       whenCanBorrow determines whether a workload should try the next flavor
                       before borrowing in current flavor. The possible values are:
 
-
                       - `Borrow` (default): allocate in current flavor if borrowing
                         is possible.
                       - `TryNextFlavor`: try next flavor even if the current
@@ -168,7 +164,6 @@ spec:
                     description: |-
                       whenCanPreempt determines whether a workload should try the next flavor
                       before borrowing in current flavor. The possible values are:
-
 
                       - `Preempt`: allocate in current flavor if it's possible to preempt some workloads.
                       - `TryNextFlavor` (default): try next flavor even if there are enough
@@ -235,9 +230,7 @@ spec:
                   preemption describes policies to preempt Workloads from this ClusterQueue
                   or the ClusterQueue's cohort.
 
-
                   Preemption can happen in two scenarios:
-
 
                   - When a Workload fits within the nominal quota of the ClusterQueue, but
                     the quota is currently borrowed by other ClusterQueues in the cohort.
@@ -245,7 +238,6 @@ spec:
                     reclaim its nominal quota.
                   - When a Workload doesn't fit within the nominal quota of the ClusterQueue
                     and there are admitted Workloads in the ClusterQueue with lower priority.
-
 
                   The preemption algorithm tries to find a minimal set of Workloads to
                   preempt to accomomdate the pending Workload, preempting Workloads with
@@ -288,7 +280,6 @@ spec:
                       Workloads from other ClusterQueues in the cohort that are using more than
                       their nominal quota. The possible values are:
 
-
                       - `Never` (default): do not preempt Workloads in the cohort.
                       - `LowerPriority`: **Classic Preemption** if the pending Workload
                         fits within the nominal quota of its ClusterQueue, only preempt
@@ -312,7 +303,6 @@ spec:
                       within the nominal quota for its ClusterQueue, can preempt active Workloads in
                       the ClusterQueue. The possible values are:
 
-
                       - `Never` (default): do not preempt Workloads in the ClusterQueue.
                       - `LowerPriority`: only preempt Workloads in the ClusterQueue that have
                         lower priority than the pending Workload.
@@ -335,7 +325,6 @@ spec:
                   QueueingStrategy indicates the queueing strategy of the workloads
                   across the queues in this ClusterQueue.
                   Current Supported Strategies:
-
 
                   - StrictFIFO: workloads are ordered strictly by creation time.
                   Older workloads that can't be admitted will block admitting newer
@@ -423,8 +412,7 @@ spec:
                                     all the nominalQuota can be borrowed by other clusterQueues in the cohort.
                                     If not null, it must be non-negative.
                                     lendingLimit must be null if spec.cohort is empty.
-                                    This field is in alpha stage. To be able to use this field,
-                                    enable the feature gate LendingLimit, which is disabled by default.
+                                    This field is in beta stage and is enabled by default.
                                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                   x-kubernetes-int-or-string: true
                                 name:
@@ -443,7 +431,6 @@ spec:
                                     and pods not managed by kueue). In an autoscaled cluster, nominalQuota
                                     should account for resources that can be provided by a component such as
                                     Kubernetes cluster-autoscaler.
-
 
                                     If the ClusterQueue belongs to a cohort, the sum of the quotas for each
                                     (flavor, resource) combination defines the maximum quantity that can be
@@ -487,9 +474,7 @@ spec:
                   stopPolicy - if set to a value different from None, the ClusterQueue is considered Inactive, no new reservation being
                   made.
 
-
                   Depending on its value, its associated workloads will:
-
 
                   - None - Workloads are admitted
                   - HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
@@ -518,16 +503,8 @@ spec:
                   conditions hold the latest available observations of the ClusterQueue
                   current state.
                 items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource.\n---\nThis struct is intended for
-                    direct use as an array at the field path .status.conditions.  For
-                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
-                    observations of a foo's current state.\n\t    // Known .status.conditions.type
-                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
-                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
-                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
-                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
-                    \   // other fields\n\t}"
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
@@ -568,12 +545,7 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to deconflict is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -723,6 +695,9 @@ spec:
                 description: |-
                   PendingWorkloadsStatus contains the information exposed about the current
                   status of the pending workloads in the cluster queue.
+                  Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
+                  (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
+                  instead.
                 properties:
                   clusterQueuePendingWorkload:
                     description: Head contains the list of top pending workloads.

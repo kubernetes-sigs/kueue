@@ -22,16 +22,17 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// PodSetAssignmentApplyConfiguration represents an declarative configuration of the PodSetAssignment type for use
+// PodSetAssignmentApplyConfiguration represents a declarative configuration of the PodSetAssignment type for use
 // with apply.
 type PodSetAssignmentApplyConfiguration struct {
-	Name          *string                                             `json:"name,omitempty"`
-	Flavors       map[v1.ResourceName]v1beta1.ResourceFlavorReference `json:"flavors,omitempty"`
-	ResourceUsage *v1.ResourceList                                    `json:"resourceUsage,omitempty"`
-	Count         *int32                                              `json:"count,omitempty"`
+	Name               *string                                             `json:"name,omitempty"`
+	Flavors            map[v1.ResourceName]v1beta1.ResourceFlavorReference `json:"flavors,omitempty"`
+	ResourceUsage      *v1.ResourceList                                    `json:"resourceUsage,omitempty"`
+	Count              *int32                                              `json:"count,omitempty"`
+	TopologyAssignment *TopologyAssignmentApplyConfiguration               `json:"topologyAssignment,omitempty"`
 }
 
-// PodSetAssignmentApplyConfiguration constructs an declarative configuration of the PodSetAssignment type for use with
+// PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with
 // apply.
 func PodSetAssignment() *PodSetAssignmentApplyConfiguration {
 	return &PodSetAssignmentApplyConfiguration{}
@@ -72,5 +73,13 @@ func (b *PodSetAssignmentApplyConfiguration) WithResourceUsage(value v1.Resource
 // If called multiple times, the Count field is set to the value of the last call.
 func (b *PodSetAssignmentApplyConfiguration) WithCount(value int32) *PodSetAssignmentApplyConfiguration {
 	b.Count = &value
+	return b
+}
+
+// WithTopologyAssignment sets the TopologyAssignment field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TopologyAssignment field is set to the value of the last call.
+func (b *PodSetAssignmentApplyConfiguration) WithTopologyAssignment(value *TopologyAssignmentApplyConfiguration) *PodSetAssignmentApplyConfiguration {
+	b.TopologyAssignment = value
 	return b
 }

@@ -17,10 +17,12 @@ limitations under the License.
 package resources
 
 import (
+	"maps"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 )
 
 // The following resources calculations are inspired on
@@ -35,6 +37,28 @@ func NewRequests(rl corev1.ResourceList) Requests {
 		r[name] = ResourceValue(name, quant)
 	}
 	return r
+}
+
+func (r Requests) Clone() Requests {
+	return maps.Clone(r)
+}
+
+func (r Requests) Divide(f int64) {
+	for k := range r {
+		r[k] /= f
+	}
+}
+
+func (r Requests) Add(addRequests Requests) {
+	for k, v := range addRequests {
+		r[k] += v
+	}
+}
+
+func (r Requests) Sub(subRequests Requests) {
+	for k, v := range subRequests {
+		r[k] -= v
+	}
 }
 
 func (r Requests) ToResourceList() corev1.ResourceList {
@@ -66,4 +90,19 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 		}
 		return *resource.NewQuantity(v, resource.DecimalSI)
 	}
+}
+
+func (req Requests) CountIn(capacity Requests) int32 {
+	var result *int32
+	for rName, rValue := range req {
+		capacity, found := capacity[rName]
+		if !found {
+			return 0
+		}
+		count := int32(capacity / rValue)
+		if result == nil || count < *result {
+			result = ptr.To(count)
+		}
+	}
+	return ptr.Deref(result, 0)
 }

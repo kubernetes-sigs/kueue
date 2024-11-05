@@ -27,6 +27,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/clock"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -35,11 +36,15 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
-const (
-	cqShort   = `List ClusterQueues`
-	cqLong    = `Lists all ClusterQueues, potentially limiting output to those that are active/inactive and matching the label selector.`
-	cqExample = `  # List ClusterQueue
-  kueuectl list clusterqueue`
+var (
+	cqLong = templates.LongDesc(`
+		Lists all ClusterQueues, potentially limiting output to those 
+		that are active/inactive and matching the label selector.
+	`)
+	cqExample = templates.Examples(`
+		# List ClusterQueue
+  		kueuectl list clusterqueue
+	`)
 )
 
 type ClusterQueueOptions struct {
@@ -76,7 +81,7 @@ func NewClusterQueueCmd(clientGetter util.ClientGetter, streams genericiooptions
 		Use:                   "clusterqueue [--selector key1=value1] [--field-selector key1=value1] [--active=true|false]",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"cq"},
-		Short:                 cqShort,
+		Short:                 "List ClusterQueues",
 		Long:                  cqLong,
 		Example:               cqExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -203,7 +208,7 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 }
 
 func (o *ClusterQueueOptions) filterList(cql *v1beta1.ClusterQueueList) {
-	if o.Active == nil || len(o.Active) == 0 {
+	if len(o.Active) == 0 {
 		return
 	}
 

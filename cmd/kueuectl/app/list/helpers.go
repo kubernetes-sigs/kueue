@@ -61,11 +61,6 @@ func addLabelSelectorFlagVar(cmd *cobra.Command, p *string) {
 		"Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2). Matching objects must satisfy all of the specified label constraints.")
 }
 
-func addAllNamespacesFlagVar(cmd *cobra.Command, p *bool) {
-	cmd.Flags().BoolVarP(p, "all-namespaces", "A", false,
-		"If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.")
-}
-
 func addClusterQueueFilterFlagVar(cmd *cobra.Command, p *string) {
 	cmd.Flags().StringVarP(p, "clusterqueue", "c", "",
 		"Filter by cluster queue name which is associated with the resource.")
@@ -83,7 +78,7 @@ func addActiveFilterFlagVar(cmd *cobra.Command, p *[]bool) {
 
 func addForObjectFlagVar(cmd *cobra.Command, p *string) {
 	cmd.Flags().StringVar(p, "for", "",
-		"Filter workloads to only those pertaining to the specified resource.")
+		"Filter only those pertaining to the specified resource.")
 }
 
 // decodeResourceTypeName handles type/name resource formats and returns a resource tuple

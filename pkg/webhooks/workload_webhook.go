@@ -99,17 +99,17 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 
-	variableCountPosets := 0
+	variableCountPodSets := 0
 	for i := range obj.Spec.PodSets {
 		ps := &obj.Spec.PodSets[i]
 		allErrs = append(allErrs, validatePodSet(ps, specPath.Child("podSets").Index(i))...)
 		if ps.MinCount != nil {
-			variableCountPosets++
+			variableCountPodSets++
 		}
 	}
 
-	if variableCountPosets > 1 {
-		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPosets, "at most one podSet can use minCount"))
+	if variableCountPodSets > 1 {
+		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
 	statusPath := field.NewPath("status")
@@ -249,7 +249,7 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 	for i := range obj.Spec.PodSets {
 		name := obj.Spec.PodSets[i].Name
 		knowPodSets[name] = &obj.Spec.PodSets[i]
-		knowPodSetNames = append(knowPodSetNames, name)
+		knowPodSetNames[i] = name
 	}
 
 	var ret field.ErrorList

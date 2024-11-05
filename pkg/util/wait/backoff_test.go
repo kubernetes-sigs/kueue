@@ -89,6 +89,7 @@ func TestUntilWithBackoff(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			timer := makeSpyTimer()
 			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			i := 0
 			f := func(ctx context.Context) SpeedSignal {

@@ -29,17 +29,16 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
+	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
 	"sigs.k8s.io/kueue/test/util"
-	// +kubebuilder:scaffold:imports
 )
 
 var (
 	kueuectlPath                 = filepath.Join("..", "..", "..", "bin", "kubectl-kueue")
 	k8sClient                    client.WithWatch
 	ctx                          context.Context
-	visibilityClient             visibilityv1alpha1.VisibilityV1alpha1Interface
-	impersonatedVisibilityClient visibilityv1alpha1.VisibilityV1alpha1Interface
+	visibilityClient             visibilityv1beta1.VisibilityV1beta1Interface
+	impersonatedVisibilityClient visibilityv1beta1.VisibilityV1beta1Interface
 )
 
 func TestAPIs(t *testing.T) {

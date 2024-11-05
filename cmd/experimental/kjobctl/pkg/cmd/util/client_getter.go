@@ -17,13 +17,17 @@ limitations under the License.
 package util
 
 import (
+	rayversioned "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
 	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
+
 	kjobctlversioned "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
 type ClientGetter interface {
@@ -32,7 +36,9 @@ type ClientGetter interface {
 	K8sClientset() (k8s.Interface, error)
 	KueueClientset() (kueueversioned.Interface, error)
 	KjobctlClientset() (kjobctlversioned.Interface, error)
+	RayClientset() (rayversioned.Interface, error)
 	DynamicClient() (dynamic.Interface, error)
+	NewResourceBuilder() *resource.Builder
 }
 
 type clientGetterImpl struct {
@@ -53,6 +59,7 @@ func (cg *clientGetterImpl) K8sClientset() (k8s.Interface, error) {
 		return nil, err
 	}
 
+	config.ContentType = runtime.ContentTypeProtobuf
 	clientset, err := k8s.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -89,6 +96,20 @@ func (cg *clientGetterImpl) KjobctlClientset() (kjobctlversioned.Interface, erro
 	return clientset, nil
 }
 
+func (cg *clientGetterImpl) RayClientset() (rayversioned.Interface, error) {
+	config, err := cg.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := rayversioned.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset, nil
+}
+
 func (cg *clientGetterImpl) DynamicClient() (dynamic.Interface, error) {
 	config, err := cg.ToRESTConfig()
 	if err != nil {
@@ -101,4 +122,8 @@ func (cg *clientGetterImpl) DynamicClient() (dynamic.Interface, error) {
 	}
 
 	return dynamicClient, nil
+}
+
+func (cg *clientGetterImpl) NewResourceBuilder() *resource.Builder {
+	return resource.NewBuilder(cg.RESTClientGetter)
 }

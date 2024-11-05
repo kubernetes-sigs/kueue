@@ -34,6 +34,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,6 +43,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -50,10 +53,7 @@ import (
 )
 
 const (
-	defaultMaxRetries        = 3
-	defaultMinBackoffSeconds = 60   // 1 min
-	defaultMaxBackoffSeconds = 1800 // 30 min
-	objNameHashLength        = 5
+	objNameHashLength = 5
 	// 253 is the maximal length for a CRD name. We need to subtract one for '-', and the hash length.
 	objNameMaxPrefixLength = 252 - objNameHashLength
 	podTemplatesPrefix     = "ppt"
@@ -61,6 +61,9 @@ const (
 
 var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
+)
+var (
+	realClock = clock.RealClock{}
 )
 
 type provisioningConfigHelper = admissioncheck.ConfigHelper[*kueue.ProvisioningRequestConfig, kueue.ProvisioningRequestConfig]
@@ -70,34 +73,18 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 }
 
 type Controller struct {
-	client            client.Client
-	record            record.EventRecorder
-	helper            *provisioningConfigHelper
-	maxRetries        int32
-	minBackoffSeconds int32
-	maxBackoffSeconds int32
+	client client.Client
+	record record.EventRecorder
+	helper *provisioningConfigHelper
+	clock  clock.Clock
+}
+
+type workloadInfo struct {
+	checkStates  []kueue.AdmissionCheckState
+	requeueState *kueue.RequeueState
 }
 
 var _ reconcile.Reconciler = (*Controller)(nil)
-
-type options struct {
-	maxRetries        int32
-	minBackoffSeconds int32
-}
-
-// Option configures the provisioning controller.
-type Option func(*options)
-
-func WithMaxRetries(maxRetries int32) Option {
-	return func(o *options) {
-		o.maxRetries = maxRetries
-	}
-}
-func WithMinBackoffSeconds(minBackoffSeconds int32) Option {
-	return func(o *options) {
-		o.minBackoffSeconds = minBackoffSeconds
-	}
-}
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 // +kubebuilder:rbac:groups="",resources=podtemplates,verbs=get;list;watch;create;delete;update
@@ -108,27 +95,16 @@ func WithMinBackoffSeconds(minBackoffSeconds int32) Option {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
 
-func NewController(client client.Client, record record.EventRecorder, opts ...Option) (*Controller, error) {
+func NewController(client client.Client, record record.EventRecorder) (*Controller, error) {
 	helper, err := newProvisioningConfigHelper(client)
 	if err != nil {
 		return nil, err
 	}
-
-	options := options{
-		maxRetries:        defaultMaxRetries,
-		minBackoffSeconds: defaultMinBackoffSeconds,
-	}
-	for _, opt := range opts {
-		opt(&options)
-	}
-
 	return &Controller{
-		client:            client,
-		record:            record,
-		helper:            helper,
-		maxRetries:        options.maxRetries,
-		minBackoffSeconds: options.minBackoffSeconds,
-		maxBackoffSeconds: defaultMaxBackoffSeconds,
+		client: client,
+		record: record,
+		helper: helper,
+		clock:  realClock,
 	}, nil
 }
 
@@ -138,18 +114,16 @@ func NewController(client client.Client, record record.EventRecorder, opts ...Op
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	wl := &kueue.Workload{}
 	log := ctrl.LoggerFrom(ctx)
-
 	err := c.client.Get(ctx, req.NamespacedName, wl)
 	if err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
-
-	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) {
+	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) || workload.IsEvicted(wl) {
 		return reconcile.Result{}, nil
 	}
 
 	// get the lists of relevant checks
-	relevantChecks, err := admissioncheck.FilterForController(ctx, c.client, wl.Status.AdmissionChecks, ControllerName)
+	relevantChecks, err := admissioncheck.FilterForController(ctx, c.client, wl.Status.AdmissionChecks, kueue.ProvisioningRequestControllerName)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -161,7 +135,10 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	ownedPrs := list.Items
 	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, relevantChecks, ownedPrs)
 
-	err = c.syncCheckStates(ctx, wl, relevantChecks, activeOrLastPRForChecks)
+	wlInfo := workloadInfo{
+		checkStates: make([]kueue.AdmissionCheckState, 0),
+	}
+	err = c.syncCheckStates(ctx, wl, &wlInfo, relevantChecks, activeOrLastPRForChecks)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -172,7 +149,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	requeAfter, err := c.syncOwnedProvisionRequest(ctx, wl, relevantChecks, activeOrLastPRForChecks)
+	requeAfter, err := c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, relevantChecks, activeOrLastPRForChecks)
 	if err != nil {
 		// this can also delete unneeded checks
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed")
@@ -223,7 +200,8 @@ func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, owned
 	return nil
 }
 
-func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Workload, relevantChecks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) (*time.Duration, error) {
+func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo,
+	relevantChecks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) (*time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
 	var requeAfter *time.Duration
 	for _, checkName := range relevantChecks {
@@ -236,7 +214,8 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		if !c.reqIsNeeded(wl, prc) {
 			continue
 		}
-		if ac := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName); ac != nil && ac.State == kueue.CheckStateReady {
+		ac := workload.FindAdmissionCheck(wlInfo.checkStates, checkName)
+		if ac != nil && ac.State == kueue.CheckStateReady {
 			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
 			continue
 		}
@@ -245,17 +224,22 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		attempt := int32(1)
 		shouldCreatePr := false
 		if exists {
-			if isFailed(oldPr) || (isBookingExpired(oldPr) && !workload.IsAdmitted(wl)) {
+			if (isFailed(oldPr) || (isBookingExpired(oldPr) && !workload.IsAdmitted(wl))) &&
 				// if the workload is Admitted we don't want to retry on BookingExpired
+				ac != nil && ac.State == kueue.CheckStatePending {
+				// if the workload is in Retry/Rejected state we don't create another ProvReq
 				attempt = getAttempt(log, oldPr, wl.Name, checkName)
-				if attempt <= c.maxRetries {
-					remainingTime := c.remainingTimeToRetry(oldPr, attempt)
+				if features.Enabled(features.KeepQuotaForProvReqRetry) {
+					remainingTime := c.remainingTimeToRetry(oldPr, attempt, prc)
 					if remainingTime <= 0 {
 						shouldCreatePr = true
 						attempt += 1
 					} else if requeAfter == nil || remainingTime < *requeAfter {
 						requeAfter = &remainingTime
 					}
+				} else {
+					shouldCreatePr = true
+					attempt += 1
 				}
 			}
 		} else {
@@ -268,6 +252,9 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      requestName,
 					Namespace: wl.Namespace,
+					Labels: map[string]string{
+						constants.ManagedByKueueLabel: "true",
+					},
 				},
 				Spec: autoscaling.ProvisioningRequestSpec{
 					ProvisioningClassName: prc.Spec.ProvisioningClassName,
@@ -298,6 +285,11 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			}
 
 			if err := c.client.Create(ctx, req); err != nil {
+				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
+				ac.Message = api.TruncateConditionMessage(msg)
+				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac)
+
+				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 				return nil, err
 			}
 			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created ProvisioningRequest: %q", req.Name)
@@ -310,9 +302,9 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 	return requeAfter, nil
 }
 
-func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32) time.Duration {
-	backoffDuration := time.Duration(c.minBackoffSeconds) * time.Second
-	maxBackoffDuration := time.Duration(c.maxBackoffSeconds) * time.Second
+func (c *Controller) remainingTimeToRetry(pr *autoscaling.ProvisioningRequest, failuresCount int32, prc *kueue.ProvisioningRequestConfig) time.Duration {
+	backoffDuration := time.Duration(*prc.Spec.RetryStrategy.BackoffBaseSeconds) * time.Second
+	maxBackoffDuration := time.Duration(*prc.Spec.RetryStrategy.BackoffMaxSeconds) * time.Second
 	var cond *metav1.Condition
 	if isFailed(pr) {
 		cond = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed)
@@ -383,6 +375,9 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      ptKey.Name,
 					Namespace: ptKey.Namespace,
+					Labels: map[string]string{
+						constants.ManagedByKueueLabel: "true",
+					},
 				},
 				Template: ps.Template,
 			}
@@ -474,8 +469,16 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 	return true
 }
 
-func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
+func (wlInfo *workloadInfo) update(wl *kueue.Workload) {
+	for _, check := range wl.Status.AdmissionChecks {
+		workload.SetAdmissionCheckState(&wlInfo.checkStates, check)
+	}
+	wlInfo.requeueState = wl.Status.RequeueState
+}
+
+func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
 	log := ctrl.LoggerFrom(ctx)
+	wlInfo.update(wl)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl)
 	recorderMessages := make([]string, 0, len(checks))
@@ -497,7 +500,6 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			if pr == nil {
 				return nil
 			}
-
 			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 				"check", check,
 				"prName", pr.Name,
@@ -506,19 +508,27 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 				"accepted", isAccepted(pr),
 				"bookingExpired", isBookingExpired(pr),
 				"capacityRevoked", isCapacityRevoked(pr))
+			backoffBaseSeconds := *prc.Spec.RetryStrategy.BackoffBaseSeconds
+			backoffMaxSeconds := *prc.Spec.RetryStrategy.BackoffMaxSeconds
+			backoffLimitCount := *prc.Spec.RetryStrategy.BackoffLimitCount
 			switch {
 			case isFailed(pr):
-				if checkState.State != kueue.CheckStateRejected {
-					if attempt := getAttempt(log, pr, wl.Name, check); attempt <= c.maxRetries {
-						// it is going to be retried
-						message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
+				if attempt := getAttempt(log, pr, wl.Name, check); attempt <= backoffLimitCount {
+					// it is going to be retried
+					message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
+					updated = updateCheckMessage(&checkState, message) || updated
+					if features.Enabled(features.KeepQuotaForProvReqRetry) {
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
-						updated = updateCheckMessage(&checkState, message) || updated
-					} else {
+					} else if wl.Status.RequeueState == nil || getAttempt(log, pr, wl.Name, check) > ptr.Deref(wl.Status.RequeueState.Count, 0) {
+						// We don't want to Retry on old ProvisioningRequests
 						updated = true
-						checkState.State = kueue.CheckStateRejected
-						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
+						updateCheckState(&checkState, kueue.CheckStateRetry)
+						workload.UpdateRequeueState(wlPatch, backoffBaseSeconds, backoffMaxSeconds, c.clock)
 					}
+				} else {
+					updated = true
+					checkState.State = kueue.CheckStateRejected
+					checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 				}
 			case isCapacityRevoked(pr):
 				if workload.IsActive(wl) && !workload.IsFinished(wl) {
@@ -530,12 +540,17 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 				}
 			case isBookingExpired(pr):
 				if !workload.IsAdmitted(wl) {
-					attempt := getAttempt(log, pr, wl.Name, check)
-					if attempt <= c.maxRetries {
+					if attempt := getAttempt(log, pr, wl.Name, check); attempt <= backoffLimitCount {
 						// it is going to be retried
 						message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
-						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 						updated = updateCheckMessage(&checkState, message) || updated
+						if features.Enabled(features.KeepQuotaForProvReqRetry) {
+							updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
+						} else if wl.Status.RequeueState == nil || getAttempt(log, pr, wl.Name, check) > ptr.Deref(wl.Status.RequeueState.Count, 0) {
+							updated = true
+							updateCheckState(&checkState, kueue.CheckStateRetry)
+							workload.UpdateRequeueState(wlPatch, backoffBaseSeconds, backoffMaxSeconds, c.clock)
+						}
 					} else {
 						updated = true
 						checkState.State = kueue.CheckStateRejected
@@ -573,13 +588,14 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
 	}
 	if updated {
-		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership); err != nil {
+		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.ProvisioningRequestControllerName), client.ForceOwnership); err != nil {
 			return err
 		}
 		for i := range recorderMessages {
 			c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
+	wlInfo.update(wlPatch)
 	return nil
 }
 
@@ -592,8 +608,10 @@ func podSetUpdates(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) []ku
 		return kueue.PodSetUpdate{
 			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
-				ConsumesAnnotationKey:  pr.Name,
-				ClassNameAnnotationKey: pr.Spec.ProvisioningClassName},
+				DeprecatedConsumesAnnotationKey:  pr.Name,
+				DeprecatedClassNameAnnotationKey: pr.Spec.ProvisioningClassName,
+				ConsumesAnnotationKey:            pr.Name,
+				ClassNameAnnotationKey:           pr.Spec.ProvisioningClassName},
 		}
 	})
 }
@@ -604,13 +622,13 @@ type acHandler struct {
 
 var _ handler.EventHandler = (*acHandler)(nil)
 
-func (a *acHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (a *acHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	ac, isAc := event.Object.(*kueue.AdmissionCheck)
 	if !isAc {
 		return
 	}
 
-	if ac.Spec.ControllerName == ControllerName {
+	if ac.Spec.ControllerName == kueue.ProvisioningRequestControllerName {
 		err := a.reconcileWorkloadsUsing(ctx, ac.Name, q)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "admissionCheck", klog.KObj(ac))
@@ -618,14 +636,14 @@ func (a *acHandler) Create(ctx context.Context, event event.CreateEvent, q workq
 	}
 }
 
-func (a *acHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (a *acHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldAc, isOldAc := event.ObjectOld.(*kueue.AdmissionCheck)
 	newAc, isNewAc := event.ObjectNew.(*kueue.AdmissionCheck)
 	if !isNewAc || !isOldAc {
 		return
 	}
 
-	if oldAc.Spec.ControllerName == ControllerName || newAc.Spec.ControllerName == ControllerName {
+	if oldAc.Spec.ControllerName == kueue.ProvisioningRequestControllerName || newAc.Spec.ControllerName == kueue.ProvisioningRequestControllerName {
 		err := a.reconcileWorkloadsUsing(ctx, oldAc.Name, q)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "admissionCheck", klog.KObj(oldAc))
@@ -633,13 +651,13 @@ func (a *acHandler) Update(ctx context.Context, event event.UpdateEvent, q workq
 	}
 }
 
-func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	ac, isAc := event.Object.(*kueue.AdmissionCheck)
 	if !isAc {
 		return
 	}
 
-	if ac.Spec.ControllerName == ControllerName {
+	if ac.Spec.ControllerName == kueue.ProvisioningRequestControllerName {
 		err := a.reconcileWorkloadsUsing(ctx, ac.Name, q)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "admissionCheck", klog.KObj(ac))
@@ -647,11 +665,11 @@ func (a *acHandler) Delete(ctx context.Context, event event.DeleteEvent, q workq
 	}
 }
 
-func (a *acHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (a *acHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	// nothing to do for now
 }
 
-func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q workqueue.RateLimitingInterface) error {
+func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	list := &kueue.WorkloadList{}
 	if err := a.client.List(ctx, list, client.MatchingFields{WorkloadsWithAdmissionCheckKey: check}); client.IgnoreNotFound(err) != nil {
 		return err
@@ -673,12 +691,12 @@ func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q
 
 type prcHandler struct {
 	client            client.Client
-	acHandlerOverride func(ctx context.Context, config string, q workqueue.RateLimitingInterface) error
+	acHandlerOverride func(ctx context.Context, config string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error
 }
 
 var _ handler.EventHandler = (*prcHandler)(nil)
 
-func (p *prcHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (p *prcHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	prc, isPRC := event.Object.(*kueue.ProvisioningRequestConfig)
 	if !isPRC {
 		return
@@ -689,7 +707,7 @@ func (p *prcHandler) Create(ctx context.Context, event event.CreateEvent, q work
 	}
 }
 
-func (p *prcHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (p *prcHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldPRC, isOldPRC := event.ObjectOld.(*kueue.ProvisioningRequestConfig)
 	newPRC, isNewPRC := event.ObjectNew.(*kueue.ProvisioningRequestConfig)
 	if !isNewPRC || !isOldPRC {
@@ -704,7 +722,7 @@ func (p *prcHandler) Update(ctx context.Context, event event.UpdateEvent, q work
 	}
 }
 
-func (p *prcHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (p *prcHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	prc, isPRC := event.Object.(*kueue.ProvisioningRequestConfig)
 	if !isPRC {
 		return
@@ -715,11 +733,11 @@ func (p *prcHandler) Delete(ctx context.Context, event event.DeleteEvent, q work
 	}
 }
 
-func (p *prcHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (p *prcHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	// nothing to do for now
 }
 
-func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string, q workqueue.RateLimitingInterface) error {
+func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	list := &kueue.AdmissionCheckList{}
 	if err := p.client.List(ctx, list, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); client.IgnoreNotFound(err) != nil {
 		return err
@@ -751,6 +769,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		acHandlerOverride: ach.reconcileWorkloadsUsing,
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
+		Named("provisioning-workload").
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.ProvisioningRequest{}).
 		Watches(&kueue.AdmissionCheck{}, ach).
@@ -769,6 +788,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("provisioning-admissioncheck").
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.ProvisioningRequestConfig{}, prcACh).
 		Complete(acReconciler)

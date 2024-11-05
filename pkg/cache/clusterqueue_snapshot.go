@@ -1,3 +1,19 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package cache
 
 import (
@@ -7,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -14,9 +31,7 @@ import (
 
 type ClusterQueueSnapshot struct {
 	Name              string
-	Cohort            *CohortSnapshot
 	ResourceGroups    []ResourceGroup
-	Usage             resources.FlavorResourceQuantities
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
 	NamespaceSelector labels.Selector
@@ -28,13 +43,14 @@ type ClusterQueueSnapshot struct {
 	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
 	AdmissionChecks map[string]sets.Set[kueue.ResourceFlavorReference]
 	Status          metrics.ClusterQueueStatus
-	Quotas          map[resources.FlavorResource]*ResourceQuota
-	// GuaranteedQuota records how much resource quota the ClusterQueue reserved
-	// when feature LendingLimit is enabled and flavor's lendingLimit is not nil.
-	GuaranteedQuota resources.FlavorResourceQuantities
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
+
+	ResourceNode ResourceNode
+	hierarchy.ClusterQueue[*CohortSnapshot]
+
+	TASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
 }
 
 // RGByResource returns the ResourceGroup which contains capacity
@@ -48,11 +64,19 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 	return nil
 }
 
-func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantitiesFlat) {
-	c.addOrRemoveUsage(frq, 1)
+func (c *ClusterQueueSnapshot) AddUsage(frq resources.FlavorResourceQuantities) {
+	for fr, q := range frq {
+		addUsage(c, fr, q)
+	}
 }
 
-func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantitiesFlat) bool {
+func (c *ClusterQueueSnapshot) removeUsage(frq resources.FlavorResourceQuantities) {
+	for fr, q := range frq {
+		removeUsage(c, fr, q)
+	}
+}
+
+func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantities) bool {
 	for fr, q := range frq {
 		if c.Available(fr) < q {
 			return false
@@ -61,8 +85,8 @@ func (c *ClusterQueueSnapshot) Fits(frq resources.FlavorResourceQuantitiesFlat) 
 	return true
 }
 
-func (c *ClusterQueueSnapshot) QuotaFor(fr resources.FlavorResource) *ResourceQuota {
-	return c.Quotas[fr]
+func (c *ClusterQueueSnapshot) QuotaFor(fr resources.FlavorResource) ResourceQuota {
+	return c.ResourceNode.Quotas[fr]
 }
 
 func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
@@ -70,54 +94,53 @@ func (c *ClusterQueueSnapshot) Borrowing(fr resources.FlavorResource) bool {
 }
 
 func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val int64) bool {
-	return c.usageFor(fr)+val > c.nominal(fr)
+	return c.usageFor(fr)+val > c.QuotaFor(fr).Nominal
 }
 
+// Available returns the current capacity available, before preempting
+// any workloads. Includes local capacity and capacity borrowed from
+// Cohort. When the ClusterQueue/Cohort is in debt, Available
+// will return 0.
 func (c *ClusterQueueSnapshot) Available(fr resources.FlavorResource) int64 {
-	if c.Cohort == nil {
-		return max(0, c.nominal(fr)-c.usageFor(fr))
-	}
-	capacityAvailable := c.RequestableCohortQuota(fr.Flavor, fr.Resource) - c.UsedCohortQuota(fr.Flavor, fr.Resource)
-
-	// if the borrowing limit exists, we cap our available capacity by the borrowing limit.
-	if borrowingLimit := c.borrowingLimit(fr); borrowingLimit != nil {
-		withBorrowingRemaining := c.nominal(fr) + *borrowingLimit - c.usageFor(fr)
-		capacityAvailable = min(capacityAvailable, withBorrowingRemaining)
-	}
-	return max(0, capacityAvailable)
+	return max(0, available(c, fr, true))
 }
 
-func (c *ClusterQueueSnapshot) nominal(fr resources.FlavorResource) int64 {
-	if quota := c.QuotaFor(fr); quota != nil {
-		return quota.Nominal
-	}
-	return 0
-}
-
-func (c *ClusterQueueSnapshot) borrowingLimit(fr resources.FlavorResource) *int64 {
-	if quota := c.QuotaFor(fr); quota != nil {
-		return quota.BorrowingLimit
-	}
-	return nil
+// PotentialAvailable returns the largest workload this ClusterQueue could
+// possibly admit, accounting for its capacity and capacity borrowed
+// its from Cohort.
+func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) int64 {
+	return potentialAvailable(c, fr)
 }
 
 // The methods below implement several interfaces. See
 // dominantResourceShareNode, resourceGroupNode, and netQuotaNode.
 
-func (c *ClusterQueueSnapshot) hasCohort() bool {
-	return c.Cohort != nil
-}
 func (c *ClusterQueueSnapshot) fairWeight() *resource.Quantity {
 	return &c.FairWeight
 }
-func (c *ClusterQueueSnapshot) lendableResourcesInCohort() map[corev1.ResourceName]int64 {
-	return c.Cohort.Lendable
-}
 
 func (c *ClusterQueueSnapshot) usageFor(fr resources.FlavorResource) int64 {
-	return c.Usage.For(fr)
+	return c.ResourceNode.Usage[fr]
 }
 
 func (c *ClusterQueueSnapshot) resourceGroups() []ResourceGroup {
 	return c.ResourceGroups
+}
+
+func (c *ClusterQueueSnapshot) parentResources() ResourceNode {
+	return c.Parent().ResourceNode
+}
+
+func (c *ClusterQueueSnapshot) GetName() string {
+	return c.Name
+}
+
+// The methods below implement hierarchicalResourceNode interface.
+
+func (c *ClusterQueueSnapshot) getResourceNode() ResourceNode {
+	return c.ResourceNode
+}
+
+func (c *ClusterQueueSnapshot) parentHRN() hierarchicalResourceNode {
+	return c.Parent()
 }

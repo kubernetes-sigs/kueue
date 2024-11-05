@@ -21,16 +21,17 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// PodSetApplyConfiguration represents an declarative configuration of the PodSet type for use
+// PodSetApplyConfiguration represents a declarative configuration of the PodSet type for use
 // with apply.
 type PodSetApplyConfiguration struct {
-	Name     *string             `json:"name,omitempty"`
-	Template *v1.PodTemplateSpec `json:"template,omitempty"`
-	Count    *int32              `json:"count,omitempty"`
-	MinCount *int32              `json:"minCount,omitempty"`
+	Name            *string                                  `json:"name,omitempty"`
+	Template        *v1.PodTemplateSpec                      `json:"template,omitempty"`
+	Count           *int32                                   `json:"count,omitempty"`
+	MinCount        *int32                                   `json:"minCount,omitempty"`
+	TopologyRequest *PodSetTopologyRequestApplyConfiguration `json:"topologyRequest,omitempty"`
 }
 
-// PodSetApplyConfiguration constructs an declarative configuration of the PodSet type for use with
+// PodSetApplyConfiguration constructs a declarative configuration of the PodSet type for use with
 // apply.
 func PodSet() *PodSetApplyConfiguration {
 	return &PodSetApplyConfiguration{}
@@ -65,5 +66,13 @@ func (b *PodSetApplyConfiguration) WithCount(value int32) *PodSetApplyConfigurat
 // If called multiple times, the MinCount field is set to the value of the last call.
 func (b *PodSetApplyConfiguration) WithMinCount(value int32) *PodSetApplyConfiguration {
 	b.MinCount = &value
+	return b
+}
+
+// WithTopologyRequest sets the TopologyRequest field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the TopologyRequest field is set to the value of the last call.
+func (b *PodSetApplyConfiguration) WithTopologyRequest(value *PodSetTopologyRequestApplyConfiguration) *PodSetApplyConfiguration {
+	b.TopologyRequest = value
 	return b
 }

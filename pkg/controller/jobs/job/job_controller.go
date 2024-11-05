@@ -59,6 +59,7 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupWebhook,
 		JobType:                &batchv1.Job{},
@@ -78,13 +79,13 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(
-	func() jobframework.GenericJob {
-		return &Job{}
-	}, func(b *builder.Builder, c client.Client) *builder.Builder {
-		return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
-	},
-)
+func NewJob() jobframework.GenericJob {
+	return &Job{}
+}
+
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob, func(b *builder.Builder, c client.Client) *builder.Builder {
+	return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
+})
 
 func isJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "Job" && owner.APIVersion == gvk.GroupVersion().String()
@@ -94,23 +95,23 @@ type parentWorkloadHandler struct {
 	client client.Client
 }
 
-func (h *parentWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	h.queueReconcileForChildJob(ctx, e.Object, q)
 }
 
-func (h *parentWorkloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	h.queueReconcileForChildJob(ctx, e.ObjectNew, q)
 }
 
-func (h *parentWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *parentWorkloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 // queueReconcileForChildJob queues reconciliation of the child jobs (jobs with the
 // parent-workload annotation) in reaction to the parent-workload events.
-func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	w, ok := object.(*kueue.Workload)
 	if !ok {
 		return
@@ -208,6 +209,10 @@ func (j *Job) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *Job) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s", batchv1.JobNameLabel, j.Name)
+}
+
 func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	if parallelism == 1 || j.Status.Succeeded == 0 {
@@ -244,10 +249,11 @@ func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
-			Name:     kueue.DefaultPodSetName,
-			Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
-			Count:    j.podsCount(),
-			MinCount: j.minPodsCount(),
+			Name:            kueue.DefaultPodSetName,
+			Template:        *cleanManagedLabels(j.Spec.Template.DeepCopy()),
+			Count:           j.podsCount(),
+			MinCount:        j.minPodsCount(),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.Template.ObjectMeta),
 		},
 	}
 }

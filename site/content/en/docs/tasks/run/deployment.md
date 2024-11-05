@@ -75,9 +75,9 @@ For more `lendingLimit` details, please see the [ClusterQueue page](docs/concept
 
 Here is a sample Deployment:
 
-{{< include "examples/deployment-kueue/kueue-deployment.yaml" "yaml" >}}
+{{< include "examples/serving-workloads/sample-deployment.yaml" "yaml" >}}
 
 You can create the Deployment using the following command:
 ```sh
-kubectl create -f kueue-deployment.yaml
+kubectl create -f sample-deployment.yaml
 ```

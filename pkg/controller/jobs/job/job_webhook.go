@@ -28,13 +28,13 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -43,6 +43,7 @@ import (
 var (
 	minPodsCountAnnotationsPath   = field.NewPath("metadata", "annotations").Key(JobMinParallelismAnnotation)
 	syncCompletionAnnotationsPath = field.NewPath("metadata", "annotations").Key(JobCompletionsEqualParallelismAnnotation)
+	replicaMetaPath               = field.NewPath("spec", "template", "metadata")
 )
 
 type JobWebhook struct {
@@ -61,16 +62,17 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		queues:                     options.Queues,
 		cache:                      options.Cache,
 	}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&batchv1.Job{}).
-		WithDefaulter(wh).
+	obj := &batchv1.Job{}
+	return webhook.WebhookManagedBy(mgr).
+		For(obj).
+		WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-batch-v1-job,mutating=true,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=create,versions=v1,name=mjob.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &JobWebhook{}
+var _ admission.CustomDefaulter = &JobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
@@ -91,9 +93,9 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			return nil
 		}
 		for _, admissionCheck := range w.cache.AdmissionChecksForClusterQueue(clusterQueueName) {
-			if admissionCheck.Controller == v1alpha1.MultiKueueControllerName {
-				log.V(5).Info("Defaulting ManagedBy", "job", klog.KObj(job), "oldManagedBy", job.Spec.ManagedBy, "managedBy", v1alpha1.MultiKueueControllerName)
-				job.Spec.ManagedBy = ptr.To(v1alpha1.MultiKueueControllerName)
+			if admissionCheck.Controller == kueue.MultiKueueControllerName {
+				log.V(5).Info("Defaulting ManagedBy", "job", klog.KObj(job), "oldManagedBy", job.Spec.ManagedBy, "managedBy", kueue.MultiKueueControllerName)
+				job.Spec.ManagedBy = ptr.To(kueue.MultiKueueControllerName)
 				return nil
 			}
 		}
@@ -109,7 +111,7 @@ func canDefaultManagedBy(jobSpecManagedBy *string) bool {
 
 // +kubebuilder:webhook:path=/validate-batch-v1-job,mutating=false,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=create;update,versions=v1,name=vjob.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &JobWebhook{}
+var _ admission.CustomValidator = &JobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
@@ -123,6 +125,8 @@ func (w *JobWebhook) validateCreate(job *Job) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
+	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
+	allErrs = append(allErrs, w.validateTopologyRequest(job)...)
 	return allErrs
 }
 
@@ -136,6 +140,11 @@ func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
 		}
 	}
+	return allErrs
+}
+
+func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
+	var allErrs field.ErrorList
 	if strVal, found := job.Annotations[JobCompletionsEqualParallelismAnnotation]; found {
 		enabled, err := strconv.ParseBool(strVal)
 		if err != nil {
@@ -169,16 +178,22 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 }
 
 func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
-	allErrs := w.validateCreate(newJob)
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob)...)
+	if newJob.Annotations[JobMinParallelismAnnotation] != oldJob.Annotations[JobMinParallelismAnnotation] {
+		allErrs = append(allErrs, w.validatePartialAdmissionCreate(newJob)...)
+	}
+	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
+	allErrs = append(allErrs, w.validateTopologyRequest(newJob)...)
 	return allErrs
 }
 
 func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 	var allErrs field.ErrorList
 	if _, found := oldJob.Annotations[JobMinParallelismAnnotation]; found {
-		if !oldJob.IsSuspended() && ptr.Deref(oldJob.Spec.Parallelism, 1) != ptr.Deref(newJob.Spec.Parallelism, 1) {
+		if !ptr.Deref(oldJob.Spec.Suspend, false) && ptr.Deref(oldJob.Spec.Parallelism, 1) != ptr.Deref(newJob.Spec.Parallelism, 1) {
 			allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"))
 		}
 	}
@@ -186,6 +201,10 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 		allErrs = append(allErrs, field.Forbidden(syncCompletionAnnotationsPath, fmt.Sprintf("%s while the job is not suspended", apivalidation.FieldImmutableErrorMsg)))
 	}
 	return allErrs
+}
+
+func (w *JobWebhook) validateTopologyRequest(job *Job) field.ErrorList {
+	return jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

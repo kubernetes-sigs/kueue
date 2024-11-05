@@ -49,6 +49,7 @@ const (
 	DefaultMultiKueueWorkerLostTimeout                  = 15 * time.Minute
 	DefaultRequeuingBackoffBaseSeconds                  = 60
 	DefaultRequeuingBackoffMaxSeconds                   = 3600
+	DefaultResourceTransformationStrategy               = Retain
 )
 
 func getOperatorNamespace() string {
@@ -192,5 +193,13 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if fs := cfg.FairSharing; fs != nil && fs.Enable && len(fs.PreemptionStrategies) == 0 {
 		fs.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare}
+	}
+
+	if cfg.Resources != nil {
+		for idx := range cfg.Resources.Transformations {
+			if ptr.Deref(cfg.Resources.Transformations[idx].Strategy, "") == "" {
+				cfg.Resources.Transformations[idx].Strategy = ptr.To(DefaultResourceTransformationStrategy)
+			}
+		}
 	}
 }

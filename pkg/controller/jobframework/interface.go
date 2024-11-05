@@ -18,12 +18,15 @@ package jobframework
 
 import (
 	"context"
+	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -61,6 +64,11 @@ type GenericJob interface {
 
 // Optional interfaces, are meant to implemented by jobs to enable additional
 // features of the jobframework reconciler.
+
+type JobWithPodLabelSelector interface {
+	// PodLabelSelector returns the label selector used by pods for the job.
+	PodLabelSelector() string
+}
 
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
@@ -100,6 +108,15 @@ type JobWithPriorityClass interface {
 	PriorityClass() string
 }
 
+// JobWithCustomValidation optional interface that allows custom webhook validation
+// for Jobs that use BaseWebhook.
+type JobWithCustomValidation interface {
+	// ValidateOnCreate returns list of webhook create validation errors.
+	ValidateOnCreate() field.ErrorList
+	// ValidateOnUpdate returns list of webhook update validation errors.
+	ValidateOnUpdate(oldJob GenericJob) field.ErrorList
+}
+
 // ComposableJob interface should be implemented by generic jobs that
 // are composed out of multiple API objects.
 type ComposableJob interface {
@@ -137,6 +154,20 @@ func QueueNameForObject(object client.Object) string {
 	}
 	// fallback to the annotation (deprecated)
 	return object.GetAnnotations()[constants.QueueAnnotation]
+}
+
+func MaximumExecutionTimeSeconds(job GenericJob) *int32 {
+	strVal, found := job.Object().GetLabels()[constants.MaxExecTimeSecondsLabel]
+	if !found {
+		return nil
+	}
+
+	v, err := strconv.ParseInt(strVal, 10, 32)
+	if err != nil || v <= 0 {
+		return nil
+	}
+
+	return ptr.To(int32(v))
 }
 
 func workloadPriorityClassName(job GenericJob) string {

@@ -18,6 +18,7 @@ package kjobctl
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -26,24 +27,31 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/test/framework"
 )
 
 var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
-	crdPath   = filepath.Join("..", "..", "..", "config", "crd", "bases")
+	userID     string
+	cfg        *rest.Config
+	k8sClient  client.Client
+	ctx        context.Context
+	fwk        *framework.Framework
+	crdPath    = filepath.Join("..", "..", "..", "config", "crd", "bases")
+	rayCrdPath = filepath.Join("..", "..", "..", "dep-crds", "ray-operator")
 )
 
 func TestKjobctl(t *testing.T) {
+	userID = os.Getenv(constants.SystemEnvVarNameUser)
 	gomega.RegisterFailHandler(ginkgo.Fail)
 	ginkgo.RunSpecs(t, "Kjobctl Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{CRDPath: crdPath}
+	fwk = &framework.Framework{
+		CRDPath:     crdPath,
+		DepCRDPaths: []string{rayCrdPath},
+	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
 })

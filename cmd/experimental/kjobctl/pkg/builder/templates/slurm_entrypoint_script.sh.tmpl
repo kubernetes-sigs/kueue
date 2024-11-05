@@ -1,0 +1,20 @@
+#!/usr/local/bin/bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# External variables
+# JOB_CONTAINER_INDEX 	- container index in the container template.
+
+if [ ! -d "{{.EnvsPath}}/$JOB_CONTAINER_INDEX" ]; then
+	exit 0
+fi
+
+SBATCH_JOB_NAME={{.SbatchJobName}}
+
+export $(cat {{.EnvsPath}}/$JOB_CONTAINER_INDEX/{{.SlurmEnvFilename}} | xargs)
+
+{{- if .ChangeDir }}cd {{.ChangeDir}}{{end}}
+
+{{.BuildEntrypointCommand}}

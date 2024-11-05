@@ -23,7 +23,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -36,7 +35,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -57,7 +55,17 @@ func TestProvisioning(t *testing.T) {
 	)
 }
 
-func managerSetup(opts ...provisioning.Option) framework.ManagerSetup {
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{CRDPath: crdPath, DepCRDPaths: depCRDPaths, WebhookPath: webhookPath}
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
+
+func managerSetup() framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -76,17 +84,12 @@ func managerSetup(opts ...provisioning.Option) framework.ManagerSetup {
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		err = autoscaling.AddToScheme(mgr.GetScheme())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		reconciler, err := provisioning.NewController(
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"),
-			opts...,
-		)
+			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = reconciler.SetupWithManager(mgr)

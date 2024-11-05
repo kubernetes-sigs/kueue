@@ -1,0 +1,13 @@
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.visibility.kueue.x-k8s.io
+spec:
+  group: visibility.kueue.x-k8s.io
+  groupPriorityMinimum: 100
+  insecureSkipTLSVerify: true
+  service:
+    name: visibility-server
+    namespace: kueue-system
+  version: v1beta1
+  versionPriority: 100

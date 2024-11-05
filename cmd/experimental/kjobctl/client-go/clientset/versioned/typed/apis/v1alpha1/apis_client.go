@@ -29,6 +29,8 @@ type KjobctlV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	ApplicationProfilesGetter
 	JobTemplatesGetter
+	RayClusterTemplatesGetter
+	RayJobTemplatesGetter
 	VolumeBundlesGetter
 }
 
@@ -43,6 +45,14 @@ func (c *KjobctlV1alpha1Client) ApplicationProfiles(namespace string) Applicatio
 
 func (c *KjobctlV1alpha1Client) JobTemplates(namespace string) JobTemplateInterface {
 	return newJobTemplates(c, namespace)
+}
+
+func (c *KjobctlV1alpha1Client) RayClusterTemplates(namespace string) RayClusterTemplateInterface {
+	return newRayClusterTemplates(c, namespace)
+}
+
+func (c *KjobctlV1alpha1Client) RayJobTemplates(namespace string) RayJobTemplateInterface {
+	return newRayJobTemplates(c, namespace)
 }
 
 func (c *KjobctlV1alpha1Client) VolumeBundles(namespace string) VolumeBundleInterface {

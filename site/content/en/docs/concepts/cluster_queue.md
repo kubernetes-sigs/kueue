@@ -56,7 +56,7 @@ Flavors represent different variations of a resource (for example, different GPU
 models). You can define how a flavor maps to a group of nodes using a [ResourceFlavor object](/docs/concepts/resource_flavor).
 In a ClusterQueue, you can define the quota for each of the resources that a flavor offers.
 
-When definining quotas for a ClusterQueue, you can set the following values:
+When defining quotas for a ClusterQueue, you can set the following values:
 - `nominalQuota` is the quantity of this resource that is available for a ClusterQueue at a specific time.
 - `borrowingLimit` is the maximum amount of quota that this ClusterQueue is allowed to borrow from the unused
   nominal quota of other ClusterQueues in the same [cohort](#cohort).
@@ -80,7 +80,7 @@ Kueue automatically computes the number of Pods that a Workload requires.
 
 ### Resource Groups
 
-When a ResourceFlavor is tied to a node group, machine familiy or VM availability policy,
+When a ResourceFlavor is tied to a node group, machine family or VM availability policy,
 it is a common requirement that all the resources associated to the nodes (such as `cpu`, `memory` and GPUs)
 should be assigned to the same flavor during admission.
 To tie two or more resources to the same set of flavors, list them in the same resource group.
@@ -358,12 +358,12 @@ To limit the amount of resources that a ClusterQueue can lend in the cohort,
 you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].lendingLimit`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
 
-{{< feature-state state="alpha" for_version="v0.6" >}}
-{{% alert title="Warning" color="warning" %}}
+{{< feature-state state="beta" for_version="v0.9" >}}
+{{% alert title="Note" color="primary" %}}
 
-`LendingLimit` is an Alpha feature disabled by default.
+`LendingLimit` is a Beta feature enabled by default.
 
-You can enable it by setting the `LendingLimit` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+You can disable it by setting the `LendingLimit` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 {{% /alert %}}
 
 As an example, assume you created the following two ClusterQueues:

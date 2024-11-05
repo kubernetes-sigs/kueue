@@ -20,12 +20,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"sync"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/set"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -37,6 +40,9 @@ var (
 	errDuplicateFrameworkName = errors.New("duplicate framework name")
 	errMissingMandatoryField  = errors.New("mandatory field missing")
 	errFrameworkNameFormat    = errors.New("misformatted external framework name")
+
+	errIntegrationNotFound             = errors.New("integration not found")
+	errDependencyIntegrationNotEnabled = errors.New("integration not enabled")
 )
 
 type JobReconcilerInterface interface {
@@ -48,6 +54,11 @@ type ReconcilerFactory func(client client.Client, record record.EventRecorder, o
 
 // IntegrationCallbacks groups a set of callbacks used to integrate a new framework.
 type IntegrationCallbacks struct {
+	// NewJob creates a new instance of job
+	NewJob func() GenericJob
+	// GVK holds the schema information for the job
+	// (this callback is optional)
+	GVK schema.GroupVersionKind
 	// NewReconciler creates a new reconciler
 	NewReconciler ReconcilerFactory
 	// SetupWebhook sets up the framework's webhook with the controllers manager
@@ -69,6 +80,8 @@ type IntegrationCallbacks struct {
 	CanSupportIntegration func(opts ...Option) (bool, error)
 	// The job's MultiKueue adapter (optional)
 	MultiKueueAdapter MultiKueueAdapter
+	// The list of integration that need to be enabled along with the current one.
+	DependencyList []string
 }
 
 type integrationManager struct {
@@ -76,6 +89,7 @@ type integrationManager struct {
 	integrations         map[string]IntegrationCallbacks
 	enabledIntegrations  set.Set[string]
 	externalIntegrations map[string]runtime.Object
+	mu                   sync.RWMutex
 }
 
 var manager integrationManager
@@ -147,7 +161,15 @@ func (m *integrationManager) getExternal(kindArg string) (runtime.Object, bool) 
 	return jt, f
 }
 
+func (m *integrationManager) getEnabledIntegrations() set.Set[string] {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.enabledIntegrations.Clone()
+}
+
 func (m *integrationManager) enableIntegration(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.enabledIntegrations == nil {
 		m.enabledIntegrations = set.New(name)
 	} else {
@@ -163,7 +185,7 @@ func (m *integrationManager) getList() []string {
 }
 
 func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
-	for jobKey := range m.enabledIntegrations {
+	for jobKey := range m.getEnabledIntegrations() {
 		cbs, found := m.integrations[jobKey]
 		if found && cbs.IsManagingObjectsOwner != nil && cbs.IsManagingObjectsOwner(ownerRef) {
 			return cbs.JobType
@@ -176,6 +198,23 @@ func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference)
 		}
 	}
 
+	return nil
+}
+
+func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[string]) error {
+	enabled := enabledSet.UnsortedList()
+	slices.Sort(enabled)
+	for _, integration := range enabled {
+		cbs, found := m.integrations[integration]
+		if !found {
+			return fmt.Errorf("%q %w", integration, errIntegrationNotFound)
+		}
+		for _, dep := range cbs.DependencyList {
+			if !enabledSet.Has(dep) {
+				return fmt.Errorf("%q %w %q", integration, errDependencyIntegrationNotEnabled, dep)
+			}
+		}
+	}
 	return nil
 }
 
@@ -207,12 +246,14 @@ func EnableIntegration(name string) {
 // Mark the frameworks identified by names and return a revert function.
 func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
 	tb.Helper()
-	old := manager.enabledIntegrations.Clone()
+	old := manager.getEnabledIntegrations()
 	for _, name := range names {
 		manager.enableIntegration(name)
 	}
 	return func() {
+		manager.mu.Lock()
 		manager.enabledIntegrations = old
+		manager.mu.Unlock()
 	}
 }
 
@@ -220,6 +261,26 @@ func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
 // list of frameworks returning its callbacks and true if found.
 func GetIntegration(name string) (IntegrationCallbacks, bool) {
 	return manager.get(name)
+}
+
+// GetIntegrationByGVK looks-up the framework identified by GroupVersionKind in the currently
+// registered list of frameworks returning its callbacks and true if found.
+func GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, bool) {
+	for _, name := range manager.getList() {
+		integration, ok := GetIntegration(name)
+		if ok && matchingGVK(integration, gvk) {
+			return integration, true
+		}
+	}
+	return IntegrationCallbacks{}, false
+}
+
+func matchingGVK(integration IntegrationCallbacks, gvk schema.GroupVersionKind) bool {
+	if integration.NewJob != nil {
+		return gvk == integration.NewJob().GVK()
+	} else {
+		return gvk == integration.GVK
+	}
 }
 
 // GetIntegrationsList returns the list of currently registered frameworks.

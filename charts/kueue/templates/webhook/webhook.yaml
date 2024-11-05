@@ -17,6 +17,36 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
+        path: /mutate-apps-v1-deployment
+    {{- if has "deployment" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
+    name: mdeployment.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+    rules:
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - deployments
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
         path: /mutate-batch-v1-job
     failurePolicy: Fail
     name: mjob.kb.io
@@ -241,6 +271,25 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
+        path: /mutate-apps-v1-statefulset
+    failurePolicy: Fail
+    name: mstatefulset.kb.io
+    rules:
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - statefulsets
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
         path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
     failurePolicy: Fail
     name: mclusterqueue.kb.io
@@ -305,6 +354,37 @@ metadata:
   {{- end }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-apps-v1-deployment
+    {{- if has "deployment" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
+    name: vdeployment.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+    rules:
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - deployments
+    sideEffects: None
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -546,6 +626,26 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
+        path: /validate-apps-v1-statefulset
+    failurePolicy: Fail
+    name: vstatefulset.kb.io
+    rules:
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - statefulsets
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
         path: /validate-kueue-x-k8s-io-v1beta1-clusterqueue
     failurePolicy: Fail
     name: vclusterqueue.kb.io
@@ -559,6 +659,26 @@ webhooks:
           - UPDATE
         resources:
           - clusterqueues
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kueue-x-k8s-io-v1alpha1-cohort
+    failurePolicy: Fail
+    name: vcohort.kb.io
+    rules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - cohorts
     sideEffects: None
   - admissionReviewVersions:
       - v1

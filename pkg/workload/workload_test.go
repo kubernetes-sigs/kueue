@@ -32,6 +32,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilac "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -39,9 +40,10 @@ import (
 
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
-		workload    kueue.Workload
-		infoOptions []InfoOption
-		wantInfo    Info
+		workload                            kueue.Workload
+		infoOptions                         []InfoOption
+		wantInfo                            Info
+		configurableResourceTransformations bool
 	}{
 		"pending": {
 			workload: *utiltesting.MakeWorkload("", "").
@@ -192,6 +194,78 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"admitted with reclaim and increased reclaim": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				ReserveQuota(
+					utiltesting.MakeAdmission("").
+						Assignment(corev1.ResourceCPU, "f1", "30m").
+						Assignment(corev1.ResourceMemory, "f1", "30Ki").
+						AssignmentPodCount(3).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  "main",
+						Count: 3,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    2 * 10,
+							corev1.ResourceMemory: 2 * 10 * 1024,
+						},
+						Count: 2,
+					},
+				},
+			},
+		},
+		"partially admitted": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				ReserveQuota(
+					utiltesting.MakeAdmission("").
+						Assignment(corev1.ResourceCPU, "f1", "30m").
+						Assignment(corev1.ResourceMemory, "f1", "30Ki").
+						AssignmentPodCount(3).
+						Obj(),
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    3 * 10,
+							corev1.ResourceMemory: 3 * 10 * 1024,
+						},
+						Count: 3,
+					},
+				},
+			},
+		},
 		"filterResources": {
 			workload: *utiltesting.MakeWorkload("", "").
 				Request(corev1.ResourceCPU, "10m").
@@ -212,9 +286,75 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"transformResources": {
+			workload: *utiltesting.MakeWorkload("transform", "").
+				PodSets(
+					*utiltesting.MakePodSet("a", 1).
+						Request("nvidia.com/mig-1g.5gb", "2").
+						Request("nvidia.com/mig-2g.10gb", "1").
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*utiltesting.MakePodSet("b", 2).
+						Request("nvidia.com/gpu", "1").
+						Request(corev1.ResourceCPU, "2").
+						Obj(),
+				).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
+					Strategy: ptr.To(config.Replace),
+					Outputs: corev1.ResourceList{
+						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("5Ki"),
+						corev1.ResourceName("example.com/credits"):            resource.MustParse("10"),
+					},
+				},
+				{
+					Input:    corev1.ResourceName("nvidia.com/mig-2g.10gb"),
+					Strategy: ptr.To(config.Replace),
+					Outputs: corev1.ResourceList{
+						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("10Ki"),
+						corev1.ResourceName("example.com/credits"):            resource.MustParse("15"),
+					},
+				},
+				{
+					Input:    corev1.ResourceName("nvidia.com/gpu"),
+					Strategy: ptr.To(config.Retain),
+					Outputs: corev1.ResourceList{
+						corev1.ResourceName("example.com/accelerator-memory"): resource.MustParse("40Ki"),
+						corev1.ResourceName("example.com/credits"):            resource.MustParse("100"),
+					},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "a",
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 1000,
+							corev1.ResourceName("example.com/accelerator-memory"): 20 * 1024,
+							corev1.ResourceName("example.com/credits"):            35,
+						},
+						Count: 1,
+					},
+					{
+						Name: "b",
+						Requests: resources.Requests{
+							corev1.ResourceCPU: 4 * 1000,
+							corev1.ResourceName("example.com/accelerator-memory"): 80 * 1024,
+							corev1.ResourceName("example.com/credits"):            200,
+							corev1.ResourceName("nvidia.com/gpu"):                 2,
+						},
+						Count: 2,
+					},
+				},
+			},
+			configurableResourceTransformations: true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConfigurableResourceTransformations, tc.configurableResourceTransformations)
 			info := NewInfo(&tc.workload, tc.infoOptions...)
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
@@ -593,10 +733,10 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 func TestFlavorResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info
-		want resources.FlavorResourceQuantitiesFlat
+		want resources.FlavorResourceQuantities
 	}{
 		"nil": {
-			want: resources.FlavorResourceQuantitiesFlat{},
+			want: resources.FlavorResourceQuantities{},
 		},
 		"one podset, no flavors": {
 			info: &Info{
@@ -607,7 +747,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				}},
 			},
-			want: resources.FlavorResourceQuantitiesFlat{
+			want: resources.FlavorResourceQuantities{
 				{Flavor: "", Resource: "cpu"}:             1_000,
 				{Flavor: "", Resource: "example.com/gpu"}: 3,
 			},
@@ -625,7 +765,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				}},
 			},
-			want: resources.FlavorResourceQuantitiesFlat{
+			want: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "cpu"}:         1_000,
 				{Flavor: "gpu", Resource: "example.com/gpu"}: 3,
 			},
@@ -663,7 +803,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				},
 			},
-			want: resources.FlavorResourceQuantitiesFlat{
+			want: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "cpu"}:             3_000,
 				{Flavor: "default", Resource: "memory"}:          2 * utiltesting.Gi,
 				{Flavor: "model_a", Resource: "example.com/gpu"}: 3,

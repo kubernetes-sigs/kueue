@@ -28,8 +28,10 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -43,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
@@ -78,12 +81,12 @@ func Status(w *kueue.Workload) string {
 
 type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int
-	CohortGeneration       int64
 	ClusterQueueGeneration int64
 }
 
 type InfoOptions struct {
 	excludedResourcePrefixes []string
+	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 }
 
 type InfoOption func(*InfoOptions)
@@ -97,10 +100,16 @@ func WithExcludedResourcePrefixes(n []string) InfoOption {
 	}
 }
 
+// WithResourceTransformations sets the resource transformations.
+func WithResourceTransformations(transforms []config.ResourceTransformation) InfoOption {
+	return func(o *InfoOptions) {
+		o.resourceTransformations = utilslices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
+	}
+}
+
 func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
 	c := AssignmentClusterQueueState{
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
-		CohortGeneration:       s.CohortGeneration,
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
 	}
 	for ps, flavorIdx := range s.LastTriedFlavorIdx {
@@ -158,11 +167,27 @@ type PodSetResources struct {
 	// Count indicates how many pods are in the podset.
 	Count int32
 
+	// TopologyRequest specifies the requests for TAS
+	TopologyRequest *TopologyRequest
+
 	// Flavors are populated when the Workload is assigned.
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
+type TopologyRequest struct {
+	Levels         []string
+	DomainRequests []TopologyDomainRequests
+}
+
+type TopologyDomainRequests struct {
+	Values   []string
+	Requests resources.Requests
+}
+
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
+	if psr.TopologyRequest != nil {
+		return psr
+	}
 	ret := &PodSetResources{
 		Name:     psr.Name,
 		Requests: maps.Clone(psr.Requests),
@@ -170,9 +195,11 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 		Flavors:  maps.Clone(psr.Flavors),
 	}
 
-	scaleDown(ret.Requests, int64(ret.Count))
-	scaleUp(ret.Requests, int64(newCount))
-	ret.Count = newCount
+	if psr.Count != 0 && psr.Count != newCount {
+		scaleDown(ret.Requests, int64(ret.Count))
+		scaleUp(ret.Requests, int64(newCount))
+		ret.Count = newCount
+	}
 	return ret
 }
 
@@ -188,10 +215,7 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w)
-	}
-	if len(options.excludedResourcePrefixes) > 0 {
-		dropExcludedResources(info.TotalRequests, options.excludedResourcePrefixes)
+		info.TotalRequests = totalRequestsFromPodSets(w, &options)
 	}
 	return info
 }
@@ -206,8 +230,8 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 
 // FlavorResourceUsage returns the total resource usage for the workload,
 // per flavor (if assigned, otherwise flavor shows as empty string), per resource.
-func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantitiesFlat {
-	total := make(resources.FlavorResourceQuantitiesFlat)
+func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
+	total := make(resources.FlavorResourceQuantities)
 	if i == nil {
 		return total
 	}
@@ -220,21 +244,67 @@ func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantitiesFlat {
 	return total
 }
 
-func dropExcludedResources(resources []PodSetResources, excludedPrefixes []string) {
-	for _, resource := range resources {
-		for requestKey := range resource.Requests {
-			exclude := false
-			for _, excludedPrefix := range excludedPrefixes {
-				if strings.HasPrefix(string(requestKey), excludedPrefix) {
-					exclude = true
-					break
-				}
-			}
-			if exclude {
-				delete(resource.Requests, requestKey)
+func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string) corev1.ResourceList {
+	res := corev1.ResourceList{}
+	for inputName, inputQuantity := range input {
+		exclude := false
+		for _, excludedPrefix := range excludedPrefixes {
+			if strings.HasPrefix(string(inputName), excludedPrefix) {
+				exclude = true
+				break
 			}
 		}
+		if !exclude {
+			res[inputName] = inputQuantity
+		}
 	}
+	return res
+}
+
+// TASUsage returns topology usage requested by the Workload
+func (i *Info) TASUsage() []TopologyDomainRequests {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return nil
+	}
+	result := make([]TopologyDomainRequests, 0)
+	for _, ps := range i.TotalRequests {
+		if ps.TopologyRequest != nil {
+			result = append(result, ps.TopologyRequest.DomainRequests...)
+		}
+	}
+	return result
+}
+
+func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
+	match := false
+	for resourceName := range input {
+		if _, ok := transforms[resourceName]; ok {
+			match = true
+			break
+		}
+	}
+	if !match {
+		return input
+	}
+	output := make(corev1.ResourceList)
+	for inputName, inputQuantity := range input {
+		if mapping, ok := transforms[inputName]; ok {
+			for outputName, baseFactor := range mapping.Outputs {
+				outputQuantity := baseFactor.DeepCopy()
+				outputQuantity.Mul(inputQuantity.Value())
+				if accumulated, ok := output[outputName]; ok {
+					outputQuantity.Add(accumulated)
+				}
+				output[outputName] = outputQuantity
+			}
+			if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
+				output[inputName] = inputQuantity
+			}
+		} else {
+			output[inputName] = inputQuantity
+		}
+	}
+	return output
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
@@ -256,21 +326,15 @@ func QueueKey(w *kueue.Workload) string {
 }
 
 func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
-	ret := make(map[string]int32, len(wl.Status.ReclaimablePods))
-	for i := range wl.Status.ReclaimablePods {
-		reclaimInfo := &wl.Status.ReclaimablePods[i]
-		ret[reclaimInfo.Name] = reclaimInfo.Count
-	}
-	return ret
+	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (string, int32) {
+		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
+	})
 }
 
 func podSetsCounts(wl *kueue.Workload) map[string]int32 {
-	ret := make(map[string]int32, len(wl.Spec.PodSets))
-	for i := range wl.Spec.PodSets {
-		ps := &wl.Spec.PodSets[i]
-		ret[ps.Name] = ps.Count
-	}
-	return ret
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (string, int32) {
+		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
+	})
 }
 
 func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
@@ -284,7 +348,7 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
+func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
@@ -296,7 +360,12 @@ func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 			Name:  ps.Name,
 			Count: count,
 		}
-		setRes.Requests = resources.NewRequests(limitrange.TotalRequests(&ps.Template.Spec))
+		specRequests := limitrange.TotalRequests(&ps.Template.Spec)
+		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
+		if features.Enabled(features.ConfigurableResourceTransformations) {
+			effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
+		}
+		setRes.Requests = resources.NewRequests(effectiveRequests)
 		scaleUp(setRes.Requests, int64(count))
 		res = append(res, setRes)
 	}
@@ -317,13 +386,30 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			Count:    ptr.Deref(psa.Count, totalCounts[psa.Name]),
 			Requests: resources.NewRequests(psa.ResourceUsage),
 		}
-
-		if count := currentCounts[psa.Name]; count != setRes.Count {
-			scaleDown(setRes.Requests, int64(setRes.Count))
-			scaleUp(setRes.Requests, int64(count))
-			setRes.Count = count
+		if features.Enabled(features.TopologyAwareScheduling) && psa.TopologyAssignment != nil {
+			setRes.TopologyRequest = &TopologyRequest{
+				Levels: psa.TopologyAssignment.Levels,
+			}
+			for _, domain := range psa.TopologyAssignment.Domains {
+				domainRequests := setRes.Requests.Clone()
+				scaleDown(domainRequests, int64(setRes.Count))
+				scaleUp(domainRequests, int64(domain.Count))
+				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
+					Values:   domain.Values,
+					Requests: domainRequests,
+				})
+			}
 		}
 
+		// If countAfterReclaim is lower then the admission count indicates that
+		// additional pods are marked as reclaimable, and the consumption should be scaled down.
+		if countAfterReclaim := currentCounts[psa.Name]; countAfterReclaim < setRes.Count {
+			scaleDown(setRes.Requests, int64(setRes.Count))
+			scaleUp(setRes.Requests, int64(countAfterReclaim))
+			setRes.Count = countAfterReclaim
+		}
+		// Otherwise if countAfterReclaim is higher it means that the podSet was partially admitted
+		// and the count should be preserved.
 		res = append(res, setRes)
 	}
 	return res
@@ -368,7 +454,7 @@ func UpdateStatus(ctx context.Context,
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
-func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) bool {
+func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string, now time.Time) bool {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
@@ -383,10 +469,37 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	}
 
 	// Reset the admitted condition if necessary.
-	if SyncAdmittedCondition(wl) {
+	if SyncAdmittedCondition(wl, now) {
 		changed = true
 	}
 	return changed
+}
+
+// UpdateRequeueState calculate requeueAt time and update requeuingCount
+func UpdateRequeueState(wl *kueue.Workload, backoffBaseSeconds int32, backoffMaxSeconds int32, clock clock.Clock) {
+	if wl.Status.RequeueState == nil {
+		wl.Status.RequeueState = &kueue.RequeueState{}
+	}
+	requeuingCount := ptr.Deref(wl.Status.RequeueState.Count, 0) + 1
+
+	// Every backoff duration is about "60s*2^(n-1)+Rand" where:
+	// - "n" represents the "requeuingCount",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and other
+	// workloads will have a chance to be admitted.
+	backoff := &wait.Backoff{
+		Duration: time.Duration(backoffBaseSeconds) * time.Second,
+		Factor:   2,
+		Jitter:   0.0001,
+		Steps:    int(requeuingCount),
+	}
+	var waitDuration time.Duration
+	for backoff.Steps > 0 {
+		waitDuration = min(backoff.Step(), time.Duration(backoffMaxSeconds)*time.Second)
+	}
+
+	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(clock.Now().Add(waitDuration)))
+	wl.Status.RequeueState.Count = &requeuingCount
 }
 
 // SetRequeuedCondition sets the WorkloadRequeued condition to true
@@ -497,13 +610,49 @@ func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
+// PropagateResourceRequests synchronizes w.Status.ResourceRequests to
+// with info.TotalRequests if the feature gate is enabled and returns true if w was updated
+func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
+	if !features.Enabled(features.WorkloadResourceRequestsSummary) {
+		return false
+	}
+	if len(w.Status.ResourceRequests) == len(info.TotalRequests) {
+		match := true
+		for idx := range w.Status.ResourceRequests {
+			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
+				!maps.Equal(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return false
+		}
+	}
+
+	res := make([]kueue.PodSetRequest, len(info.TotalRequests))
+	for idx := range info.TotalRequests {
+		res[idx].Name = info.TotalRequests[idx].Name
+		res[idx].Resources = info.TotalRequests[idx].Requests.ToResourceList()
+	}
+	w.Status.ResourceRequests = res
+	return true
+}
+
 // AdmissionStatusPatch creates a new object based on the input workload that contains
 // the admission and related conditions. The object can be used in Server-Side-Apply.
 // If strict is true, resourceVersion will be part of the patch.
-func AdmissionStatusPatch(w *kueue.Workload, strict bool) *kueue.Workload {
-	wlCopy := BaseSSAWorkload(w)
+func AdmissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, strict bool) {
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
+	if wlCopy.Status.Admission != nil {
+		// Clear ResourceRequests; Assignment.PodSetAssignment[].ResourceUsage supercedes it
+		wlCopy.Status.ResourceRequests = []kueue.PodSetRequest{}
+	} else {
+		for _, rr := range w.Status.ResourceRequests {
+			wlCopy.Status.ResourceRequests = append(wlCopy.Status.ResourceRequests, *rr.DeepCopy())
+		}
+	}
 	for _, conditionName := range admissionManagedConditions {
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
@@ -512,20 +661,31 @@ func AdmissionStatusPatch(w *kueue.Workload, strict bool) *kueue.Workload {
 	if strict {
 		wlCopy.ResourceVersion = w.ResourceVersion
 	}
-	return wlCopy
+	wlCopy.Status.AccumulatedPastExexcutionTimeSeconds = w.Status.AccumulatedPastExexcutionTimeSeconds
+}
+
+func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
+	if wlCopy.Status.AdmissionChecks == nil && w.Status.AdmissionChecks != nil {
+		wlCopy.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, 0)
+	}
+	for _, ac := range w.Status.AdmissionChecks {
+		SetAdmissionCheckState(&wlCopy.Status.AdmissionChecks, ac)
+	}
 }
 
 // ApplyAdmissionStatus updated all the admission related status fields of a workload with SSA.
 // If strict is true, resourceVersion will be part of the patch, make this call fail if Workload
 // was changed.
 func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool) error {
-	patch := AdmissionStatusPatch(w, strict)
-	return ApplyAdmissionStatusPatch(ctx, c, patch)
+	wlCopy := BaseSSAWorkload(w)
+	AdmissionStatusPatch(w, wlCopy, strict)
+	AdmissionChecksStatusPatch(w, wlCopy)
+	return ApplyAdmissionStatusPatch(ctx, c, wlCopy)
 }
 
 // ApplyAdmissionStatusPatch applies the patch of admission related status fields of a workload with SSA.
 func ApplyAdmissionStatusPatch(ctx context.Context, c client.Client, patch *kueue.Workload) error {
-	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName), client.ForceOwnership)
 }
 
 type Ordering struct {
@@ -538,6 +698,18 @@ func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
 		if evictedCond, evictedByTimeout := IsEvictedByPodsReadyTimeout(w); evictedByTimeout {
 			return &evictedCond.LastTransitionTime
+		}
+	}
+	if evictedCond, evictedByCheck := IsEvictedByAdmissionCheck(w); evictedByCheck {
+		return &evictedCond.LastTransitionTime
+	}
+	if !features.Enabled(features.PrioritySortingWithinCohort) {
+		if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil &&
+			preemptedCond.Status == metav1.ConditionTrue &&
+			preemptedCond.Reason == kueue.InCohortReclaimWhileBorrowingReason {
+			// We add an epsilon to make sure the timestamp of the preempted
+			// workload is strictly greater that the preemptor's
+			return &metav1.Time{Time: preemptedCond.LastTransitionTime.Add(time.Millisecond)}
 		}
 	}
 	return &w.CreationTimestamp
@@ -561,18 +733,9 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	if len(a) != len(b) {
 		return false
 	}
-
-	mb := make(map[string]int32, len(b))
-	for i := range b {
-		mb[b[i].Name] = b[i].Count
-	}
-
-	for i := range a {
-		if bCount, found := mb[a[i].Name]; !found || bCount != a[i].Count {
-			return false
-		}
-	}
-	return true
+	ma := utilslices.ToMap(a, func(i int) (string, int32) { return a[i].Name, a[i].Count })
+	mb := utilslices.ToMap(b, func(i int) (string, int32) { return b[i].Name, b[i].Count })
+	return maps.Equal(ma, mb)
 }
 
 // IsAdmitted returns true if the workload is admitted.
@@ -602,6 +765,18 @@ func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
 		return nil, false
 	}
 	return cond, true
+}
+
+func IsEvictedByAdmissionCheck(w *kueue.Workload) (*metav1.Condition, bool) {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != kueue.WorkloadEvictedByAdmissionCheck {
+		return nil, false
+	}
+	return cond, true
+}
+
+func IsEvicted(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, kueue.WorkloadEvicted, metav1.ConditionTrue)
 }
 
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {

@@ -29,7 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -69,6 +69,37 @@ func TestValidateCreate(t *testing.T) {
 			job:     testingutil.MakeJobSet("job", "default").Queue("queue").Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
 			wantErr: nil,
 		},
+		{
+			name: "valid topology request",
+			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "launcher",
+				Annotations: map[string]string{
+					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}, testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				Annotations: map[string]string{
+					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+		},
+		{
+			name: "invalid topology request",
+			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "launcher",
+				Annotations: map[string]string{
+					kueuealpha.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}, testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				Annotations: map[string]string{
+					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				},
+			}).Obj(),
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[1].template.metadata.annotations"),
+				field.OmitValueType{}, `must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`)}.ToAggregate(),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -78,6 +109,54 @@ func TestValidateCreate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateUpdate(t *testing.T) {
+	testcases := []struct {
+		name    string
+		oldJob  *jobset.JobSet
+		newJob  *jobset.JobSet
+		wantErr field.ErrorList
+	}{
+		{
+			name: "set valid topology request",
+			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name:        "worker",
+				Annotations: map[string]string{},
+			}).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				Annotations: map[string]string{
+					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+		},
+		{
+			name: "attempt to set invalid topology request",
+			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name:        "worker",
+				Annotations: map[string]string{},
+			}).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				Annotations: map[string]string{
+					kueuealpha.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+					kueuealpha.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				},
+			}).Obj(),
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec.replicatedJobs[0].template.metadata.annotations"),
+				field.OmitValueType{}, `must not contain both "kueue.x-k8s.io/podset-required-topology" and "kueue.x-k8s.io/podset-preferred-topology"`)},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotErr := new(JobSetWebhook).validateUpdate((*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
+				t.Errorf("validateUpdate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -118,11 +197,11 @@ func TestDefault(t *testing.T) {
 					Obj(),
 			},
 			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
+				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
 			multiKueueEnabled: true,
-			wantManagedBy:     ptr.To(v1alpha1.MultiKueueControllerName),
+			wantManagedBy:     ptr.To(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithQueueLabel",
@@ -145,11 +224,11 @@ func TestDefault(t *testing.T) {
 					Obj(),
 			},
 			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
+				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
 			multiKueueEnabled: true,
-			wantManagedBy:     ptr.To(v1alpha1.MultiKueueControllerName),
+			wantManagedBy:     ptr.To(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithoutQueueLabel",
@@ -225,7 +304,7 @@ func TestDefault(t *testing.T) {
 					Obj(),
 			},
 			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
+				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
 			multiKueueEnabled: false,
@@ -255,7 +334,7 @@ func TestDefault(t *testing.T) {
 					Obj(),
 			},
 			admissionCheck: utiltesting.MakeAdmissionCheck("admission-check").
-				ControllerName(v1alpha1.MultiKueueControllerName).
+				ControllerName(kueue.MultiKueueControllerName).
 				Active(metav1.ConditionTrue).
 				Obj(),
 			multiKueueEnabled: true,
@@ -287,7 +366,7 @@ func TestDefault(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)()
+			features.SetFeatureGateDuringTest(t, features.MultiKueue, tc.multiKueueEnabled)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 

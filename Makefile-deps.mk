@@ -28,13 +28,14 @@ GO_CMD ?= go
 GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 GOLANGCI_LINT_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/golangci/golangci-lint)
 CONTROLLER_GEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-tools)
-KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v4)
+KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v5)
 ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
 HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v3)
 HUGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/gohugoio/hugo)
+MDTOC_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/mdtoc)
 
 ##@ Tools
 
@@ -51,7 +52,7 @@ controller-gen: ## Download controller-gen locally if necessary.
 KUSTOMIZE = $(PROJECT_DIR)/bin/kustomize
 .PHONY: kustomize
 kustomize: ## Download kustomize locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kustomize/kustomize/v4@$(KUSTOMIZE_VERSION)
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
 
 ENVTEST = $(PROJECT_DIR)/bin/setup-envtest
 .PHONY: envtest
@@ -93,6 +94,11 @@ HUGO = $(PROJECT_DIR)/bin/hugo
 hugo: ## Download hugo locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@$(HUGO_VERSION)
 
+MDTOC = $(PROJECT_DIR)/bin/mdtoc
+.PHONY: mdtoc
+mdtoc: ## Download mdtoc locally if necessary.
+	@GOBIN=$(PROJECT_DIR)/bin CGO_ENABLED=1 $(GO_CMD) install sigs.k8s.io/mdtoc@$(MDTOC_VERSION)
+
 
 ##@ External CRDs
 
@@ -105,8 +111,19 @@ mpi-operator-crd: ## Copy the CRDs from the mpi-operator to the dep-crds directo
 KF_TRAINING_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/training-operator)
 .PHONY: kf-training-operator-crd
 kf-training-operator-crd: ## Copy the CRDs from the training-operator to the dep-crds directory.
-	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator/
-	cp -f $(KF_TRAINING_ROOT)/manifests/base/crds/* $(EXTERNAL_CRDS_DIR)/training-operator/
+	## Removing kubeflow.org_mpijobs.yaml is required as the version of MPIJob is conflicting between training-operator and mpi-operator - in integration tests.
+	mkdir -p $(EXTERNAL_CRDS_DIR)/training-operator-crds/
+	find $(KF_TRAINING_ROOT)/manifests/base/crds/* -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp -pf {} $(EXTERNAL_CRDS_DIR)/training-operator-crds/ \;
+
+.PHONY: kf-training-operator-manifests
+kf-training-operator-manifests: ## Copy whole manifests folder from the training-operator to the dep-crds directory.
+	## Full version of the manifest is required for e2e multikueue tests.
+	if [ -d "$(EXTERNAL_CRDS_DIR)/training-operator" ]; then \
+		chmod -R u+w "$(EXTERNAL_CRDS_DIR)/training-operator" && \
+		rm -rf "$(EXTERNAL_CRDS_DIR)/training-operator"; \
+	fi
+	mkdir -p "$(EXTERNAL_CRDS_DIR)/training-operator"
+	cp -rf "$(KF_TRAINING_ROOT)/manifests" "$(EXTERNAL_CRDS_DIR)/training-operator"
 
 RAY_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 .PHONY: ray-operator-crd
@@ -127,11 +144,9 @@ cluster-autoscaler-crd: ## Copy the CRDs from the cluster-autoscaler to the dep-
 	cp -f $(CLUSTER_AUTOSCALER_ROOT)/config/crd/* $(EXTERNAL_CRDS_DIR)/cluster-autoscaler/
 
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd ray-operator-crd jobset-operator-crd cluster-autoscaler-crd kf-training-operator-manifests ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 .PHONY: kueuectl-docs
 kueuectl-docs:
-	cd $(PROJECT_DIR)/hack/internal/tools && \
-	go mod download && \
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kueuectl-docs ./kueuectl-docs/main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(PROJECT_DIR)/bin/kueuectl-docs ./cmd/kueuectl-docs/main.go

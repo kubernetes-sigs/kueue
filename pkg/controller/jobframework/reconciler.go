@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"testing"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -33,12 +34,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -62,10 +66,11 @@ const (
 )
 
 var (
-	ErrUnknownWorkloadOwner  = errors.New("workload owner is unknown")
-	ErrWorkloadOwnerNotFound = errors.New("workload owner not found")
-	ErrNoMatchingWorkloads   = errors.New("no matching workloads")
-	ErrExtraWorkloads        = errors.New("extra workloads")
+	ErrUnknownWorkloadOwner     = errors.New("workload owner is unknown")
+	ErrWorkloadOwnerNotFound    = errors.New("workload owner not found")
+	ErrNoMatchingWorkloads      = errors.New("no matching workloads")
+	ErrExtraWorkloads           = errors.New("extra workloads")
+	ErrPrebuildWorkloadNotFound = errors.New("prebuild workload not found")
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -75,6 +80,7 @@ type JobReconciler struct {
 	manageJobsWithoutQueueName bool
 	waitForPodsReady           bool
 	labelKeysToCopy            []string
+	clock                      clock.Clock
 }
 
 type Options struct {
@@ -89,6 +95,7 @@ type Options struct {
 	LabelKeysToCopy           []string
 	Queues                    *queue.Manager
 	Cache                     *cache.Cache
+	Clock                     clock.Clock
 }
 
 // Option configures the reconciler.
@@ -184,7 +191,18 @@ func WithCache(c *cache.Cache) Option {
 	}
 }
 
-var defaultOptions = Options{}
+// WithClock sets the clock of the reconciler.
+// It default to system's clock and should only
+// be changed in testing.
+func WithClock(_ testing.TB, c clock.Clock) Option {
+	return func(o *Options) {
+		o.Clock = c
+	}
+}
+
+var defaultOptions = Options{
+	Clock: clock.RealClock{},
+}
 
 func NewReconciler(
 	client client.Client,
@@ -198,6 +216,7 @@ func NewReconciler(
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 		waitForPodsReady:           options.WaitForPodsReady,
 		labelKeysToCopy:            options.LabelKeysToCopy,
+		clock:                      options.Clock,
 	}
 }
 
@@ -381,6 +400,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		log.V(3).Info("The workload is nil, handle job with no workload")
 		err := r.handleJobWithNoWorkload(ctx, job, object)
 		if err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				log.V(3).Info("Handling job with no workload found an existing workload")
+				return ctrl.Result{Requeue: true}, nil
+			}
 			if IsUnretryableError(err) {
 				log.V(3).Info("Handling job with no workload", "unretryableError", err)
 			} else {
@@ -434,10 +457,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				// The requeued condition status set to true only on EvictedByPreemption or EvictedByAdmissionCheck
-				setRequeued := evCond.Reason == kueue.WorkloadEvictedByPreemption || evCond.Reason == kueue.WorkloadEvictedByAdmissionCheck
+				// The requeued condition status set to true only on EvictedByPreemption
+				setRequeued := evCond.Reason == kueue.WorkloadEvictedByPreemption
 				workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-				_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
+				_ = workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now())
 				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
@@ -755,6 +778,11 @@ func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false
 	}
 
+	defaultDuration := int32(-1)
+	if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(MaximumExecutionTimeSeconds(job), defaultDuration) {
+		return false
+	}
+
 	jobPodSets := clearMinCountsIfFeatureDisabled(job.PodSets())
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
@@ -894,8 +922,9 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 			Annotations: admissioncheck.FilterProvReqAnnotations(job.Object().GetAnnotations()),
 		},
 		Spec: kueue.WorkloadSpec{
-			PodSets:   podSets,
-			QueueName: QueueName(job),
+			PodSets:                     podSets,
+			QueueName:                   QueueName(job),
+			MaximumExecutionTimeSeconds: MaximumExecutionTimeSeconds(job),
 		},
 	}
 	if wl.Labels == nil {
@@ -969,7 +998,10 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		if err != nil {
 			return nil, err
 		}
-
+		if features.Enabled(features.TopologyAwareScheduling) {
+			info.Labels[kueuealpha.PodSetLabel] = podSetFlavor.Name
+			info.Annotations[kueuealpha.WorkloadAnnotation] = w.Name
+		}
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
 				if podSetUpdate.Name == info.Name {
@@ -1003,8 +1035,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	}
 
 	if usePrebuiltWorkload {
-		log.V(2).Info("Skip workload creation for job with prebuilt workload")
-		return nil
+		return ErrPrebuildWorkloadNotFound
 	}
 
 	// Create the corresponding workload.

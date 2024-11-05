@@ -21,14 +21,14 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// LocalQueueSpecApplyConfiguration represents an declarative configuration of the LocalQueueSpec type for use
+// LocalQueueSpecApplyConfiguration represents a declarative configuration of the LocalQueueSpec type for use
 // with apply.
 type LocalQueueSpecApplyConfiguration struct {
 	ClusterQueue *v1beta1.ClusterQueueReference `json:"clusterQueue,omitempty"`
 	StopPolicy   *v1beta1.StopPolicy            `json:"stopPolicy,omitempty"`
 }
 
-// LocalQueueSpecApplyConfiguration constructs an declarative configuration of the LocalQueueSpec type for use with
+// LocalQueueSpecApplyConfiguration constructs a declarative configuration of the LocalQueueSpec type for use with
 // apply.
 func LocalQueueSpec() *LocalQueueSpecApplyConfiguration {
 	return &LocalQueueSpecApplyConfiguration{}

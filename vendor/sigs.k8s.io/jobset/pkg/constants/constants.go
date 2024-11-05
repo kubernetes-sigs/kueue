@@ -17,6 +17,9 @@ limitations under the License.
 package constants
 
 const (
+	// JobSetSubsystemName is the name of the subsystem used for metrics
+	JobSetSubsystemName = "jobset"
+
 	// JobOwnerKey is the field used to build the JobSet index, which enables looking up Jobs
 	// by the owner JobSet quickly.
 	JobOwnerKey = ".metadata.controller"
@@ -24,6 +27,10 @@ const (
 	// RestartsKey is an annotation and label key which defines the restart attempt number
 	// the JobSet is currently on.
 	RestartsKey = "jobset.sigs.k8s.io/restart-attempt"
+
+	// PriorityKey is a label key to record the pod priority. This is needed to enforce exclusive placement
+	// only among jobs within the same priority.
+	PriorityKey = "jobset.sigs.k8s.io/priority"
 
 	// MaxParallelism defines the maximum number of parallel Job creations/deltions that
 	// the JobSet controller can perform.
@@ -45,8 +52,12 @@ const (
 	AllJobsCompletedMessage = "jobset completed successfully"
 
 	// Event reason used when a Job creation fails.
-	// The event uses the error(s) as the reason.
+	// The event uses the error(s) as the message.
 	JobCreationFailedReason = "JobCreationFailed"
+
+	// Event reason used when a Headless Service creation fails.
+	// The event uses the error(s) as the message.
+	HeadlessServiceCreationFailedReason = "HeadlessServiceCreationFailed"
 
 	// Event reason and message for when the pod controller detects a violation
 	// of the JobSet exclusive placment policy (i.e., follower pods not colocated in
@@ -71,4 +82,16 @@ const (
 	// Event reason and message related to resuming a JobSet.
 	JobSetResumedReason  = "ResumeJobs"
 	JobSetResumedMessage = "jobset is resumed"
+
+	// Event reason and message related to applying the FailJobSet failure policy action.
+	FailJobSetActionReason  = "FailJobSetFailurePolicyAction"
+	FailJobSetActionMessage = "applying FailJobSet failure policy action"
+
+	// Event reason and message related to applying the RestartJobSet failure policy action.
+	RestartJobSetActionReason  = "RestartJobSetFailurePolicyAction"
+	RestartJobSetActionMessage = "applying RestartJobSet failure policy action"
+
+	// Event reason and message related to applying the RestartJobSetAndIgnoreMaxRestarts failure policy action.
+	RestartJobSetAndIgnoreMaxRestartsActionReason  = "RestartJobSetAndIgnoreMaxRestartsFailurePolicyAction"
+	RestartJobSetAndIgnoreMaxRestartsActionMessage = "applying RestartJobSetAndIgnoreMaxRestarts failure policy action"
 )

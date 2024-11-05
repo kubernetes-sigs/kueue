@@ -116,7 +116,7 @@ def generate_job_crd(job_name, image, command, args):
 
 def main():
     """
-    Run an MPI job. This requires the MPI Operator to be installed.
+    Run an MPIJob. This requires the MPI Operator to be installed.
     """
     parser = get_parser()
     args, _ = parser.parse_known_args()

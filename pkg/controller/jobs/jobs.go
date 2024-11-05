@@ -18,6 +18,7 @@ package jobs
 
 // Reference the job framework integration packages to ensure linking.
 import (
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
@@ -25,4 +26,5 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 )

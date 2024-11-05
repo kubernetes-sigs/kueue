@@ -7,6 +7,8 @@ fullnameOverride: ""
 enablePrometheus: false
 # Enable x509 automated certificate management using cert-manager (cert-manager.io)
 enableCertManager: false
+# Enable API Priority and Fairness configuration for the visibility API
+enableVisibilityAPF: false
 # Customize controllerManager
 controllerManager:
   #featureGates:
@@ -21,7 +23,7 @@ controllerManager:
       pullPolicy: IfNotPresent
   manager:
     image:
-      repository: gcr.io/k8s-staging-kueue/kueue
+      repository: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
       # This should be set to 'IfNotPresent' for released version      
       pullPolicy: Always
     podAnnotations: {}
@@ -50,6 +52,10 @@ controllerManager:
     timeoutSeconds: 1
     failureThreshold: 3
     successThreshold: 1
+  topologySpreadConstraints: []
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
 kubernetesClusterDomain: cluster.local
 # controller_manager_config.yaml. controllerManager utilizes this yaml via manager-config Configmap.
 managerConfig:
@@ -105,6 +111,7 @@ managerConfig:
       - "kubeflow.org/tfjob"
       - "kubeflow.org/xgboostjob"
     #  - "pod"
+    #  - "deployment"
     #  externalFrameworks:
     #  - "Foo.v1.example.com"
     #  podOptions:
@@ -118,6 +125,12 @@ managerConfig:
     #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
     #resources:
     #  excludeResourcePrefixes: []
+    # transformations:
+    # - input: nvidia.com/mig-4g.5gb
+    #   strategy: Replace | Retain
+    #   outputs:
+    #     example.com/accelerator-memory: 5Gi
+    #     example.com/accelerator-gpc: 4
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:

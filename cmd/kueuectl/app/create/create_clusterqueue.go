@@ -30,6 +30,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -40,27 +41,6 @@ import (
 )
 
 const (
-	cqLong    = `Creates a ClusterQueue with the given name.`
-	cqExample = `  # Create a ClusterQueue 
-  kueuectl create clusterqueue my-cluster-queue
-  
-  # Create a ClusterQueue with cohort, namespace selector and other details
-  kueuectl create clusterqueue my-cluster-queue \
-  	--cohort cohortname \
-	--queuing-strategy StrictFIFO \
-	--namespace-selector fooX=barX,fooY=barY \
-	--reclaim-within-cohort Any \
-	--preemption-within-cluster-queue LowerPriority
-  
-  # Create a ClusterQueue with nominal quota and one resource flavor named alpha
-  kueuectl create clusterqueue my-cluster-queue --nominal-quota "alpha:cpu=9;memory=36Gi"
-  
-  # Create a ClusterQueue with multiple resource flavors named alpha and beta
-  kueuectl create clusterqueue my-cluster-queue \
-	--cohort cohortname \
-  	--nominal-quota "alpha:cpu=9;memory=36Gi;nvidia.com/gpu=10,beta:cpu=18;memory=72Gi;nvidia.com/gpu=20" \
-	--borrowing-limit "alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2" \
-	--lending-limit "alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2"`
 	cohort                       = "cohort"
 	queuingStrategy              = "queuing-strategy"
 	namespaceSelector            = "namespace-selector"
@@ -69,6 +49,32 @@ const (
 	nominalQuota                 = "nominal-quota"
 	borrowingLimit               = "borrowing-limit"
 	lendingLimit                 = "lending-limit"
+)
+
+var (
+	cqLong    = templates.LongDesc(`Creates a ClusterQueue with the given name.`)
+	cqExample = templates.Examples(`
+		# Create a ClusterQueue
+  		kueuectl create clusterqueue my-cluster-queue
+  
+  		# Create a ClusterQueue with cohort, namespace selector and other details
+		kueuectl create clusterqueue my-cluster-queue \
+		--cohort cohortname \
+		--queuing-strategy StrictFIFO \
+		--namespace-selector fooX=barX,fooY=barY \
+		--reclaim-within-cohort Any \
+		--preemption-within-cluster-queue LowerPriority
+  
+  		# Create a ClusterQueue with nominal quota and one resource flavor named alpha
+  		kueuectl create clusterqueue my-cluster-queue --nominal-quota "alpha:cpu=9;memory=36Gi"
+  
+		# Create a ClusterQueue with multiple resource flavors named alpha and beta
+		kueuectl create clusterqueue my-cluster-queue \
+		--cohort cohortname \
+		--nominal-quota "alpha:cpu=9;memory=36Gi;nvidia.com/gpu=10,beta:cpu=18;memory=72Gi;nvidia.com/gpu=20" \
+		--borrowing-limit "alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2" \
+		--lending-limit "alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2"
+	`)
 )
 
 var (
@@ -309,7 +315,7 @@ func (o *ClusterQueueOptions) parseResourceGroups() error {
 func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]v1beta1.ResourceGroup, error) {
 	var resourceGroups []v1beta1.ResourceGroup
 
-	regex := regexp.MustCompile(`^(\w+):((\w+[\.-]?)*\/?\w+=\w+;)*(\w+[\.-]?)*\/?\w+=\w+;?$`)
+	regex := regexp.MustCompile(`^([a-z0-9][a-z0-9\-\.]{0,252}):((\w+[\.-]?)*\/?\w+=\w+;)*(\w+[\.-]?)*\/?\w+=\w+;?$`)
 	for _, r := range resources {
 		if !regex.MatchString(r) {
 			return resourceGroups, errInvalidResourcesSpec

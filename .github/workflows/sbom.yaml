@@ -21,13 +21,13 @@ jobs:
         run: |
           TAG=${{ github.event.inputs.tag }}
           echo "TAG=$TAG" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed
         with:
           go-version-file: go.mod
           check-latest: true
           cache: true
       - name: Install bom
-        uses: kubernetes-sigs/release-actions/setup-bom@2f8b9ec22aedc9ce15039b6c7716aa6c2907df1c # v0.2.0
+        uses: kubernetes-sigs/release-actions/setup-bom@a69972745f85aab4ba5d6c681e2a0e7f73eaff2b # v0.3.0
       - name: Generate SBOM
         shell: bash
         run: |

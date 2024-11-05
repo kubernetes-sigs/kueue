@@ -1,6 +1,6 @@
 ---
 title: "Pending Workloads on-demand"
-date: 2023-12-05
+date: 2024-09-30
 weight: 3
 description: >
   Monitor pending Workloads with the on-demand visibility API
@@ -22,21 +22,57 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation) in version v0.6.0 or later.
 
-### Enable the VisibilityOnDemand feature gate
+### Configure API Priority and Fairness:
 
-VisibilityOnDemand is an `Alpha` feature disabled by default. To use the visibility API  change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`.
+To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) configuration for the visibility API apply one of the manifests, depending on your Kubernetes version:
 
-### Install the visibility API
+{{< tabpane lang="shell" persist=disabled >}}
+{{< tab header="Kubernetes 1.29 or newer" >}} kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-apf.yaml {{< /tab >}}
+{{< tab header="Kubernetes 1.28" >}} kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-apf-1-28.yaml {{< /tab >}}
+{{< /tabpane >}}
 
-To install the visibility API, run the following command
+### Directly accessing the Visibility API
+
+If you want to directly access the Visibility API with a http client like 
+`curl` or `wget`, or a browser, there are multiple ways you can locate and 
+authenticate against the Visibility API server:
+
+#### (Recommended) Using kubectl proxy
+
+Run kubectl in proxy mode. This method is recommended, since it uses 
+the stored API server location and verifies the identity of the API server using 
+a self-signed certificate. No man-in-the-middle (MITM) attack is possible using 
+this method. 
+
+For more details, see [kubectl documentation](https://kubernetes.io/docs/tasks/administer-cluster/access-cluster-api/#using-kubectl-proxy).
+
+#### Without kubectl proxy
+
+Alternatively, you can provide the location and credentials directly to the http client. 
+This works with client code that is confused by proxies. To protect against man in 
+the middle attacks, you'll need to import a root cert into your browser.
+
+For more details, see [kubectl documentation](https://kubernetes.io/docs/tasks/administer-cluster/access-cluster-api/#without-kubectl-proxy).
+
+You then need to create `ClusterRole` and `ClusterRoleBinding` for that same (default) k8s service account
+
+{{< include "examples/visibility/cluster-role-and-binding.yaml" "yaml" >}}
+
+using a command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-api.yaml
+kubectl apply -f https://kueue.sigs.k8s.io/examples/admin/cluster-role-and-binding.yaml
 ```
 
 ## Monitor pending workloads on demand
 
-{{< feature-state state="alpha" for_version="v0.6" >}}
+{{< feature-state state="beta" for_version="v0.9" >}}
+{{% alert title="Note" color="primary" %}}
+
+`VisibilityOnDemand` is a Beta feature enabled by default.
+
+You can disable it by setting the `VisibilityOnDemand` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+{{% /alert %}}
 
 To install a simple setup of ClusterQueue
 
@@ -60,12 +96,12 @@ for i in {1..6}; do kubectl create -f https://kueue.sigs.k8s.io/examples/jobs/sa
 
 3 of them saturate the ClusterQueue and the other 3 should be pending.
 
-### Cluster Queue visibility
+### Cluster Queue visibility via kubectl
 
 To view pending workloads in ClusterQueue `cluster-queue` run the following command:
 
 ```shell
-kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1alpha1/clusterqueues/cluster-queue/pendingworkloads"
+kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/cluster-queue/pendingworkloads"
 ```
 
 You should get results similar to:
@@ -73,7 +109,7 @@ You should get results similar to:
 ```json
 {
   "kind": "PendingWorkloadsSummary",
-  "apiVersion": "visibility.kueue.x-k8s.io/v1alpha1",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
   "metadata": {
     "creationTimestamp": null
   },
@@ -146,7 +182,7 @@ You can pass optional query parameters:
 To view only 1 pending workloads use, starting from position 1 in ClusterQueue run:
 
 ```shell
-kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1alpha1/clusterqueues/cluster-queue/pendingworkloads?limit=1&offset=1"
+kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/cluster-queue/pendingworkloads?limit=1&offset=1"
 ```
 
 You should get results similar to 
@@ -154,7 +190,7 @@ You should get results similar to
 ``` json
 {
   "kind": "PendingWorkloadsSummary",
-  "apiVersion": "visibility.kueue.x-k8s.io/v1alpha1",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
   "metadata": {
     "creationTimestamp": null
   },
@@ -182,12 +218,93 @@ You should get results similar to
 }
 ```
 
-### Local Queue visibility
+### Cluster Queue visibility via curl
+
+If you followed steps described in [Directly accessing the Visibility API](#directly-accessing-the-visibility-api) above,
+you can use curl to view pending workloads in ClusterQueue using following commands:
+
+{{< tabpane lang="shell" persist=disabled >}}
+{{< tab header="Using kubectl proxy" >}} curl http://localhost:8080/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/cluster-queue/pendingworkloads {{< /tab >}}
+{{< tab header="Without kubectl proxy" >}} curl -X GET $APISERVER/apis/visibility.kueue.x-k8s.io/v1beta1/clusterqueues/cluster-queue/pendingworkloads --header "Authorization: Bearer $TOKEN" --insecure {{< /tab >}}
+{{< /tabpane >}}
+
+You should get results similar to:
+
+```json
+{
+  "kind": "PendingWorkloadsSummary",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
+  "metadata": {
+    "creationTimestamp": null
+  },
+  "items": [
+    {
+      "metadata": {
+        "name": "job-sample-job-z8sc5-223e8",
+        "namespace": "default",
+        "creationTimestamp": "2024-09-29T10:58:32Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "name": "sample-job-z8sc5",
+            "uid": "7086b1bb-39b7-42e5-9f6b-ee07d0100051"
+          }
+        ]
+      },
+      "priority": 0,
+      "localQueueName": "user-queue",
+      "positionInClusterQueue": 0,
+      "positionInLocalQueue": 0
+    },
+    {
+      "metadata": {
+        "name": "job-sample-job-2mfzb-28f54",
+        "namespace": "default",
+        "creationTimestamp": "2024-09-29T10:58:32Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "name": "sample-job-2mfzb",
+            "uid": "51ae8e48-8785-4bbb-9811-f9c1f041b368"
+          }
+        ]
+      },
+      "priority": 0,
+      "localQueueName": "user-queue",
+      "positionInClusterQueue": 1,
+      "positionInLocalQueue": 1
+    },
+    {
+      "metadata": {
+        "name": "job-sample-job-dpggt-3ecac",
+        "namespace": "default",
+        "creationTimestamp": "2024-09-29T10:58:32Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "name": "sample-job-dpggt",
+            "uid": "870655da-07d5-4910-be99-7650bf89b0d2"
+          }
+        ]
+      },
+      "priority": 0,
+      "localQueueName": "user-queue",
+      "positionInClusterQueue": 2,
+      "positionInLocalQueue": 2
+    }
+  ]
+}
+```
+
+### Local Queue visibility via kubectl
 
 Similarly to ClusterQueue, to view pending workloads in LocalQueue `user-queue` run the following command:
 
 ```shell
-kubectl get --raw /apis/visibility.kueue.x-k8s.io/v1alpha1/namespaces/default/localqueues/user-queue/pendingworkloads
+kubectl get --raw /apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/default/localqueues/user-queue/pendingworkloads
 ```
 
 You should get results similar to:
@@ -195,7 +312,7 @@ You should get results similar to:
 ``` json
 {
   "kind": "PendingWorkloadsSummary",
-  "apiVersion": "visibility.kueue.x-k8s.io/v1alpha1",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
   "metadata": {
     "creationTimestamp": null
   },
@@ -268,7 +385,7 @@ You can pass optional query parameters:
 To view only 1 pending workloads use, starting from position 1 in LocalQueue run:
 
 ```shell
-kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1alpha1/namespaces/default/localqueues/user-queue/pendingworkloads?limit=1&offset=1"
+kubectl get --raw "/apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/default/localqueues/user-queue/pendingworkloads?limit=1&offset=1"
 
 ```
 You should get results similar to 
@@ -276,7 +393,7 @@ You should get results similar to
 ``` json
 {
   "kind": "PendingWorkloadsSummary",
-  "apiVersion": "visibility.kueue.x-k8s.io/v1alpha1",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
   "metadata": {
     "creationTimestamp": null
   },
@@ -299,6 +416,87 @@ You should get results similar to
       "localQueueName": "user-queue",
       "positionInClusterQueue": 1,
       "positionInLocalQueue": 1
+    }
+  ]
+}
+```
+
+### Local Queue visibility via curl
+
+If you followed steps described in [Directly accessing the Visibility API](#directly-accessing-the-visibility-api) 
+above, you can use curl to view pending workloads in LocalQueue using following commands:
+
+{{< tabpane lang="shell" persist=disabled >}}
+{{< tab header="Using kubectl proxy" >}} curl http://localhost:8080/apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/default/localqueues/user-queue/pendingworkloads {{< /tab >}}
+{{< tab header="Without kubectl proxy" >}} curl -X GET $APISERVER/apis/visibility.kueue.x-k8s.io/v1beta1/namespaces/default/localqueues/user-queue/pendingworkloads --header "Authorization: Bearer $TOKEN" --insecure {{< /tab >}}
+{{< /tabpane >}}
+
+You should get results similar to:
+
+```json
+{
+  "kind": "PendingWorkloadsSummary",
+  "apiVersion": "visibility.kueue.x-k8s.io/v1beta1",
+  "metadata": {
+    "creationTimestamp": null
+  },
+  "items": [
+    {
+      "metadata": {
+        "name": "job-sample-job-z8sc5-223e8",
+        "namespace": "default",
+        "creationTimestamp": "2024-09-29T10:58:32Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "name": "sample-job-z8sc5",
+            "uid": "7086b1bb-39b7-42e5-9f6b-ee07d0100051"
+          }
+        ]
+      },
+      "priority": 0,
+      "localQueueName": "user-queue",
+      "positionInClusterQueue": 0,
+      "positionInLocalQueue": 0
+    },
+    {
+      "metadata": {
+        "name": "job-sample-job-2mfzb-28f54",
+        "namespace": "default",
+        "creationTimestamp": "2024-09-29T10:58:32Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "name": "sample-job-2mfzb",
+            "uid": "51ae8e48-8785-4bbb-9811-f9c1f041b368"
+          }
+        ]
+      },
+      "priority": 0,
+      "localQueueName": "user-queue",
+      "positionInClusterQueue": 1,
+      "positionInLocalQueue": 1
+    },
+    {
+      "metadata": {
+        "name": "job-sample-job-dpggt-3ecac",
+        "namespace": "default",
+        "creationTimestamp": "2024-09-29T10:58:32Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "name": "sample-job-dpggt",
+            "uid": "870655da-07d5-4910-be99-7650bf89b0d2"
+          }
+        ]
+      },
+      "priority": 0,
+      "localQueueName": "user-queue",
+      "positionInClusterQueue": 2,
+      "positionInLocalQueue": 2
     }
   ]
 }

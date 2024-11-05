@@ -128,10 +128,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
-			_ = qManager.AddLocalQueue(context.TODO(), tc.localQueue)
+			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
+			_ = qManager.AddLocalQueue(ctxWithLogger, tc.localQueue)
 			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache)
 
-			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
 			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
 			defer ctxCancel()
 

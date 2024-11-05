@@ -23,7 +23,6 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
@@ -35,12 +34,12 @@ const (
 )
 
 var (
-	configGVK = kueuealpha.GroupVersion.WithKind("MultiKueueConfig")
+	configGVK = kueue.GroupVersion.WithKind("MultiKueueConfig")
 )
 
 func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []string {
 	return func(obj client.Object) []string {
-		cluster, isCluster := obj.(*kueuealpha.MultiKueueCluster)
+		cluster, isCluster := obj.(*kueue.MultiKueueCluster)
 		if !isCluster {
 			return nil
 		}
@@ -49,7 +48,7 @@ func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []
 }
 
 func indexUsingMultiKueueClusters(obj client.Object) []string {
-	config, isConfig := obj.(*kueuealpha.MultiKueueConfig)
+	config, isConfig := obj.(*kueue.MultiKueueConfig)
 	if !isConfig {
 		return nil
 	}
@@ -57,13 +56,13 @@ func indexUsingMultiKueueClusters(obj client.Object) []string {
 }
 
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
-	if err := indexer.IndexField(ctx, &kueuealpha.MultiKueueCluster{}, UsingKubeConfigs, getIndexUsingKubeConfigs(configNamespace)); err != nil {
+	if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingKubeConfigs, getIndexUsingKubeConfigs(configNamespace)); err != nil {
 		return fmt.Errorf("setting index on clusters using kubeconfig: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueuealpha.MultiKueueConfig{}, UsingMultiKueueClusters, indexUsingMultiKueueClusters); err != nil {
+	if err := indexer.IndexField(ctx, &kueue.MultiKueueConfig{}, UsingMultiKueueClusters, indexUsingMultiKueueClusters); err != nil {
 		return fmt.Errorf("setting index on configs using clusters: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueuealpha.MultiKueueControllerName, configGVK)); err != nil {
+	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
 	return nil

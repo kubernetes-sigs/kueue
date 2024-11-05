@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -557,6 +558,71 @@ func TestValidate(t *testing.T) {
 					Enable:             ptr.To(true),
 					WebhookServiceName: ptr.To("webhook-svc"),
 					WebhookSecretName:  ptr.To("webhook-sec"),
+				},
+			},
+		},
+		"invalid .resources.transformations.strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: ptr.To(configapi.ResourceTransformationStrategy("invalid")),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "resources.transformations[0].strategy",
+				},
+			},
+		},
+
+		"invalid .resources.transformations.inputs": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: ptr.To(configapi.Retain),
+						},
+						{
+							Input:    corev1.ResourceMemory,
+							Strategy: ptr.To(configapi.Retain),
+						},
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: ptr.To(configapi.Retain),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "resources.transformations[2].input",
+				},
+			},
+		},
+
+		"valid .resources.transformations": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: ptr.To(configapi.Retain),
+						},
+						{
+							Input:    corev1.ResourceMemory,
+							Strategy: ptr.To(configapi.Replace),
+						},
+					},
 				},
 			},
 		},

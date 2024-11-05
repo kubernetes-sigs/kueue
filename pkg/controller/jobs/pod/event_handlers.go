@@ -1,3 +1,19 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package pod
 
 import (
@@ -18,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 )
 
 var (
@@ -46,18 +63,18 @@ func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
 // podEventHandler will convert reconcile requests for pods in group from "<namespace>/<pod-name>" to
 // "group/<namespace>/<group-name>".
 type podEventHandler struct {
-	cleanedUpPodsExpectations *expectationsStore
+	cleanedUpPodsExpectations *expectations.Store
 }
 
-func (h *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (h *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	h.queueReconcileForPod(ctx, e.Object, q)
 }
 
-func (h *podEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (h *podEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	h.queueReconcileForPod(ctx, e.ObjectNew, q)
 }
 
-func (h *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (h *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	p, ok := e.Object.(*corev1.Pod)
 	if !ok {
 		return
@@ -76,10 +93,10 @@ func (h *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q wor
 	q.Add(reconcileRequestForPod(p))
 }
 
-func (h *podEventHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (h *podEventHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {
+func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	p, ok := object.(*corev1.Pod)
 	if !ok {
 		return
@@ -100,21 +117,21 @@ func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object clien
 
 type workloadHandler struct{}
 
-func (h *workloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	h.queueReconcileForChildPod(ctx, e.Object, q)
 }
 
-func (h *workloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	h.queueReconcileForChildPod(ctx, e.ObjectNew, q)
 }
 
-func (h *workloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *workloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	w, ok := object.(*kueue.Workload)
 	if !ok {
 		return

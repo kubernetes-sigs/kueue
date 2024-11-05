@@ -39,6 +39,7 @@ const (
 	// owner: @stuton
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/168-pending-workloads-visibility
 	// alpha: v0.5
+	// Deprecated: v0.9
 	//
 	// Enables queue visibility.
 	QueueVisibility featuregate.Feature = "QueueVisibility"
@@ -60,6 +61,7 @@ const (
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/pull/1300
 	// alpha: v0.6
+	// beta: v0.9
 	//
 	// Enables Kueue visibility on demand
 	VisibilityOnDemand featuregate.Feature = "VisibilityOnDemand"
@@ -74,6 +76,7 @@ const (
 	// owner: @trasc
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	// alpha: v0.6
+	// beta: v0.9
 	//
 	// Enables MultiKueue support.
 	MultiKueue featuregate.Feature = "MultiKueue"
@@ -81,6 +84,7 @@ const (
 	// owners: @B1F030, @kerthcet
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1224-lending-limit
 	// alpha: v0.6
+	// beta: v0.9
 	//
 	// Enables lending limit.
 	LendingLimit featuregate.Feature = "LendingLimit"
@@ -93,10 +97,55 @@ const (
 
 	// owner: @gabesaba
 	// alpha: v0.8
+	// beta: v0.9
 	//
 	// Enable more than one workload sharing flavors to preempt within a Cohort,
 	// as long as the preemption targets don't overlap.
 	MultiplePreemptions featuregate.Feature = "MultiplePreemptions"
+
+	// owner: @mimowo
+	// alpha: v0.9
+	//
+	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
+	// to put them on closely located nodes (e.g. within the same rack or block).
+	TopologyAwareScheduling featuregate.Feature = "TopologyAwareScheduling"
+
+	// owner: @dgrove-oss
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
+	// alpha: v0.9
+	//
+	// Enable applying configurable resource transformations when computing
+	// the resource requests of a Workload
+	ConfigurableResourceTransformations featuregate.Feature = "ConfigurableResourceTransformations"
+
+	// owner: @dgrove-oss
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2937-resource-transformer
+	// alpha: v0.9
+	//
+	// Summarize the resource requests of non-admitted Workloads in Workload.Status.resourceRequest
+	// to improve observability
+	WorkloadResourceRequestsSummary featuregate.Feature = "WorkloadResourceRequestsSummary"
+
+	// owner: @mbobrovskyi
+	// beta: v0.9
+	//
+	// Enable the Flavors status field in the LocalQueue, allowing users to view
+	// all currently available ResourceFlavors for the LocalQueue.
+	ExposeFlavorsInLocalQueue featuregate.Feature = "ExposeFlavorsInLocalQueue"
+
+	// owner: @mszadkow
+	// alpha: v0.9
+	// Deprecated: v0.9
+	//
+	// Enable additional AdmissionCheck validation rules that will appear in status conditions.
+	AdmissionCheckValidationRules featuregate.Feature = "AdmissionCheckValidationRules"
+
+	// owner: @pbundyra
+	// alpha: v0.9
+	// Deprecated: v0.9
+	//
+	// Workloads keeps allocated quota and preserves QuotaReserved=True when ProvisioningRequest fails
+	KeepQuotaForProvReqRetry featuregate.Feature = "KeepQuotaForProvReqRetry"
 )
 
 func init() {
@@ -110,20 +159,26 @@ func init() {
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	PartialAdmission:                {Default: true, PreRelease: featuregate.Beta},
-	QueueVisibility:                 {Default: false, PreRelease: featuregate.Alpha},
-	FlavorFungibility:               {Default: true, PreRelease: featuregate.Beta},
-	ProvisioningACC:                 {Default: true, PreRelease: featuregate.Beta},
-	VisibilityOnDemand:              {Default: false, PreRelease: featuregate.Alpha},
-	PrioritySortingWithinCohort:     {Default: true, PreRelease: featuregate.Beta},
-	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
-	LendingLimit:                    {Default: false, PreRelease: featuregate.Alpha},
-	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
-	MultiplePreemptions:             {Default: false, PreRelease: featuregate.Alpha},
+	PartialAdmission:                    {Default: true, PreRelease: featuregate.Beta},
+	QueueVisibility:                     {Default: false, PreRelease: featuregate.Deprecated},
+	FlavorFungibility:                   {Default: true, PreRelease: featuregate.Beta},
+	ProvisioningACC:                     {Default: true, PreRelease: featuregate.Beta},
+	VisibilityOnDemand:                  {Default: true, PreRelease: featuregate.Beta},
+	PrioritySortingWithinCohort:         {Default: true, PreRelease: featuregate.Beta},
+	MultiKueue:                          {Default: true, PreRelease: featuregate.Beta},
+	LendingLimit:                        {Default: true, PreRelease: featuregate.Beta},
+	MultiKueueBatchJobWithManagedBy:     {Default: false, PreRelease: featuregate.Alpha},
+	MultiplePreemptions:                 {Default: true, PreRelease: featuregate.Beta},
+	TopologyAwareScheduling:             {Default: false, PreRelease: featuregate.Alpha},
+	ConfigurableResourceTransformations: {Default: false, PreRelease: featuregate.Alpha},
+	WorkloadResourceRequestsSummary:     {Default: false, PreRelease: featuregate.Alpha},
+	ExposeFlavorsInLocalQueue:           {Default: true, PreRelease: featuregate.Beta},
+	AdmissionCheckValidationRules:       {Default: false, PreRelease: featuregate.Deprecated},
+	KeepQuotaForProvReqRetry:            {Default: false, PreRelease: featuregate.Deprecated},
 }
 
-func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {
-	return featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
+func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
+	featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
 }
 
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`

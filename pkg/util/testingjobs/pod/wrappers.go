@@ -28,7 +28,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 // PodWrapper wraps a Pod.
@@ -81,7 +84,7 @@ func (p *PodWrapper) Clone() *PodWrapper {
 
 // Queue updates the queue name of the Pod
 func (p *PodWrapper) Queue(q string) *PodWrapper {
-	return p.Label(constants.QueueLabel, q)
+	return p.Label(controllerconsts.QueueLabel, q)
 }
 
 // PriorityClass updates the priority class name of the Pod
@@ -127,10 +130,17 @@ func (p *PodWrapper) RoleHash(h string) *PodWrapper {
 
 // KueueSchedulingGate adds kueue scheduling gate to the Pod
 func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
-	if p.Spec.SchedulingGates == nil {
-		p.Spec.SchedulingGates = make([]corev1.PodSchedulingGate, 0)
-	}
-	p.Spec.SchedulingGates = append(p.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"})
+	return p.Gate("kueue.x-k8s.io/admission")
+}
+
+// TopologySchedulingGate adds kueue scheduling gate to the Pod
+func (p *PodWrapper) TopologySchedulingGate() *PodWrapper {
+	return p.Gate(kueuealpha.TopologySchedulingGate)
+}
+
+// Gate adds kueue scheduling gate to the Pod by the gate name
+func (p *PodWrapper) Gate(gateName string) *PodWrapper {
+	utilpod.Gate(&p.Pod, gateName)
 	return p
 }
 
@@ -145,7 +155,7 @@ func (p *PodWrapper) Finalizer(f string) *PodWrapper {
 
 // KueueFinalizer adds kueue finalizer to the Pod
 func (p *PodWrapper) KueueFinalizer() *PodWrapper {
-	return p.Finalizer("kueue.x-k8s.io/managed")
+	return p.Finalizer(constants.ManagedByKueueLabel)
 }
 
 // NodeSelector adds a node selector to the Pod.
@@ -246,5 +256,11 @@ func (p *PodWrapper) Delete() *PodWrapper {
 // Volume adds a new volume for the pod object
 func (p *PodWrapper) Volume(v corev1.Volume) *PodWrapper {
 	p.Pod.Spec.Volumes = append(p.Pod.Spec.Volumes, v)
+	return p
+}
+
+// TerminationGracePeriod sets terminationGracePeriodSeconds for the pod object
+func (p *PodWrapper) TerminationGracePeriod(seconds int64) *PodWrapper {
+	p.Spec.TerminationGracePeriodSeconds = &seconds
 	return p
 }

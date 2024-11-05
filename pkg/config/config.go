@@ -127,6 +127,12 @@ func addLeaderElectionTo(o *ctrl.Options, cfg *configapi.Configuration) {
 	if o.RetryPeriod == nil && !equality.Semantic.DeepEqual(cfg.LeaderElection.RetryPeriod, metav1.Duration{}) {
 		o.RetryPeriod = &cfg.LeaderElection.RetryPeriod.Duration
 	}
+
+	if o.LeaderElection {
+		// When the manager is terminated, the leader manager voluntarily steps down
+		// from the leader role as soon as possible.
+		o.LeaderElectionReleaseOnCancel = true
+	}
 }
 
 func Encode(scheme *runtime.Scheme, cfg *configapi.Configuration) (string, error) {

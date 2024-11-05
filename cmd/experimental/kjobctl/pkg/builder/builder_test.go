@@ -20,10 +20,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	batchv1 "k8s.io/api/batch/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,16 +32,18 @@ import (
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/apis/v1alpha1"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/testing"
-	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/constants"
+	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/testing/wrappers"
 )
 
 func TestBuilder(t *testing.T) {
+	testStartTime := time.Now()
+
 	testCases := map[string]struct {
 		namespace   string
 		profile     string
 		mode        v1alpha1.ApplicationProfileMode
 		kjobctlObjs []runtime.Object
-		wantObj     runtime.Object
+		wantRootObj runtime.Object
 		wantErr     error
 	}{
 		"shouldn't build job because no namespace specified": {
@@ -61,15 +63,9 @@ func TestBuilder(t *testing.T) {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{Name: v1alpha1.JobMode}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.JobMode}).
+					Obj(),
 			},
 			wantErr: noApplicationProfileModeSpecifiedErr,
 		},
@@ -78,15 +74,9 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{Name: v1alpha1.InteractiveMode}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.InteractiveMode}).
+					Obj(),
 			},
 			wantErr: applicationProfileModeNotConfiguredErr,
 		},
@@ -95,15 +85,9 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      "Invalid",
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{Name: v1alpha1.InteractiveMode}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{Name: v1alpha1.InteractiveMode}).
+					Obj(),
 			},
 			wantErr: invalidApplicationProfileModeErr,
 		},
@@ -112,18 +96,12 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.CmdFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.CmdFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noCommandSpecifiedErr,
 		},
@@ -132,18 +110,12 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.ParallelismFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.ParallelismFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noParallelismSpecifiedErr,
 		},
@@ -152,38 +124,68 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.CompletionsFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.CompletionsFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noCompletionsSpecifiedErr,
+		},
+		"shouldn't build job because replicas not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.JobMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.ReplicasFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noReplicasSpecifiedErr,
+		},
+		"shouldn't build job because min-replicas not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.JobMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MinReplicasFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMinReplicasSpecifiedErr,
+		},
+		"shouldn't build job because max-replicas not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.JobMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MaxReplicasFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMaxReplicasSpecifiedErr,
 		},
 		"shouldn't build job because request not specified with required flags": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.RequestFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.RequestFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noRequestsSpecifiedErr,
 		},
@@ -192,58 +194,247 @@ func TestBuilder(t *testing.T) {
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:          v1alpha1.JobMode,
-							RequiredFlags: []v1alpha1.Flag{v1alpha1.LocalQueueFlag},
-						}},
-					},
-				},
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.JobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.LocalQueueFlag},
+					}).
+					Obj(),
 			},
 			wantErr: noLocalQueueSpecifiedErr,
+		},
+		"shouldn't build job because raycluster not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.RayJobMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.RayJobMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.RayClusterFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noRayClusterSpecifiedErr,
+		},
+		"shouldn't build job because array not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.ArrayFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noArraySpecifiedErr,
+		},
+		"shouldn't build job because cpusPerTask not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.CpusPerTaskFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noCpusPerTaskSpecifiedErr,
+		},
+		"shouldn't build job because error not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.ErrorFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noErrorSpecifiedErr,
+		},
+		"shouldn't build job because gpusPerTask not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.GpusPerTaskFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noGpusPerTaskSpecifiedErr,
+		},
+		"shouldn't build job because input not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.InputFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noInputSpecifiedErr,
+		},
+		"shouldn't build job because jobName not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.JobNameFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noJobNameSpecifiedErr,
+		},
+		"shouldn't build job because memPerCPU not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MemPerCPUFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMemPerCPUSpecifiedErr,
+		},
+		"shouldn't build job because memPerGPU not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MemPerGPUFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMemPerGPUSpecifiedErr,
+		},
+		"shouldn't build job because memPerTask not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.MemPerTaskFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noMemPerTaskSpecifiedErr,
+		},
+		"shouldn't build job because nodes not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.NodesFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noNodesSpecifiedErr,
+		},
+		"shouldn't build job because nTasks not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.NTasksFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noNTasksSpecifiedErr,
+		},
+		"shouldn't build job because output not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.OutputFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noOutputSpecifiedErr,
+		},
+		"shouldn't build job because partition not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.PartitionFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noPartitionSpecifiedErr,
+		},
+		"shouldn't build job because priority not specified with required flags": {
+			namespace: metav1.NamespaceDefault,
+			profile:   "profile",
+			mode:      v1alpha1.SlurmMode,
+			kjobctlObjs: []runtime.Object{
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:          v1alpha1.SlurmMode,
+						RequiredFlags: []v1alpha1.Flag{v1alpha1.PriorityFlag},
+					}).
+					Obj(),
+			},
+			wantErr: noPrioritySpecifiedErr,
 		},
 		"should build job": {
 			namespace: metav1.NamespaceDefault,
 			profile:   "profile",
 			mode:      v1alpha1.JobMode,
 			kjobctlObjs: []runtime.Object{
-				&v1alpha1.JobTemplate{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: metav1.NamespaceDefault,
-						Name:      "job-template",
-					},
-				},
-				&v1alpha1.ApplicationProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "profile",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: v1alpha1.ApplicationProfileSpec{
-						SupportedModes: []v1alpha1.SupportedMode{{
-							Name:     v1alpha1.JobMode,
-							Template: "job-template",
-						}},
-					},
-				},
+				wrappers.MakeJobTemplate("job-template", metav1.NamespaceDefault).
+					Label("foo", "bar").
+					Annotation("foo", "baz").
+					Obj(),
+				wrappers.MakeApplicationProfile("profile", metav1.NamespaceDefault).
+					WithSupportedMode(v1alpha1.SupportedMode{
+						Name:     v1alpha1.JobMode,
+						Template: "job-template",
+					}).
+					Obj(),
 			},
-			wantObj: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "Job",
-					APIVersion: "batch/v1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "profile-",
-					Namespace:    metav1.NamespaceDefault,
-					Labels: map[string]string{
-						constants.ProfileLabel: "profile",
-					},
-				},
-			},
+			wantRootObj: wrappers.MakeJob("", metav1.NamespaceDefault).GenerateName("profile-job-").
+				Annotation("foo", "baz").
+				Label("foo", "bar").
+				Profile("profile").
+				Mode(v1alpha1.JobMode).
+				Obj(),
 		},
 	}
 	for name, tc := range testCases {
@@ -253,7 +444,7 @@ func TestBuilder(t *testing.T) {
 
 			tcg := cmdtesting.NewTestClientGetter().
 				WithKjobctlClientset(fake.NewSimpleClientset(tc.kjobctlObjs...))
-			gotObjs, gotErr := NewBuilder(tcg).
+			gotRootObj, gotChildObjs, gotErr := NewBuilder(tcg, testStartTime).
 				WithNamespace(tc.namespace).
 				WithProfileName(tc.profile).
 				WithModeName(tc.mode).
@@ -269,8 +460,12 @@ func TestBuilder(t *testing.T) {
 				return
 			}
 
-			if diff := cmp.Diff(tc.wantObj, gotObjs); diff != "" {
-				t.Errorf("Objects after build (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantRootObj, gotRootObj, opts...); diff != "" {
+				t.Errorf("Root object after build (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff([]runtime.Object(nil), gotChildObjs, opts...); diff != "" {
+				t.Errorf("Child objects after build (-want,+got):\n%s", diff)
 			}
 		})
 	}

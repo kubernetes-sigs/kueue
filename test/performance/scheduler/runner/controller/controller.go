@@ -113,7 +113,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// this should only:
 	// 1. finish the workloads eviction
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-		_ = workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Evicted by the test runner")
+		_ = workload.UnsetQuotaReservationWithCondition(&wl, "Pending", "Evicted by the test runner", time.Now())
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		if err == nil {
 			log.V(5).Info("Finish eviction")
@@ -158,12 +158,12 @@ func NewReconciler(c client.Client, r *recorder.Recorder) *reconciler {
 
 func (r *reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	cqHandler := handler.Funcs{
-		CreateFunc: func(_ context.Context, ev event.CreateEvent, _ workqueue.RateLimitingInterface) {
+		CreateFunc: func(_ context.Context, ev event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			if cq, isCq := ev.Object.(*kueue.ClusterQueue); isCq {
 				r.recorder.RecordCQState(cq)
 			}
 		},
-		UpdateFunc: func(_ context.Context, ev event.UpdateEvent, _ workqueue.RateLimitingInterface) {
+		UpdateFunc: func(_ context.Context, ev event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			if cq, isCq := ev.ObjectNew.(*kueue.ClusterQueue); isCq {
 				r.recorder.RecordCQState(cq)
 			}

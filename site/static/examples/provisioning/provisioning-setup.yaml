@@ -49,7 +49,11 @@ kind: ProvisioningRequestConfig
 metadata:
   name: prov-test-config
 spec:
-  provisioningClassName: queued-provisioning.gke.io
+  provisioningClassName: check-capacity.autoscaling.x-k8s.io
   managedResources:
   - nvidia.com/gpu
+  retryStrategy:
+    backoffLimitCount: 2
+    backoffBaseSeconds: 0
+    backoffMaxSeconds: 1800
 

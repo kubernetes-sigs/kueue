@@ -43,6 +43,7 @@ As a batch user, you can learn how to:
 - [Submit Kueue jobs from Python](run/python_jobs).
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
+- [Submit jobs to MultiKueue](run/multikueue).
 
 ### Serving user
 
@@ -51,6 +52,7 @@ A serving user runs serving workloads, for example, to expose a trained AI/ML mo
 
 As a serving user, you can learn how to:
 - [Run a Kueue managed Deployment](run/deployment).
+- [Run a Kueue managed StatefulSet](run/statefulset).
 
 ### Platform developer
 

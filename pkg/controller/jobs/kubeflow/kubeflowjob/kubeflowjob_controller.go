@@ -17,11 +17,13 @@ limitations under the License.
 package kubeflowjob
 
 import (
+	"sort"
 	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,6 +38,7 @@ type KubeflowJob struct {
 
 var _ jobframework.GenericJob = (*KubeflowJob)(nil)
 var _ jobframework.JobWithPriorityClass = (*KubeflowJob)(nil)
+var _ jobframework.JobWithCustomValidation = (*KubeflowJob)(nil)
 
 func (j *KubeflowJob) Object() client.Object {
 	return j.KFJobControl.Object()
@@ -99,9 +102,10 @@ func (j *KubeflowJob) PodSets() []kueue.PodSet {
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, replicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
-			Name:     strings.ToLower(string(replicaType)),
-			Template: *j.KFJobControl.ReplicaSpecs()[replicaType].Template.DeepCopy(),
-			Count:    podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
+			Name:            strings.ToLower(string(replicaType)),
+			Template:        *j.KFJobControl.ReplicaSpecs()[replicaType].Template.DeepCopy(),
+			Count:           podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
+			TopologyRequest: jobframework.PodSetTopologyRequest(&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta),
 		}
 	}
 	return podSets
@@ -127,6 +131,13 @@ func (j *KubeflowJob) PodsReady() bool {
 
 func (j *KubeflowJob) GVK() schema.GroupVersionKind {
 	return j.KFJobControl.GVK()
+}
+
+func (j *KubeflowJob) PodLabelSelector() string {
+	if jobWithPodLabelSelector, ok := j.KFJobControl.(jobframework.JobWithPodLabelSelector); ok {
+		return jobWithPodLabelSelector.PodLabelSelector()
+	}
+	return ""
 }
 
 // PriorityClass calculates the priorityClass name needed for workload according to the following priorities:
@@ -159,6 +170,26 @@ func (j *KubeflowJob) OrderedReplicaTypes() []kftraining.ReplicaType {
 		}
 	}
 	return result
+}
+
+func (j *KubeflowJob) ValidateOnCreate() field.ErrorList {
+	var allErrs field.ErrorList
+	replicaTypes := j.OrderedReplicaTypes()
+	for _, replicaType := range replicaTypes {
+		replicaSpecsPath := field.NewPath("spec", j.KFJobControl.ReplicaSpecsFieldName())
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(
+			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
+			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+		)...)
+	}
+	sort.Slice(allErrs, func(i, j int) bool {
+		return allErrs[i].Field < allErrs[j].Field
+	})
+	return allErrs
+}
+
+func (j *KubeflowJob) ValidateOnUpdate(_ jobframework.GenericJob) field.ErrorList {
+	return j.ValidateOnCreate()
 }
 
 func podsCount(replicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec, replicaType kftraining.ReplicaType) int32 {

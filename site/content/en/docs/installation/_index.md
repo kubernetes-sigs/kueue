@@ -10,7 +10,7 @@ description: >
 - [Before you begin](#before-you-begin)
 - [Install a released version](#install-a-released-version)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
-  - [Add visibility API to monitor pending workloads](#add-visibility-api-to-monitor-pending-workloads)
+  - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Uninstall](#uninstall)
 - [Install a custom-configured released version](#install-a-custom-configured-released-version)
 - [Install the latest development version](#install-the-latest-development-version)
@@ -75,19 +75,9 @@ We can follow `https://prometheus-operator.dev/docs/prologue/quick-start/` to in
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/prometheus.yaml
 ```
 
-### Add visibility API to monitor pending workloads
+### Add API Priority and Fairness configuration for the visibility API
 
-{{< feature-state state="alpha" for_version="v0.6" >}}
-
-
-To add the visibility API that enables monitoring pending workloads, change [the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) and set `VisibilityOnDemand=true`, and run the following command
-
-```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-api.yaml
-```
-
-See [the visibility API](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand) for more details.
-
+See [Configure API Priority and Fairness](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/#configure-api-priority-and-fairness) for more details.
 
 ### Uninstall
 
@@ -243,20 +233,30 @@ spec:
 
 The currently supported features are:
 
-| Feature                           | Default | Stage   | Since | Until |
-|-----------------------------------|---------|---------|-------|-------|
-| `FlavorFungibility`               | `true`  | Beta    | 0.5   |       |
-| `MultiKueue`                      | `false` | Alpha   | 0.6   |       |
-| `MultiKueueBatchJobWithManagedBy` | `false` | Alpha   | 0.8   |       |
-| `PartialAdmission`                | `false` | Alpha   | 0.4   | 0.4   |
-| `PartialAdmission`                | `true`  | Beta    | 0.5   |       |
-| `ProvisioningACC`                 | `false` | Alpha   | 0.5   | 0.6   |
-| `ProvisioningACC`                 | `true`  | Beta    | 0.7   |       |
-| `QueueVisibility`                 | `false` | Alpha   | 0.5   |       |
-| `VisibilityOnDemand`              | `false` | Alpha   | 0.6   |       |
-| `PrioritySortingWithinCohort`     | `true`  | Beta    | 0.6   |       |
-| `LendingLimit`                    | `false` | Alpha   | 0.6   |       |
-| `MultiplePreemptions`             | `false` | Alpha   | 0.8   |       |
+| Feature                               | Default | Stage      | Since | Until |
+|---------------------------------------|---------|------------|-------|-------|
+| `FlavorFungibility`                   | `true`  | Beta       | 0.5   |       |
+| `MultiKueue`                          | `false` | Alpha      | 0.6   | 0.8   |
+| `MultiKueue`                          | `true`  | Beta       | 0.9   |       |
+| `MultiKueueBatchJobWithManagedBy`     | `false` | Alpha      | 0.8   |       |
+| `PartialAdmission`                    | `false` | Alpha      | 0.4   | 0.4   |
+| `PartialAdmission`                    | `true`  | Beta       | 0.5   |       |
+| `ProvisioningACC`                     | `false` | Alpha      | 0.5   | 0.6   |
+| `ProvisioningACC`                     | `true`  | Beta       | 0.7   |       |
+| `QueueVisibility`                     | `false` | Alpha      | 0.5   | 0.9   |
+| `QueueVisibility`                     | `false` | Deprecated | 0.9   |       |
+| `VisibilityOnDemand`                  | `false` | Alpha      | 0.6   |  0.8  |
+| `VisibilityOnDemand`                  | `true`  | Beta       | 0.9   |       |
+| `PrioritySortingWithinCohort`         | `true`  | Beta       | 0.6   |       |
+| `LendingLimit`                        | `false` | Alpha      | 0.6   | 0.8   |
+| `LendingLimit`                        | `true`  | Beta       | 0.9   |       |
+| `MultiplePreemptions`                 | `false` | Alpha      | 0.8   | 0.8   |
+| `MultiplePreemptions`                 | `true`  | Beta       | 0.9   |       |
+| `TopologyAwareScheduling`             | `false` | Alpha      | 0.9   |       |
+| `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   |       |
+| `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   |       |
+| `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   | 0.9   |
+| `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   | 0.9   |
 
 ## What's next
 

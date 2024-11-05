@@ -75,6 +75,32 @@ type WorkloadSpec struct {
 	// Defaults to true
 	// +kubebuilder:default=true
 	Active *bool `json:"active,omitempty"`
+
+	// maximumExecutionTimeSeconds if provided, determines the maximum time, in seconds,
+	// the workload can be admitted before it's automatically deactivated.
+	//
+	// If unspecified, no execution time limit is enforced on the Workload.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+}
+
+// PodSetTopologyRequest defines the topology request for a PodSet.
+type PodSetTopologyRequest struct {
+	// required indicates the topology level required by the PodSet, as
+	// indicated by the `kueue.x-k8s.io/podset-required-topology` PodSet
+	// annotation.
+	//
+	// +optional
+	Required *string `json:"required,omitempty"`
+
+	// preferred indicates the topology level preferred by the PodSet, as
+	// indicated by the `kueue.x-k8s.io/podset-preferred-topology` PodSet
+	// annotation.
+	//
+	// +optional
+	Preferred *string `json:"preferred,omitempty"`
 }
 
 type Admission struct {
@@ -113,6 +139,74 @@ type PodSetAssignment struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Count *int32 `json:"count,omitempty"`
+
+	// topologyAssignment indicates the topology assignment divided into
+	// topology domains corresponding to the lowest level of the topology.
+	// The assignment specifies the number of Pods to be scheduled per topology
+	// domain and specifies the node selectors for each topology domain, in the
+	// following way: the node selector keys are specified by the levels field
+	// (same for all domains), and the corresponding node selector value is
+	// specified by the domains.values subfield.
+	//
+	// Example:
+	//
+	// topologyAssignment:
+	//   levels:
+	//   - cloud.provider.com/topology-block
+	//   - cloud.provider.com/topology-rack
+	//   domains:
+	//   - values: [block-1, rack-1]
+	//     count: 4
+	//   - values: [block-1, rack-2]
+	//     count: 2
+	//
+	// Here:
+	// - 4 Pods are to be scheduled on nodes matching the node selector:
+	//   cloud.provider.com/topology-block: block-1
+	//   cloud.provider.com/topology-rack: rack-1
+	// - 2 Pods are to be scheduled on nodes matching the node selector:
+	//   cloud.provider.com/topology-block: block-1
+	//   cloud.provider.com/topology-rack: rack-2
+	//
+	// +optional
+	TopologyAssignment *TopologyAssignment `json:"topologyAssignment,omitempty"`
+}
+
+type TopologyAssignment struct {
+	// levels is an ordered list of keys denoting the levels of the assigned
+	// topology (i.e. node label keys), from the highest to the lowest level of
+	// the topology.
+	//
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	Levels []string `json:"levels"`
+
+	// domains is a list of topology assignments split by topology domains at
+	// the lowest level of the topology.
+	//
+	// +required
+	Domains []TopologyDomainAssignment `json:"domains"`
+}
+
+type TopologyDomainAssignment struct {
+	// values is an ordered list of node selector values describing a topology
+	// domain. The values correspond to the consecutive topology levels, from
+	// the highest to the lowest.
+	//
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	Values []string `json:"values"`
+
+	// count indicates the number of Pods to be scheduled in the topology
+	// domain indicated by the values field.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Count int32 `json:"count"`
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
@@ -156,6 +250,11 @@ type PodSet struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MinCount *int32 `json:"minCount,omitempty"`
+
+	// topologyRequest defines the topology request for the PodSet.
+	//
+	// +optional
+	TopologyRequest *PodSetTopologyRequest `json:"topologyRequest,omitempty"`
 }
 
 // WorkloadStatus defines the observed state of Workload
@@ -204,6 +303,23 @@ type WorkloadStatus struct {
 	// +patchMergeKey=name
 	// +kubebuilder:validation:MaxItems=8
 	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+
+	// resourceRequests provides a detailed view of the resources that were
+	// requested by a non-admitted workload when it was considered for admission.
+	// If admission is non-null, resourceRequests will be empty because
+	// admission.resourceUsage contains the detailed information.
+	//
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=8
+	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
+
+	// accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
+	// in Admitted state, in the previous `Admit` - `Evict` cycles.
+	//
+	// +optional
+	AccumulatedPastExexcutionTimeSeconds *int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
 }
 
 type RequeueState struct {
@@ -292,6 +408,24 @@ type ReclaimablePod struct {
 	Count int32 `json:"count"`
 }
 
+type PodSetRequest struct {
+	// name is the name of the podSet. It should match one of the names in .spec.podSets.
+	// +kubebuilder:default=main
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern="^(?i)[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+	Name string `json:"name"`
+
+	// resources is the total resources all the pods in the podset need to run.
+	//
+	// Beside what is provided in podSet's specs, this value also takes into account
+	// the LimitRange defaults and RuntimeClass overheads at the moment of consideration
+	// and the application of resource.excludeResourcePrefixes and resource.transformations.
+	// +optional
+	Resources corev1.ResourceList `json:"resources,omitempty"`
+}
+
 const (
 	// WorkloadAdmitted means that the Workload has reserved quota and all the admissionChecks
 	// defined in the ClusterQueue are satisfied.
@@ -332,6 +466,25 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
+)
+
+// Reasons for the WorkloadPreempted condition.
+const (
+	// InClusterQueueReason indicates the Workload was preempted due to
+	// prioritization in the ClusterQueue.
+	InClusterQueueReason string = "InClusterQueue"
+
+	// InCohortReclamationReason indicates the Workload was preempted due to
+	// reclamation within the Cohort.
+	InCohortReclamationReason string = "InCohortReclamation"
+
+	// InCohortFairSharingReason indicates the Workload was preempted due to
+	// fair sharing within the cohort.
+	InCohortFairSharingReason string = "InCohortFairSharing"
+
+	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted
+	// due to reclamation within the cohort while borrowing.
+	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
 )
 
 const (
@@ -382,6 +535,10 @@ const (
 	// WorkloadRequeuingLimitExceeded indicates that the workload exceeded max number
 	// of re-queuing retries.
 	WorkloadRequeuingLimitExceeded = "RequeuingLimitExceeded"
+
+	// WorkloadMaximumExecutionTimeExceeded indicates that the workload exceeded its
+	// maximum execution time.
+	WorkloadMaximumExecutionTimeExceeded = "MaximumExecutionTimeExceeded"
 )
 
 const (
@@ -414,6 +571,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) ? (oldSelf.spec.priorityClassSource == self.spec.priorityClassSource) : true", message="field is immutable"
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassName) && has(self.spec.priorityClassName)) ? (oldSelf.spec.priorityClassName == self.spec.priorityClassName) : true", message="field is immutable"
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && has(oldSelf.spec.queueName) && has(self.spec.queueName) ? oldSelf.spec.queueName == self.spec.queueName : true", message="field is immutable"
+// +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while admitted"
 type Workload struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

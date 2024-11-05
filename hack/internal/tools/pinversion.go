@@ -19,6 +19,7 @@ package tools
 // Keep a reference to the code generators so they are not removed by go mod tidy
 import (
 	_ "k8s.io/code-generator"
+	_ "sigs.k8s.io/mdtoc"
 	// since verify will error when referencing a cmd package
 	// we need to reference individual dependencies used by it
 	_ "github.com/gohugoio/hugo/common"
@@ -34,5 +35,5 @@ import (
 	_ "sigs.k8s.io/controller-tools/pkg/crd"
 	_ "sigs.k8s.io/controller-tools/pkg/genall/help/pretty"
 	_ "sigs.k8s.io/kind/pkg/cmd"
-	_ "sigs.k8s.io/kustomize/kustomize/v4/commands/edit/listbuiltin"
+	_ "sigs.k8s.io/kustomize/kustomize/v5/commands/edit/listbuiltin"
 )

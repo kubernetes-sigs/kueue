@@ -22,12 +22,17 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework/webhook"
+)
+
+var (
+	headGroupSpecsPath   = field.NewPath("spec", "headGroupSpec")
+	headGroupMetaPath    = headGroupSpecsPath.Child("template, metadata")
+	workerGroupSpecsPath = field.NewPath("spec", "workerGroupSpecs")
 )
 
 type RayClusterWebhook struct {
@@ -43,16 +48,17 @@ func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 	wh := &RayClusterWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&rayv1.RayCluster{}).
-		WithDefaulter(wh).
+	obj := &rayv1.RayCluster{}
+	return webhook.WebhookManagedBy(mgr).
+		For(obj).
+		WithMutationHandler(webhook.WithLosslessDefaulter(mgr.GetScheme(), obj, wh)).
 		WithValidator(wh).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-ray-io-v1-raycluster,mutating=true,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayclusters,verbs=create,versions=v1,name=mraycluster.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &RayClusterWebhook{}
+var _ admission.CustomDefaulter = &RayClusterWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) error {
@@ -65,7 +71,7 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 
 // +kubebuilder:webhook:path=/validate-ray-io-v1-raycluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayclusters,verbs=create;update,versions=v1,name=vraycluster.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &RayClusterWebhook{}
+var _ admission.CustomValidator = &RayClusterWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
@@ -103,7 +109,19 @@ func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) field.ErrorLis
 	}
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
+	allErrors = append(allErrors, w.validateTopologyRequest(kueueJob)...)
+
 	return allErrors
+}
+
+func (w *RayClusterWebhook) validateTopologyRequest(rayJob *RayCluster) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
+	for i := range rayJob.Spec.WorkerGroupSpecs {
+		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayJob.Spec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+	}
+	return allErrs
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type

@@ -35,20 +35,20 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	// +kubebuilder:scaffold:imports
 )
 
 var (
-	cfg         *rest.Config
-	k8sClient   client.Client
-	ctx         context.Context
-	fwk         *framework.Framework
-	crdPath     = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
-	mpiCrdPath  = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "mpi-operator")
-	webhookPath = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
+	cfg        *rest.Config
+	k8sClient  client.Client
+	ctx        context.Context
+	fwk        *framework.Framework
+	crdPath    = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
+	mpiCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "mpi-operator")
 )
 
 func TestAPIs(t *testing.T) {
@@ -58,6 +58,20 @@ func TestAPIs(t *testing.T) {
 		"MPIJob Controller Suite",
 	)
 }
+
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{
+		CRDPath:     crdPath,
+		DepCRDPaths: []string{mpiCrdPath},
+	}
+
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
@@ -90,10 +104,9 @@ func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.M
 	}
 }
 
-func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		managerSetup(true, opts...)(ctx, mgr)
 
 		cCache := cache.New(mgr.GetClient())
 		queues := queue.NewManager(mgr.GetClient(), cCache)
@@ -104,13 +117,13 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		err = mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = mpijob.NewReconciler(mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = mpijob.SetupMPIJobWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if setupTASControllers {
+			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
+
+			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
 		err = sched.Start(ctx)

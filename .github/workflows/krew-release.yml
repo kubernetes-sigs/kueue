@@ -1,0 +1,11 @@
+on:
+  release:
+    types: [released]
+jobs:
+  krew-release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Update new version in krew-index
+        uses: rajatjindal/krew-release-bot@v0.0.46

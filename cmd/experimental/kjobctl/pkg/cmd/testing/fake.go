@@ -17,15 +17,20 @@ limitations under the License.
 package testing
 
 import (
+	rayversioned "github.com/ray-project/kuberay/ray-operator/pkg/client/clientset/versioned"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
-
 	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
+
 	kjobctlversioned "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned"
 	kjobctlfake "sigs.k8s.io/kueue/cmd/experimental/kjobctl/client-go/clientset/versioned/fake"
 	"sigs.k8s.io/kueue/cmd/experimental/kjobctl/pkg/cmd/util"
@@ -37,13 +42,18 @@ type TestClientGetter struct {
 	k8sClientset     k8s.Interface
 	kueueClientset   kueueversioned.Interface
 	kjobctlClientset kjobctlversioned.Interface
+	rayClientset     rayversioned.Interface
 	dynamicClient    dynamic.Interface
+	restClient       resource.RESTClient
+	restConfig       *rest.Config
 
 	configFlags *genericclioptions.TestConfigFlags
 }
 
 func NewTestClientGetter() *TestClientGetter {
 	clientConfig := &clientcmd.DeferredLoadingClientConfig{}
+	restConfig := &rest.Config{}
+
 	configFlags := genericclioptions.NewTestConfigFlags().
 		WithClientConfig(clientConfig).
 		WithNamespace(metav1.NamespaceDefault)
@@ -51,6 +61,7 @@ func NewTestClientGetter() *TestClientGetter {
 		ClientGetter:     util.NewClientGetter(configFlags),
 		kjobctlClientset: kjobctlfake.NewSimpleClientset(),
 		k8sClientset:     k8sfake.NewSimpleClientset(),
+		restConfig:       restConfig,
 		configFlags:      configFlags,
 	}
 }
@@ -65,6 +76,15 @@ func (cg *TestClientGetter) WithRESTMapper(mapper meta.RESTMapper) *TestClientGe
 	return cg
 }
 
+func (cg *TestClientGetter) WithRESTConfig(config *rest.Config) *TestClientGetter {
+	cg.restConfig = config
+	return cg
+}
+
+func (cg *TestClientGetter) ToRESTConfig() (*rest.Config, error) {
+	return cg.restConfig, nil
+}
+
 func (cg *TestClientGetter) WithK8sClientset(clientset k8s.Interface) *TestClientGetter {
 	cg.k8sClientset = clientset
 	return cg
@@ -75,6 +95,11 @@ func (cg *TestClientGetter) WithKueueClientset(clientset kueueversioned.Interfac
 	return cg
 }
 
+func (cg *TestClientGetter) WithRayClientset(clientset rayversioned.Interface) *TestClientGetter {
+	cg.rayClientset = clientset
+	return cg
+}
+
 func (cg *TestClientGetter) WithKjobctlClientset(clientset kjobctlversioned.Interface) *TestClientGetter {
 	cg.kjobctlClientset = clientset
 	return cg
@@ -82,6 +107,11 @@ func (cg *TestClientGetter) WithKjobctlClientset(clientset kjobctlversioned.Inte
 
 func (cg *TestClientGetter) WithDynamicClient(dynamicClient dynamic.Interface) *TestClientGetter {
 	cg.dynamicClient = dynamicClient
+	return cg
+}
+
+func (cg *TestClientGetter) WithRESTClient(restClient resource.RESTClient) *TestClientGetter {
+	cg.restClient = restClient
 	return cg
 }
 
@@ -97,6 +127,22 @@ func (cg *TestClientGetter) KjobctlClientset() (kjobctlversioned.Interface, erro
 	return cg.kjobctlClientset, nil
 }
 
+func (cg *TestClientGetter) RayClientset() (rayversioned.Interface, error) {
+	return cg.rayClientset, nil
+}
+
 func (cg *TestClientGetter) DynamicClient() (dynamic.Interface, error) {
 	return cg.dynamicClient, nil
+}
+
+func (cg *TestClientGetter) NewResourceBuilder() *resource.Builder {
+	return resource.NewFakeBuilder(
+		func(version schema.GroupVersion) (resource.RESTClient, error) {
+			return cg.restClient, nil
+		},
+		cg.ToRESTMapper,
+		func() (restmapper.CategoryExpander, error) {
+			return resource.FakeCategoryExpander, nil
+		},
+	)
 }

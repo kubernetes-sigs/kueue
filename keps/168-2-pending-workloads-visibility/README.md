@@ -47,6 +47,8 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Integration tests](#integration-tests)
     - [E2E tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [Alpha](#alpha)
+    - [Beta](#beta)
     - [GA](#ga)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -257,17 +259,22 @@ We plan on adding sanity e2e tests, and RBAC e2e tests. The e2e RBAC tests shoul
 
 ### Graduation Criteria
 
-First iteration (0.6):
+#### Alpha
 - Release the new API in alpha. This allows us to adjust the API according to users' and reviewers' feedback,
 - Release it with a feature gate.
 
-Second iteration (0.7):
+#### Beta
+First iteration (0.9):
 - Release the API in beta and guarantee backwards compatibility,
-- Reconsider introducing a throttling mechanism based on user and review feedback,
-- Consider introducing FlowScheme and PriorityLevelConfiguration to allow admins to easily tune API priorities.
+- Merge the visibility-api.yaml into the main manifests.yaml,
+- Create separate manifests for both FlowSchema and PriorityLevelConfiguration in versions v1 and v1beta3.
+
+Second iteration (0.10):
+- Merge the FlowSchema and PriorityLevelConfiguration v1 manifests into the installation manifests once the latest Kubernetes version (1.28) no longer supports v1,
+- Drop the alpha API version.
 
 #### GA
-The feature can graduate to GA after addressing feedback for at least 1 release. We will then drop the feature gate.
+- Reconsider introducing a throttling mechanism.
 
 ## Implementation History
 

@@ -59,7 +59,6 @@ func CreateClientUsingCluster() client.Client {
 	err := kueue.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	// +kubebuilder:scaffold:scheme
 	client, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	return client

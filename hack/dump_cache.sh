@@ -22,13 +22,13 @@ set -o pipefail
 
 NAMESPACE=${NAMESPACE:-kueue-system}
 LEASE_NAME=${LEASE_NAME:-c1f6bfd2.kueue.x-k8s.io}
-DEBUG_IMAGE=${DEBUG_IMAGE:-gcr.io/k8s-staging-kueue/debug:main}
+DEBUG_IMAGE=${DEBUG_IMAGE:-us-central1-docker.pkg.dev/k8s-staging-images/kueue/debug:main}
 
-leader=$(kubectl get lease -n ${NAMESPACE} ${LEASE_NAME} -o jsonpath='{.spec.holderIdentity}' | cut -d '_' -f 1)
+leader=$(kubectl get lease -n "${NAMESPACE}" "${LEASE_NAME}" -o jsonpath='{.spec.holderIdentity}' | cut -d '_' -f 1)
 
 # When the FOLLOW environment variable is set, output the logs.
 if [ -v FOLLOW ]; then
-    kubectl logs -n ${NAMESPACE} ${leader} -f --tail=1 &
+    kubectl logs -n "${NAMESPACE}" "${leader}" -f --tail=1 &
 fi
 
-kubectl debug -n ${NAMESPACE} ${leader} --image=${DEBUG_IMAGE} --target=manager --profile=restricted --image-pull-policy=IfNotPresent -- sh -c 'kill -USR2 1'
+kubectl debug -n "${NAMESPACE}" "${leader}" --image="${DEBUG_IMAGE}" --target=manager --profile=restricted --image-pull-policy=IfNotPresent -- sh -c 'kill -USR2 1'

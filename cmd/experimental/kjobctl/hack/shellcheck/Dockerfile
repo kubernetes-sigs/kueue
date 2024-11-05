@@ -1,0 +1,1 @@
+FROM docker.io/koalaman/shellcheck-alpine:v0.10.0

@@ -1,0 +1,20 @@
+{{- if .Values.enableVisibilityAPF }}
+apiVersion: flowcontrol.apiserver.k8s.io/{{ and (eq .Capabilities.KubeVersion.Major "1") (eq .Capabilities.KubeVersion.Minor "28") | ternary "v1beta3" "v1" }}
+kind: PriorityLevelConfiguration
+metadata:
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
+  name: '{{ include "kueue.fullname" . }}-visibility'
+  namespace: '{{ .Release.Namespace }}'
+spec:
+  limited:
+    lendablePercent: 90
+    limitResponse:
+      queuing:
+        handSize: 4
+        queueLengthLimit: 50
+        queues: 16
+      type: Queue
+    nominalConcurrencyShares: 10
+  type: Limited
+{{- end }}

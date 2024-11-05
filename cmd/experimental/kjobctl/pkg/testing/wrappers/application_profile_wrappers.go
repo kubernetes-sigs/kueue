@@ -51,3 +51,9 @@ func (ap *ApplicationProfileWrapper) WithSupportedMode(supportedMode v1alpha1.Su
 	ap.Spec.SupportedModes = append(ap.Spec.SupportedModes, supportedMode)
 	return ap
 }
+
+// WithVolumeBundleReferences adds WithVolumeBundleReferences to VolumeBundles.
+func (ap *ApplicationProfileWrapper) WithVolumeBundleReferences(volumeBundleReferences ...v1alpha1.VolumeBundleReference) *ApplicationProfileWrapper {
+	ap.Spec.VolumeBundles = append(ap.Spec.VolumeBundles, volumeBundleReferences...)
+	return ap
+}

@@ -9,7 +9,7 @@ description: >
 {{< feature-state state="alpha" for_version="v0.6" >}}
 
 {{% alert title="Warning" color="warning" %}}
-MultiKueue is currently an alpha feature and disabled by default. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+MultiKueue is currently a beta feature and enabled by default. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 {{% /alert %}}
 
 
@@ -67,6 +67,12 @@ The `managedBy` field is available as an Alpha feature staring Kubernetes 1.30.0
 ### JobSet
 
 We recommend using JobSet v0.5.1 or newer.
+
+### Kubeflow
+
+The supported version of the Kubeflow Training Operator is v1.7.0, or a newer version.
+The Management cluster should only install the CRDs and not the package itself. 
+On the other hand, the Worker cluster should install the full kubeflow operator.
 
 ## Submitting Jobs
 In a [configured MultiKueue environment](/docs/tasks/manage/setup_multikueue), you can submit any MultiKueue supported job to the Manager cluster, targeting a ClusterQueue configured for Multikueue.

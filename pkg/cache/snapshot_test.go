@@ -29,8 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -38,17 +40,21 @@ import (
 
 var snapCmpOpts = []cmp.Option{
 	cmpopts.EquateEmpty(),
-	cmpopts.IgnoreFields(CohortSnapshot{}, "Members"), // avoid recursion.
+	cmpopts.IgnoreUnexported(hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(hierarchy.CycleChecker{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }
 
 func TestSnapshot(t *testing.T) {
 	testCases := map[string]struct {
-		cqs                []*kueue.ClusterQueue
-		rfs                []*kueue.ResourceFlavor
-		wls                []*kueue.Workload
-		wantSnapshot       Snapshot
-		enableLendingLimit bool
+		cqs                 []*kueue.ClusterQueue
+		cohorts             []*kueuealpha.Cohort
+		rfs                 []*kueue.ResourceFlavor
+		wls                 []*kueue.Workload
+		wantSnapshot        Snapshot
+		disableLendingLimit bool
 	}{
 		"empty": {},
 		"independent clusterQueues": {
@@ -63,34 +69,36 @@ func TestSnapshot(t *testing.T) {
 					ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				ClusterQueues: map[string]*ClusterQueueSnapshot{
-					"a": {
-						Name:                          "a",
-						NamespaceSelector:             labels.Everything(),
-						Status:                        active,
-						FlavorFungibility:             defaultFlavorFungibility,
-						AllocatableResourceGeneration: 1,
-						Workloads: map[string]*workload.Info{
-							"/alpha": workload.NewInfo(
-								utiltesting.MakeWorkload("alpha", "").
-									ReserveQuota(&kueue.Admission{ClusterQueue: "a"}).Obj()),
+				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
+						"a": {
+							Name:                          "a",
+							NamespaceSelector:             labels.Everything(),
+							Status:                        active,
+							FlavorFungibility:             defaultFlavorFungibility,
+							AllocatableResourceGeneration: 1,
+							Workloads: map[string]*workload.Info{
+								"/alpha": workload.NewInfo(
+									utiltesting.MakeWorkload("alpha", "").
+										ReserveQuota(&kueue.Admission{ClusterQueue: "a"}).Obj()),
+							},
+							Preemption: defaultPreemption,
+							FairWeight: oneQuantity,
 						},
-						Preemption: defaultPreemption,
-						FairWeight: oneQuantity,
-					},
-					"b": {
-						Name:                          "b",
-						NamespaceSelector:             labels.Everything(),
-						Status:                        active,
-						FlavorFungibility:             defaultFlavorFungibility,
-						AllocatableResourceGeneration: 1,
-						Workloads: map[string]*workload.Info{
-							"/beta": workload.NewInfo(
-								utiltesting.MakeWorkload("beta", "").
-									ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj()),
+						"b": {
+							Name:                          "b",
+							NamespaceSelector:             labels.Everything(),
+							Status:                        active,
+							FlavorFungibility:             defaultFlavorFungibility,
+							AllocatableResourceGeneration: 1,
+							Workloads: map[string]*workload.Info{
+								"/beta": workload.NewInfo(
+									utiltesting.MakeWorkload("beta", "").
+										ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj()),
+							},
+							Preemption: defaultPreemption,
+							FairWeight: oneQuantity,
 						},
-						Preemption: defaultPreemption,
-						FairWeight: oneQuantity,
 					},
 				},
 			},
@@ -119,7 +127,9 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeResourceFlavor("default").Obj(),
 			},
 			wantSnapshot: Snapshot{
-				ClusterQueues: map[string]*ClusterQueueSnapshot{},
+				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{},
+				},
 				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"demand": utiltesting.MakeResourceFlavor("demand").
 						NodeLabel("a", "b").
@@ -201,134 +211,148 @@ func TestSnapshot(t *testing.T) {
 			},
 			wantSnapshot: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "borrowing",
-					AllocatableResourceGeneration: 2,
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "demand", Resource: corev1.ResourceCPU}: 100_000,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:   300_000,
-						{Flavor: "default", Resource: "example.com/gpu"}: 50,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "demand", Resource: corev1.ResourceCPU}: 10_000,
-						{Flavor: "spot", Resource: corev1.ResourceCPU}:   10_000,
-						{Flavor: "default", Resource: "example.com/gpu"}: 15,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 400_000,
-						"example.com/gpu":  50,
+					Name: "borrowing",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "demand", Resource: corev1.ResourceCPU}: 10_000,
+							{Flavor: "spot", Resource: corev1.ResourceCPU}:   10_000,
+							{Flavor: "default", Resource: "example.com/gpu"}: 15,
+						},
+						SubtreeQuota: resources.FlavorResourceQuantities{
+							{Flavor: "demand", Resource: corev1.ResourceCPU}: 100_000,
+							{Flavor: "spot", Resource: corev1.ResourceCPU}:   300_000,
+							{Flavor: "default", Resource: "example.com/gpu"}: 50,
+						},
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"a": {
-							Name:                          "a",
-							Cohort:                        cohort,
-							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors:          []kueue.ResourceFlavorReference{"demand", "spot"},
-									LabelKeys:        sets.New("instance"),
-								},
-							},
-							Quotas: map[resources.FlavorResource]*ResourceQuota{
-								{Flavor: "demand", Resource: corev1.ResourceCPU}: {Nominal: 100_000},
-								{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: 200_000},
-							},
-							FlavorFungibility: defaultFlavorFungibility,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "demand", Resource: corev1.ResourceCPU}: 10_000,
-								{Flavor: "spot", Resource: corev1.ResourceCPU}:   0,
-							}.Unflatten(),
-							Workloads: map[string]*workload.Info{
-								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
-									PodSets(*utiltesting.MakePodSet("main", 5).
-										Request(corev1.ResourceCPU, "2").Obj()).
-									ReserveQuota(utiltesting.MakeAdmission("a", "main").
-										Assignment(corev1.ResourceCPU, "demand", "10000m").
-										AssignmentPodCount(5).
-										Obj()).
-									Obj()),
-							},
-							Preemption:        defaultPreemption,
-							FairWeight:        oneQuantity,
-							NamespaceSelector: labels.Everything(),
-							Status:            active,
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"borrowing": cohort,
 						},
-						"b": {
-							Name:                          "b",
-							Cohort:                        cohort,
-							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors:          []kueue.ResourceFlavorReference{"spot"},
-									LabelKeys:        sets.New("instance"),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"a": {
+								Name:                          "a",
+								AllocatableResourceGeneration: 2,
+								ResourceGroups: []ResourceGroup{
+									{
+										CoveredResources: sets.New(corev1.ResourceCPU),
+										Flavors:          []kueue.ResourceFlavorReference{"demand", "spot"},
+										LabelKeys:        sets.New("instance"),
+									},
 								},
-								{
-									CoveredResources: sets.New[corev1.ResourceName]("example.com/gpu"),
-									Flavors:          []kueue.ResourceFlavorReference{"default"},
+								ResourceNode: ResourceNode{
+									Quotas: map[resources.FlavorResource]ResourceQuota{
+										{Flavor: "demand", Resource: corev1.ResourceCPU}: {Nominal: 100_000},
+										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: 200_000},
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "demand", Resource: "cpu"}: 100_000,
+										{Flavor: "spot", Resource: "cpu"}:   200_000,
+									},
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "demand", Resource: corev1.ResourceCPU}: 10_000,
+									},
 								},
-							},
-							Quotas: map[resources.FlavorResource]*ResourceQuota{
-								{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: 100_000},
-								{Flavor: "default", Resource: "example.com/gpu"}: {Nominal: 50},
-							},
-							FlavorFungibility: defaultFlavorFungibility,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "spot", Resource: corev1.ResourceCPU}:   10_000,
-								{Flavor: "default", Resource: "example.com/gpu"}: 15,
-							}.Unflatten(),
-							Workloads: map[string]*workload.Info{
-								"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
-									PodSets(*utiltesting.MakePodSet("main", 5).
-										Request(corev1.ResourceCPU, "1").
-										Request("example.com/gpu", "2").
-										Obj()).
-									ReserveQuota(utiltesting.MakeAdmission("b", "main").
-										Assignment(corev1.ResourceCPU, "spot", "5000m").
-										Assignment("example.com/gpu", "default", "10").
-										AssignmentPodCount(5).
-										Obj()).
-									Obj()),
-								"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
-									PodSets(*utiltesting.MakePodSet("main", 5).
-										Request(corev1.ResourceCPU, "1").
-										Request("example.com/gpu", "1").
-										Obj(),
-									).
-									ReserveQuota(utiltesting.MakeAdmission("b", "main").
-										Assignment(corev1.ResourceCPU, "spot", "5000m").
-										Assignment("example.com/gpu", "default", "5").
-										AssignmentPodCount(5).
-										Obj()).
-									Obj()),
-							},
-							Preemption:        defaultPreemption,
-							FairWeight:        oneQuantity,
-							NamespaceSelector: labels.Everything(),
-							Status:            active,
-						},
-						"c": {
-							Name:                          "c",
-							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors:          []kueue.ResourceFlavorReference{"default"},
+								FlavorFungibility: defaultFlavorFungibility,
+								Workloads: map[string]*workload.Info{
+									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
+										PodSets(*utiltesting.MakePodSet("main", 5).
+											Request(corev1.ResourceCPU, "2").Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a", "main").
+											Assignment(corev1.ResourceCPU, "demand", "10000m").
+											AssignmentPodCount(5).
+											Obj()).
+										Obj()),
 								},
+								Preemption:        defaultPreemption,
+								FairWeight:        oneQuantity,
+								NamespaceSelector: labels.Everything(),
+								Status:            active,
 							},
-							Quotas: map[resources.FlavorResource]*ResourceQuota{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: {Nominal: 100_000},
+							"b": {
+								Name:                          "b",
+								AllocatableResourceGeneration: 1,
+								ResourceGroups: []ResourceGroup{
+									{
+										CoveredResources: sets.New(corev1.ResourceCPU),
+										Flavors:          []kueue.ResourceFlavorReference{"spot"},
+										LabelKeys:        sets.New("instance"),
+									},
+									{
+										CoveredResources: sets.New[corev1.ResourceName]("example.com/gpu"),
+										Flavors:          []kueue.ResourceFlavorReference{"default"},
+									},
+								},
+								ResourceNode: ResourceNode{
+									Quotas: map[resources.FlavorResource]ResourceQuota{
+										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: 100_000},
+										{Flavor: "default", Resource: "example.com/gpu"}: {Nominal: 50},
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "spot", Resource: "cpu"}:                100_000,
+										{Flavor: "default", Resource: "example.com/gpu"}: 50,
+									},
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "spot", Resource: corev1.ResourceCPU}:   10_000,
+										{Flavor: "default", Resource: "example.com/gpu"}: 15,
+									},
+								},
+								FlavorFungibility: defaultFlavorFungibility,
+								Workloads: map[string]*workload.Info{
+									"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
+										PodSets(*utiltesting.MakePodSet("main", 5).
+											Request(corev1.ResourceCPU, "1").
+											Request("example.com/gpu", "2").
+											Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("b", "main").
+											Assignment(corev1.ResourceCPU, "spot", "5000m").
+											Assignment("example.com/gpu", "default", "10").
+											AssignmentPodCount(5).
+											Obj()).
+										Obj()),
+									"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
+										PodSets(*utiltesting.MakePodSet("main", 5).
+											Request(corev1.ResourceCPU, "1").
+											Request("example.com/gpu", "1").
+											Obj(),
+										).
+										ReserveQuota(utiltesting.MakeAdmission("b", "main").
+											Assignment(corev1.ResourceCPU, "spot", "5000m").
+											Assignment("example.com/gpu", "default", "5").
+											AssignmentPodCount(5).
+											Obj()).
+										Obj()),
+								},
+								Preemption:        defaultPreemption,
+								FairWeight:        oneQuantity,
+								NamespaceSelector: labels.Everything(),
+								Status:            active,
 							},
-							FlavorFungibility: defaultFlavorFungibility,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-							}.Unflatten(),
-							Preemption:        defaultPreemption,
-							FairWeight:        oneQuantity,
-							NamespaceSelector: labels.Everything(),
-							Status:            active,
+							"c": {
+								Name:                          "c",
+								AllocatableResourceGeneration: 1,
+								ResourceGroups: []ResourceGroup{
+									{
+										CoveredResources: sets.New(corev1.ResourceCPU),
+										Flavors:          []kueue.ResourceFlavorReference{"default"},
+									},
+								},
+								ResourceNode: ResourceNode{
+									Quotas: map[resources.FlavorResource]ResourceQuota{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: {Nominal: 100_000},
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: "cpu"}: 100_000,
+									},
+									Usage: resources.FlavorResourceQuantities{},
+								},
+								FlavorFungibility: defaultFlavorFungibility,
+								Preemption:        defaultPreemption,
+								FairWeight:        oneQuantity,
+								NamespaceSelector: labels.Everything(),
+								Status:            active,
+							},
 						},
 					},
 					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
@@ -348,19 +372,21 @@ func TestSnapshot(t *testing.T) {
 					}).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				ClusterQueues: map[string]*ClusterQueueSnapshot{
-					"with-preemption": {
-						Name:                          "with-preemption",
-						NamespaceSelector:             labels.Everything(),
-						AllocatableResourceGeneration: 1,
-						Status:                        active,
-						Workloads:                     map[string]*workload.Info{},
-						FlavorFungibility:             defaultFlavorFungibility,
-						Preemption: kueue.ClusterQueuePreemption{
-							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
+						"with-preemption": {
+							Name:                          "with-preemption",
+							NamespaceSelector:             labels.Everything(),
+							AllocatableResourceGeneration: 1,
+							Status:                        active,
+							Workloads:                     map[string]*workload.Info{},
+							FlavorFungibility:             defaultFlavorFungibility,
+							Preemption: kueue.ClusterQueuePreemption{
+								ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+								WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+							},
+							FairWeight: oneQuantity,
 						},
-						FairWeight: oneQuantity,
 					},
 				},
 			},
@@ -370,16 +396,18 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeClusterQueue("with-preemption").FairWeight(resource.MustParse("3")).Obj(),
 			},
 			wantSnapshot: Snapshot{
-				ClusterQueues: map[string]*ClusterQueueSnapshot{
-					"with-preemption": {
-						Name:                          "with-preemption",
-						NamespaceSelector:             labels.Everything(),
-						AllocatableResourceGeneration: 1,
-						Status:                        active,
-						Workloads:                     map[string]*workload.Info{},
-						FlavorFungibility:             defaultFlavorFungibility,
-						Preemption:                    defaultPreemption,
-						FairWeight:                    resource.MustParse("3"),
+				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
+						"with-preemption": {
+							Name:                          "with-preemption",
+							NamespaceSelector:             labels.Everything(),
+							AllocatableResourceGeneration: 1,
+							Status:                        active,
+							Workloads:                     map[string]*workload.Info{},
+							FlavorFungibility:             defaultFlavorFungibility,
+							Preemption:                    defaultPreemption,
+							FairWeight:                    resource.MustParse("3"),
+						},
 					},
 				},
 			},
@@ -431,102 +459,103 @@ func TestSnapshot(t *testing.T) {
 			},
 			wantSnapshot: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "lending",
-					AllocatableResourceGeneration: 2,
-					RequestableResources: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
-						{Flavor: "x86", Resource: corev1.ResourceCPU}: 20_000,
-					}.Unflatten(),
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
-						{Flavor: "x86", Resource: corev1.ResourceCPU}: 0,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 30_000,
+					Name: "lending",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
+						},
+						SubtreeQuota: resources.FlavorResourceQuantities{
+							{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
+							{Flavor: "x86", Resource: corev1.ResourceCPU}: 20_000,
+						},
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"a": {
-							Name:                          "a",
-							Cohort:                        cohort,
-							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
-									LabelKeys:        sets.New("arch"),
-								},
-							},
-							Quotas: map[resources.FlavorResource]*ResourceQuota{
-								{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](5_000)},
-								{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](10_000)},
-							},
-							FlavorFungibility: defaultFlavorFungibility,
-							FairWeight:        oneQuantity,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
-								{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
-							}.Unflatten(),
-							Workloads: map[string]*workload.Info{
-								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
-									PodSets(*utiltesting.MakePodSet("main", 5).
-										Request(corev1.ResourceCPU, "2").Obj()).
-									ReserveQuota(utiltesting.MakeAdmission("a", "main").
-										Assignment(corev1.ResourceCPU, "arm", "10000m").
-										AssignmentPodCount(5).Obj()).
-									Obj()),
-								"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
-									PodSets(*utiltesting.MakePodSet("main", 5).
-										Request(corev1.ResourceCPU, "1").Obj()).
-									ReserveQuota(utiltesting.MakeAdmission("a", "main").
-										Assignment(corev1.ResourceCPU, "arm", "5000m").
-										AssignmentPodCount(5).Obj()).
-									Obj()),
-								"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
-									PodSets(*utiltesting.MakePodSet("main", 5).
-										Request(corev1.ResourceCPU, "2").Obj()).
-									ReserveQuota(utiltesting.MakeAdmission("a", "main").
-										Assignment(corev1.ResourceCPU, "x86", "10000m").
-										AssignmentPodCount(5).Obj()).
-									Obj()),
-							},
-							Preemption:        defaultPreemption,
-							NamespaceSelector: labels.Everything(),
-							Status:            active,
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "arm", Resource: corev1.ResourceCPU}: 5_000,
-								{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"lending": cohort,
 						},
-						"b": {
-							Name:                          "b",
-							Cohort:                        cohort,
-							AllocatableResourceGeneration: 1,
-							ResourceGroups: []ResourceGroup{
-								{
-									CoveredResources: sets.New(corev1.ResourceCPU),
-									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
-									LabelKeys:        sets.New("arch"),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"a": {
+								Name:                          "a",
+								AllocatableResourceGeneration: 2,
+								ResourceGroups: []ResourceGroup{
+									{
+										CoveredResources: sets.New(corev1.ResourceCPU),
+										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+										LabelKeys:        sets.New("arch"),
+									},
 								},
+								ResourceNode: ResourceNode{
+									Quotas: map[resources.FlavorResource]ResourceQuota{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](5_000)},
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](10_000)},
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: 20_000,
+									},
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								Workloads: map[string]*workload.Info{
+									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
+										PodSets(*utiltesting.MakePodSet("main", 5).
+											Request(corev1.ResourceCPU, "2").Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a", "main").
+											Assignment(corev1.ResourceCPU, "arm", "10000m").
+											AssignmentPodCount(5).Obj()).
+										Obj()),
+									"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
+										PodSets(*utiltesting.MakePodSet("main", 5).
+											Request(corev1.ResourceCPU, "1").Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a", "main").
+											Assignment(corev1.ResourceCPU, "arm", "5000m").
+											AssignmentPodCount(5).Obj()).
+										Obj()),
+									"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
+										PodSets(*utiltesting.MakePodSet("main", 5).
+											Request(corev1.ResourceCPU, "2").Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a", "main").
+											Assignment(corev1.ResourceCPU, "x86", "10000m").
+											AssignmentPodCount(5).Obj()).
+										Obj()),
+								},
+								Preemption:        defaultPreemption,
+								NamespaceSelector: labels.Everything(),
+								Status:            active,
 							},
-							Quotas: map[resources.FlavorResource]*ResourceQuota{
-								{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](5_000)},
-								{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](10_000)},
+							"b": {
+								Name:                          "b",
+								AllocatableResourceGeneration: 1,
+								ResourceGroups: []ResourceGroup{
+									{
+										CoveredResources: sets.New(corev1.ResourceCPU),
+										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+										LabelKeys:        sets.New("arch"),
+									},
+								},
+								ResourceNode: ResourceNode{
+									Quotas: map[resources.FlavorResource]ResourceQuota{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](5_000)},
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](10_000)},
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: 20_000,
+									},
+									Usage: resources.FlavorResourceQuantities{},
+								},
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								Preemption:        defaultPreemption,
+								NamespaceSelector: labels.Everything(),
+								Status:            active,
 							},
-							FlavorFungibility: defaultFlavorFungibility,
-							FairWeight:        oneQuantity,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
-								{Flavor: "x86", Resource: corev1.ResourceCPU}: 0,
-							}.Unflatten(),
-							Preemption:        defaultPreemption,
-							NamespaceSelector: labels.Everything(),
-							Status:            active,
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "arm", Resource: corev1.ResourceCPU}: 5_000,
-								{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
-							}.Unflatten(),
 						},
 					},
 					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
@@ -535,20 +564,334 @@ func TestSnapshot(t *testing.T) {
 					},
 				}
 			}(),
-			enableLendingLimit: true,
+		},
+		"should not populate the snapshot with lendingLimit when feature disabled": {
+			disableLendingLimit: true,
+			cqs: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("lending").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10", "", "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "20", "", "10").Obj(),
+					).
+					FlavorFungibility(defaultFlavorFungibility).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("lending").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10", "", "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "20", "", "10").Obj(),
+					).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{
+				utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
+				utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
+			},
+			wls: []*kueue.Workload{
+				utiltesting.MakeWorkload("alpha", "").
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "2").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a", "main").
+						Assignment(corev1.ResourceCPU, "arm", "10000m").
+						AssignmentPodCount(5).Obj()).
+					Obj(),
+				utiltesting.MakeWorkload("beta", "").
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a", "main").
+						Assignment(corev1.ResourceCPU, "arm", "5000m").
+						AssignmentPodCount(5).Obj()).
+					Obj(),
+				utiltesting.MakeWorkload("gamma", "").
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "2").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a", "main").
+						Assignment(corev1.ResourceCPU, "x86", "10000m").
+						AssignmentPodCount(5).Obj()).
+					Obj(),
+			},
+			wantSnapshot: func() Snapshot {
+				cohort := &CohortSnapshot{
+					Name: "lending",
+					ResourceNode: ResourceNode{
+						SubtreeQuota: resources.FlavorResourceQuantities{
+							{Flavor: "arm", Resource: corev1.ResourceCPU}: 20_000,
+							{Flavor: "x86", Resource: corev1.ResourceCPU}: 40_000,
+						},
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
+							{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
+						},
+					},
+				}
+				return Snapshot{
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"lending": cohort,
+						},
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"a": {
+								Name:                          "a",
+								AllocatableResourceGeneration: 2,
+								ResourceGroups: []ResourceGroup{
+									{
+										CoveredResources: sets.New(corev1.ResourceCPU),
+										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+										LabelKeys:        sets.New("arch"),
+									},
+								},
+								ResourceNode: ResourceNode{
+									Quotas: map[resources.FlavorResource]ResourceQuota{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: nil},
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: nil},
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: 20_000,
+									},
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: 15_000,
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								Workloads: map[string]*workload.Info{
+									"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
+										PodSets(*utiltesting.MakePodSet("main", 5).
+											Request(corev1.ResourceCPU, "2").Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a", "main").
+											Assignment(corev1.ResourceCPU, "arm", "10000m").
+											AssignmentPodCount(5).Obj()).
+										Obj()),
+									"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
+										PodSets(*utiltesting.MakePodSet("main", 5).
+											Request(corev1.ResourceCPU, "1").Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a", "main").
+											Assignment(corev1.ResourceCPU, "arm", "5000m").
+											AssignmentPodCount(5).Obj()).
+										Obj()),
+									"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
+										PodSets(*utiltesting.MakePodSet("main", 5).
+											Request(corev1.ResourceCPU, "2").Obj()).
+										ReserveQuota(utiltesting.MakeAdmission("a", "main").
+											Assignment(corev1.ResourceCPU, "x86", "10000m").
+											AssignmentPodCount(5).Obj()).
+										Obj()),
+								},
+								Preemption:        defaultPreemption,
+								NamespaceSelector: labels.Everything(),
+								Status:            active,
+							},
+							"b": {
+								Name:                          "b",
+								AllocatableResourceGeneration: 1,
+								ResourceGroups: []ResourceGroup{
+									{
+										CoveredResources: sets.New(corev1.ResourceCPU),
+										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+										LabelKeys:        sets.New("arch"),
+									},
+								},
+								ResourceNode: ResourceNode{
+									Quotas: map[resources.FlavorResource]ResourceQuota{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: nil},
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: nil},
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "arm", Resource: corev1.ResourceCPU}: 10_000,
+										{Flavor: "x86", Resource: corev1.ResourceCPU}: 20_000,
+									},
+								},
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								Preemption:        defaultPreemption,
+								NamespaceSelector: labels.Everything(),
+								Status:            active,
+							},
+						},
+					},
+					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+						"arm": utiltesting.MakeResourceFlavor("arm").NodeLabel("arch", "arm").Obj(),
+						"x86": utiltesting.MakeResourceFlavor("x86").NodeLabel("arch", "x86").Obj(),
+					},
+				}
+			}(),
+		},
+		"cohort provides resources": {
+			rfs: []*kueue.ResourceFlavor{
+				utiltesting.MakeResourceFlavor("arm").Obj(),
+				utiltesting.MakeResourceFlavor("x86").Obj(),
+				utiltesting.MakeResourceFlavor("mips").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq").
+					Cohort("cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "7", "", "3").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "5").Obj(),
+					).
+					Obj(),
+			},
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("cohort").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "20").Obj(),
+					).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("mips").Resource(corev1.ResourceCPU, "42").Obj(),
+					).Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
+						"cq": {
+							Name:                          "cq",
+							AllocatableResourceGeneration: 2,
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
+								},
+							},
+							ResourceNode: ResourceNode{
+								Quotas: map[resources.FlavorResource]ResourceQuota{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 7_000, BorrowingLimit: nil, LendingLimit: ptr.To[int64](3_000)},
+									{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: 5_000, BorrowingLimit: nil, LendingLimit: nil},
+								},
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: 7_000,
+									{Flavor: "x86", Resource: corev1.ResourceCPU}: 5_000,
+								},
+							},
+							FlavorFungibility: defaultFlavorFungibility,
+							FairWeight:        oneQuantity,
+							Preemption:        defaultPreemption,
+							NamespaceSelector: labels.Everything(),
+							Status:            active,
+						},
+					},
+					Cohorts: map[string]*CohortSnapshot{
+						"cohort": {
+							Name: "cohort",
+							ResourceNode: ResourceNode{
+								Quotas: map[resources.FlavorResource]ResourceQuota{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}:  {Nominal: 10_000, BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "x86", Resource: corev1.ResourceCPU}:  {Nominal: 20_000, BorrowingLimit: nil, LendingLimit: nil},
+									{Flavor: "mips", Resource: corev1.ResourceCPU}: {Nominal: 42_000, BorrowingLimit: nil, LendingLimit: nil},
+								},
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}:  13_000,
+									{Flavor: "x86", Resource: corev1.ResourceCPU}:  25_000,
+									{Flavor: "mips", Resource: corev1.ResourceCPU}: 42_000,
+								},
+							},
+						},
+					},
+				},
+				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+					"arm":  utiltesting.MakeResourceFlavor("arm").Obj(),
+					"x86":  utiltesting.MakeResourceFlavor("x86").Obj(),
+					"mips": utiltesting.MakeResourceFlavor("mips").Obj(),
+				},
+			},
+		},
+		"cohorts with cycles and their cqs excluded from snapshot": {
+			rfs: []*kueue.ResourceFlavor{
+				utiltesting.MakeResourceFlavor("arm").Obj(),
+			},
+			cohorts: []*kueuealpha.Cohort{
+				utiltesting.MakeCohort("autocycle").Parent("autocycle").Obj(),
+				utiltesting.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
+				utiltesting.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
+				utiltesting.MakeCohort("nocycle").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq-autocycle").
+					Cohort("autocycle").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					).Obj(),
+				utiltesting.MakeClusterQueue("cq-a").
+					Cohort("cycle-a").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					).Obj(),
+				utiltesting.MakeClusterQueue("cq-b").
+					Cohort("cycle-b").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					).Obj(),
+				utiltesting.MakeClusterQueue("cq-nocycle").
+					Cohort("nocycle").
+					ResourceGroup(
+						utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").FlavorQuotas,
+					).Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+					ClusterQueues: map[string]*ClusterQueueSnapshot{
+						"cq-nocycle": {
+							Name:                          "cq-nocycle",
+							AllocatableResourceGeneration: 2,
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors:          []kueue.ResourceFlavorReference{"arm"},
+								},
+							},
+							ResourceNode: ResourceNode{
+								Quotas: map[resources.FlavorResource]ResourceQuota{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: 0},
+								},
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
+								},
+							},
+							FlavorFungibility: defaultFlavorFungibility,
+							FairWeight:        oneQuantity,
+							Preemption:        defaultPreemption,
+							NamespaceSelector: labels.Everything(),
+							Status:            active,
+						},
+					},
+					Cohorts: map[string]*CohortSnapshot{
+						"nocycle": {
+							Name: "nocycle",
+							ResourceNode: ResourceNode{
+								SubtreeQuota: resources.FlavorResourceQuantities{
+									{Flavor: "arm", Resource: corev1.ResourceCPU}: 0,
+								},
+							},
+						},
+					},
+				},
+				InactiveClusterQueueSets: sets.New("cq-autocycle", "cq-a", "cq-b"),
+				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+					"arm": utiltesting.MakeResourceFlavor("arm").Obj(),
+				},
+			},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			if tc.disableLendingLimit {
+				features.SetFeatureGateDuringTest(t, features.LendingLimit, false)
+			}
 			cache := New(utiltesting.NewFakeClient())
 			for _, cq := range tc.cqs {
 				// Purposely do not make a copy of clusterQueues. Clones of necessary fields are
 				// done in AddClusterQueue.
-				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("Failed adding ClusterQueue: %v", err)
 				}
+			}
+			for _, cohort := range tc.cohorts {
+				_ = cache.AddOrUpdateCohort(cohort)
 			}
 			for _, rf := range tc.rfs {
 				cache.AddOrUpdateResourceFlavor(rf)
@@ -556,8 +899,11 @@ func TestSnapshot(t *testing.T) {
 			for _, wl := range tc.wls {
 				cache.AddOrUpdateWorkload(wl)
 			}
-			snapshot := cache.Snapshot()
-			if diff := cmp.Diff(tc.wantSnapshot, snapshot, snapCmpOpts...); len(diff) != 0 {
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantSnapshot, *snapshot, snapCmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)
 			}
 			for _, cq := range snapshot.ClusterQueues {
@@ -634,13 +980,16 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		}
 	}
 	wlInfos := make(map[string]*workload.Info, len(workloads))
-	for _, cq := range cqCache.clusterQueues {
+	for _, cq := range cqCache.hm.ClusterQueues {
 		for _, wl := range cq.Workloads {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
 	}
-	initialSnapshot := cqCache.Snapshot()
-	initialCohortResources := initialSnapshot.ClusterQueues["c1"].Cohort.RequestableResources
+	initialSnapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	initialCohortResources := initialSnapshot.ClusterQueues["c1"].Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []string
 		add    []string
@@ -649,52 +998,63 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		"no-op remove add": {
 			remove: []string{"/c1-cpu", "/c2-cpu-1"},
 			add:    []string{"/c1-cpu", "/c2-cpu-1"},
-			want:   initialSnapshot,
+			want:   *initialSnapshot,
 		},
 		"remove all": {
 			remove: []string{"/c1-cpu", "/c1-memory-alpha", "/c1-memory-beta", "/c2-cpu-1", "/c2-cpu-2"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "cohort",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
-						{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
-						{Flavor: "beta", Resource: corev1.ResourceMemory}:  0,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    12_000,
-						corev1.ResourceMemory: 12 * utiltesting.Gi,
+					Name: "cohort",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
+							{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
+							{Flavor: "beta", Resource: corev1.ResourceMemory}:  0,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"c1": {
-							Name:                          "c1",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
-								{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
-								{Flavor: "beta", Resource: corev1.ResourceMemory}:  0,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"cohort": cohort,
 						},
-						"c2": {
-							Name:                          "c2",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-							}.Unflatten(),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"c1": {
+								Name:              "c1",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["c1"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  0,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  6_000,
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi * 6,
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi * 6,
+									},
+								},
+							},
+							"c2": {
+								Name:                          "c2",
+								Workloads:                     make(map[string]*workload.Info),
+								ResourceGroups:                cqCache.hm.ClusterQueues["c2"].ResourceGroups,
+								FlavorFungibility:             defaultFlavorFungibility,
+								FairWeight:                    oneQuantity,
+								AllocatableResourceGeneration: 1,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -704,52 +1064,63 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			remove: []string{"/c1-cpu"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "cohort",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}:  2_000,
-						{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi,
-						{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    12_000,
-						corev1.ResourceMemory: 12 * utiltesting.Gi,
+					Name: "cohort",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}:  2_000,
+							{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi,
+							{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"c1": {
-							Name:   "c1",
-							Cohort: cohort,
-							Workloads: map[string]*workload.Info{
-								"/c1-memory-alpha": nil,
-								"/c1-memory-beta":  nil,
-							},
-							AllocatableResourceGeneration: 1,
-							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
-								{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi,
-								{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"cohort": cohort,
 						},
-						"c2": {
-							Name:   "c2",
-							Cohort: cohort,
-							Workloads: map[string]*workload.Info{
-								"/c2-cpu-1": nil,
-								"/c2-cpu-2": nil,
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"c1": {
+								Name: "c1",
+								Workloads: map[string]*workload.Info{
+									"/c1-memory-alpha": nil,
+									"/c1-memory-beta":  nil,
+								},
+								ResourceGroups:    cqCache.hm.ClusterQueues["c1"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  0,
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi,
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  6_000,
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi * 6,
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi * 6,
+									},
+								},
 							},
-							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
-							}.Unflatten(),
+							"c2": {
+								Name: "c2",
+								Workloads: map[string]*workload.Info{
+									"/c2-cpu-1": nil,
+									"/c2-cpu-2": nil,
+								},
+								ResourceGroups:                cqCache.hm.ClusterQueues["c2"].ResourceGroups,
+								FlavorFungibility:             defaultFlavorFungibility,
+								FairWeight:                    oneQuantity,
+								AllocatableResourceGeneration: 1,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -759,52 +1130,62 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			remove: []string{"/c1-memory-alpha"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "cohort",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}:  3_000,
-						{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
-						{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    12_000,
-						corev1.ResourceMemory: 12 * utiltesting.Gi,
+					Name: "cohort",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}:  3_000,
+							{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
+							{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"c1": {
-							Name:   "c1",
-							Cohort: cohort,
-							Workloads: map[string]*workload.Info{
-								"/c1-memory-alpha": nil,
-								"/c1-memory-beta":  nil,
-							},
-							AllocatableResourceGeneration: 1,
-							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}:  1_000,
-								{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
-								{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"cohort": cohort,
 						},
-						"c2": {
-							Name:   "c2",
-							Cohort: cohort,
-							Workloads: map[string]*workload.Info{
-								"/c2-cpu-1": nil,
-								"/c2-cpu-2": nil,
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"c1": {
+								Name: "c1",
+								Workloads: map[string]*workload.Info{
+									"/c1-memory-alpha": nil,
+									"/c1-memory-beta":  nil,
+								},
+								ResourceGroups:    cqCache.hm.ClusterQueues["c1"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  1_000,
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: 0,
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}:  6_000,
+										{Flavor: "alpha", Resource: corev1.ResourceMemory}: utiltesting.Gi * 6,
+										{Flavor: "beta", Resource: corev1.ResourceMemory}:  utiltesting.Gi * 6,
+									},
+								},
 							},
-							AllocatableResourceGeneration: 1,
-							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
-							}.Unflatten(),
+							"c2": {
+								Name: "c2",
+								Workloads: map[string]*workload.Info{
+									"/c2-cpu-1": nil,
+									"/c2-cpu-2": nil,
+								},
+								ResourceGroups:    cqCache.hm.ClusterQueues["c2"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 2_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -812,19 +1193,23 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		},
 	}
 	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "Quotas"),
+		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
+		cmpopts.IgnoreFields(ResourceNode{}, "Quotas"),
 		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			snap := cqCache.Snapshot()
+			snap, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			for _, name := range tc.remove {
 				snap.RemoveWorkload(wlInfos[name])
 			}
 			for _, name := range tc.add {
 				snap.AddWorkload(wlInfos[name])
 			}
-			if diff := cmp.Diff(tc.want, snap, cmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
 			}
 		})
@@ -832,7 +1217,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 }
 
 func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
-	_ = features.SetEnable(features.LendingLimit, true)
 	flavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
 	}
@@ -890,13 +1274,16 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		}
 	}
 	wlInfos := make(map[string]*workload.Info, len(workloads))
-	for _, cq := range cqCache.clusterQueues {
+	for _, cq := range cqCache.hm.ClusterQueues {
 		for _, wl := range cq.Workloads {
 			wlInfos[workload.Key(wl.Obj)] = wl
 		}
 	}
-	initialSnapshot := cqCache.Snapshot()
-	initialCohortResources := initialSnapshot.ClusterQueues["lend-a"].Cohort.RequestableResources
+	initialSnapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	initialCohortResources := initialSnapshot.ClusterQueues["lend-a"].Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []string
 		add    []string
@@ -905,53 +1292,56 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		"remove all then add all": {
 			remove: []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			want:   initialSnapshot,
+			want:   *initialSnapshot,
 		},
 		"remove all": {
 			remove: []string{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "lend",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
+					Name: "lend",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"lend-a": {
-							Name:                          "lend-a",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"lend": cohort,
 						},
-						"lend-b": {
-							Name:                          "lend-b",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"lend-a": {
+								Name:              "lend-a",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
+							"lend-b": {
+								Name:              "lend-b",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -961,47 +1351,51 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			remove: []string{"/lend-a-2"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "lend",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
+					Name: "lend",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"lend-a": {
-							Name:                          "lend-a",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 7_000,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"lend": cohort,
 						},
-						"lend-b": {
-							Name:                          "lend-b",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"lend-a": {
+								Name:              "lend-a",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 7_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
+							"lend-b": {
+								Name:                          "lend-b",
+								Workloads:                     make(map[string]*workload.Info),
+								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								FlavorFungibility:             defaultFlavorFungibility,
+								FairWeight:                    oneQuantity,
+								AllocatableResourceGeneration: 1,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -1011,47 +1405,51 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			remove: []string{"/lend-a-1", "/lend-a-2"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "lend",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
+					Name: "lend",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"lend-a": {
-							Name:                          "lend-a",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"lend": cohort,
 						},
-						"lend-b": {
-							Name:                          "lend-b",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"lend-a": {
+								Name:              "lend-a",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
+							"lend-b": {
+								Name:                          "lend-b",
+								Workloads:                     make(map[string]*workload.Info),
+								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								FlavorFungibility:             defaultFlavorFungibility,
+								FairWeight:                    oneQuantity,
+								AllocatableResourceGeneration: 1,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -1061,47 +1459,51 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			remove: []string{"/lend-a-2", "/lend-a-3"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "lend",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
+					Name: "lend",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"lend-a": {
-							Name:                          "lend-a",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"lend": cohort,
 						},
-						"lend-b": {
-							Name:                          "lend-b",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"lend-a": {
+								Name:              "lend-a",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
+							"lend-b": {
+								Name:                          "lend-b",
+								Workloads:                     make(map[string]*workload.Info),
+								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								FlavorFungibility:             defaultFlavorFungibility,
+								FairWeight:                    oneQuantity,
+								AllocatableResourceGeneration: 1,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -1112,47 +1514,51 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			add:    []string{"/lend-a-1"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "lend",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
+					Name: "lend",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"lend-a": {
-							Name:                          "lend-a",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"lend": cohort,
 						},
-						"lend-b": {
-							Name:                          "lend-b",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"lend-a": {
+								Name:              "lend-a",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 1_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
+							"lend-b": {
+								Name:                          "lend-b",
+								Workloads:                     make(map[string]*workload.Info),
+								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								FlavorFungibility:             defaultFlavorFungibility,
+								FairWeight:                    oneQuantity,
+								AllocatableResourceGeneration: 1,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -1163,47 +1569,50 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			add:    []string{"/lend-a-3"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "lend",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
+					Name: "lend",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"lend-a": {
-							Name:                          "lend-a",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"lend": cohort,
 						},
-						"lend-b": {
-							Name:                          "lend-b",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"lend-a": {
+								Name:              "lend-a",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
+							"lend-b": {
+								Name:              "lend-b",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -1214,47 +1623,51 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			add:    []string{"/lend-a-2"},
 			want: func() Snapshot {
 				cohort := &CohortSnapshot{
-					Name:                          "lend",
-					AllocatableResourceGeneration: 2,
-					RequestableResources:          initialCohortResources,
-					Usage: resources.FlavorResourceQuantitiesFlat{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
-					}.Unflatten(),
-					Lendable: map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 10_000,
+					Name: "lend",
+					ResourceNode: ResourceNode{
+						Usage: resources.FlavorResourceQuantities{
+							{Flavor: "default", Resource: corev1.ResourceCPU}: 3_000,
+						},
+						SubtreeQuota: initialCohortResources,
 					},
 				}
 				return Snapshot{
-					ClusterQueues: map[string]*ClusterQueueSnapshot{
-						"lend-a": {
-							Name:                          "lend-a",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-a"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 9_000,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 6_000,
-							}.Unflatten(),
+					Manager: hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{
+						Cohorts: map[string]*CohortSnapshot{
+							"lend": cohort,
 						},
-						"lend-b": {
-							Name:                          "lend-b",
-							Cohort:                        cohort,
-							Workloads:                     make(map[string]*workload.Info),
-							ResourceGroups:                cqCache.clusterQueues["lend-b"].ResourceGroups,
-							FlavorFungibility:             defaultFlavorFungibility,
-							FairWeight:                    oneQuantity,
-							AllocatableResourceGeneration: 1,
-							Usage: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
-							}.Unflatten(),
-							GuaranteedQuota: resources.FlavorResourceQuantitiesFlat{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: 4_000,
-							}.Unflatten(),
+						ClusterQueues: map[string]*ClusterQueueSnapshot{
+							"lend-a": {
+								Name:              "lend-a",
+								Workloads:         make(map[string]*workload.Info),
+								ResourceGroups:    cqCache.hm.ClusterQueues["lend-a"].ResourceGroups,
+								FlavorFungibility: defaultFlavorFungibility,
+								FairWeight:        oneQuantity,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 9_000,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
+							"lend-b": {
+								Name:                          "lend-b",
+								Workloads:                     make(map[string]*workload.Info),
+								ResourceGroups:                cqCache.hm.ClusterQueues["lend-b"].ResourceGroups,
+								FlavorFungibility:             defaultFlavorFungibility,
+								FairWeight:                    oneQuantity,
+								AllocatableResourceGeneration: 1,
+								ResourceNode: ResourceNode{
+									Usage: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 0,
+									},
+									SubtreeQuota: resources.FlavorResourceQuantities{
+										{Flavor: "default", Resource: corev1.ResourceCPU}: 10_000,
+									},
+								},
+							},
 						},
 					},
 				}
@@ -1262,19 +1675,23 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		},
 	}
 	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "Quotas"),
+		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
+		cmpopts.IgnoreFields(ResourceNode{}, "Quotas"),
 		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			snap := cqCache.Snapshot()
+			snap, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
 			for _, name := range tc.remove {
 				snap.RemoveWorkload(wlInfos[name])
 			}
 			for _, name := range tc.add {
 				snap.AddWorkload(wlInfos[name])
 			}
-			if diff := cmp.Diff(tc.want, snap, cmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
 			}
 		})

@@ -7,16 +7,24 @@ no_list: false
 
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/hack/internal/tools/kueuectl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
 -->
 
 ## Synopsis
 
 
-Pass-through &#34;delete workload&#34; to kubectl
+If the Workload has associated Jobs, the command will prompt for deletion approval of the affected Jobs, and delete them. The Workload will then be asynchronously deleted by the garbage collector. If there are no associated Jobs, the command will directly delete the Workload.
 
 ```
-kueuectl delete workload [flags]
+kueuectl delete workload NAME [--yes] [--all] [--dry-run STRATEGY]
+```
+
+
+## Examples
+
+```
+  # Delete the Workload
+  kueuectl delete workload my-workload
 ```
 
 
@@ -30,12 +38,48 @@ kueuectl delete workload [flags]
     </colgroup>
     <tbody>
     <tr>
+        <td colspan="2">--all</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Delete all Workloads, in the specified namespace.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-A, --all-namespaces</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--dry-run string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;none&#34;</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Must be &#34;none&#34;, &#34;server&#34;, or &#34;client&#34;. If client strategy, only print the object that would be sent, without sending it. If server strategy, submit server-side request without persisting the resource.</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">-h, --help</td>
     </tr>
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>help for workload</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">-y, --yes</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Automatic yes to the prompt for deleting the Workload.</p>
         </td>
     </tr>
     </tbody>

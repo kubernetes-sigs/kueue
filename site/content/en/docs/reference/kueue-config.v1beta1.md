@@ -153,7 +153,10 @@ integrations (including K8S job).</p>
 </td>
 <td>
    <p>QueueVisibility is configuration to expose the information about the top
-pending workloads.</p>
+pending workloads.
+Deprecated: This field will be removed on v1beta2, use VisibilityOnDemand
+(https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)
+instead.</p>
 </td>
 </tr>
 <tr><td><code>multiKueue</code> <B>[Required]</B><br/>
@@ -488,6 +491,8 @@ Possible options:</p>
 <li>&quot;kubeflow.org/tfjob&quot;</li>
 <li>&quot;kubeflow.org/xgboostjob&quot;</li>
 <li>&quot;pod&quot;</li>
+<li>&quot;deployment&quot; (requires enabling pod integration)</li>
+<li>&quot;statefulset&quot; (requires enabling pod integration)</li>
 </ul>
 </td>
 </tr>
@@ -763,6 +768,58 @@ re-queuing an evicted workload.</p>
 
 
 
+## `ResourceTransformation`     {#ResourceTransformation}
+    
+
+**Appears in:**
+
+- [Resources](#Resources)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>input</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>Input is the name of the input resource.</p>
+</td>
+</tr>
+<tr><td><code>strategy</code> <B>[Required]</B><br/>
+<a href="#ResourceTransformationStrategy"><code>ResourceTransformationStrategy</code></a>
+</td>
+<td>
+   <p>Strategy specifies if the input resource should be replaced or retained.
+Defaults to Retain</p>
+</td>
+</tr>
+<tr><td><code>outputs</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
+</td>
+<td>
+   <p>Outputs specifies the output resources and quantities per unit of input resource.
+An empty Outputs combined with a <code>Replace</code> Strategy causes the Input resource to be ignored by Kueue.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ResourceTransformationStrategy`     {#ResourceTransformationStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ResourceTransformation](#ResourceTransformation)
+
+
+
+
+
 ## `Resources`     {#Resources}
     
 
@@ -781,6 +838,14 @@ re-queuing an evicted workload.</p>
 </td>
 <td>
    <p>ExcludedResourcePrefixes defines which resources should be ignored by Kueue</p>
+</td>
+</tr>
+<tr><td><code>transformations</code> <B>[Required]</B><br/>
+<a href="#ResourceTransformation"><code>[]ResourceTransformation</code></a>
+</td>
+<td>
+   <p>Transformations defines how to transform PodSpec resources into Workload resource requests.
+This is intended to be a map with Input as the key (enforced by validation code)</p>
 </td>
 </tr>
 </tbody>

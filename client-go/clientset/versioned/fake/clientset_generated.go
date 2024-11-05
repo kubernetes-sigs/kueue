@@ -23,6 +23,7 @@ import (
 	"k8s.io/client-go/discovery"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/testing"
+	applyconfiguration "sigs.k8s.io/kueue/client-go/applyconfiguration"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1alpha1"
 	fakekueuev1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1alpha1/fake"
@@ -30,12 +31,18 @@ import (
 	fakekueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1/fake"
 	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
 	fakevisibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1/fake"
+	visibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1"
+	fakevisibilityv1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta1/fake"
 )
 
 // NewSimpleClientset returns a clientset that will respond with the provided objects.
 // It's backed by a very simple object tracker that processes creates, updates and deletions as-is,
-// without applying any validations and/or defaults. It shouldn't be considered a replacement
+// without applying any field management, validations and/or defaults. It shouldn't be considered a replacement
 // for a real clientset and is mostly useful in simple unit tests.
+//
+// DEPRECATED: NewClientset replaces this with support for field management, which significantly improves
+// server side apply testing. NewClientset is only available when apply configurations are generated (e.g.
+// via --with-applyconfig).
 func NewSimpleClientset(objects ...runtime.Object) *Clientset {
 	o := testing.NewObjectTracker(scheme, codecs.UniversalDecoder())
 	for _, obj := range objects {
@@ -77,6 +84,38 @@ func (c *Clientset) Tracker() testing.ObjectTracker {
 	return c.tracker
 }
 
+// NewClientset returns a clientset that will respond with the provided objects.
+// It's backed by a very simple object tracker that processes creates, updates and deletions as-is,
+// without applying any validations and/or defaults. It shouldn't be considered a replacement
+// for a real clientset and is mostly useful in simple unit tests.
+func NewClientset(objects ...runtime.Object) *Clientset {
+	o := testing.NewFieldManagedObjectTracker(
+		scheme,
+		codecs.UniversalDecoder(),
+		applyconfiguration.NewTypeConverter(scheme),
+	)
+	for _, obj := range objects {
+		if err := o.Add(obj); err != nil {
+			panic(err)
+		}
+	}
+
+	cs := &Clientset{tracker: o}
+	cs.discovery = &fakediscovery.FakeDiscovery{Fake: &cs.Fake}
+	cs.AddReactor("*", "*", testing.ObjectReaction(o))
+	cs.AddWatchReactor("*", func(action testing.Action) (handled bool, ret watch.Interface, err error) {
+		gvr := action.GetResource()
+		ns := action.GetNamespace()
+		watch, err := o.Watch(gvr, ns)
+		if err != nil {
+			return false, nil, err
+		}
+		return true, watch, nil
+	})
+
+	return cs
+}
+
 var (
 	_ clientset.Interface = &Clientset{}
 	_ testing.FakeClient  = &Clientset{}
@@ -95,4 +134,9 @@ func (c *Clientset) KueueV1beta1() kueuev1beta1.KueueV1beta1Interface {
 // VisibilityV1alpha1 retrieves the VisibilityV1alpha1Client
 func (c *Clientset) VisibilityV1alpha1() visibilityv1alpha1.VisibilityV1alpha1Interface {
 	return &fakevisibilityv1alpha1.FakeVisibilityV1alpha1{Fake: &c.Fake}
+}
+
+// VisibilityV1beta1 retrieves the VisibilityV1beta1Client
+func (c *Clientset) VisibilityV1beta1() visibilityv1beta1.VisibilityV1beta1Interface {
+	return &fakevisibilityv1beta1.FakeVisibilityV1beta1{Fake: &c.Fake}
 }

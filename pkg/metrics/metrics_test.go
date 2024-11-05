@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 )
 
@@ -47,7 +46,6 @@ func TestGenerateExponentialBuckets(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
-	defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
 	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
 	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)
 
@@ -74,7 +72,6 @@ func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueQuotas(t *testing.T) {
-	defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
 	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
 	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res2", 5, 10, 3)
 	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)
@@ -155,7 +152,7 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Preempted")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cluster_queue1", "reason", "Evicted")
 
-	ClearQueueSystemMetrics("cluster_queue1")
+	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
 }
 
@@ -172,7 +169,7 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortReclamation")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InCohortReclaimWhileBorrowing")
 
-	ClearQueueSystemMetrics("cluster_queue1")
+	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 0, "cluster_queue", "cluster_queue1")
 }

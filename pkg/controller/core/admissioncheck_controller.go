@@ -190,16 +190,16 @@ type acCqHandler struct {
 	cache *cache.Cache
 }
 
-func (h *acCqHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *acCqHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *acCqHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *acCqHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *acCqHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *acCqHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *acCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *acCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	cq := e.Object.(*kueue.ClusterQueue)
 	log := log.FromContext(ctx).WithValues("clusterQueue", klog.KObj(cq))
 	log.V(6).Info("Cluster queue generic event")
@@ -224,7 +224,7 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.AdmissionCheck{}).
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
-		WatchesRawSource(&source.Channel{Source: r.cqUpdateCh}, &handler).
+		WatchesRawSource(source.Channel(r.cqUpdateCh, &handler)).
 		WithEventFilter(r).
 		Complete(WithLeadingManager(mgr, r, &kueue.AdmissionCheck{}, cfg))
 }

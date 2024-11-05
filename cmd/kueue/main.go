@@ -23,11 +23,6 @@ import (
 	"net/http"
 	"os"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/util/flowcontrol"
-
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
@@ -39,6 +34,7 @@ import (
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -55,6 +51,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/debugger"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -67,9 +65,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/visibility"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 
+	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
+	// to ensure that exec-entrypoint and run can make use of them.
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	// Ensure linking of the job controllers.
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
-	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -94,8 +94,6 @@ func init() {
 			return nil
 		}),
 	)
-
-	// +kubebuilder:scaffold:scheme
 }
 
 func main() {
@@ -163,6 +161,10 @@ func main() {
 		cacheOptions = append(cacheOptions, cache.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 		queueOptions = append(queueOptions, queue.WithExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes))
 	}
+	if features.Enabled(features.ConfigurableResourceTransformations) && cfg.Resources != nil && len(cfg.Resources.Transformations) > 0 {
+		cacheOptions = append(cacheOptions, cache.WithResourceTransformations(cfg.Resources.Transformations))
+		queueOptions = append(queueOptions, queue.WithResourceTransformations(cfg.Resources.Transformations))
+	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, cache.WithFairSharing(cfg.FairSharing.Enable))
 	}
@@ -182,7 +184,7 @@ func main() {
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
+	go setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
 
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
@@ -216,6 +218,13 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if err := tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+			setupLog.Error(err, "Could not setup TAS indexer")
+			os.Exit(1)
+		}
+	}
+
 	if features.Enabled(features.MultiKueue) {
 		if err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), *cfg.Namespace); err != nil {
 			setupLog.Error(err, "Could not setup multikueue indexer")
@@ -229,7 +238,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	cert.WaitForCertsReady(setupLog, certsReady)
@@ -265,6 +274,13 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		}
 	}
 
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg); err != nil {
+			setupLog.Error(err, "Could not setup TAS controller", "controller", failedCtrl)
+			os.Exit(1)
+		}
+	}
+
 	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
@@ -282,11 +298,10 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 	}
-	if err := jobframework.SetupControllers(mgr, setupLog, opts...); err != nil {
+	if err := jobframework.SetupControllers(ctx, mgr, setupLog, opts...); err != nil {
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
 		os.Exit(1)
 	}
-	// +kubebuilder:scaffold:builder
 }
 
 // setupProbeEndpoints registers the health endpoints

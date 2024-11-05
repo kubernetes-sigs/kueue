@@ -44,7 +44,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -57,7 +57,7 @@ func TestWorkloadCmd(t *testing.T) {
 	testCases := map[string]struct {
 		ns               string
 		apiResourceLists []*metav1.APIResourceList
-		pendingWorkloads []v1alpha1.PendingWorkload
+		pendingWorkloads []visibility.PendingWorkload
 		objs             []runtime.Object
 		args             []string
 		mapperKinds      []schema.GroupVersionKind
@@ -84,8 +84,8 @@ func TestWorkloadCmd(t *testing.T) {
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
 `,
 		},
 		"should print workload list with localqueue filter": {
@@ -106,8 +106,8 @@ wl1               j1         lq1          cq1            PENDING                
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
 `,
 		},
 		"should print workload list with localqueue filter (short flag)": {
@@ -128,8 +128,8 @@ wl1               j1         lq1          cq1            PENDING                
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
 `,
 		},
 		"should print workload list with clusterqueue filter": {
@@ -150,8 +150,8 @@ wl1               j1         lq1          cq1            PENDING                
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
 `,
 		},
 		"should print workload list with clusterqueue filter (short flag)": {
@@ -172,8 +172,8 @@ wl1               j1         lq1          cq1            PENDING                
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
 `,
 		},
 		"should print workload list with all status flag": {
@@ -194,29 +194,71 @@ wl1               j1         lq1          cq1            PENDING                
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
-							Type:   kueue.WorkloadAdmitted,
-							Status: metav1.ConditionTrue,
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
 						},
 					}...).
 					Obj(),
 				utiltesting.MakeWorkload("wl3", metav1.NamespaceDefault).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j3", "test-uid").
+					OwnerReference(rayv1.GroupVersion.WithKind("RayJob"), "j3", "test-uid").
 					Queue("lq3").
 					Active(true).
 					Admission(utiltesting.MakeAdmission("cq3").Obj()).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Conditions([]metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionFalse,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
+						},
+					}...).
+					Obj(),
+				utiltesting.MakeWorkload("wl4", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j4", "test-uid").
+					Queue("lq4").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq4").Obj()).
 					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
-							Type:   kueue.WorkloadFinished,
-							Status: metav1.ConditionTrue,
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)),
+						},
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
+						},
+					}...).
+					Obj(),
+				utiltesting.MakeWorkload("wl5", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j5", "test-uid").
+					Queue("lq5").
+					Active(true).
+					Admission(utiltesting.MakeAdmission("cq5").Obj()).
+					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
+					Conditions([]metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)),
+						},
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionFalse,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
 						},
 					}...).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS     POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING                        60m
-wl2               j2         lq2          cq2            ADMITTED                       120m
-wl3               j3         lq3          cq3            FINISHED                       3h
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS     POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                    60m
+wl2               j2         lq2          cq2            ADMITTED                       60m         120m
+wl3               j3         lq3          cq3            PENDING                                    120m
+wl4               j4         lq4          cq4            FINISHED                       60m         3h
+wl5               j5         lq5          cq5            ADMITTED                       120m        3h
 `,
 		},
 		"should print workload list with only admitted and finished status flags": {
@@ -237,8 +279,9 @@ wl3               j3         lq3          cq3            FINISHED               
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
-							Type:   kueue.WorkloadAdmitted,
-							Status: metav1.ConditionTrue,
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
 						},
 					}...).
 					Obj(),
@@ -250,15 +293,21 @@ wl3               j3         lq3          cq3            FINISHED               
 					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
-							Type:   kueue.WorkloadFinished,
-							Status: metav1.ConditionTrue,
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)),
+						},
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
 						},
 					}...).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS     POSITION IN QUEUE   AGE
-wl2               j2         lq2          cq2            ADMITTED                       120m
-wl3               j3         lq3          cq3            FINISHED                       3h
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS     POSITION IN QUEUE   EXEC TIME   AGE
+wl2               j2         lq2          cq2            ADMITTED                       60m         120m
+wl3               j3         lq3          cq3            FINISHED                       60m         3h
 `,
 		},
 		"should print workload list with only pending filter": {
@@ -285,8 +334,8 @@ wl3               j3         lq3          cq3            FINISHED               
 					}...).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
 `,
 		},
 		"should print workload list with only quotareserved filter": {
@@ -319,8 +368,8 @@ wl1               j1         lq1          cq1            PENDING                
 					}...).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS          POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            QUOTARESERVED                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS          POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            QUOTARESERVED                                   60m
 `,
 		},
 		"should print workload list with only admitted filter": {
@@ -334,8 +383,9 @@ wl1               j1         lq1          cq1            QUOTARESERVED          
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
-							Type:   kueue.WorkloadAdmitted,
-							Status: metav1.ConditionTrue,
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
 						},
 					}...).
 					Obj(),
@@ -347,14 +397,15 @@ wl1               j1         lq1          cq1            QUOTARESERVED          
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
-							Type:   kueue.WorkloadAdmitted,
-							Status: metav1.ConditionFalse,
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionFalse,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
 						},
 					}...).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS     POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            ADMITTED                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS     POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            ADMITTED                       60m         60m
 `,
 		},
 		"should print workload list with only finished status filter": {
@@ -368,8 +419,14 @@ wl1               j1         lq1          cq1            ADMITTED               
 					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
-							Type:   kueue.WorkloadFinished,
-							Status: metav1.ConditionTrue,
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
+						},
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Truncate(time.Second)),
 						},
 					}...).
 					Obj(),
@@ -381,14 +438,20 @@ wl1               j1         lq1          cq1            ADMITTED               
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Conditions([]metav1.Condition{
 						{
-							Type:   kueue.WorkloadFinished,
-							Status: metav1.ConditionFalse,
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)),
+						},
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionFalse,
+							LastTransitionTime: metav1.NewTime(testStartTime.Truncate(time.Second)),
 						},
 					}...).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS     POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            FINISHED                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS     POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            FINISHED                       60m         60m
 `,
 		},
 		"should print workload list with label selector filter": {
@@ -411,8 +474,8 @@ wl1               j1         lq1          cq1            FINISHED               
 					Label("key", "value2").
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
 `,
 		},
 		"should print workload list with label selector filter (short flag)": {
@@ -435,8 +498,8 @@ wl1               j1         lq1          cq1            PENDING                
 					Label("key", "value2").
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING                       60m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
 `,
 		},
 		"should print workload list with Job types": {
@@ -494,10 +557,10 @@ wl1               j1         lq1          cq1            PENDING                
 					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE                  JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1    job                       j1         lq1          cq1            PENDING                       60m
-wl2    rayjob.ray.io             j2         lq2          cq2            PENDING                       120m
-wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING                       3h
+			wantOut: `NAME   JOB TYPE                  JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    job                       j1         lq1          cq1            PENDING                                   60m
+wl2    rayjob.ray.io             j2         lq2          cq2            PENDING                                   120m
+wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING                                   3h
 `,
 		},
 		"should print workload list with resource filter": {
@@ -553,8 +616,8 @@ wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING 
 					},
 				},
 			},
-			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1    job.batch   job-test   lq1          cq1            PENDING                       120m
+			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    job.batch   job-test   lq1          cq1            PENDING                                   120m
 `,
 		},
 		"should print workload list with resource filter and composable jobs": {
@@ -619,8 +682,8 @@ wl1    job.batch   job-test   lq1          cq1            PENDING               
 					},
 				},
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME     LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl2    pod        pod-test-1   lq2          cq2            PENDING                       3h
+			wantOut: `NAME   JOB TYPE   JOB NAME     LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl2    pod        pod-test-1   lq2          cq2            PENDING                                   3h
 `,
 		},
 		"should print workload list with custom resource filter": {
@@ -687,8 +750,8 @@ wl2    pod        pod-test-1   lq2          cq2            PENDING              
 					},
 				},
 			},
-			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING                       120m
+			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING                                   120m
 `,
 		},
 		"should print workload list with full resource filter": {
@@ -755,12 +818,12 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 					},
 				},
 			},
-			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING                       120m
+			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING                                   120m
 `,
 		},
 		"should print workload list with position in queue": {
-			pendingWorkloads: []v1alpha1.PendingWorkload{
+			pendingWorkloads: []visibility.PendingWorkload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "wl1",
@@ -798,9 +861,9 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-wl1               j1         lq1          cq1            PENDING   12                  60m
-wl2               j2         lq2          cq2            PENDING   22                  120m
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING   12                              60m
+wl2               j2         lq2          cq2            PENDING   22                              120m
 `,
 		},
 		"should print not found error": {
@@ -815,9 +878,11 @@ wl2               j2         lq2          cq2            PENDING   22           
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tf := cmdtesting.NewTestClientGetter()
+			clientset := fake.NewSimpleClientset(tc.objs...)
+
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 			if len(tc.ns) > 0 {
-				tf.WithNamespace(tc.ns)
+				tcg.WithNamespace(tc.ns)
 			}
 
 			if len(tc.mapperKinds) != 0 {
@@ -825,7 +890,7 @@ wl2               j2         lq2          cq2            PENDING   22           
 				for _, k := range tc.mapperKinds {
 					mapper.Add(k, meta.RESTScopeNamespace)
 				}
-				tf.WithRESTMapper(mapper)
+				tcg.WithRESTMapper(mapper)
 			}
 
 			if len(tc.job) != 0 {
@@ -842,37 +907,27 @@ wl2               j2         lq2          cq2            PENDING   22           
 
 				codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
 
-				tf.UnstructuredClient = &restfake.RESTClient{
+				tcg.WithRESTClient(&restfake.RESTClient{
 					NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
 					Resp: &http.Response{
 						StatusCode: http.StatusOK,
 						Body:       io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(codec, tc.job[0])))),
 					},
-				}
+				})
 			}
-
-			clientset := fake.NewSimpleClientset(tc.objs...)
 
 			// `SimpleClientset` not allow to add `PendingWorkloadsSummary` objects,
 			// because of `PendingWorkload` resources not implement `runtime.Object`.
 			// Default `Reaction` handle all verbs and resources, so need to add on
 			// head of chain.
-			clientset.Fake.ReactionChain = append([]kubetesting.Reactor{
-				&kubetesting.SimpleReactor{
-					Verb:     "get",
-					Resource: "clusterqueues",
-					Reaction: func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
-						obj := &v1alpha1.PendingWorkloadsSummary{Items: tc.pendingWorkloads}
-						return true, obj, err
-					},
-				},
-			}, clientset.Fake.ReactionChain...)
-
-			tf.KueueClientset = clientset
-			tf.KueueClientset.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists
+			clientset.PrependReactor("get", "clusterqueues", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+				obj := &visibility.PendingWorkloadsSummary{Items: tc.pendingWorkloads}
+				return true, obj, err
+			})
+			clientset.Discovery().(*fakediscovery.FakeDiscovery).Resources = tc.apiResourceLists
 
 			fc := testingclock.NewFakeClock(testStartTime)
-			cmd := NewWorkloadCmd(tf, streams, fc)
+			cmd := NewWorkloadCmd(tcg, streams, fc)
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

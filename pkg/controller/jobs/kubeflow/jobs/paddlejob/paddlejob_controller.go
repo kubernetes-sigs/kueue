@@ -18,6 +18,7 @@ package paddlejob
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
@@ -35,29 +36,45 @@ import (
 var (
 	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.PaddleJobKind)
 	FrameworkName = "kubeflow.org/paddlejob"
+
+	SetupPaddleJobWebhook = jobframework.BaseWebhookFactory(
+		NewJob(),
+		func(o runtime.Object) jobframework.GenericJob {
+			return fromObject(o)
+		},
+	)
 )
+
+// +kubebuilder:webhook:path=/mutate-kubeflow-org-v1-paddlejob,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=paddlejobs,verbs=create,versions=v1,name=mpaddlejob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kubeflow-org-v1-paddlejob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=paddlejobs,verbs=create;update,versions=v1,name=vpaddlejob.kb.io,admissionReviewVersions=v1
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupPaddleJobWebhook,
 		JobType:                &kftraining.PaddleJob{},
 		AddToScheme:            kftraining.AddToScheme,
 		IsManagingObjectsOwner: isPaddleJob,
+		MultiKueueAdapter:      kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk),
 	}))
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=paddlejobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=kubeflow.org,resources=paddlejobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=kubeflow.org,resources=paddlejobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=paddlejobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
+
+func NewJob() jobframework.GenericJob {
+	return &kubeflowjob.KubeflowJob{KFJobControl: &JobControl{}}
+}
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: &JobControl{}}
@@ -83,12 +100,20 @@ func (j *JobControl) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *JobControl) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s,%s=%s", kftraining.JobNameLabel, j.Name, kftraining.OperatorNameLabel, "paddlejob-controller")
+}
+
 func (j *JobControl) RunPolicy() *kftraining.RunPolicy {
 	return &j.Spec.RunPolicy
 }
 
 func (j *JobControl) ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.ReplicaSpec {
 	return j.Spec.PaddleReplicaSpecs
+}
+
+func (j *JobControl) ReplicaSpecsFieldName() string {
+	return "paddleReplicaSpecs"
 }
 
 func (j *JobControl) JobStatus() *kftraining.JobStatus {

@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -32,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -82,11 +82,10 @@ func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Ob
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	newCQ := newObj.(*kueue.ClusterQueue)
-	oldCQ := oldObj.(*kueue.ClusterQueue)
 
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating update", "clusterQueue", klog.KObj(newCQ))
-	allErrs := ValidateClusterQueueUpdate(newCQ, oldCQ)
+	allErrs := ValidateClusterQueueUpdate(newCQ)
 	return nil, allErrs.ToAggregate()
 }
 
@@ -99,7 +98,11 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	path := field.NewPath("spec")
 
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, cq.Spec.Cohort, path.Child("resourceGroups"))...)
+	config := validationConfig{
+		hasParent:                        cq.Spec.Cohort != "",
+		enforceNominalGreaterThanLending: true,
+	}
+	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, config, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
 	allErrs = append(allErrs, validateCQAdmissionChecks(&cq.Spec, path)...)
@@ -112,10 +115,8 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	return allErrs
 }
 
-func ValidateClusterQueueUpdate(newObj, _ *kueue.ClusterQueue) field.ErrorList {
-	var allErrs field.ErrorList
-	allErrs = append(allErrs, ValidateClusterQueue(newObj)...)
-	return allErrs
+func ValidateClusterQueueUpdate(newObj *kueue.ClusterQueue) field.ErrorList {
+	return ValidateClusterQueue(newObj)
 }
 
 func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
@@ -137,7 +138,7 @@ func validateCQAdmissionChecks(spec *kueue.ClusterQueueSpec, path *field.Path) f
 	return allErrs
 }
 
-func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cohort string, path *field.Path) field.ErrorList {
+func validateResourceGroups(resourceGroups []kueue.ResourceGroup, config validationConfig, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	seenResources := sets.New[corev1.ResourceName]()
 	seenFlavors := sets.New[kueue.ResourceFlavorReference]()
@@ -155,7 +156,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cohort string,
 		}
 		for j, fqs := range rg.Flavors {
 			path := path.Child("flavors").Index(j)
-			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, cohort, path)...)
+			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, config, path)...)
 			if seenFlavors.Has(fqs.Name) {
 				allErrs = append(allErrs, field.Duplicate(path.Child("name"), fqs.Name))
 			} else {
@@ -166,7 +167,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cohort string,
 	return allErrs
 }
 
-func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, cohort string, path *field.Path) field.ErrorList {
+func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, config validationConfig, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
 	for i, rq := range flavorQuotas.Resources {
@@ -180,13 +181,14 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 		allErrs = append(allErrs, validateResourceQuantity(rq.NominalQuota, path.Child("nominalQuota"))...)
 		if rq.BorrowingLimit != nil {
 			borrowingLimitPath := path.Child("borrowingLimit")
+			allErrs = append(allErrs, validateLimit(*rq.BorrowingLimit, config, borrowingLimitPath)...)
 			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, borrowingLimitPath)...)
 		}
 		if features.Enabled(features.LendingLimit) && rq.LendingLimit != nil {
 			lendingLimitPath := path.Child("lendingLimit")
 			allErrs = append(allErrs, validateResourceQuantity(*rq.LendingLimit, lendingLimitPath)...)
-			allErrs = append(allErrs, validateLimit(*rq.LendingLimit, cohort, lendingLimitPath)...)
-			allErrs = append(allErrs, validateLendingLimit(*rq.LendingLimit, rq.NominalQuota, lendingLimitPath)...)
+			allErrs = append(allErrs, validateLimit(*rq.LendingLimit, config, lendingLimitPath)...)
+			allErrs = append(allErrs, validateLendingLimit(*rq.LendingLimit, rq.NominalQuota, config, lendingLimitPath)...)
 		}
 	}
 	return allErrs
@@ -196,24 +198,24 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if value.Cmp(resource.Quantity{}) < 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), constants.IsNegativeErrorMsg))
+		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), apimachineryvalidation.IsNegativeErrorMsg))
 	}
 	return allErrs
 }
 
 // validateLimit enforces that BorrowingLimit or LendingLimit must be nil when cohort is empty
-func validateLimit(limit resource.Quantity, cohort string, fldPath *field.Path) field.ErrorList {
+func validateLimit(limit resource.Quantity, config validationConfig, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	if len(cohort) == 0 {
+	if !config.hasParent {
 		allErrs = append(allErrs, field.Invalid(fldPath, limit.String(), limitIsEmptyErrorMsg))
 	}
 	return allErrs
 }
 
 // validateLendingLimit enforces that LendingLimit is not greater than NominalQuota
-func validateLendingLimit(lend, nominal resource.Quantity, fldPath *field.Path) field.ErrorList {
+func validateLendingLimit(lend, nominal resource.Quantity, config validationConfig, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	if lend.Cmp(nominal) > 0 {
+	if config.enforceNominalGreaterThanLending && lend.Cmp(nominal) > 0 {
 		allErrs = append(allErrs, field.Invalid(fldPath, lend.String(), lendingLimitErrorMsg))
 	}
 	return allErrs
@@ -225,7 +227,7 @@ func validateFairSharing(fs *kueue.FairSharing, fldPath *field.Path) field.Error
 	}
 	var allErrs field.ErrorList
 	if fs.Weight != nil && fs.Weight.Cmp(resource.Quantity{}) < 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath, fs.Weight.String(), constants.IsNegativeErrorMsg))
+		allErrs = append(allErrs, field.Invalid(fldPath, fs.Weight.String(), apimachineryvalidation.IsNegativeErrorMsg))
 	}
 	return allErrs
 }

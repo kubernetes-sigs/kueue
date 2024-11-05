@@ -7,7 +7,7 @@ no_list: true
 
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/hack/internal/tools/kueuectl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
 -->
 
 ## Synopsis
@@ -19,7 +19,7 @@ Create a resource
 ## Examples
 
 ```
-  # Create local queue 
+  # Create local queue
   kueuectl create localqueue my-local-queue -c my-cluster-queue
 ```
 

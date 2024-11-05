@@ -12,10 +12,11 @@ steps:
       - importer-image-push
       - helm-chart-push
     env:
-      - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
+      - IMAGE_REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/kueue
       - GIT_TAG=$_GIT_TAG
       - EXTRA_TAG=$_PULL_BASE_REF
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
+      - GOTOOLCHAIN=auto
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
   # can be used as a substitution

@@ -20,13 +20,11 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -36,12 +34,11 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
+		fwk.StartManager(ctx, cfg, managerSetup)
 	})
+
 	ginkgo.AfterAll(func() {
-		fwk.Teardown()
+		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -76,14 +73,7 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 
 			ginkgo.By("Wait for the queue to become active", func() {
-				gomega.Eventually(func() bool {
-					var cq kueue.ClusterQueue
-					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)
-					if err != nil {
-						return false
-					}
-					return apimeta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive)
-				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 			})
 		})
 
@@ -96,47 +86,44 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 			ginkgo.By("Try to delete admissionCheck")
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
 			var ac kueue.AdmissionCheck
-			gomega.Eventually(func() []string {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &ac)).To(gomega.Succeed())
-				return ac.GetFinalizers()
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]string{kueue.ResourceInUseFinalizerName}))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &ac)).To(gomega.Succeed())
+				g.Expect(ac.GetFinalizers()).Should(gomega.BeComparableTo([]string{kueue.ResourceInUseFinalizerName}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(ac.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
 
 			ginkgo.By("Update clusterQueue's cohort")
 			var cq kueue.ClusterQueue
-			gomega.Eventually(func() error {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
 				cq.Spec.Cohort = "foo-cohort"
-				return k8sClient.Update(ctx, &cq)
+				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			gomega.Eventually(func() error {
-				return k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &ac)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &ac)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Change clusterQueue's checks")
-			gomega.Eventually(func() error {
-				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)
-				if err != nil {
-					return err
-				}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).Should(gomega.Succeed())
 				cq.Spec.AdmissionChecks = []string{"check2"}
-				return k8sClient.Update(ctx, &cq)
+				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			gomega.Eventually(func() error {
-				return k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &ac)
-			}, util.Timeout, util.Interval).Should(utiltesting.BeNotFoundError())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &ac)).Should(utiltesting.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should delete the admissionCheck when the corresponding clusterQueue is deleted", func() {
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
 
 			var rf kueue.AdmissionCheck
-			gomega.Eventually(func() []string {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &rf)).To(gomega.Succeed())
-				return rf.GetFinalizers()
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]string{kueue.ResourceInUseFinalizerName}))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &rf)).To(gomega.Succeed())
+				g.Expect(rf.GetFinalizers()).Should(gomega.BeComparableTo([]string{kueue.ResourceInUseFinalizerName}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(rf.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
 
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())

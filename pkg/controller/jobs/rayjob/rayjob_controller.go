@@ -18,9 +18,11 @@ package rayjob
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -44,6 +46,7 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupRayJobWebhook,
 		JobType:                &rayv1.RayJob{},
@@ -62,7 +65,11 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &RayJob{} })
+func NewJob() jobframework.GenericJob {
+	return &RayJob{}
+}
+
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
 type RayJob rayv1.RayJob
 
@@ -88,28 +95,40 @@ func (j *RayJob) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *RayJob) PodLabelSelector() string {
+	if j.Status.RayClusterName != "" {
+		return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Status.RayClusterName)
+	}
+	return ""
+}
+
 func (j *RayJob) PodSets() []kueue.PodSet {
 	// len = workerGroups + head
 	podSets := make([]kueue.PodSet, len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1)
 
 	// head
 	podSets[0] = kueue.PodSet{
-		Name:     headGroupPodSetName,
-		Template: *j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
-		Count:    1,
+		Name:            headGroupPodSetName,
+		Template:        *j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+		Count:           1,
+		TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.RayClusterSpec.HeadGroupSpec.Template.ObjectMeta),
 	}
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		wgs := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index]
-		replicas := int32(1)
+		count := int32(1)
 		if wgs.Replicas != nil {
-			replicas = *wgs.Replicas
+			count = *wgs.Replicas
+		}
+		if wgs.NumOfHosts > 1 {
+			count *= wgs.NumOfHosts
 		}
 		podSets[index+1] = kueue.PodSet{
-			Name:     strings.ToLower(wgs.GroupName),
-			Template: *wgs.Template.DeepCopy(),
-			Count:    replicas,
+			Name:            strings.ToLower(wgs.GroupName),
+			Template:        *wgs.Template.DeepCopy(),
+			Count:           count,
+			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta),
 		}
 	}
 	return podSets
@@ -161,8 +180,8 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 
 func (j *RayJob) Finished() (message string, success, finished bool) {
 	message = j.Status.Message
-	success = j.Status.JobStatus != rayv1.JobStatusFailed
-	finished = j.Status.JobStatus == rayv1.JobStatusFailed || j.Status.JobStatus == rayv1.JobStatusSucceeded
+	success = j.Status.JobStatus == rayv1.JobStatusSucceeded
+	finished = j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete
 	return message, success, finished
 }
 

@@ -26,10 +26,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 )
@@ -46,6 +48,7 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	for i := range addToSchemes {
 		utilruntime.Must(addToSchemes[i](scheme))
 	}
@@ -83,6 +86,8 @@ type EventRecorder struct {
 	RecordedEvents []EventRecord
 }
 
+var _ record.EventRecorder = (*EventRecorder)(nil)
+
 func SortEvents(ei, ej EventRecord) bool {
 	if cmp := strings.Compare(ei.Key.String(), ej.Key.String()); cmp != 0 {
 		return cmp < 0
@@ -100,7 +105,7 @@ func SortEvents(ei, ej EventRecord) bool {
 }
 
 func (tr *EventRecorder) Event(object runtime.Object, eventType, reason, message string) {
-	tr.Eventf(object, eventType, reason, message)
+	tr.generateEvent(object, eventType, reason, message)
 }
 
 func (tr *EventRecorder) Eventf(object runtime.Object, eventType, reason, messageFmt string, args ...interface{}) {
@@ -108,6 +113,10 @@ func (tr *EventRecorder) Eventf(object runtime.Object, eventType, reason, messag
 }
 
 func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, _ map[string]string, eventType, reason, messageFmt string, args ...interface{}) {
+	tr.generateEvent(targetObject, eventType, reason, fmt.Sprintf(messageFmt, args...))
+}
+
+func (tr *EventRecorder) generateEvent(targetObject runtime.Object, eventType, reason, message string) {
 	tr.lock.Lock()
 	defer tr.lock.Unlock()
 	key := types.NamespacedName{}
@@ -118,7 +127,7 @@ func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, _ map[stri
 		Key:       key,
 		EventType: eventType,
 		Reason:    reason,
-		Message:   fmt.Sprintf(messageFmt, args...),
+		Message:   message,
 	})
 }
 

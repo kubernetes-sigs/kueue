@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 var (
@@ -105,7 +105,7 @@ func (w *KubeConfigFSWatcher) clustersForPath(path string) []string {
 
 func (w *KubeConfigFSWatcher) notifyPathWrite(path string) {
 	for _, c := range w.clustersForPath(path) {
-		w.reconcile <- event.GenericEvent{Object: &kueuealpha.MultiKueueCluster{ObjectMeta: metav1.ObjectMeta{Name: c}}}
+		w.reconcile <- event.GenericEvent{Object: &kueue.MultiKueueCluster{ObjectMeta: metav1.ObjectMeta{Name: c}}}
 	}
 }
 

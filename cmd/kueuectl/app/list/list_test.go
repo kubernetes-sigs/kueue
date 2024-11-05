@@ -1,3 +1,19 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package list
 
 import (
@@ -109,9 +125,9 @@ cq2    cohort2   0                   0                    false    120m
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-ns1         wl1               j1         lq1          cq1            PENDING                       60m
-ns2         wl2               j2         lq2          cq2            PENDING                       120m
+			wantOut: `NAMESPACE   NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+ns1         wl1               j1         lq1          cq1            PENDING                                   60m
+ns2         wl2               j2         lq2          cq2            PENDING                                   120m
 `,
 		},
 		"should print workload list with all namespaces (short command and flag)": {
@@ -132,9 +148,9 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   AGE
-ns1         wl1               j1         lq1          cq1            PENDING                       60m
-ns2         wl2               j2         lq2          cq2            PENDING                       120m
+			wantOut: `NAMESPACE   NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+ns1         wl1               j1         lq1          cq1            PENDING                                   60m
+ns2         wl2               j2         lq2          cq2            PENDING                                   120m
 `,
 		},
 	}
@@ -142,15 +158,14 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tf := cmdtesting.NewTestClientGetter()
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
 			if len(tc.ns) > 0 {
-				tf.WithNamespace(tc.ns)
+				tcg.WithNamespace(tc.ns)
 			}
 
-			tf.KueueClientset = fake.NewSimpleClientset(tc.objs...)
 			fc := testingclock.NewFakeClock(testStartTime)
 
-			cmd := NewListCmd(tf, streams, fc)
+			cmd := NewListCmd(tcg, streams, fc)
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()

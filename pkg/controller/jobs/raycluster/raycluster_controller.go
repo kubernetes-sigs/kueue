@@ -15,9 +15,11 @@ package raycluster
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -43,6 +45,7 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
+		NewJob:                 NewJob,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupRayClusterWebhook,
 		JobType:                &rayv1.RayCluster{},
@@ -61,7 +64,11 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/finalizers,verbs=get;update
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &RayCluster{} })
+func NewJob() jobframework.GenericJob {
+	return &RayCluster{}
+}
+
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 
 type RayCluster rayv1.RayCluster
 
@@ -87,28 +94,37 @@ func (j *RayCluster) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *RayCluster) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Name)
+}
+
 func (j *RayCluster) PodSets() []kueue.PodSet {
 	// len = workerGroups + head
 	podSets := make([]kueue.PodSet, len(j.Spec.WorkerGroupSpecs)+1)
 
 	// head
 	podSets[0] = kueue.PodSet{
-		Name:     headGroupPodSetName,
-		Template: *j.Spec.HeadGroupSpec.Template.DeepCopy(),
-		Count:    1,
+		Name:            headGroupPodSetName,
+		Template:        *j.Spec.HeadGroupSpec.Template.DeepCopy(),
+		Count:           1,
+		TopologyRequest: jobframework.PodSetTopologyRequest(&j.Spec.HeadGroupSpec.Template.ObjectMeta),
 	}
 
 	// workers
 	for index := range j.Spec.WorkerGroupSpecs {
 		wgs := &j.Spec.WorkerGroupSpecs[index]
-		replicas := int32(1)
+		count := int32(1)
 		if wgs.Replicas != nil {
-			replicas = *wgs.Replicas
+			count = *wgs.Replicas
+		}
+		if wgs.NumOfHosts > 1 {
+			count *= wgs.NumOfHosts
 		}
 		podSets[index+1] = kueue.PodSet{
-			Name:     strings.ToLower(wgs.GroupName),
-			Template: *wgs.Template.DeepCopy(),
-			Count:    replicas,
+			Name:            strings.ToLower(wgs.GroupName),
+			Template:        *wgs.Template.DeepCopy(),
+			Count:           count,
+			TopologyRequest: jobframework.PodSetTopologyRequest(&wgs.Template.ObjectMeta),
 		}
 	}
 	return podSets

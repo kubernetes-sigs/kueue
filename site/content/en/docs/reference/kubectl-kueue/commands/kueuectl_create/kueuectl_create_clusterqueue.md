@@ -7,7 +7,7 @@ no_list: false
 
 <!--
 The file is auto-generated from the Go source code of the component using the
-[generator](https://github.com/kubernetes-sigs/kueue/tree/main/hack/internal/tools/kueuectl-docs).
+[generator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/kueuectl-docs).
 -->
 
 ## Synopsis
@@ -23,26 +23,26 @@ kueuectl create clusterqueue NAME [--cohort COHORT_NAME] [--queuing-strategy QUE
 ## Examples
 
 ```
-  # Create a ClusterQueue 
+  # Create a ClusterQueue
   kueuectl create clusterqueue my-cluster-queue
   
   # Create a ClusterQueue with cohort, namespace selector and other details
   kueuectl create clusterqueue my-cluster-queue \
-  	--cohort cohortname \
-	--queuing-strategy StrictFIFO \
-	--namespace-selector fooX=barX,fooY=barY \
-	--reclaim-within-cohort Any \
-	--preemption-within-cluster-queue LowerPriority
+  --cohort cohortname \
+  --queuing-strategy StrictFIFO \
+  --namespace-selector fooX=barX,fooY=barY \
+  --reclaim-within-cohort Any \
+  --preemption-within-cluster-queue LowerPriority
   
   # Create a ClusterQueue with nominal quota and one resource flavor named alpha
   kueuectl create clusterqueue my-cluster-queue --nominal-quota "alpha:cpu=9;memory=36Gi"
   
   # Create a ClusterQueue with multiple resource flavors named alpha and beta
   kueuectl create clusterqueue my-cluster-queue \
-	--cohort cohortname \
-  	--nominal-quota "alpha:cpu=9;memory=36Gi;nvidia.com/gpu=10,beta:cpu=18;memory=72Gi;nvidia.com/gpu=20" \
-	--borrowing-limit "alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2" \
-	--lending-limit "alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2"
+  --cohort cohortname \
+  --nominal-quota "alpha:cpu=9;memory=36Gi;nvidia.com/gpu=10,beta:cpu=18;memory=72Gi;nvidia.com/gpu=20" \
+  --borrowing-limit "alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2" \
+  --lending-limit "alpha:cpu=1;memory=1Gi;nvidia.com/gpu=1,beta:cpu=2;memory=2Gi;nvidia.com/gpu=2"
 ```
 
 

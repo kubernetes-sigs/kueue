@@ -21,14 +21,14 @@ import (
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-// AdmissionCheckStrategyRuleApplyConfiguration represents an declarative configuration of the AdmissionCheckStrategyRule type for use
+// AdmissionCheckStrategyRuleApplyConfiguration represents a declarative configuration of the AdmissionCheckStrategyRule type for use
 // with apply.
 type AdmissionCheckStrategyRuleApplyConfiguration struct {
 	Name      *string                           `json:"name,omitempty"`
 	OnFlavors []v1beta1.ResourceFlavorReference `json:"onFlavors,omitempty"`
 }
 
-// AdmissionCheckStrategyRuleApplyConfiguration constructs an declarative configuration of the AdmissionCheckStrategyRule type for use with
+// AdmissionCheckStrategyRuleApplyConfiguration constructs a declarative configuration of the AdmissionCheckStrategyRule type for use with
 // apply.
 func AdmissionCheckStrategyRule() *AdmissionCheckStrategyRuleApplyConfiguration {
 	return &AdmissionCheckStrategyRuleApplyConfiguration{}
