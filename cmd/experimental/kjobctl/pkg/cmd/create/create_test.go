@@ -1214,7 +1214,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)
 							}).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
-							LocalQueue("lq1").
 							Data(map[string]string{
 								"script": "#!/bin/bash\nsleep 300'",
 								"init-entrypoint.sh": `#!/bin/sh
@@ -1324,7 +1323,6 @@ export $(cat /slurm/env/$JOB_CONTAINER_INDEX/slurm.env | xargs)cd /mydir
 						*wrappers.MakeService("profile-slurm", metav1.NamespaceDefault).
 							Profile("profile").
 							Mode(v1alpha1.SlurmMode).
-							LocalQueue("lq1").
 							ClusterIP("None").
 							Selector("job-name", "profile-slurm").
 							WithOwnerReference(metav1.OwnerReference{

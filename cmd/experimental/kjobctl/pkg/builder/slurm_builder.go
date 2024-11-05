@@ -190,6 +190,26 @@ func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
 	return nil
 }
 
+func (b *slurmBuilder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {
+	objectMeta := b.Builder.buildObjectMeta(templateObjectMeta)
+	objectMeta.GenerateName = ""
+	objectMeta.Name = b.objectName
+
+	if b.maxExecutionTimeSeconds != nil {
+		objectMeta.Labels[constants.MaxExecTimeSecondsLabel] = fmt.Sprint(ptr.Deref(b.maxExecutionTimeSeconds, 0))
+	}
+
+	return objectMeta
+}
+
+func (b *slurmBuilder) buildChildObjectMeta() metav1.ObjectMeta {
+	objectMeta := b.Builder.buildChildObjectMeta()
+	objectMeta.GenerateName = ""
+	objectMeta.Name = b.objectName
+
+	return objectMeta
+}
+
 func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Object, error) {
 	if err := b.validateGeneral(); err != nil {
 		return nil, nil, err
@@ -205,18 +225,12 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		return nil, nil, err
 	}
 
-	objectMeta := b.buildObjectMeta(template.Template.ObjectMeta)
-	objectMeta.GenerateName = ""
-	objectMeta.Name = b.objectName
-
 	job := &batchv1.Job{
 		TypeMeta:   metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"},
-		ObjectMeta: objectMeta,
+		ObjectMeta: b.buildObjectMeta(template.Template.ObjectMeta),
 		Spec:       template.Template.Spec,
 	}
-	if b.maxExecutionTimeSeconds != nil {
-		job.Labels[constants.MaxExecTimeSecondsLabel] = fmt.Sprint(ptr.Deref(b.maxExecutionTimeSeconds, 0))
-	}
+
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
 	job.Spec.Template.Spec.Subdomain = b.objectName
 
@@ -435,7 +449,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 
 	configMap := &corev1.ConfigMap{
 		TypeMeta:   metav1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
-		ObjectMeta: objectMeta,
+		ObjectMeta: b.buildChildObjectMeta(),
 		Data: map[string]string{
 			slurmInitEntrypointFilename: initEntrypointScript,
 			slurmEntrypointFilename:     entrypointScript,
@@ -445,7 +459,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 
 	service := &corev1.Service{
 		TypeMeta:   metav1.TypeMeta{Kind: "Service", APIVersion: "v1"},
-		ObjectMeta: objectMeta,
+		ObjectMeta: b.buildChildObjectMeta(),
 		Spec: corev1.ServiceSpec{
 			ClusterIP: "None",
 			Selector: map[string]string{
