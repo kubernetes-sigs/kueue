@@ -99,16 +99,22 @@ func ResetChecksOnEviction(w *kueue.Workload, now time.Time) {
 	}
 }
 
-func ResetChecksOnDeactivation(w *kueue.Workload) {
+func ResetChecksOnDeactivation(w *kueue.Workload) bool {
 	checks := w.Status.AdmissionChecks
+	updated := false
 	for i := range checks {
+		if checks[i].State == kueue.CheckStatePending {
+			continue
+		}
 		checks[i] = kueue.AdmissionCheckState{
 			Name:               checks[i].Name,
 			State:              kueue.CheckStatePending,
 			LastTransitionTime: metav1.NewTime(time.Now()),
 			Message:            "Reset to Pending after deactivation. Previously: " + string(checks[i].State),
 		}
+		updated = true
 	}
+	return updated
 }
 
 // SetAdmissionCheckState - adds or updates newCheck in the provided checks list.

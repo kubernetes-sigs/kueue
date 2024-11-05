@@ -203,10 +203,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			wl.Status.RequeueState = nil
 			updated = true
 		}
-		if wl.Status.AdmissionChecks != nil {
-			workload.ResetChecksOnDeactivation(&wl)
-			updated = true
-		}
+		updated = updated || workload.ResetChecksOnDeactivation(&wl)
 		if updated {
 			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
@@ -377,7 +374,6 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 			rejectedCheckNames = append(rejectedCheckNames, check.Name)
 		}
 		workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, fmt.Sprintf("Admission check(s): %v, were rejected", rejectedCheckNames))
-		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "Admission check(s) were rejected")
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
 			return false, client.IgnoreNotFound(err)
 		}
