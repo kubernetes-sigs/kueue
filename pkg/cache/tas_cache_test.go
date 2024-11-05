@@ -197,7 +197,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 		requests       resources.Requests
 		count          int32
 		wantAssignment *kueue.TopologyAssignment
-		wantReason     *string
+		wantReason     string
 	}{
 		"minimize the number of used racks before optimizing the number of nodes": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x3,x4,x5,x6]
@@ -463,7 +463,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      4,
-			wantReason: ptr.To("topology domain(s) allow to fit only 3 out of 4 pods"),
+			wantReason: "topology domain(s) allow to fit only 3 out of 4 pods",
 		},
 		"block required; single Pod fits in a block": {
 			nodes: defaultNodes,
@@ -531,7 +531,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 4000,
 			},
 			count:      1,
-			wantReason: ptr.To("topology domain(s) don't allow to fit any of 1 pods"),
+			wantReason: "topology domain(s) don't allow to fit any of 1 pods",
 		},
 		"block required; too many Pods to fit requested": {
 			nodes: defaultNodes,
@@ -543,7 +543,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      5,
-			wantReason: ptr.To("topology domain(s) allow to fit only 4 out of 5 pods"),
+			wantReason: "topology domain(s) allow to fit only 4 out of 5 pods",
 		},
 		"rack required; single Pod requiring memory": {
 			nodes: defaultNodes,
@@ -682,7 +682,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      10,
-			wantReason: ptr.To("topology domain(s) allow to fit only 7 out of 10 pods"),
+			wantReason: "topology domain(s) allow to fit only 7 out of 10 pods",
 		},
 		"only nodes with matching labels are considered; no matching node": {
 			nodes: []corev1.Node{
@@ -713,7 +713,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      1,
-			wantReason: ptr.To("no topology domains at level: kubernetes.io/hostname"),
+			wantReason: "no topology domains at level: kubernetes.io/hostname",
 		},
 		"only nodes with matching labels are considered; matching node is found": {
 			nodes: []corev1.Node{
@@ -795,7 +795,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      1,
-			wantReason: ptr.To("no topology domains at level: cloud.com/topology-rack"),
+			wantReason: "no topology domains at level: cloud.com/topology-rack",
 		},
 		"don't consider unscheduled Pods when computing capacity": {
 			// the Pod is not scheduled (no NodeName set, so is not blocking capacity)
@@ -937,7 +937,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 600,
 			},
 			count:      1,
-			wantReason: ptr.To("topology domain(s) don't allow to fit any of 1 pods"),
+			wantReason: "topology domain(s) don't allow to fit any of 1 pods",
 		},
 		"include usage from running non-TAS pods, blocked assignment": {
 			// there is not enough free capacity on the only node x1
@@ -977,7 +977,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 600,
 			},
 			count:      1,
-			wantReason: ptr.To("topology domain(s) don't allow to fit any of 1 pods"),
+			wantReason: "topology domain(s) don't allow to fit any of 1 pods",
 		},
 		"include usage from running non-TAS pods, found free capacity on another node": {
 			// there is not enough free capacity on the node x1 as the
@@ -1088,7 +1088,7 @@ func TestFindTopologyAssignment(t *testing.T) {
 				corev1.ResourceCPU: 1000,
 			},
 			count:      1,
-			wantReason: ptr.To("no topology domains at level: kubernetes.io/hostname"),
+			wantReason: "no topology domains at level: kubernetes.io/hostname",
 		},
 	}
 	for name, tc := range cases {

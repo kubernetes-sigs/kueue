@@ -64,16 +64,14 @@ func assignTopology(log logr.Logger,
 			psAssignment.Flavors = nil
 			return
 		}
-		var reason *string
+		var reason string
 		psAssignment.TopologyAssignment, reason = snapshot.FindTopologyAssignment(podSet.TopologyRequest,
 			singlePodRequests, podCount)
 		if psAssignment.TopologyAssignment == nil {
 			if psAssignment.Status == nil {
 				psAssignment.Status = &Status{}
 			}
-			if reason != nil {
-				psAssignment.Status.append(*reason)
-			}
+			psAssignment.Status.append(reason)
 			psAssignment.Flavors = nil
 		}
 		log.Info("TAS PodSet assignment", "tasAssignment", psAssignment.TopologyAssignment)
