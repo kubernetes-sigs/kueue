@@ -108,9 +108,9 @@ type JobWithPriorityClass interface {
 	PriorityClass() string
 }
 
-// JobWithValidation optional interface that allows custom webhook validation
+// JobWithCustomValidation optional interface that allows custom webhook validation
 // for Jobs that use BaseWebhook.
-type JobWithValidation interface {
+type JobWithCustomValidation interface {
 	// ValidateOnCreate returns list of webhook create validation errors.
 	ValidateOnCreate() field.ErrorList
 	// ValidateOnUpdate returns list of webhook update validation errors.

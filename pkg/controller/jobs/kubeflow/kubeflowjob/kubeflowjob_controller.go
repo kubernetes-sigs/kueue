@@ -38,7 +38,7 @@ type KubeflowJob struct {
 
 var _ jobframework.GenericJob = (*KubeflowJob)(nil)
 var _ jobframework.JobWithPriorityClass = (*KubeflowJob)(nil)
-var _ jobframework.JobWithValidation = (*KubeflowJob)(nil)
+var _ jobframework.JobWithCustomValidation = (*KubeflowJob)(nil)
 
 func (j *KubeflowJob) Object() client.Object {
 	return j.KFJobControl.Object()
