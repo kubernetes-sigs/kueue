@@ -65,7 +65,7 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(opts ...provisioning.Option) framework.ManagerSetup {
+func managerSetup() framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -89,9 +89,7 @@ func managerSetup(opts ...provisioning.Option) framework.ManagerSetup {
 
 		reconciler, err := provisioning.NewController(
 			mgr.GetClient(),
-			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"),
-			opts...,
-		)
+			mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = reconciler.SetupWithManager(mgr)

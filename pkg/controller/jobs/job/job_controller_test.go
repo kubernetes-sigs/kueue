@@ -808,7 +808,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
-						Status:  metav1.ConditionTrue,
+						Status:  metav1.ConditionFalse,
 						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
 						Message: "At least one admission check is false",
 					}).

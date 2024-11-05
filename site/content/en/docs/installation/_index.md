@@ -10,13 +10,13 @@ description: >
 - [Before you begin](#before-you-begin)
 - [Install a released version](#install-a-released-version)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
+  - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Uninstall](#uninstall)
 - [Install a custom-configured released version](#install-a-custom-configured-released-version)
 - [Install the latest development version](#install-the-latest-development-version)
   - [Uninstall](#uninstall-1)
 - [Build and install from source](#build-and-install-from-source)
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator-1)
-  - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Uninstall](#uninstall-2)
 - [Install via Helm](#install-via-helm)
 - [Change the feature gates configuration](#change-the-feature-gates-configuration)
@@ -256,6 +256,7 @@ The currently supported features are:
 | `ConfigurableResourceTransformations` | `false` | Alpha      | 0.9   |       |
 | `WorkloadResourceRequestsSummary`     | `false` | Alpha      | 0.9   |       |
 | `AdmissionCheckValidationRules`       | `false` | Deprecated | 0.9   | 0.9   |
+| `KeepQuotaForProvReqRetry`            | `false` | Deprecated | 0.9   | 0.9   |
 
 ## What's next
 

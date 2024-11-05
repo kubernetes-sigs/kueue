@@ -57,6 +57,52 @@ type ProvisioningRequestConfigSpec struct {
 	// +listType=set
 	// +kubebuilder:validation:MaxItems=100
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
+
+	// retryStrategy defines strategy for retrying ProvisioningRequest.
+	// If null, then the default configuration is applied with the following parameter values:
+	// backoffLimitCount:  3
+	// backoffBaseSeconds: 60 - 1 min
+	// backoffMaxSeconds:  1800 - 30 mins
+	//
+	// To switch off retry mechanism
+	// set retryStrategy.backoffLimitCount to 0.
+	//
+	// +optional
+	// +kubebuilder:default={backoffLimitCount:3,backoffBaseSeconds:60,backoffMaxSeconds:1800}
+	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
+}
+
+type ProvisioningRequestRetryStrategy struct {
+	// BackoffLimitCount defines the maximum number of re-queuing retries.
+	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	//
+	// Every backoff duration is about "b*2^(n-1)+Rand" where:
+	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
+	// - "n" represents the "workloadStatus.requeueState.count",
+	// - "Rand" represents the random jitter.
+	// During this time, the workload is taken as an inadmissible and
+	// other workloads will have a chance to be admitted.
+	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
+	//
+	// Defaults to 3.
+	// +optional
+	// +kubebuilder:default=3
+	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+
+	// BackoffBaseSeconds defines the base for the exponential backoff for
+	// re-queuing an evicted workload.
+	//
+	// Defaults to 60.
+	// +optional
+	// +kubebuilder:default=60
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	//
+	// Defaults to 1800.
+	// +optional
+	// +kubebuilder:default=1800
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 
 // Parameter is limited to 255 characters.

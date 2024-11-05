@@ -1874,6 +1874,71 @@ requesting at least one of them.</p>
 the workload is considered ready.</p>
 </td>
 </tr>
+<tr><td><code>retryStrategy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-ProvisioningRequestRetryStrategy"><code>ProvisioningRequestRetryStrategy</code></a>
+</td>
+<td>
+   <p>retryStrategy defines strategy for retrying ProvisioningRequest.
+If null, then the default configuration is applied with the following parameter values:
+backoffLimitCount:  3
+backoffBaseSeconds: 60 - 1 min
+backoffMaxSeconds:  1800 - 30 mins</p>
+<p>To switch off retry mechanism
+set retryStrategy.backoffLimitCount to 0.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ProvisioningRequestRetryStrategy`     {#kueue-x-k8s-io-v1beta1-ProvisioningRequestRetryStrategy}
+    
+
+**Appears in:**
+
+- [ProvisioningRequestConfigSpec](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfigSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>backoffLimitCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffLimitCount defines the maximum number of re-queuing retries.
+Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).</p>
+<p>Every backoff duration is about &quot;b*2^(n-1)+Rand&quot; where:</p>
+<ul>
+<li>&quot;b&quot; represents the base set by &quot;BackoffBaseSeconds&quot; parameter,</li>
+<li>&quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;,</li>
+<li>&quot;Rand&quot; represents the random jitter.
+During this time, the workload is taken as an inadmissible and
+other workloads will have a chance to be admitted.
+By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</li>
+</ul>
+<p>Defaults to 3.</p>
+</td>
+</tr>
+<tr><td><code>backoffBaseSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffBaseSeconds defines the base for the exponential backoff for
+re-queuing an evicted workload.</p>
+<p>Defaults to 60.</p>
+</td>
+</tr>
+<tr><td><code>backoffMaxSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.</p>
+<p>Defaults to 1800.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

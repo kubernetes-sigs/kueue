@@ -312,6 +312,7 @@ var (
 		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
+		cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt"),
 		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 	}
 )
@@ -735,7 +736,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
-		"should keep the WorkloadRequeued condition until the backoff expires": {
+		"should keep the WorkloadRequeued condition until the WaitForPodsReady backoff expires": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
@@ -758,7 +759,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantResult: reconcile.Result{RequeueAfter: time.Minute},
 		},
-		"should set the WorkloadRequeued condition when backoff expires": {
+		"should set the WorkloadRequeued condition when the WaitForPodsReady backoff expires": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				Active(true).
 				Condition(metav1.Condition{
@@ -766,6 +767,51 @@ func TestReconcile(t *testing.T) {
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadBackoffFinished,
+					Message: "The workload backoff was finished",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
+				Obj(),
+		},
+		"should keep the WorkloadRequeued condition until the AdmissionCheck backoff expires": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Exceeded the AdmissionCheck timeout ns",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(60*time.Second).Truncate(time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Exceeded the AdmissionCheck timeout ns",
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(60*time.Second).Truncate(time.Second)))).
+				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: time.Minute},
+		},
+		"should set the WorkloadRequeued condition when the AdmissionCheck backoff expires": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+					Message: "Exceeded the AdmissionCheck timeout ns",
 				}).
 				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Truncate(time.Second)))).
 				Obj(),

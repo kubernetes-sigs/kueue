@@ -181,26 +181,23 @@ type ProvisioningRequestConfigSpec struct {
 	// +kubebuilder:validation:MaxItems=100
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
 
-	// retryStrategy defines strategy for retrying ProvisioningRequest
-	// if nil then default configuration will be applied
-	// to switch off retry mechanism completely, set retryStrategy.backoffLimitCount to 0.
+	// retryStrategy defines strategy for retrying ProvisioningRequest.
+	// If null, then the default configuration is applied with the following parameter values:
+	// backoffLimitCount:  3
+	// backoffBaseSeconds: 60 - 1 min
+	// backoffMaxSeconds:  1800 - 30 mins
+	//
+	// To switch off retry mechanism
+	// set retryStrategy.backoffLimitCount to 0.
 	//
 	// +optional
-	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy, omitempty"`
+	// +kubebuilder:default={backoffLimitCount:3,backoffBaseSeconds:60,backoffMaxSeconds:1800}
+	RetryStrategy *ProvisioningRequestRetryStrategy `json:"retryStrategy,omitempty"`
 }
 
 type ProvisioningRequestRetryStrategy struct {
-	// Timestamp defines the timestamp used for re-queuing a Workload
-	// that was evicted due to Pod readiness. The possible values are:
-	//
-	// - `Eviction` (default) indicates from Workload `Evicted` condition with `PodsReadyTimeout` reason.
-	// - `Creation` indicates from Workload .metadata.creationTimestamp.
-	//
-	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
-
 	// BackoffLimitCount defines the maximum number of re-queuing retries.
 	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
-	// When it is null, the workloads will repeatedly and endless re-queueing.
 	//
 	// Every backoff duration is about "b*2^(n-1)+Rand" where:
 	// - "b" represents the base set by "BackoffBaseSeconds" parameter,
@@ -212,6 +209,7 @@ type ProvisioningRequestRetryStrategy struct {
 	//
 	// Defaults to 3.
 	// +optional
+	// +kubebuilder:default=3
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 
 	// BackoffBaseSeconds defines the base for the exponential backoff for
@@ -219,12 +217,14 @@ type ProvisioningRequestRetryStrategy struct {
 	//
 	// Defaults to 60.
 	// +optional
+	// +kubebuilder:default=60
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 
 	// BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
 	//
 	// Defaults to 1800.
 	// +optional
+	// +kubebuilder:default=1800
 	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 ```

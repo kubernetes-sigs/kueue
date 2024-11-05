@@ -75,6 +75,56 @@ spec:
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
+              retryStrategy:
+                default:
+                  backoffBaseSeconds: 60
+                  backoffLimitCount: 3
+                  backoffMaxSeconds: 1800
+                description: |-
+                  retryStrategy defines strategy for retrying ProvisioningRequest.
+                  If null, then the default configuration is applied with the following parameter values:
+                  backoffLimitCount:  3
+                  backoffBaseSeconds: 60 - 1 min
+                  backoffMaxSeconds:  1800 - 30 mins
+
+                  To switch off retry mechanism
+                  set retryStrategy.backoffLimitCount to 0.
+                properties:
+                  backoffBaseSeconds:
+                    default: 60
+                    description: |-
+                      BackoffBaseSeconds defines the base for the exponential backoff for
+                      re-queuing an evicted workload.
+
+                      Defaults to 60.
+                    format: int32
+                    type: integer
+                  backoffLimitCount:
+                    default: 3
+                    description: |-
+                      BackoffLimitCount defines the maximum number of re-queuing retries.
+                      Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+
+                      Every backoff duration is about "b*2^(n-1)+Rand" where:
+                      - "b" represents the base set by "BackoffBaseSeconds" parameter,
+                      - "n" represents the "workloadStatus.requeueState.count",
+                      - "Rand" represents the random jitter.
+                      During this time, the workload is taken as an inadmissible and
+                      other workloads will have a chance to be admitted.
+                      By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
+
+                      Defaults to 3.
+                    format: int32
+                    type: integer
+                  backoffMaxSeconds:
+                    default: 1800
+                    description: |-
+                      BackoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+
+                      Defaults to 1800.
+                    format: int32
+                    type: integer
+                type: object
             required:
             - provisioningClassName
             type: object

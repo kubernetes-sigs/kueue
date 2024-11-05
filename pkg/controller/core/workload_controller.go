@@ -32,7 +32,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -164,7 +163,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			case kueue.WorkloadEvictedByDeactivation:
 				workload.SetRequeuedCondition(&wl, kueue.WorkloadReactivated, "The workload was reactivated", true)
 				updated = true
-			case kueue.WorkloadEvictedByPodsReadyTimeout:
+			case kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadEvictedByAdmissionCheck:
 				var requeueAfter time.Duration
 				if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
 					requeueAfter = wl.Status.RequeueState.RequeueAt.Time.Sub(r.clock.Now())
@@ -562,8 +561,7 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 		wl.Status.RequeueState = &kueue.RequeueState{}
 	}
 	// If requeuingBackoffLimitCount equals to null, the workloads is repeatedly and endless re-queued.
-	requeuingCount := ptr.Deref(wl.Status.RequeueState.Count, 0) + 1
-	if r.waitForPodsReady.requeuingBackoffLimitCount != nil && requeuingCount > *r.waitForPodsReady.requeuingBackoffLimitCount {
+	if r.waitForPodsReady.requeuingBackoffLimitCount != nil && ptr.Deref(wl.Status.RequeueState.Count, 0)+1 > *r.waitForPodsReady.requeuingBackoffLimitCount {
 		workload.SetDeactivationTarget(wl, kueue.WorkloadRequeuingLimitExceeded,
 			"exceeding the maximum number of re-queuing retries")
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
@@ -571,24 +569,7 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 		}
 		return true, nil
 	}
-	// Every backoff duration is about "60s*2^(n-1)+Rand" where:
-	// - "n" represents the "requeuingCount",
-	// - "Rand" represents the random jitter.
-	// During this time, the workload is taken as an inadmissible and other
-	// workloads will have a chance to be admitted.
-	backoff := &wait.Backoff{
-		Duration: time.Duration(r.waitForPodsReady.requeuingBackoffBaseSeconds) * time.Second,
-		Factor:   2,
-		Jitter:   r.waitForPodsReady.requeuingBackoffJitter,
-		Steps:    int(requeuingCount),
-	}
-	var waitDuration time.Duration
-	for backoff.Steps > 0 {
-		waitDuration = min(backoff.Step(), r.waitForPodsReady.requeuingBackoffMaxDuration)
-	}
-
-	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(r.clock.Now().Add(waitDuration)))
-	wl.Status.RequeueState.Count = &requeuingCount
+	workload.UpdateRequeueState(wl, r.waitForPodsReady.requeuingBackoffBaseSeconds, int32(r.waitForPodsReady.requeuingBackoffMaxDuration.Seconds()), r.clock)
 	return false, nil
 }
 
