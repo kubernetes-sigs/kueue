@@ -301,11 +301,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
 			}
 		}
-
-		if !workload.HasQuotaReservation(group.local) && acs.State == kueue.CheckStateRetry {
-			errs = append(errs, w.updateACS(ctx, group.local, acs, kueue.CheckStatePending, "Requeued"))
-		}
-
 		return reconcile.Result{}, errors.Join(errs...)
 	}
 

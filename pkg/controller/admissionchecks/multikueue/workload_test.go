@@ -852,31 +852,6 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"the local workload's admission check is set to Pending when it is in Retry without quota": {
-			reconcileFor: "wl1",
-			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.Clone().Obj()},
-			managersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:    "ac1",
-						State:   kueue.CheckStateRetry,
-						Message: `Reserving remote lost`,
-					}).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					Obj(),
-			},
-			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.Clone().Obj()},
-			wantManagersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:    "ac1",
-						State:   kueue.CheckStatePending,
-						Message: `Requeued`,
-					}).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					Obj(),
-			},
-		},
 		"worker reconnects after the local workload is requeued, remote objects are deleted": {
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.Clone().Obj()},
