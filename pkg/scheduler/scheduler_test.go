@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/metrics/testutil"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -92,6 +93,8 @@ const (
 
 func TestSchedule(t *testing.T) {
 	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
 	resourceFlavors := []*kueue.ResourceFlavor{
 		{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
@@ -2651,7 +2654,7 @@ func TestSchedule(t *testing.T) {
 					t.Errorf("couldn't create the cluster queue: %v", err)
 				}
 			}
-			scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(&config.FairSharing{Enable: tc.enableFairSharing}))
+			scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(&config.FairSharing{Enable: tc.enableFairSharing}), WithClock(t, fakeClock))
 			gotScheduled := make(map[string]kueue.Admission)
 			var mu sync.Mutex
 			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
@@ -3023,6 +3026,9 @@ func TestEntryOrdering(t *testing.T) {
 }
 
 func TestLastSchedulingContext(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
 	resourceFlavors := []*kueue.ResourceFlavor{
 		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
@@ -3141,7 +3147,6 @@ func TestLastSchedulingContext(t *testing.T) {
 		ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
 		Admitted(true).
 		Obj()
-	now := time.Now()
 	cases := []struct {
 		name                           string
 		cqs                            []kueue.ClusterQueue
@@ -3447,7 +3452,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 				}
 			}
-			scheduler := New(qManager, cqCache, cl, recorder)
+			scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock))
 			gotScheduled := make(map[string]kueue.Admission)
 			var mu sync.Mutex
 			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {

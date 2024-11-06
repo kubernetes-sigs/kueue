@@ -22,7 +22,7 @@ import (
 	"maps"
 	"sort"
 	"strings"
-	"time"
+	"testing"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -73,6 +73,7 @@ type Scheduler struct {
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
 	fairSharing             config.FairSharing
+	clock                   clock.Clock
 
 	// attemptCount identifies the number of scheduling attempt in logs, from the last restart.
 	attemptCount int64
@@ -84,6 +85,7 @@ type Scheduler struct {
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 config.FairSharing
+	clock                       clock.Clock
 }
 
 // Option configures the reconciler.
@@ -91,6 +93,7 @@ type Option func(*options)
 
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
+	clock:                       realClock,
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -109,6 +112,12 @@ func WithFairSharing(fs *config.FairSharing) Option {
 	}
 }
 
+func WithClock(_ testing.TB, c clock.Clock) Option {
+	return func(o *options) {
+		o.clock = c
+	}
+}
+
 func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -123,9 +132,10 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, realClock),
+		preemptor:               preemption.New(cl, wo, recorder, options.fairSharing, options.clock),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
+		clock:                   options.clock,
 	}
 	s.applyAdmission = s.applyAdmissionWithSSA
 	return s
@@ -206,7 +216,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	if len(headWorkloads) == 0 {
 		return wait.KeepGoing
 	}
-	startTime := time.Now()
+	startTime := s.clock.Now()
 
 	// 2. Take a snapshot of the cache.
 	snapshot, err := s.cache.Snapshot(ctx)
@@ -322,7 +332,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
-			workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", time.Now())
+			workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
 			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, false); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
@@ -349,7 +359,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		}
 	}
 	reportSkippedPreemptions(skippedPreemptions)
-	metrics.AdmissionAttempt(result, time.Since(startTime))
+	metrics.AdmissionAttempt(result, s.clock.Since(startTime))
 	if result != metrics.AdmissionResultSuccess {
 		return wait.SlowDown
 	}
@@ -586,7 +596,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *cache.ClusterQueueS
 	workload.SetQuotaReservation(newWorkload, admission)
 	if workload.HasAllChecks(newWorkload, workload.AdmissionChecksForWorkload(log, newWorkload, cq.AdmissionChecks)) {
 		// sync Admitted, ignore the result since an API update is always done.
-		_ = workload.SyncAdmittedCondition(newWorkload, time.Now())
+		_ = workload.SyncAdmittedCondition(newWorkload, s.clock.Now())
 	}
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
@@ -690,7 +700,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if e.status == notNominated || e.status == skipped {
 		patch := workload.BaseSSAWorkload(e.Obj)
 		workload.AdmissionStatusPatch(e.Obj, patch, true)
-		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, time.Now())
+		reservationIsChanged := workload.UnsetQuotaReservationWithCondition(patch, "Pending", e.inadmissibleMsg, s.clock.Now())
 		resourceRequestsIsChanged := workload.PropagateResourceRequests(patch, &e.Info)
 		if reservationIsChanged || resourceRequestsIsChanged {
 			if err := workload.ApplyAdmissionStatusPatch(ctx, s.client, patch); err != nil {
