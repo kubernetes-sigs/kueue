@@ -54,6 +54,7 @@ func Test_PushOrUpdate(t *testing.T) {
 	now := time.Now()
 	minuteLater := now.Add(time.Minute)
 	fakeClock := testingclock.NewFakeClock(now)
+
 	cmpOpts := []cmp.Option{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
@@ -179,7 +180,9 @@ func Test_PushOrUpdate(t *testing.T) {
 
 func Test_Pop(t *testing.T) {
 	now := time.Now()
-	cq := newClusterQueueImpl(defaultOrdering, testingclock.NewFakeClock(now))
+	fakeClock := testingclock.NewFakeClock(now)
+
+	cq := newClusterQueueImpl(defaultOrdering, fakeClock)
 	wl1 := workload.NewInfo(utiltesting.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj())
 	wl2 := workload.NewInfo(utiltesting.MakeWorkload("workload-2", defaultNamespace).Creation(now.Add(time.Second)).Obj())
 	if cq.Pop() != nil {
@@ -201,7 +204,10 @@ func Test_Pop(t *testing.T) {
 }
 
 func Test_Delete(t *testing.T) {
-	cq := newClusterQueueImpl(defaultOrdering, testingclock.NewFakeClock(time.Now()))
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	cq := newClusterQueueImpl(defaultOrdering, fakeClock)
 	wl1 := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj()
 	cq.PushOrUpdate(workload.NewInfo(wl1))
@@ -222,7 +228,10 @@ func Test_Delete(t *testing.T) {
 }
 
 func Test_Info(t *testing.T) {
-	cq := newClusterQueueImpl(defaultOrdering, testingclock.NewFakeClock(time.Now()))
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	cq := newClusterQueueImpl(defaultOrdering, fakeClock)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	if info := cq.Info(workload.Key(wl)); info != nil {
 		t.Error("Workload should not exist")
@@ -234,7 +243,10 @@ func Test_Info(t *testing.T) {
 }
 
 func Test_AddFromLocalQueue(t *testing.T) {
-	cq := newClusterQueueImpl(defaultOrdering, testingclock.NewFakeClock(time.Now()))
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	cq := newClusterQueueImpl(defaultOrdering, fakeClock)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	queue := &LocalQueue{
 		items: map[string]*workload.Info{
@@ -252,7 +264,10 @@ func Test_AddFromLocalQueue(t *testing.T) {
 }
 
 func Test_DeleteFromLocalQueue(t *testing.T) {
-	cq := newClusterQueueImpl(defaultOrdering, testingclock.NewFakeClock(time.Now()))
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	cq := newClusterQueueImpl(defaultOrdering, fakeClock)
 	q := utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
 	qImpl := newLocalQueue(q)
 	wl1 := utiltesting.MakeWorkload("wl1", "").Queue(q.Name).Obj()
@@ -460,7 +475,10 @@ func TestClusterQueueImpl(t *testing.T) {
 }
 
 func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
-	cq := newClusterQueueImpl(defaultOrdering, testingclock.NewFakeClock(time.Now()))
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	cq := newClusterQueueImpl(defaultOrdering, fakeClock)
 	cq.namespaceSelector = labels.Everything()
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	cl := utiltesting.NewFakeClient(
