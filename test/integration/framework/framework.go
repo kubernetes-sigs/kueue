@@ -214,7 +214,7 @@ func (f *Framework) Teardown() {
 }
 
 var (
-	// Label used to decorate test specs that take a long time to be run and
+	// SlowSpec label used to decorate test specs that take a long time to be run and
 	// should be skipped in PR builds
 	//
 	// Initial list base on:
@@ -224,6 +224,6 @@ var (
 	// taking the item which run for more then 5 sec
 	SlowSpec = ginkgo.Label("slow")
 
-	// Label used to decorate test specs that largely cover generic code covered by other specs also. (eg. Kubeflow jobs)
+	// RedundantSpec label used to decorate test specs that largely cover generic code covered by other specs also. (eg. Kubeflow jobs)
 	RedundantSpec = ginkgo.Label("Redundant")
 )
