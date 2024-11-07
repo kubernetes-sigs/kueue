@@ -122,57 +122,74 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	}
 
+	provisioningRequestList := &autoscaling.ProvisioningRequestList{}
+	if err := c.client.List(ctx, provisioningRequestList, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
+		return reconcile.Result{}, err
+	}
+
 	// get the lists of relevant checks
 	relevantChecks, err := admissioncheck.FilterForController(ctx, c.client, wl.Status.AdmissionChecks, kueue.ProvisioningRequestControllerName)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
-	list := &autoscaling.ProvisioningRequestList{}
-	if err := c.client.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
-		return reconcile.Result{}, err
+	checkConfig := make(map[string]*kueue.ProvisioningRequestConfig, len(relevantChecks))
+	for _, checkName := range relevantChecks {
+		prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
+		if client.IgnoreNotFound(err) != nil {
+			return reconcile.Result{}, err
+		}
+		checkConfig[checkName] = prc
 	}
-	ownedPrs := list.Items
-	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, relevantChecks, ownedPrs)
+
+	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provisioningRequestList.Items)
 
 	wlInfo := workloadInfo{
 		checkStates: make([]kueue.AdmissionCheckState, 0),
 	}
-	err = c.syncCheckStates(ctx, wl, &wlInfo, relevantChecks, activeOrLastPRForChecks)
+	err = c.syncCheckStates(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
-	err = c.deleteUnusedProvisioningRequests(ctx, ownedPrs, activeOrLastPRForChecks)
+	err = c.deleteUnusedProvisioningRequests(ctx, provisioningRequestList.Items, activeOrLastPRForChecks)
 	if err != nil {
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed to delete unused provisioning requests")
 		return reconcile.Result{}, err
 	}
 
-	requeAfter, err := c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, relevantChecks, activeOrLastPRForChecks)
+	requeueAfter, err := c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
 	if err != nil {
 		// this can also delete unneeded checks
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed")
 		return reconcile.Result{}, err
 	}
 
-	if requeAfter != nil {
-		return reconcile.Result{RequeueAfter: *requeAfter}, nil
+	if requeueAfter != nil {
+		return reconcile.Result{RequeueAfter: *requeueAfter}, nil
 	}
 	return reconcile.Result{}, nil
 }
 
-func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Workload, relevantChecks []string, ownedPrs []autoscaling.ProvisioningRequest) map[string]*autoscaling.ProvisioningRequest {
+func (c *Controller) activeOrLastPRForChecks(
+	ctx context.Context,
+	wl *kueue.Workload,
+	checkConfig map[string]*kueue.ProvisioningRequestConfig,
+	ownedPRs []autoscaling.ProvisioningRequest,
+) map[string]*autoscaling.ProvisioningRequest {
 	activeOrLastPRForChecks := make(map[string]*autoscaling.ProvisioningRequest)
 	log := ctrl.LoggerFrom(ctx)
-	for _, checkName := range relevantChecks {
-		for i := range ownedPrs {
-			req := &ownedPrs[i]
+	for checkName, prc := range checkConfig {
+		if prc == nil {
+			continue
+		}
+		for i := range ownedPRs {
+			req := &ownedPRs[i]
 			// PRs relevant for the admission check
 			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
-				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
-				if err == nil && c.reqIsNeeded(wl, prc) && provReqSyncedWithConfig(req, prc) {
-					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
+				if c.reqIsNeeded(wl, prc) && provReqSyncedWithConfig(req, prc) {
+					currPr, exists := activeOrLastPRForChecks[checkName]
+					if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
 					}
 				}
@@ -182,13 +199,13 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 	return activeOrLastPRForChecks
 }
 
-func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPrs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
+func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPRs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
 	log := ctrl.LoggerFrom(ctx)
 	prNames := sets.New[string]()
 	for _, pr := range activeOrLastPRForChecks {
 		prNames.Insert(pr.Name)
 	}
-	for _, pr := range ownedPrs {
+	for _, pr := range ownedPRs {
 		req := &pr
 		if !prNames.Has(req.Name) {
 			if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
@@ -200,14 +217,17 @@ func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, owned
 	return nil
 }
 
-func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo,
-	relevantChecks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) (*time.Duration, error) {
+func (c *Controller) syncOwnedProvisionRequest(
+	ctx context.Context,
+	wl *kueue.Workload,
+	wlInfo *workloadInfo,
+	checkConfig map[string]*kueue.ProvisioningRequestConfig,
+	activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest,
+) (*time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
 	var requeAfter *time.Duration
-	for _, checkName := range relevantChecks {
-		// get the config
-		prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
-		if err != nil {
+	for checkName, prc := range checkConfig {
+		if prc == nil {
 			// the check is not active
 			continue
 		}
@@ -476,16 +496,22 @@ func (wlInfo *workloadInfo) update(wl *kueue.Workload) {
 	wlInfo.requeueState = wl.Status.RequeueState
 }
 
-func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, wlInfo *workloadInfo, checks []string, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
+func (c *Controller) syncCheckStates(
+	ctx context.Context, wl *kueue.Workload,
+	wlInfo *workloadInfo,
+	checkConfig map[string]*kueue.ProvisioningRequestConfig,
+	activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest,
+) error {
 	log := ctrl.LoggerFrom(ctx)
 	wlInfo.update(wl)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl)
-	recorderMessages := make([]string, 0, len(checks))
+	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
-	for _, check := range checks {
+	for check, prc := range checkConfig {
 		checkState := *checksMap[check]
-		if prc, err := c.helper.ConfigForAdmissionCheck(ctx, check); err != nil {
+		//nolint:gocritic
+		if prc == nil {
 			// the check is not active
 			updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 			updated = updateCheckMessage(&checkState, CheckInactiveMessage) || updated

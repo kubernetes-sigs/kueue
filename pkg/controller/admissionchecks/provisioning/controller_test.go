@@ -1416,9 +1416,10 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			workload := baseWorkload.DeepCopy()
-			relevantChecks := []string{"check"}
 			checks := []kueue.AdmissionCheck{*baseCheck.DeepCopy()}
-			configs := []kueue.ProvisioningRequestConfig{*baseConfig.DeepCopy()}
+			checkConfig := map[string]*kueue.ProvisioningRequestConfig{
+				baseCheck.Name: baseConfig.DeepCopy(),
+			}
 
 			builder, ctx := getClientBuilder()
 
@@ -1427,7 +1428,6 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 			builder = builder.WithLists(
 				&autoscaling.ProvisioningRequestList{Items: tc.requests},
-				&kueue.ProvisioningRequestConfigList{Items: configs},
 				&kueue.AdmissionCheckList{Items: checks},
 			)
 
@@ -1438,7 +1438,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				t.Fatalf("Setting up the provisioning request controller: %v", err)
 			}
 
-			gotResult := controller.activeOrLastPRForChecks(ctx, workload, relevantChecks, tc.requests)
+			gotResult := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
 			if diff := cmp.Diff(tc.wantResult, gotResult, reqCmpOptions...); diff != "" {
 				t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
 			}
