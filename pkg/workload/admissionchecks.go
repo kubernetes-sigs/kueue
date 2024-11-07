@@ -113,7 +113,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	existingCondition := FindAdmissionCheck(*checks, newCheck.Name)
 	if existingCondition == nil {
 		if newCheck.LastTransitionTime.IsZero() {
-			newCheck.LastTransitionTime = metav1.NewTime(realClock.Now())
+			newCheck.LastTransitionTime = metav1.NewTime(time.Now())
 		}
 		*checks = append(*checks, newCheck)
 		return
@@ -124,7 +124,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 		if !newCheck.LastTransitionTime.IsZero() {
 			existingCondition.LastTransitionTime = newCheck.LastTransitionTime
 		} else {
-			existingCondition.LastTransitionTime = metav1.NewTime(realClock.Now())
+			existingCondition.LastTransitionTime = metav1.NewTime(time.Now())
 		}
 	}
 	existingCondition.Message = newCheck.Message
