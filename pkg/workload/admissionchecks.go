@@ -22,13 +22,8 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-)
-
-var (
-	realClock = clock.RealClock{}
 )
 
 // SyncAdmittedCondition sync the state of the Admitted condition
@@ -92,19 +87,7 @@ func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName string) *k
 }
 
 // ResetChecksOnEviction sets all AdmissionChecks to Pending
-func ResetChecksOnEviction(w *kueue.Workload) {
-	checks := w.Status.AdmissionChecks
-	for i := range checks {
-		checks[i] = kueue.AdmissionCheckState{
-			Name:               checks[i].Name,
-			State:              kueue.CheckStatePending,
-			LastTransitionTime: metav1.NewTime(time.Now()),
-			Message:            "Reset to Pending after eviction. Previously: " + string(checks[i].State),
-		}
-	}
-}
-
-func ResetChecksOnDeactivation(w *kueue.Workload) bool {
+func ResetChecksOnEviction(w *kueue.Workload, now time.Time) bool {
 	checks := w.Status.AdmissionChecks
 	updated := false
 	for i := range checks {
@@ -114,8 +97,8 @@ func ResetChecksOnDeactivation(w *kueue.Workload) bool {
 		checks[i] = kueue.AdmissionCheckState{
 			Name:               checks[i].Name,
 			State:              kueue.CheckStatePending,
-			LastTransitionTime: metav1.NewTime(realClock.Now()),
-			Message:            "Reset to Pending after deactivation. Previously: " + string(checks[i].State),
+			LastTransitionTime: metav1.NewTime(now),
+			Message:            "Reset to Pending after eviction. Previously: " + string(checks[i].State),
 		}
 		updated = true
 	}
