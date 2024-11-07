@@ -23,11 +23,10 @@ The `JobManagedBy` feature gate is disabled in 1.30 and 1.31 by default, and wil
 
 When `JobManagedBy` is enabled in your cluster we recommend configuring Kueue to enable the `MultiKueueBatchJobWithManagedBy` feature gate. 
 
-When `MultiKueueBatchJobWithManagedBy` is enabled the Job is processed by MultiKueue, which effectively reflects the job state in the management cluster.
+When `MultiKueueBatchJobWithManagedBy` is enabled the current status of a Job being executed by MultiKueue on a worker cluster is live-updated on the management cluster.
 
-So regardless of the number of clusters, all states of all jobs are available in the management cluster.
-
-This in turn allows you to track the progress of a job as it occurs.
+This gives the users and automation tools the ability to track the progress of Job status (.status) without lookup to the
+worker cluster, making MultiKueue transparent from that perspective.
 
 ### Cluster with JobManagedBy disabled
 
@@ -41,7 +40,7 @@ You can identify the worker cluster running the job by checking the AC status me
 
 Also, the job is suspended from the perspective of the management cluster until it is `Finished`.
 
-## Run Kubernetes Job example
+## Example
 
 Once the setup is complete you can test it by running the example below:
 
