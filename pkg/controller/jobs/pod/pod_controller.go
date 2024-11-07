@@ -127,8 +127,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
 	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", concurrency)
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("pod").
-		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).Named("v1_pod").
+		Named("v1_pod").
+		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).
 		Watches(&kueue.Workload{}, &workloadHandler{}).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: concurrency,
