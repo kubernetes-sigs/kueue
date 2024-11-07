@@ -248,6 +248,7 @@ webhooks:
     - v1
     operations:
     - CREATE
+    - UPDATE
     resources:
     - statefulsets
   sideEffects: None

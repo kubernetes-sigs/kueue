@@ -158,7 +158,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: statefulsetQueueNameLabelPath.String(),
+					Field: queueNameLabelPath.String(),
 				},
 			}.ToAggregate(),
 		},
@@ -210,11 +210,35 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: statefulsetGroupNameLabelPath.String(),
+					Field: groupNameLabelPath.String(),
 				},
 			}.ToAggregate(),
 		},
-		"change in replicas": {
+		"change in replicas (scase down to zero)": {
+			oldObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(0)),
+				},
+			},
+		},
+		"change in replicas (scale up from zero)": {
+			oldObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(0)),
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+				},
+			},
+		},
+		"change in replicas (scale up)": {
 			oldObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
 					Replicas: ptr.To(int32(3)),
@@ -228,7 +252,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: statefulsetReplicasPath.String(),
+					Field: replicasPath.String(),
 				},
 			}.ToAggregate(),
 		},
