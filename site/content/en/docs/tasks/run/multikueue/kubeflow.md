@@ -1,7 +1,7 @@
 ---
 title: "Run Kubeflow Jobs in Multi-Cluster"
 linkTitle: "Kubeflow"
-weight: 2
+weight: 4
 date: 2024-09-25
 description: >
   Run a MultiKueue scheduled Kubeflow Jobs.

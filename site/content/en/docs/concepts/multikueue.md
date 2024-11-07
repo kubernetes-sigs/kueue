@@ -60,7 +60,7 @@ Known Limitations:
 
 #### MultiKueueBatchJobWithManagedBy enabled
 
-When you want to submit Job to a ClusterQueue with a MultiKueue admission check, you should set the `spec.managedBy` field to `kueue.x-k8s.io/multikueue`, otherwise the admission check controller will `Reject` the workload causing it to be marked as `Finished` with an error indicating the cause.
+When you want to submit Job to a ClusterQueue with a MultiKueue admission check, you should set the `spec.managedBy` field to `kueue.x-k8s.io/multikueue`, otherwise the admission check controller will `Reject` the workload.
 
 The `managedBy` field is available as an Alpha feature staring Kubernetes 1.30.0, check the [Delegation of managing a Job object to external controller](https://kubernetes.io/docs/concepts/workloads/controllers/job/#delegation-of-managing-a-job-object-to-external-controller) for details.
 

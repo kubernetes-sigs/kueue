@@ -1,7 +1,7 @@
 ---
 title: "Run MPIJobs in Multi-Cluster"
 linkTitle: "MPIJob"
-weight: 3
+weight: 5
 date: 2024-10-25
 description: >
   Run a MultiKueue scheduled MPIJobs.
