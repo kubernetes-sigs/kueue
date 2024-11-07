@@ -418,7 +418,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						kueue.AdmissionCheckState{
 							Name:    ac.Name,
 							State:   kueue.CheckStatePending,
-							Message: "Reset to Pending after deactivation. Previously: Rejected",
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
@@ -489,7 +489,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						kueue.AdmissionCheckState{
 							Name:    ac.Name,
 							State:   kueue.CheckStatePending,
-							Message: "Reset to Pending after deactivation. Previously: Rejected",
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
@@ -549,7 +549,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						kueue.AdmissionCheckState{
 							Name:    ac.Name,
 							State:   kueue.CheckStatePending,
-							Message: "Reset to Pending after deactivation. Previously: Rejected",
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
@@ -1136,7 +1136,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						kueue.AdmissionCheckState{
 							Name:    ac.Name,
 							State:   kueue.CheckStatePending,
-							Message: "Reset to Pending after deactivation. Previously: Rejected",
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse(), "The workload should be deactivated")
@@ -1419,7 +1419,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						kueue.AdmissionCheckState{
 							Name:    ac.Name,
 							State:   kueue.CheckStatePending,
-							Message: "Reset to Pending after deactivation. Previously: Rejected",
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())
@@ -1872,7 +1872,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 						kueue.AdmissionCheckState{
 							Name:    ac.Name,
 							State:   kueue.CheckStatePending,
-							Message: "Reset to Pending after deactivation. Previously: Rejected",
+							Message: "Reset to Pending after eviction. Previously: Rejected",
 						},
 						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "PodSetUpdates"))))
 					g.Expect(workload.IsActive(&updatedWl)).To(gomega.BeFalse())

@@ -476,12 +476,6 @@ func TestReconcile(t *testing.T) {
 				}).
 				Conditions(
 					metav1.Condition{
-						Type:    kueue.WorkloadEvicted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "AdmissionCheck",
-						Message: "Admission check(s) were rejected",
-					},
-					metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionTrue,
 						Reason:  "AdmittedByTest",
@@ -540,12 +534,6 @@ func TestReconcile(t *testing.T) {
 						Status:  metav1.ConditionTrue,
 						Reason:  "AdmissionCheck",
 						Message: "Admission check(s): [check], were rejected",
-					},
-					metav1.Condition{
-						Type:    kueue.WorkloadEvicted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "AdmissionCheck",
-						Message: "Admission check(s) were rejected",
 					},
 				).
 				Obj(),
