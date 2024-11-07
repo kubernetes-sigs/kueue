@@ -23,7 +23,7 @@ The `JobManagedBy` feature gate is disabled in 1.30 and 1.31 by default, and wil
 
 When `JobManagedBy` is enabled in your cluster we recommend configuring Kueue to enable the `MultiKueueBatchJobWithManagedBy` feature gate. 
 
-When `MultiKueueBatchJobWithManagedBy` is enabled the current status of a Job being executed by MultiKueue on a worker cluster is live-updated on the management cluster.
+When `MultiKueueBatchJobWithManagedBy` is enabled, the current status of a Job being executed by MultiKueue on a worker cluster is live-updated on the management cluster.
 
 This gives the users and automation tools the ability to track the progress of Job status (.status) without lookup to the
 worker cluster, making MultiKueue transparent from that perspective.
