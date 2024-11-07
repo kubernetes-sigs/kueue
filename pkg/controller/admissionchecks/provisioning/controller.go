@@ -122,8 +122,8 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	}
 
-	list := &autoscaling.ProvisioningRequestList{}
-	if err := c.client.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
+	provisioningRequestList := &autoscaling.ProvisioningRequestList{}
+	if err := c.client.List(ctx, provisioningRequestList, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -142,7 +142,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		checkConfig[checkName] = prc
 	}
 
-	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, checkConfig, list.Items)
+	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provisioningRequestList.Items)
 
 	wlInfo := workloadInfo{
 		checkStates: make([]kueue.AdmissionCheckState, 0),
@@ -152,7 +152,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	err = c.deleteUnusedProvisioningRequests(ctx, list.Items, activeOrLastPRForChecks)
+	err = c.deleteUnusedProvisioningRequests(ctx, provisioningRequestList.Items, activeOrLastPRForChecks)
 	if err != nil {
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed to delete unused provisioning requests")
 		return reconcile.Result{}, err
@@ -175,17 +175,21 @@ func (c *Controller) activeOrLastPRForChecks(
 	ctx context.Context,
 	wl *kueue.Workload,
 	checkConfig map[string]*kueue.ProvisioningRequestConfig,
-	ownedPrs []autoscaling.ProvisioningRequest,
+	ownedPRs []autoscaling.ProvisioningRequest,
 ) map[string]*autoscaling.ProvisioningRequest {
 	activeOrLastPRForChecks := make(map[string]*autoscaling.ProvisioningRequest)
 	log := ctrl.LoggerFrom(ctx)
 	for checkName, prc := range checkConfig {
-		for i := range ownedPrs {
-			req := &ownedPrs[i]
+		if prc == nil {
+			continue
+		}
+		for i := range ownedPRs {
+			req := &ownedPRs[i]
 			// PRs relevant for the admission check
 			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
-				if prc != nil && c.reqIsNeeded(wl, prc) && provReqSyncedWithConfig(req, prc) {
-					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
+				if c.reqIsNeeded(wl, prc) && provReqSyncedWithConfig(req, prc) {
+					currPr, exists := activeOrLastPRForChecks[checkName]
+					if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
 					}
 				}
@@ -195,13 +199,13 @@ func (c *Controller) activeOrLastPRForChecks(
 	return activeOrLastPRForChecks
 }
 
-func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPrs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
+func (c *Controller) deleteUnusedProvisioningRequests(ctx context.Context, ownedPRs []autoscaling.ProvisioningRequest, activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest) error {
 	log := ctrl.LoggerFrom(ctx)
 	prNames := sets.New[string]()
 	for _, pr := range activeOrLastPRForChecks {
 		prNames.Insert(pr.Name)
 	}
-	for _, pr := range ownedPrs {
+	for _, pr := range ownedPRs {
 		req := &pr
 		if !prNames.Has(req.Name) {
 			if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
