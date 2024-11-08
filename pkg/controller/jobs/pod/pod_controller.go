@@ -93,12 +93,11 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:          SetupIndexes,
-		NewJob:                NewJob,
-		NewReconciler:         NewReconciler,
-		SetupWebhook:          SetupWebhook,
-		JobType:               &corev1.Pod{},
-		CanSupportIntegration: CanSupportIntegration,
+		SetupIndexes:  SetupIndexes,
+		NewJob:        NewJob,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupWebhook,
+		JobType:       &corev1.Pod{},
 	}))
 }
 
@@ -493,10 +492,6 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return err
 	}
 	return nil
-}
-
-func CanSupportIntegration(_ ...jobframework.Option) (bool, error) {
-	return true, nil
 }
 
 func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
