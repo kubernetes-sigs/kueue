@@ -518,19 +518,23 @@ func (c *clusterQueue) reportActiveWorkloads() {
 func (c *clusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.FlavorResourceUsage()
-	tasUsage := wi.TASUsage()
 	for fr, q := range frUsage {
-		tasFlvCache := c.tasFlavorCache(fr.Flavor)
 		if m == 1 {
 			addUsage(c, fr, q)
-			if tasFlvCache != nil {
-				tasFlvCache.addUsage(tasUsage)
-			}
 		}
 		if m == -1 {
 			removeUsage(c, fr, q)
-			if tasFlvCache != nil {
-				tasFlvCache.removeUsage(tasUsage)
+		}
+	}
+	if features.Enabled(features.TopologyAwareScheduling) && wi.IsUsingTAS() {
+		for tasFlavor, tasUsage := range wi.TASUsage() {
+			if tasFlvCache := c.tasFlavorCache(tasFlavor); tasFlvCache != nil {
+				if m == 1 {
+					tasFlvCache.addUsage(tasUsage)
+				}
+				if m == -1 {
+					tasFlvCache.removeUsage(tasUsage)
+				}
 			}
 		}
 	}
