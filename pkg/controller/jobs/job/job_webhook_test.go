@@ -199,7 +199,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(maxExecTimeLabelPath, "NaN", `strconv.Atoi: parsing "NaN": invalid syntax`),
 			},
-			serverVersion: "1.31.0",
 		},
 		{
 			name: "zero maximum execution time",
@@ -212,7 +211,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(maxExecTimeLabelPath, 0, "should be greater than 0"),
 			},
-			serverVersion: "1.31.0",
 		},
 		{
 			name: "negative maximum execution time",
@@ -225,7 +223,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(maxExecTimeLabelPath, -10, "should be greater than 0"),
 			},
-			serverVersion: "1.31.0",
 		},
 		{
 			name: "valid maximum execution time",
@@ -235,7 +232,6 @@ func TestValidateCreate(t *testing.T) {
 				Label(constants.MaxExecTimeSecondsLabel, "10").
 				Indexed(true).
 				Obj(),
-			serverVersion: "1.31.0",
 		},
 		{
 			name: "valid topology request",
