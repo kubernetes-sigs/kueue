@@ -25,7 +25,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	visibilityv1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 )
 
@@ -35,7 +34,6 @@ var ParameterCodec = runtime.NewParameterCodec(Scheme)
 var localSchemeBuilder = runtime.SchemeBuilder{
 	kueuev1alpha1.AddToScheme,
 	kueuev1beta1.AddToScheme,
-	visibilityv1alpha1.AddToScheme,
 	visibilityv1beta1.AddToScheme,
 }
 
