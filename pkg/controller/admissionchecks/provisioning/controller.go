@@ -82,6 +82,7 @@ type Controller struct {
 type workloadInfo struct {
 	checkStates  []kueue.AdmissionCheckState
 	requeueState *kueue.RequeueState
+	clock        clock.Clock
 }
 
 var _ reconcile.Reconciler = (*Controller)(nil)
@@ -146,6 +147,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	wlInfo := workloadInfo{
 		checkStates: make([]kueue.AdmissionCheckState, 0),
+		clock:       realClock,
 	}
 	err = c.syncCheckStates(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
 	if err != nil {
@@ -307,7 +309,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			if err := c.client.Create(ctx, req); err != nil {
 				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
 				ac.Message = api.TruncateConditionMessage(msg)
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac)
+				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock.Now())
 
 				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 				return nil, err
@@ -491,7 +493,7 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 
 func (wlInfo *workloadInfo) update(wl *kueue.Workload) {
 	for _, check := range wl.Status.AdmissionChecks {
-		workload.SetAdmissionCheckState(&wlInfo.checkStates, check)
+		workload.SetAdmissionCheckState(&wlInfo.checkStates, check, wlInfo.clock.Now())
 	}
 	wlInfo.requeueState = wl.Status.RequeueState
 }
@@ -611,7 +613,7 @@ func (c *Controller) syncCheckStates(
 			}
 			recorderMessages = append(recorderMessages, message)
 		}
-		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
+		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState, c.clock.Now())
 	}
 	if updated {
 		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.ProvisioningRequestControllerName), client.ForceOwnership); err != nil {

@@ -499,7 +499,7 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionCh
 			workload.SetAdmissionCheckState(&conds, kueue.AdmissionCheckState{
 				Name:  t,
 				State: kueue.CheckStatePending,
-			})
+			}, time.Now())
 			shouldUpdate = true
 		}
 	}

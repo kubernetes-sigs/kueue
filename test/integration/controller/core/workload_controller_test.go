@@ -228,12 +228,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
-					})
+					}, time.Now())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check2",
 						State:   kueue.CheckStateRetry,
 						Message: "check rejected",
-					})
+					}, time.Now())
 					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Name:    "check1",
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
-					})
+					}, time.Now())
 					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -345,12 +345,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
 						Message: "check ready",
-					})
+					}, time.Now())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check2",
 						State:   kueue.CheckStateReady,
 						Message: "check ready",
-					})
+					}, time.Now())
 					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -374,7 +374,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 						Name:    "check1",
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
-					})
+					}, time.Now())
 					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

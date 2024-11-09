@@ -376,7 +376,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs)
+				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs, time.Now())
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(testing.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
@@ -976,7 +976,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					LastTransitionTime: metav1.NewTime(time.Now()),
 					PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 					State:              kueue.CheckStateReady,
-				})
+				}, time.Now())
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -989,7 +989,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					LastTransitionTime: metav1.NewTime(time.Now()),
 					PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "baz"}}, {Name: "second"}},
 					State:              kueue.CheckStateReady,
-				})
+				}, time.Now())
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(testing.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

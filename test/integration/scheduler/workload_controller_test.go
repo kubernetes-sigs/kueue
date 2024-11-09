@@ -17,6 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
+	"time"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -174,12 +176,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
-					})
+					}, time.Now())
 					workload.SetAdmissionCheckState(&updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check3",
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
-					})
+					}, time.Now())
 					g.Expect(k8sClient.Status().Update(ctx, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(&updatedWl)).Should(gomega.BeTrue(), "should have been admitted")

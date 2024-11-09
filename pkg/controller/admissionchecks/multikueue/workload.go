@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -45,6 +46,7 @@ import (
 )
 
 var (
+	realClock           = clock.RealClock{}
 	errNoActiveClusters = errors.New("no active clusters")
 )
 
@@ -57,6 +59,7 @@ type wlReconciler struct {
 	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
 	eventsBatchPeriod time.Duration
 	adapters          map[string]jobframework.MultiKueueAdapter
+	clock             clock.Clock
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -213,7 +216,7 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	acs.Message = message
 	acs.LastTransitionTime = metav1.NewTime(time.Now())
 	wlPatch := workload.BaseSSAWorkload(wl)
-	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
+	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock.Now())
 	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 }
 
@@ -373,7 +376,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			acs.LastTransitionTime = metav1.NewTime(time.Now())
 
 			wlPatch := workload.BaseSSAWorkload(group.local)
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
+			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock.Now())
 			err := w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 			if err != nil {
 				return reconcile.Result{}, err
@@ -392,7 +395,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			acs.Message = "Reserving remote lost"
 			acs.LastTransitionTime = metav1.NewTime(time.Now())
 			wlPatch := workload.BaseSSAWorkload(group.local)
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
+			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs, w.clock.Now())
 			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
 		}
 	}
@@ -442,6 +445,7 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
 		eventsBatchPeriod: eventsBatchPeriod,
 		adapters:          adapters,
+		clock:             realClock,
 	}
 }
 

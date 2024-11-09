@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -149,7 +150,7 @@ func TestReconcile(t *testing.T) {
 	workload.SetAdmissionCheckState(&baseWorkloadWithCheck1Ready.Status.AdmissionChecks, kueue.AdmissionCheckState{
 		Name:  "check1",
 		State: kueue.CheckStateReady,
-	})
+	}, time.Now())
 
 	baseFlavor1 := utiltesting.MakeResourceFlavor("flv1").NodeLabel("f1l1", "v1").
 		Toleration(corev1.Toleration{
