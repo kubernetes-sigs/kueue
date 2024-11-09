@@ -105,7 +105,6 @@ func NewController(client client.Client, record record.EventRecorder) (*Controll
 		client: client,
 		record: record,
 		helper: helper,
-		clock:  realClock,
 	}, nil
 }
 
@@ -147,7 +146,6 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	wlInfo := workloadInfo{
 		checkStates: make([]kueue.AdmissionCheckState, 0),
-		clock:       realClock,
 	}
 	err = c.syncCheckStates(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
 	if err != nil {
