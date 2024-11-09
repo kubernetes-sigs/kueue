@@ -222,7 +222,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, preemptor *workload.In
 func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload, reason, message string) error {
 	w = w.DeepCopy()
 	workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, message)
-	workload.ResetChecksOnEviction(w)
+	workload.ResetChecksOnEviction(w, p.clock.Now())
 	workload.SetPreemptedCondition(w, reason, message)
 	return workload.ApplyAdmissionStatus(ctx, p.client, w, true)
 }
