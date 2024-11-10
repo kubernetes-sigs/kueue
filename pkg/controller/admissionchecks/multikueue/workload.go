@@ -231,7 +231,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
 	acs.State = status
 	acs.Message = message
-	acs.LastTransitionTime = metav1.NewTime(time.Now())
+	acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 	wlPatch := workload.BaseSSAWorkload(wl)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
 	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
@@ -390,7 +390,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			// update the message
 			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
 			// update the transition time since is used to detect the lost worker state.
-			acs.LastTransitionTime = metav1.NewTime(time.Now())
+			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
