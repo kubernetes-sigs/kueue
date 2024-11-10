@@ -63,6 +63,10 @@ var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
 )
 
+var (
+	realClock = clock.RealClock{}
+)
+
 type provisioningConfigHelper = admissioncheck.ConfigHelper[*kueue.ProvisioningRequestConfig, kueue.ProvisioningRequestConfig]
 
 func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, error) {
@@ -101,6 +105,7 @@ func NewController(client client.Client, record record.EventRecorder) (*Controll
 		client: client,
 		record: record,
 		helper: helper,
+		clock:  realClock,
 	}, nil
 }
 
