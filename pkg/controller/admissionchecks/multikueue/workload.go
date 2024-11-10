@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"testing"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -71,6 +72,22 @@ type wlGroup struct {
 	acName        string
 	jobAdapter    jobframework.MultiKueueAdapter
 	controllerKey types.NamespacedName
+}
+
+type options struct {
+	clock clock.Clock
+}
+
+type Option func(*options)
+
+var defaultOptions = options{
+	clock: realClock,
+}
+
+func WithClock(_ testing.TB, c clock.Clock) Option {
+	return func(o *options) {
+		o.clock = c
+	}
 }
 
 // IsFinished returns true if the local workload is finished.
@@ -435,7 +452,13 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter) *wlReconciler {
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter, opts ...Option) *wlReconciler {
+	options := defaultOptions
+
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	return &wlReconciler{
 		client:            c,
 		helper:            helper,
@@ -445,7 +468,7 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
 		eventsBatchPeriod: eventsBatchPeriod,
 		adapters:          adapters,
-		clock:             realClock,
+		clock:             options.clock,
 	}
 }
 
