@@ -62,9 +62,6 @@ const (
 var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
 )
-var (
-	realClock = clock.RealClock{}
-)
 
 type provisioningConfigHelper = admissioncheck.ConfigHelper[*kueue.ProvisioningRequestConfig, kueue.ProvisioningRequestConfig]
 
@@ -82,7 +79,6 @@ type Controller struct {
 type workloadInfo struct {
 	checkStates  []kueue.AdmissionCheckState
 	requeueState *kueue.RequeueState
-	clock        clock.Clock
 }
 
 var _ reconcile.Reconciler = (*Controller)(nil)
