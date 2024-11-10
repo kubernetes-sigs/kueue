@@ -17,8 +17,6 @@ limitations under the License.
 package e2e
 
 import (
-	"time"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -404,7 +402,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
-					}, time.Now())
+					})
 					g.Expect(k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -442,7 +440,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateReady,
-					}, time.Now())
+					})
 					g.Expect(k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -458,7 +456,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check1",
 						State: kueue.CheckStateRejected,
-					}, time.Now())
+					})
 					g.Expect(k8sClient.Status().Patch(ctx, patch, client.Apply,
 						client.FieldOwner("test-admission-check-controller"),
 						client.ForceOwnership)).Should(gomega.Succeed())

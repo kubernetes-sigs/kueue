@@ -18,7 +18,6 @@ package pytorchjob
 
 import (
 	"strings"
-	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
@@ -237,7 +236,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 								},
 							},
 						},
-					}, time.Now())
+					})
 					g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

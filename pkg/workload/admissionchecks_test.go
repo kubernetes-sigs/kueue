@@ -440,7 +440,7 @@ func TestSetCheckState(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotStates := tc.origStates
 
-			SetAdmissionCheckState(&gotStates, tc.state, now)
+			SetAdmissionCheckState(&gotStates, tc.state)
 
 			opts := []cmp.Option{}
 			if tc.state.LastTransitionTime.IsZero() {

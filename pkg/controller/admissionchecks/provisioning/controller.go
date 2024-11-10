@@ -308,7 +308,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			if err := c.client.Create(ctx, req); err != nil {
 				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
 				ac.Message = api.TruncateConditionMessage(msg)
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock.Now())
+				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac)
 
 				c.record.Eventf(wl, corev1.EventTypeWarning, "FailedCreate", api.TruncateEventMessage(msg))
 				return nil, err
@@ -492,7 +492,7 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 
 func (wlInfo *workloadInfo) update(wl *kueue.Workload, now time.Time) {
 	for _, check := range wl.Status.AdmissionChecks {
-		workload.SetAdmissionCheckState(&wlInfo.checkStates, check, now)
+		workload.SetAdmissionCheckState(&wlInfo.checkStates, check)
 	}
 	wlInfo.requeueState = wl.Status.RequeueState
 }
@@ -612,7 +612,7 @@ func (c *Controller) syncCheckStates(
 			}
 			recorderMessages = append(recorderMessages, message)
 		}
-		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState, c.clock.Now())
+		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
 	}
 	if updated {
 		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.ProvisioningRequestControllerName), client.ForceOwnership); err != nil {

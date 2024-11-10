@@ -669,7 +669,7 @@ func AdmissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 		wlCopy.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, 0)
 	}
 	for _, ac := range w.Status.AdmissionChecks {
-		SetAdmissionCheckState(&wlCopy.Status.AdmissionChecks, ac, time.Now())
+		SetAdmissionCheckState(&wlCopy.Status.AdmissionChecks, ac)
 	}
 }
 
