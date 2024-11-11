@@ -148,13 +148,11 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	if flv.Spec.TopologyName != nil {
 		if r.tasCache.Get(kueue.ResourceFlavorReference(flv.Name)) == nil {
 			topology := kueuealpha.Topology{}
-			if err := r.client.Get(ctx, types.NamespacedName{
-				Name: *flv.Spec.TopologyName,
-			}, &topology); err != nil {
+			if err := r.client.Get(ctx, types.NamespacedName{Name: string(*flv.Spec.TopologyName)}, &topology); err != nil {
 				return reconcile.Result{}, err
 			}
 			levels := utiltas.Levels(&topology)
-			tasInfo := r.tasCache.NewTASFlavorCache(topology.Name, levels, flv.Spec.NodeLabels)
+			tasInfo := r.tasCache.NewTASFlavorCache(kueue.TopologyReference(topology.Name), levels, flv.Spec.NodeLabels)
 			r.tasCache.Set(kueue.ResourceFlavorReference(flv.Name), tasInfo)
 		}
 
