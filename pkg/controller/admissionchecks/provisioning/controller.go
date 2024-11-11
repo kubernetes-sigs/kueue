@@ -490,7 +490,7 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 	return true
 }
 
-func (wlInfo *workloadInfo) update(wl *kueue.Workload, now time.Time) {
+func (wlInfo *workloadInfo) update(wl *kueue.Workload) {
 	for _, check := range wl.Status.AdmissionChecks {
 		workload.SetAdmissionCheckState(&wlInfo.checkStates, check)
 	}
@@ -504,7 +504,7 @@ func (c *Controller) syncCheckStates(
 	activeOrLastPRForChecks map[string]*autoscaling.ProvisioningRequest,
 ) error {
 	log := ctrl.LoggerFrom(ctx)
-	wlInfo.update(wl, c.clock.Now())
+	wlInfo.update(wl)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl)
 	recorderMessages := make([]string, 0, len(checkConfig))
@@ -622,7 +622,7 @@ func (c *Controller) syncCheckStates(
 			c.record.Event(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
-	wlInfo.update(wlPatch, c.clock.Now())
+	wlInfo.update(wlPatch)
 	return nil
 }
 
