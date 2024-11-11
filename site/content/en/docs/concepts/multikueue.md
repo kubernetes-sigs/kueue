@@ -1,15 +1,17 @@
 ---
 title: "MultiKueue"
-date: 2024-02-26
+date: 2024-11-11
 weight: 8
 description: >
   Kueue multi cluster job dispatching.
 ---
 
-{{< feature-state state="alpha" for_version="v0.6" >}}
+{{< feature-state state="beta" for_version="v0.9" >}}
 
-{{% alert title="Warning" color="warning" %}}
-MultiKueue is currently a beta feature and enabled by default. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+{{% alert title="Note" color="primary" %}}
+`MultiKueue` is currently a beta feature and is enabled by default.
+
+You can disable it by editing the `MultiKueue` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 {{% /alert %}}
 
 
