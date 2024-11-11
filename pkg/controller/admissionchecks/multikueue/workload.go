@@ -410,7 +410,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		} else {
 			acs.State = kueue.CheckStateRetry
 			acs.Message = "Reserving remote lost"
-			acs.LastTransitionTime = metav1.NewTime(time.Now())
+			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
 			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
