@@ -100,13 +100,13 @@ func (g *wlGroup) IsFinished() bool {
 func (g *wlGroup) FirstReserving() (bool, string) {
 	found := false
 	bestMatch := ""
-	bestTime := time.Now()
+	var bestTime time.Time
 	for remote, wl := range g.remotes {
 		if wl == nil {
 			continue
 		}
 		c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		if c != nil && c.Status == metav1.ConditionTrue && (!found || c.LastTransitionTime.Time.Before(bestTime)) {
+		if c != nil && c.Status == metav1.ConditionTrue && (!found || bestTime.IsZero() || c.LastTransitionTime.Time.Before(bestTime)) {
 			found = true
 			bestMatch = remote
 			bestTime = c.LastTransitionTime.Time
