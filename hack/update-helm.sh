@@ -319,9 +319,9 @@ rm ${DEST_WEBHOOK_DIR}/MutatingWebhookConfiguration.yml ${DEST_WEBHOOK_DIR}/Vali
 
 # Add visibility files, replace names, namespaces in helm format
 for output_file in "${DEST_VISIBILITY_DIR}"/*.yaml; do
-  # The name of the v1alpha1.visibility.kueue.x-k8s.io and v1beta1.visibility.kueue.x-k8s.io APIService needs to remain unchanged.
+  # The name of the v1beta1.visibility.kueue.x-k8s.io APIService needs to remain unchanged.
   if [ "$(< "$output_file" $YQ '.metadata | has("name")')" = "true" ] &&
-    [ "$(< "$output_file" $YQ '.metadata.name | (. == "v1alpha1*" or . == "v1beta1*")')" = "false" ]; then
+    [ "$(< "$output_file" $YQ '.metadata.name | . == "v1beta1*"')" = "false" ]; then
     $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' "$output_file"
   fi
   # The namespace of the visibility-server-auth-reader rolebinding needs to remain unchanged.
