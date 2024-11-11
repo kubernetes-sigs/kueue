@@ -2100,7 +2100,7 @@ cloud.provider.com/preemptible=&quot;true&quot;:NoSchedule</p>
 </td>
 </tr>
 <tr><td><code>topologyName</code><br/>
-<code>string</code>
+<a href="#kueue-x-k8s-io-v1beta1-TopologyReference"><code>TopologyReference</code></a>
 </td>
 <td>
    <p>topologyName indicates topology for the TAS ResourceFlavor.
@@ -2343,6 +2343,20 @@ domain indicated by the values field.</p>
 </tr>
 </tbody>
 </table>
+
+## `TopologyReference`     {#kueue-x-k8s-io-v1beta1-TopologyReference}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ResourceFlavorSpec](#kueue-x-k8s-io-v1beta1-ResourceFlavorSpec)
+
+
+<p>TopologyReference is the name of the Topology.</p>
+
+
+
 
 ## `WorkloadSpec`     {#kueue-x-k8s-io-v1beta1-WorkloadSpec}
     

@@ -1348,7 +1348,7 @@ func (in *ResourceFlavorSpec) DeepCopyInto(out *ResourceFlavorSpec) {
 	}
 	if in.TopologyName != nil {
 		in, out := &in.TopologyName, &out.TopologyName
-		*out = new(string)
+		*out = new(TopologyReference)
 		**out = **in
 	}
 }
