@@ -26,7 +26,7 @@ Changes since `v0.8.0`:
 
   The QueueVisibility feature and its corresponding API was deprecated and will be removed in the v1beta2. Please use VisibilityOnDemand (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/) instead. (#3110, @mbobrovskyi)
 
-## How to upgrade Kueue to 0.9.x
+## Upgrading steps
 
 ### 1. Backup MultiKueue Resources (skip if you are not using MultiKueue):
 ```
