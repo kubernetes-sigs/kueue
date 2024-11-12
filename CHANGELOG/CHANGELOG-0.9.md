@@ -26,6 +26,33 @@ Changes since `v0.8.0`:
 
   The QueueVisibility feature and its corresponding API was deprecated and will be removed in the v1beta2. Please use VisibilityOnDemand (https://kueue.sigs.k8s.io/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/) instead. (#3110, @mbobrovskyi)
 
+## Upgrading steps
+
+### 1. Backup MultiKueue Resources (skip if you are not using MultiKueue):
+```
+kubectl get multikueueclusters.kueue.x-k8s.io,multikueueconfigs.kueue.x-k8s.io -A -o yaml > mk.yaml
+```
+
+### 2. Update apiVersion in Backup File (skip if you are not using MultiKueue):
+Replace `v1alpha1` with `v1beta1` in `mk.yaml` for all resources:
+```
+sed -i -e 's/v1alpha1/v1beta1/g' mk.yaml
+```
+
+### 3. Delete old CRDs:
+```
+kubectl delete crd multikueueclusters.kueue.x-k8s.io
+kubectl delete crd multikueueconfigs.kueue.x-k8s.io
+```
+
+### 4.Install Kueue v0.9.x:
+Follow the instruction [here](https://kueue.sigs.k8s.io/docs/installation/#install-a-released-version) to install.
+
+### 5. Restore MultiKueue Resources (skip if you are not using MultiKueue):
+```
+kubectl apply -f mk.yaml
+```
+
 ## Changes by Kind
 
 ### Feature
