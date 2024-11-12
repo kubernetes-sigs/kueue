@@ -842,36 +842,36 @@ func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *
 }
 
 // ResourceQuotaWrapper allows creation the creation of a Resource in a type-safe manner.
-func (f *FlavorQuotasWrapper) ResourceQuotaWrapper(name corev1.ResourceName) *resourceQuotaWrapper {
+func (f *FlavorQuotasWrapper) ResourceQuotaWrapper(name corev1.ResourceName) *ResourceQuotaWrapper {
 	rq := kueue.ResourceQuota{
 		Name: name,
 	}
-	return &resourceQuotaWrapper{parent: f, ResourceQuota: rq}
+	return &ResourceQuotaWrapper{parent: f, ResourceQuota: rq}
 }
 
-// resourceQuotaWrapper wraps a ResourceQuota object.
-type resourceQuotaWrapper struct {
+// ResourceQuotaWrapper wraps a ResourceQuota object.
+type ResourceQuotaWrapper struct {
 	parent *FlavorQuotasWrapper
 	kueue.ResourceQuota
 }
 
-func (rq *resourceQuotaWrapper) NominalQuota(quantity string) *resourceQuotaWrapper {
+func (rq *ResourceQuotaWrapper) NominalQuota(quantity string) *ResourceQuotaWrapper {
 	rq.ResourceQuota.NominalQuota = resource.MustParse(quantity)
 	return rq
 }
 
-func (rq *resourceQuotaWrapper) BorrowingLimit(quantity string) *resourceQuotaWrapper {
+func (rq *ResourceQuotaWrapper) BorrowingLimit(quantity string) *ResourceQuotaWrapper {
 	rq.ResourceQuota.BorrowingLimit = ptr.To(resource.MustParse(quantity))
 	return rq
 }
 
-func (rq *resourceQuotaWrapper) LendingLimit(quantity string) *resourceQuotaWrapper {
+func (rq *ResourceQuotaWrapper) LendingLimit(quantity string) *ResourceQuotaWrapper {
 	rq.ResourceQuota.LendingLimit = ptr.To(resource.MustParse(quantity))
 	return rq
 }
 
 // Append appends the ResourceQuotaWrapper to its parent
-func (rq *resourceQuotaWrapper) Append() *FlavorQuotasWrapper {
+func (rq *ResourceQuotaWrapper) Append() *FlavorQuotasWrapper {
 	rq.parent.Resources = append(rq.parent.Resources, rq.ResourceQuota)
 	return rq.parent
 }
@@ -896,9 +896,9 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 	return &rf.ResourceFlavor
 }
 
-// TopologyLevels sets the topology name
+// TopologyName sets the topology name
 func (rf *ResourceFlavorWrapper) TopologyName(name string) *ResourceFlavorWrapper {
-	rf.ResourceFlavor.Spec.TopologyName = ptr.To(name)
+	rf.ResourceFlavor.Spec.TopologyName = ptr.To(kueue.TopologyReference(name))
 	return rf
 }
 

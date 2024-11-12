@@ -3922,7 +3922,7 @@ func TestScheduleForTAS(t *testing.T) {
 			NodeLabels: map[string]string{
 				"tas-node": "true",
 			},
-			TopologyName: ptr.To("tas-single-level"),
+			TopologyName: ptr.To[kueue.TopologyReference]("tas-single-level"),
 		},
 	}
 	defaultClusterQueue := *utiltesting.MakeClusterQueue("tas-main").
@@ -4246,7 +4246,7 @@ func TestScheduleForTAS(t *testing.T) {
 						NodeLabels: map[string]string{
 							"tas-node": "true",
 						},
-						TopologyName: ptr.To("tas-custom-topology"),
+						TopologyName: ptr.To[kueue.TopologyReference]("tas-custom-topology"),
 					},
 				},
 			},
@@ -4503,8 +4503,8 @@ func TestScheduleForTAS(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
-			topologyByName := slices.ToMap(tc.topologies, func(i int) (string, kueuealpha.Topology) {
-				return tc.topologies[i].Name, tc.topologies[i]
+			topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueuealpha.Topology) {
+				return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 			})
 			for _, flavor := range tc.resourceFlavors {
 				cqCache.AddOrUpdateResourceFlavor(&flavor)
