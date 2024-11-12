@@ -510,6 +510,7 @@ Possible options:</p>
 <li>&quot;pod&quot;</li>
 <li>&quot;deployment&quot; (requires enabling pod integration)</li>
 <li>&quot;statefulset&quot; (requires enabling pod integration)</li>
+<li>&quot;leaderworkerset&quot; (requires enabling pod integration)</li>
 </ul>
 </td>
 </tr>
