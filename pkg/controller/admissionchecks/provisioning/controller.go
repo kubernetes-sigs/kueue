@@ -62,6 +62,7 @@ const (
 var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
 )
+
 var (
 	realClock = clock.RealClock{}
 )

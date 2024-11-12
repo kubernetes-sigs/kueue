@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"testing"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -45,6 +47,7 @@ import (
 )
 
 var (
+	realClock           = clock.RealClock{}
 	errNoActiveClusters = errors.New("no active clusters")
 )
 
@@ -57,6 +60,7 @@ type wlReconciler struct {
 	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
 	eventsBatchPeriod time.Duration
 	adapters          map[string]jobframework.MultiKueueAdapter
+	clock             clock.Clock
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -70,6 +74,22 @@ type wlGroup struct {
 	controllerKey types.NamespacedName
 }
 
+type options struct {
+	clock clock.Clock
+}
+
+type Option func(*options)
+
+var defaultOptions = options{
+	clock: realClock,
+}
+
+func WithClock(_ testing.TB, c clock.Clock) Option {
+	return func(o *options) {
+		o.clock = c
+	}
+}
+
 // IsFinished returns true if the local workload is finished.
 func (g *wlGroup) IsFinished() bool {
 	return apimeta.IsStatusConditionTrue(g.local.Status.Conditions, kueue.WorkloadFinished)
@@ -80,13 +100,13 @@ func (g *wlGroup) IsFinished() bool {
 func (g *wlGroup) FirstReserving() (bool, string) {
 	found := false
 	bestMatch := ""
-	bestTime := time.Now()
+	var bestTime time.Time
 	for remote, wl := range g.remotes {
 		if wl == nil {
 			continue
 		}
 		c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		if c != nil && c.Status == metav1.ConditionTrue && (!found || c.LastTransitionTime.Time.Before(bestTime)) {
+		if c != nil && c.Status == metav1.ConditionTrue && (!found || bestTime.IsZero() || c.LastTransitionTime.Time.Before(bestTime)) {
 			found = true
 			bestMatch = remote
 			bestTime = c.LastTransitionTime.Time
@@ -211,7 +231,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
 	acs.State = status
 	acs.Message = message
-	acs.LastTransitionTime = metav1.NewTime(time.Now())
+	acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 	wlPatch := workload.BaseSSAWorkload(wl)
 	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
 	return w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
@@ -370,7 +390,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			// update the message
 			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
 			// update the transition time since is used to detect the lost worker state.
-			acs.LastTransitionTime = metav1.NewTime(time.Now())
+			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
@@ -390,7 +410,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		} else {
 			acs.State = kueue.CheckStateRetry
 			acs.Message = "Reserving remote lost"
-			acs.LastTransitionTime = metav1.NewTime(time.Now())
+			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
 			return reconcile.Result{}, w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(kueue.MultiKueueControllerName), client.ForceOwnership)
@@ -432,7 +452,13 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter) *wlReconciler {
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout, eventsBatchPeriod time.Duration, adapters map[string]jobframework.MultiKueueAdapter, opts ...Option) *wlReconciler {
+	options := defaultOptions
+
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	return &wlReconciler{
 		client:            c,
 		helper:            helper,
@@ -442,6 +468,7 @@ func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clust
 		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
 		eventsBatchPeriod: eventsBatchPeriod,
 		adapters:          adapters,
+		clock:             options.clock,
 	}
 }
 
