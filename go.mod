@@ -11,7 +11,7 @@ require (
 	github.com/kubeflow/training-operator v1.8.1
 	github.com/onsi/ginkgo/v2 v2.21.0
 	github.com/onsi/gomega v1.35.1
-	github.com/open-policy-agent/cert-controller v0.11.0
+	github.com/open-policy-agent/cert-controller v0.12.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
 	github.com/ray-project/kuberay/ray-operator v1.2.2
@@ -127,7 +127,7 @@ require (
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/term v0.25.0 // indirect
 	golang.org/x/text v0.19.0 // indirect
-	golang.org/x/time v0.5.0 // indirect
+	golang.org/x/time v0.6.0 // indirect
 	golang.org/x/tools v0.26.0 // indirect
 	google.golang.org/genproto v0.0.0-20240528184218-531527333157 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157 // indirect
@@ -139,7 +139,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.31.1 // indirect
+	k8s.io/apiextensions-apiserver v0.31.2 // indirect
 	k8s.io/code-generator v0.31.2 // indirect
 	k8s.io/gengo/v2 v2.0.0-20240826214909-a7b603a56eb7 // indirect
 	k8s.io/kms v0.31.2 // indirect

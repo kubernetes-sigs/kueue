@@ -274,7 +274,7 @@ github.com/onsi/gomega/matchers/support/goraph/edge
 github.com/onsi/gomega/matchers/support/goraph/node
 github.com/onsi/gomega/matchers/support/goraph/util
 github.com/onsi/gomega/types
-# github.com/open-policy-agent/cert-controller v0.11.0
+# github.com/open-policy-agent/cert-controller v0.12.0
 ## explicit; go 1.22.0
 github.com/open-policy-agent/cert-controller/pkg/rotator
 # github.com/peterbourgon/diskv v2.0.1+incompatible
@@ -526,7 +526,7 @@ golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
 golang.org/x/text/width
-# golang.org/x/time v0.5.0
+# golang.org/x/time v0.6.0
 ## explicit; go 1.18
 golang.org/x/time/rate
 # golang.org/x/tools v0.26.0
@@ -744,7 +744,7 @@ k8s.io/api/storage/v1
 k8s.io/api/storage/v1alpha1
 k8s.io/api/storage/v1beta1
 k8s.io/api/storagemigration/v1alpha1
-# k8s.io/apiextensions-apiserver v0.31.1
+# k8s.io/apiextensions-apiserver v0.31.2
 ## explicit; go 1.22.0
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1
