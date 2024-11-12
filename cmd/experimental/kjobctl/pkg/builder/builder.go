@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	kueueversioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
@@ -533,12 +534,17 @@ func (b *Builder) setClients() error {
 	return nil
 }
 
-func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {
+func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta, strictNaming bool) metav1.ObjectMeta {
 	objectMeta := metav1.ObjectMeta{
-		Namespace:    b.profile.Namespace,
-		GenerateName: b.generatePrefixName(),
-		Labels:       templateObjectMeta.Labels,
-		Annotations:  templateObjectMeta.Annotations,
+		Namespace:   b.profile.Namespace,
+		Labels:      templateObjectMeta.Labels,
+		Annotations: templateObjectMeta.Annotations,
+	}
+
+	if strictNaming {
+		objectMeta.Name = b.generatePrefixName() + utilrand.String(5)
+	} else {
+		objectMeta.GenerateName = b.generatePrefixName()
 	}
 
 	b.withKjobLabels(&objectMeta)
@@ -547,14 +553,12 @@ func (b *Builder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.O
 	return objectMeta
 }
 
-func (b *Builder) buildChildObjectMeta() metav1.ObjectMeta {
+func (b *Builder) buildChildObjectMeta(name string) metav1.ObjectMeta {
 	objectMeta := metav1.ObjectMeta{
-		Namespace:    b.profile.Namespace,
-		GenerateName: b.generatePrefixName(),
+		Name:      name,
+		Namespace: b.profile.Namespace,
 	}
-
 	b.withKjobLabels(&objectMeta)
-
 	return objectMeta
 }
 

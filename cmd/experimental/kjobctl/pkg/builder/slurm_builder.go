@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 
@@ -82,7 +81,6 @@ var (
 type slurmBuilder struct {
 	*Builder
 
-	objectName              string
 	scriptContent           string
 	template                *template.Template
 	arrayIndexes            parser.ArrayIndexes
@@ -155,8 +153,6 @@ func (b *slurmBuilder) complete() error {
 		}
 	}
 
-	b.objectName = b.generatePrefixName() + utilrand.String(5)
-
 	return nil
 }
 
@@ -191,22 +187,10 @@ func (b *slurmBuilder) validateMutuallyExclusiveFlags() error {
 }
 
 func (b *slurmBuilder) buildObjectMeta(templateObjectMeta metav1.ObjectMeta) metav1.ObjectMeta {
-	objectMeta := b.Builder.buildObjectMeta(templateObjectMeta)
-	objectMeta.GenerateName = ""
-	objectMeta.Name = b.objectName
-
+	objectMeta := b.Builder.buildObjectMeta(templateObjectMeta, true)
 	if b.maxExecutionTimeSeconds != nil {
 		objectMeta.Labels[constants.MaxExecTimeSecondsLabel] = fmt.Sprint(ptr.Deref(b.maxExecutionTimeSeconds, 0))
 	}
-
-	return objectMeta
-}
-
-func (b *slurmBuilder) buildChildObjectMeta() metav1.ObjectMeta {
-	objectMeta := b.Builder.buildChildObjectMeta()
-	objectMeta.GenerateName = ""
-	objectMeta.Name = b.objectName
-
 	return objectMeta
 }
 
@@ -232,7 +216,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 	}
 
 	job.Spec.CompletionMode = ptr.To(batchv1.IndexedCompletion)
-	job.Spec.Template.Spec.Subdomain = b.objectName
+	job.Spec.Template.Spec.Subdomain = job.Name
 
 	b.buildPodSpecVolumesAndEnv(&job.Spec.Template.Spec)
 	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes,
@@ -241,7 +225,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: b.objectName,
+						Name: job.Name,
 					},
 					Items: []corev1.KeyToPath{
 						{
@@ -437,7 +421,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 		b.cpusPerGpu = resource.NewQuantity(cpusPerGpu, b.cpusOnNode.Format)
 	}
 
-	initEntrypointScript, err := b.buildInitEntrypointScript()
+	initEntrypointScript, err := b.buildInitEntrypointScript(job.Name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -449,7 +433,7 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 
 	configMap := &corev1.ConfigMap{
 		TypeMeta:   metav1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
-		ObjectMeta: b.buildChildObjectMeta(),
+		ObjectMeta: b.buildChildObjectMeta(job.Name),
 		Data: map[string]string{
 			slurmInitEntrypointFilename: initEntrypointScript,
 			slurmEntrypointFilename:     entrypointScript,
@@ -459,11 +443,11 @@ func (b *slurmBuilder) build(ctx context.Context) (runtime.Object, []runtime.Obj
 
 	service := &corev1.Service{
 		TypeMeta:   metav1.TypeMeta{Kind: "Service", APIVersion: "v1"},
-		ObjectMeta: b.buildChildObjectMeta(),
+		ObjectMeta: b.buildChildObjectMeta(job.Name),
 		Spec: corev1.ServiceSpec{
 			ClusterIP: "None",
 			Selector: map[string]string{
-				"job-name": b.objectName,
+				"job-name": job.Name,
 			},
 		},
 	}
@@ -531,19 +515,19 @@ type slurmInitEntrypointScript struct {
 	FirstNodeIPTimeoutSeconds int32
 }
 
-func (b *slurmBuilder) buildInitEntrypointScript() (string, error) {
+func (b *slurmBuilder) buildInitEntrypointScript(jobName string) (string, error) {
 	nTasks := ptr.Deref(b.nTasks, 1)
 	nodes := ptr.Deref(b.nodes, 1)
 
 	nodeList := make([]string, nodes)
 	for i := int32(0); i < nodes; i++ {
-		nodeList[i] = fmt.Sprintf("%s-%d.%s", b.objectName, i, b.objectName)
+		nodeList[i] = fmt.Sprintf("%s-%d.%s", jobName, i, jobName)
 	}
 
 	scriptValues := slurmInitEntrypointScript{
 		ArrayIndexes: b.buildArrayIndexes(),
 
-		JobName:   b.objectName,
+		JobName:   jobName,
 		Namespace: b.namespace,
 
 		EnvsPath:         slurmEnvsPath,
