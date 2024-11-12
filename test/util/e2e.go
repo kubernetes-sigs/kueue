@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -60,6 +61,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config) 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kfmpi.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = leaderworkersetv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = awv1beta2.AddToScheme(scheme.Scheme)
@@ -131,6 +135,11 @@ func WaitForAppWrapperAvailability(ctx context.Context, k8sClient client.Client)
 
 func WaitForJobSetAvailability(ctx context.Context, k8sClient client.Client) {
 	jcmKey := types.NamespacedName{Namespace: "jobset-system", Name: "jobset-controller-manager"}
+	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
+}
+
+func WaitForLeaderWorkerSetAvailability(ctx context.Context, k8sClient client.Client) {
+	jcmKey := types.NamespacedName{Namespace: "lws-system", Name: "lws-controller-manager"}
 	waitForOperatorAvailability(ctx, k8sClient, jcmKey)
 }
 

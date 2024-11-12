@@ -56,6 +56,7 @@ integrations:
 #  - "pod"
 #  - "deployment" # requires enabling pod integration
 #  - "statefulset" # requires enabling pod integration
+#  - "leaderworkerset" # requires enabling pod integration
 #  externalFrameworks:
 #  - "Foo.v1.example.com"
 #  podOptions:
