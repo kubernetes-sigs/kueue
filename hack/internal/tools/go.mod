@@ -13,7 +13,7 @@ require (
 	k8s.io/code-generator v0.31.2
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20240813183042-b901db121e1f
 	sigs.k8s.io/controller-tools v0.16.5
-	sigs.k8s.io/kind v0.24.0
+	sigs.k8s.io/kind v0.25.0
 	sigs.k8s.io/kustomize/kustomize/v5 v5.5.0
 	sigs.k8s.io/mdtoc v1.4.0
 )
