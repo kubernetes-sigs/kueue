@@ -238,6 +238,30 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			},
 		},
+		"change in replicas (scale up while the previous scaling operation is still in progress)": {
+			oldObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(0)),
+				},
+				Status: appsv1.StatefulSetStatus{
+					Replicas: 3,
+				},
+			},
+			newObj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+				},
+				Status: appsv1.StatefulSetStatus{
+					Replicas: 1,
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: replicasPath.String(),
+				},
+			}.ToAggregate(),
+		},
 		"change in replicas (scale up)": {
 			oldObj: &appsv1.StatefulSet{
 				Spec: appsv1.StatefulSetSpec{
