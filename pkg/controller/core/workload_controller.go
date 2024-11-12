@@ -203,6 +203,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			wl.Status.RequeueState = nil
 			updated = true
 		}
+		updated = workload.ResetChecksOnEviction(&wl, r.clock.Now()) || updated
 		if updated {
 			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
 				return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
@@ -368,10 +369,15 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Workload is evicted due to admission checks")
 	if workload.HasRejectedChecks(wl) {
-		wl.Spec.Active = ptr.To(false)
-		if err := r.client.Update(ctx, wl); err != nil {
-			return false, err
+		var rejectedCheckNames []string
+		for _, check := range workload.RejectedChecks(wl) {
+			rejectedCheckNames = append(rejectedCheckNames, check.Name)
 		}
+		workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, fmt.Sprintf("Admission check(s): %v, were rejected", rejectedCheckNames))
+		if err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true); err != nil {
+			return false, client.IgnoreNotFound(err)
+		}
+		log.V(3).Info("Workload is evicted due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedCheckNames)
 		rejectedCheck := workload.RejectedChecks(wl)[0]
 		r.recorder.Eventf(wl, corev1.EventTypeWarning, "AdmissionCheckRejected", "Deactivating workload because AdmissionCheck for %v was Rejected: %s", rejectedCheck.Name, rejectedCheck.Message)
 		return true, nil
