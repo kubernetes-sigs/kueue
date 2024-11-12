@@ -40,6 +40,11 @@ if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
     export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 fi
 
+if [[ -n ${LEADERWORKERSET_VERSION:-} ]]; then
+    export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
+    export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
+fi
+
 # sleep image to use for testing.
 export E2E_TEST_SLEEP_IMAGE_OLD=gcr.io/k8s-staging-perf-tests/sleep:v0.0.3@sha256:00ae8e01dd4439edfb7eb9f1960ac28eba16e952956320cce7f2ac08e3446e6b
 E2E_TEST_SLEEP_IMAGE_OLD_WITHOUT_SHA=${E2E_TEST_SLEEP_IMAGE_OLD%%@*}
@@ -134,6 +139,13 @@ function install_mpi {
     cluster_kind_load_image "${1}" "${KUBEFLOW_MPI_IMAGE/#v}"
     kubectl config use-context "kind-${1}"
     kubectl apply --server-side -f "${KUBEFLOW_MPI_MANIFEST}"
+}
+
+#$1 - cluster name
+function install_leaderworkerset {
+    cluster_kind_load_image "${1}" "${LEADERWORKERSET_IMAGE/#v}"
+    kubectl config use-context "kind-${1}"
+    kubectl apply --server-side -f "${LEADERWORKERSET_MANIFEST}"
 }
 
 INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .newTag] | join(":")' config/components/manager/kustomization.yaml)
